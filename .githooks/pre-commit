@@ -1,0 +1,13 @@
+#!/bin/sh
+# A commit that concludes a merge (after conflicts, or after pre-merge-commit refused it) or a squash runs the full
+# test suite first: git runs this hook then, not pre-merge-commit. Every other commit runs nothing.
+if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+  exec "$(dirname "$0")/full-suite"
+fi
+squash="$(git rev-parse --git-path SQUASH_MSG)"
+if [ -f "$squash" ]; then
+  # An abandoned squash leaves the file behind (git reset removes it, git restore does not): say why the suite runs.
+  echo "pre-commit: $squash exists, so this commit concludes a squash merge; running the full suite" \
+    "(delete the file if you abandoned that squash)" >&2
+  exec "$(dirname "$0")/full-suite"
+fi

@@ -1,0 +1,17 @@
+# The check main's ruleset requires on every PR (.github/rulesets/main.json): lint, format, the full test suite.
+name: tests
+on: pull_request
+jobs:
+  tests:
+    name: tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install --group dev
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
+      - run: python -m pytest -q

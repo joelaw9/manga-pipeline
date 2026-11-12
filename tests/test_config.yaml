@@ -1,0 +1,13 @@
+# Test copy of config.yaml: same keys as config.yaml.example. "$TMP/..." values land in the test run's temp dir.
+
+logging:
+  dir: "$TMP/logs"
+  level: "DEBUG"
+  keep_days: 14
+
+lock:
+  enabled: true
+  path: "$TMP/run.lock"
+
+preflight:
+  min_free_mb: 0

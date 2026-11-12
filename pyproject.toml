@@ -1,0 +1,25 @@
+[project]
+name = "manga_pipeline"
+version = "0.1.0"
+description = "Suwayomi to Kavita manga pipeline: junk removal, metadata, bad-download repair, AVIF conversion"
+requires-python = ">=3.13"
+
+# No packaging: install with `python -m pip install --group dev` (pip 25.1+).
+[dependency-groups]
+runtime = ["pyyaml"]
+dev = [{ include-group = "runtime" }, "pytest", "pytest-testmon", "coverage", "ruff"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+extend-exclude = ["tests/timing.py"]  # copied from the unit-tests skill; kept as shipped
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-local-folder = ["tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"

@@ -1,0 +1,13 @@
+# manga_pipeline configuration: the schema for config.yaml (gitignored). Every key here must be in config.yaml, with the same type.
+
+logging:
+  dir: "state/logs"   # log folder; relative = project root
+  level: "INFO"       # lowest level logged: DEBUG, INFO, WARNING, ERROR
+  keep_days: 14       # rotated daily log files kept
+
+lock:
+  enabled: true             # one run at a time; false lets runs overlap
+  path: "state/run.lock"    # run lock file; relative = project root
+
+preflight:
+  min_free_mb: 500   # warn when logging.dir's drive has less free space (MiB); 0 skips the check

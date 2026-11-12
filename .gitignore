@@ -1,0 +1,20 @@
+# Local config (copy of config.yaml.example; may hold secrets)
+config.yaml
+
+# Runtime state: logs, caches, test timings
+state/
+
+# Claude Code personal settings
+.claude/settings.local.json
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.testmondata*

@@ -1,0 +1,3 @@
+#!/bin/sh
+# A merge commit runs the full test suite first (CLAUDE.md "Merging").
+exec "$(dirname "$0")/full-suite"

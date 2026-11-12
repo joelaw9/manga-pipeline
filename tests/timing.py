@@ -1,0 +1,116 @@
+"""Per-test time budgets: tag tests with @budget, run them through this module, get a timing report.
+
+Copy this file into the project's test package (for example tests/timing.py). Python 3.12+ (unittest addDuration).
+
+    python -m tests.timing discover -s tests -t .          # unittest; any `python -m unittest` arguments work
+    python -m tests.timing --timings out.json tests.test_x  # custom report path
+
+Over-budget tests are reported, never failed. pytest wiring: see the skill's references/timing.md.
+"""
+import argparse
+import json
+import math
+import sys
+import unittest
+from datetime import datetime, timezone
+
+if sys.version_info < (3, 12):
+    raise RuntimeError("timing.py needs Python 3.12+ (unittest.TestResult.addDuration)")
+
+# Default budget in seconds per load: the costliest resource a test touches. "sleep" has no default.
+LOADS = {"pure": 0.1, "fs": 0.5, "db": 0.5, "network": 2.0, "subprocess": 5.0, "pool": 5.0, "sleep": None}
+ATTR = "_test_budget"
+SLOWEST = 10
+NO_TESTS_EXIT = 5    # unittest's exit code when nothing ran
+
+
+def budget(seconds=None, load="pure"):
+    """Tag a test function or class with its load and budget (seconds for setup + test + teardown)."""
+    if load not in LOADS:
+        raise ValueError(f"unknown load {load!r}; one of {sorted(LOADS)}")
+    if seconds is None:
+        seconds = LOADS[load]
+        if seconds is None:
+            raise ValueError(f"load {load!r} needs explicit seconds")
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) \
+            or seconds <= 0:
+        raise ValueError(f"budget seconds must be a positive number, got {seconds!r}")
+
+    def mark(obj):
+        setattr(obj, ATTR, {"seconds": float(seconds), "load": load})
+        return obj
+    return mark
+
+
+def budget_for(func, cls=None):
+    """The budget of a test: its own tag, else its class's tag, else None."""
+    return getattr(func, ATTR, None) or (getattr(cls, ATTR, None) if cls is not None else None)
+
+
+def row(test_id, seconds, tag):
+    return {"id": test_id, "seconds": round(seconds, 4), "load": tag["load"] if tag else None,
+            "budget": tag["seconds"] if tag else None, "over": bool(tag) and seconds > tag["seconds"]}
+
+
+def report(rows, out, path):
+    """Print the slowest tests, over-budget tests and untagged tests; write all rows to path as JSON."""
+    rows = sorted(rows, key=lambda r: r["seconds"], reverse=True)
+    total = sum(r["seconds"] for r in rows)
+    out.write(f"\nTiming: {len(rows)} tests, {total:.1f}s total\n")
+    out.write(f"Slowest {min(SLOWEST, len(rows))}:\n")
+    for r in rows[:SLOWEST]:
+        out.write(f"  {r['seconds']:8.3f}s  {_tag(r):<22}  {r['id']}\n")
+    over = [r for r in rows if r["over"]]
+    out.write(f"Over budget: {len(over)}\n")
+    for r in over:
+        out.write(f"  {r['seconds']:8.3f}s > {r['budget']:.3f}s  {r['load']:<10}  {r['id']}\n")
+    untagged = [r for r in rows if r["budget"] is None]
+    out.write(f"No budget: {len(untagged)}\n")
+    for r in untagged[:SLOWEST]:
+        out.write(f"  {r['seconds']:8.3f}s  {r['id']}\n")
+    if len(untagged) > SLOWEST:
+        out.write(f"  ... {len(untagged) - SLOWEST} more in {path}\n")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"run_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "total_seconds": round(total, 3),
+                   "tests": rows}, f, indent=1)
+    out.write(f"Timings written to {path}\n")
+
+
+def _tag(r):
+    return f"{r['load']} <= {r['budget']:.3f}s" if r["budget"] is not None else "no budget"
+
+
+class TimedResult(unittest.TextTestResult):
+    """Collects one row per test; elapsed covers setUp, the test, tearDown and cleanups (not setUpClass)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.timing_rows = []
+
+    def addDuration(self, test, elapsed):
+        super().addDuration(test, elapsed)
+        if isinstance(test, unittest.TestCase):
+            func = getattr(test, test._testMethodName, None)
+            self.timing_rows.append(row(test.id(), elapsed, budget_for(func, type(test))))
+
+
+class TimedRunner(unittest.TextTestRunner):
+    """Passed to unittest.main as a class, so -v / -f / -b / --durations / warnings reach it like the default runner."""
+    resultclass = TimedResult
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--timings", default="test-timings.json")
+    opts, rest = parser.parse_known_args(argv)
+    prog = unittest.main(module=None, argv=["timing", *rest], testRunner=TimedRunner, exit=False)
+    result = prog.result
+    report(result.timing_rows, sys.stderr, opts.timings)
+    if not result.wasSuccessful():
+        return 1
+    return NO_TESTS_EXIT if result.testsRun == 0 and not result.skipped else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
