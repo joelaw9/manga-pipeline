@@ -6,7 +6,7 @@ requires-python = ">=3.13"
 
 # No packaging: install with `python -m pip install --group dev` (pip 25.1+).
 [dependency-groups]
-runtime = ["pyyaml", "pillow", "numpy", "imagehash"]
+runtime = ["pyyaml", "pillow", "numpy", "imagehash", "rapidfuzz"]
 dev = [{ include-group = "runtime" }, "pytest", "pytest-testmon", "hypothesis", "coverage", "ruff"]
 
 [tool.ruff]

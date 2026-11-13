@@ -6,6 +6,7 @@ import os
 import time
 import zipfile
 from contextlib import closing
+from pathlib import Path
 
 import pytest
 
@@ -60,7 +61,7 @@ def test_a_download_lands_in_its_series_indexed_and_its_original_retained(world,
     assert fields["Series"] == "Solo Leveling" and fields["LocalizedSeries"] == "Na Honjaman Level Up", (
         "Series is the record's name, LocalizedSeries Kavita's"
     )
-    assert pages == ["001.jpg", "002.jpg", "003.jpg"], "the pages travel untouched"
+    assert pages == ["001.png", "002.png", "003.png"], "the pages travel untouched"
     assert world.rows("SELECT stage, status, waiting_on FROM chapter") == [("confirm", "waiting", "kavita_scan")], (
         "a scan is requested, not awaited"
     )
@@ -125,10 +126,26 @@ def test_a_second_download_of_a_handled_chapter_is_put_aside_not_published_twice
 @budget(load="db", seconds=2)
 def test_a_taken_target_name_needs_a_human_and_nothing_is_overwritten(world, solo):
     _, manga = solo
-    world.download(manga, "Chapter 1", data=cbz(seed="another scan"))  # bulk Ch.1.cbz holds other pages
+    published(world, "Ch.1.cbz").with_name("Ch.2.cbz").write_bytes(b"a file no record knows")
+    world.download(manga, "Chapter 2", data=cbz(seed="another scan"))
     through(world)
     assert world.rows("SELECT stage, status FROM chapter") == [("publish", "needs_human")]
-    assert published(world, "Ch.1.cbz").read_bytes() != cbz(seed="another scan")
+    assert published(world, "Ch.2.cbz").read_bytes() == b"a file no record knows"
+
+
+@budget(load="db", seconds=2)
+def test_a_target_of_another_size_with_the_staged_file_gone_needs_a_human_at_once(world, solo):
+    _, manga = solo
+    world.download(manga, "Chapter 2")
+    through(world, intake, process)
+    with closing(db.connect(world.cfg)) as conn:
+        workflow.drain(world.context(conn, "export"), {"comicinfo": comicinfo_stage.run})
+        row = conn.execute("SELECT * FROM chapter").fetchone()
+    os.unlink(row["staged_path"])
+    Path(row["library_path"]).write_bytes(b"another file")
+    world.run(export)
+    assert world.rows("SELECT stage, status, attempts FROM chapter") == [("publish", "needs_human", 0)]
+    assert Path(row["library_path"]).read_bytes() == b"another file", "a library file is never overwritten"
 
 
 @budget(load="db", seconds=2)

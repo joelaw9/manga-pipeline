@@ -41,3 +41,10 @@ kavita:
 
 export:
   retention_days: 7   # days a removed download stays in paths.retention; 0 deletes it at once
+
+sources:
+  ranking: ["Weeb Central (EN)", "MangaDot (EN)", "Kagane (EN)", "Manga Ball (EN)", "Atsumaru (EN)", "MangaK (EN)"]   # re-download sources, best first (display names)
+  download_timeout_hours: 24   # a queued re-download older than this is dropped for the next source
+
+validate:
+  non_chapter_names: ["Notice", "Break Notice", "Hiatus Notice", "Announcement", "Hiatus", "Author's Note"]   # dropped at discover; [] = none

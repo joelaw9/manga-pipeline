@@ -41,3 +41,10 @@ kavita:
 
 export:
   retention_days: 7
+
+sources:
+  ranking: []
+  download_timeout_hours: 24
+
+validate:
+  non_chapter_names: []

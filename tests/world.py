@@ -12,7 +12,7 @@ from manga_pipeline.clients import suwayomi as suwayomi_client
 
 from tests.builders import adopted
 from tests.fakes.kavita import FakeKavita
-from tests.fakes.suwayomi import FakeSuwayomi
+from tests.fakes.suwayomi import FakeSuwayomi, page
 
 LIBRARY_ID = 4  # tests/test_config.yaml kavita.library_id
 
@@ -23,7 +23,7 @@ def cbz(pages=3, comicinfo=None, seed=""):
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
         for n in range(1, pages + 1):
-            z.writestr(f"{n:03}.jpg", f"page {n} {seed}".encode())
+            z.writestr(f"{n:03}.png", page(f"page {n} {seed}"))
         if comicinfo is not None:
             z.writestr("ComicInfo.xml", comicinfo)
     return data.getvalue()

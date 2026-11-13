@@ -193,6 +193,22 @@ def test_start_downloader():
 
 
 @budget(load="pure")
+def test_dequeue_sends_the_chapter_ids():
+    s, service = client({"data": {"dequeueChapterDownloads": {"downloadStatus": {"state": "STOPPED"}}}})
+    s.dequeue([5])
+    query, variables = sent_query(service)
+    assert variables == {"ids": [5]} and "dequeueChapterDownloads(input: {ids: $ids})" in query
+
+
+@budget(load="pure")
+def test_chapter_by_id_and_an_absent_one():
+    s, service = client({"data": {"chapters": {"nodes": [CHAPTER]}}}, {"data": {"chapters": {"nodes": []}}})
+    assert s.chapter(90) == CHAPTER, "a chapter is read by its id"
+    assert sent_query(service)[1] == {"id": 90}
+    assert s.chapter(91) is None, "an id Suwayomi does not hold reads as None"
+
+
+@budget(load="pure")
 def test_a_write_that_fails_is_a_failure():
     s, _ = client({"errors": [{"message": "boom", "path": ["enqueueChapterDownloads"]}], "data": None})
     with pytest.raises(suwayomi.GraphQLError, match="boom"):

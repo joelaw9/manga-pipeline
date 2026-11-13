@@ -10,17 +10,21 @@ import sys
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
+from pathlib import Path
 
 from manga_pipeline import (
+    archive,
     config,
     db,
     export,
+    handled,
     identify,
     intake,
     lock,
     logs,
     preflight,
     process,
+    retention,
     smoke,
     state,
     status,
@@ -73,6 +77,36 @@ def retry(cfg, args):
             log.info("series %s and its needs_human chapters are ready again", args.series)
 
 
+def _database(cfg, what):
+    path = config.abs_path(cfg["database"]["path"])
+    if not path.is_file():
+        raise workflow.Refused(f"no database at {path}: nothing to {what}")
+    return closing(db.connect(cfg))
+
+
+def chapter_use(cfg, args):
+    with _database(cfg, "use") as conn:
+        workflow.use_chapter(conn, args.chapter, args.suwayomi_chapter)
+    log.info("chapter %s will be re-downloaded from Suwayomi chapter %s", args.chapter, args.suwayomi_chapter)
+
+
+def chapter_drop(cfg, args):
+    """The download goes the retention way first, then the chapter is done: a crash between leaves it needs_human,
+    and the next drop finds its download already gone."""
+    with _database(cfg, "drop") as conn:
+        row = workflow.droppable(conn, args.chapter)
+        digest = row["content_digest"]
+        if row["download_path"]:
+            download = Path(row["download_path"])
+            if digest is None and download.exists():  # held at discover, before its digest was settled
+                digest = archive.digest_or_none(download)
+            retention.put(cfg, download)
+        workflow.drop_chapter(
+            conn, args.chapter, lambda c: handled.record(c, row["series_id"], row["identity"], "dropped", digest)
+        )
+    log.info("chapter %s dropped", args.chapter)
+
+
 def series_link(cfg, args):
     path = config.abs_path(cfg["database"]["path"])
     if not path.is_file():
@@ -89,6 +123,8 @@ COMMANDS = {
     "export": Command(("export",), "export", SERVICE_PART_CHECKS, lambda cfg, args: export.run(cfg)),
     "status": Command((), None, (), lambda cfg, args: status.run(cfg)),
     "retry": Command((), None, (), retry),
+    "chapter use": Command((), None, (), chapter_use),
+    "chapter drop": Command((), None, (), chapter_drop),
     "smoke": Command((), None, SMOKE_CHECKS, lambda cfg, args: smoke.run(cfg)),
     "series link": Command((), None, LINK_CHECKS, series_link),
     "state reset": Command(PART_LOCKS, None, RESET_CHECKS, lambda cfg, args: state.reset(cfg)),
@@ -125,6 +161,16 @@ def parser():
     link.add_argument("manga_id", type=int, help="Suwayomi manga id")
     link.add_argument("kavita_series_id", type=int, help="Kavita series id")
     link.set_defaults(command="series link")
+    chapter = commands.add_parser("chapter", help="settle a needs_human chapter").add_subparsers(
+        dest="chapter_command", required=True, metavar="ACTION"
+    )
+    use = chapter.add_parser("use", help="re-download a needs_human chapter at validate from this Suwayomi chapter")
+    use.add_argument("chapter", type=int, help="chapter id")
+    use.add_argument("suwayomi_chapter", type=int, help="Suwayomi chapter id of the replacement")
+    use.set_defaults(command="chapter use")
+    drop = chapter.add_parser("drop", help="give a needs_human chapter up: its download goes, it is never published")
+    drop.add_argument("chapter", type=int, help="chapter id")
+    drop.set_defaults(command="chapter drop")
     state = commands.add_parser("state", help="workflow state and share ownership").add_subparsers(
         dest="state_command", required=True, metavar="ACTION"
     )
@@ -137,8 +183,9 @@ def parser():
 
 
 def main(argv=None):
-    """Exit code: 0 done, 1 a failed smoke check, 2 usage or config error or a refused retry, 3 another run holds a
-    lock the command takes, 4 a hard preflight check failed or the database is not one this version can use."""
+    """Exit code: 0 done, 1 an unexpected error (logged with its traceback) or a failed smoke check, 2 usage or config
+    error or a refused command, 3 another run holds a lock the command takes, 4 a hard preflight check failed or the
+    database is not one this version can use."""
     p = parser()
     args = p.parse_args(argv)
     command = COMMANDS[args.command]
@@ -154,11 +201,10 @@ def main(argv=None):
                 p.error(str(e))
             try:
                 preflight.run(cfg, command.checks)
+                command.handler(cfg, args)
             except preflight.PreflightFailed as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 4
-            try:
-                command.handler(cfg, args)
             except workflow.Refused as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 2
@@ -167,6 +213,10 @@ def main(argv=None):
                 return 4
             except smoke.Failed as e:
                 print(f"error: {e}", file=sys.stderr)
+                return 1
+            except Exception:
+                # The only place an unexpected error is logged; inside the lock, which guards the log file.
+                log.exception("%s: failed", args.command)
                 return 1
     except lock.LockHeld as e:
         # Not logged: a refused run must not open the log file while the holder writes it.

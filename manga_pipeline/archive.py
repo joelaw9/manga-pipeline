@@ -9,7 +9,9 @@ never sees half a file.
 import hashlib
 import os
 import re
+import struct
 import zipfile
+import zlib
 from pathlib import Path, PurePosixPath
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".avif", ".jxl"}
@@ -18,6 +20,9 @@ JUNK_DIRS = {"__macosx"}
 COMICINFO = "ComicInfo.xml"
 COVER_STEM = "000_cover"  # the volume cover page the bulk converter inserts
 FIXED_TIME = (1980, 1, 1, 0, 0, 0)  # every member's date: the same members give byte-identical archives
+# What reading an archive that is broken, truncated, CRC-bad or encrypted raises (SPEC "Validation"): such a download
+# is a bad download, not a failure of the stage reading it.
+UNREADABLE = (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError, ValueError, struct.error)
 # Kavita's Parser.CoverImageRegex: a page named like this is the archive's cover
 COVER_NAME = re.compile(
     r"(?<!back[\s_-])(?<!\(back )(?<!back)(?:^|[^a-zA-Z0-9])(!?cover|folder)(?![a-zA-Z0-9]|s\b)", re.I
@@ -82,6 +87,14 @@ def pages_digest(cbz):
     with zipfile.ZipFile(cbz) as z:
         sha1s = [sha1(z.read(n)) for n in archive_pages(z.namelist())]
     return hashlib.sha256("\n".join(sha1s).encode()).hexdigest()
+
+
+def digest_or_none(cbz):
+    """pages_digest, or None for an archive that cannot be read or is gone."""
+    try:
+        return pages_digest(cbz)
+    except (*UNREADABLE, FileNotFoundError):
+        return None
 
 
 def read_comicinfo(cbz):
