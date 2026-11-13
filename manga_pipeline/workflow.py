@@ -77,6 +77,24 @@ class Failed:
     error: str
 
 
+@dataclass(frozen=True)
+class Dropped:
+    """The chapter leaves the pipeline where it stands, never published (status done at its stage)."""
+
+    reason: str
+    record: Callable[[Any], None] | None = None
+
+
+@dataclass(frozen=True)
+class NeedsHuman:
+    """No further attempt can change the result: the chapter is needs_human at once."""
+
+    reason: str
+
+
+OUTCOMES = Done | Waiting | Failed | Dropped | NeedsHuman
+
+
 def in_scope(cfg, series_name, kavita_library_id):
     """Whether a series is worked: Kavita holds it in the library kavita.library_id or does not hold it yet
     (kavita_library_id None: a new series), and series.only is empty or names it. The 1 definition of scope; SQL
@@ -91,15 +109,16 @@ def now():
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def add_chapter(conn, series_id, identity, download_path):
+def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, source):
     """Record a discovered download as a chapter ready at the first stage; runs inside the caller's transaction."""
     if not conn.in_transaction:
         raise RuntimeError("add_chapter runs inside the caller's transaction")
     stamp = now()
     conn.execute(
-        """INSERT INTO chapter (series_id, kind, identity, download_path, stage, status, discovered_at, updated_at)
-        VALUES (?, 'download', ?, ?, ?, 'ready', ?, ?)""",
-        (series_id, identity, download_path, STAGES[0], stamp, stamp),
+        """INSERT INTO chapter (series_id, kind, identity, download_path, suwayomi_chapter_id, source, stage, status,
+            discovered_at, updated_at)
+        VALUES (?, 'download', ?, ?, ?, ?, ?, 'ready', ?, ?)""",
+        (series_id, identity, download_path, suwayomi_chapter_id, source, STAGES[0], stamp, stamp),
     )
 
 
@@ -166,12 +185,12 @@ def work(ctx, chapter, stage):
         return e
     except Exception as e:
         outcome = Failed(f"{type(e).__name__}: {e}")
-    if not isinstance(outcome, Done | Waiting | Failed):
+    if not isinstance(outcome, OUTCOMES):
         raise TypeError(f"stage {stage.__module__}.{stage.__name__} returned {outcome!r}, not an outcome")
     try:
         recorded = _finish(ctx, chapter, outcome)
     except Exception as e:
-        if not (isinstance(outcome, Done) and outcome.record):
+        if not (isinstance(outcome, Done | Dropped) and outcome.record):
             raise
         outcome = Failed(f"recording the outcome: {type(e).__name__}: {e}")
         recorded = _finish(ctx, chapter, outcome)
@@ -184,6 +203,11 @@ def work(ctx, chapter, stage):
     elif isinstance(outcome, Waiting):
         ctx.counts["waiting"] += 1
         log.info("%s: %s waits on %s", ctx.part, _name(chapter), outcome.on)
+    elif isinstance(outcome, Dropped):
+        ctx.counts["dropped"] += 1
+        log.info("%s: %s dropped: %s", ctx.part, _name(chapter), outcome.reason)
+    elif isinstance(outcome, NeedsHuman):
+        ctx.counts["needs_human"] += 1  # needs_human logged the reason
     else:
         ctx.counts["done"] += 1
         log.info("%s: %s done", ctx.part, _name(chapter))
@@ -197,16 +221,19 @@ def _name(chapter):
 
 def drain(ctx, stages, series_id=None):
     """Work chapters until none is ready at the stages of `stages` ({stage: stage function}), claiming again by
-    priority after each one."""
+    priority after each one. Returns how many ended Done."""
+    done = 0
     while chapter := claim(ctx, tuple(stages), series_id):
-        work(ctx, chapter, stages[chapter["stage"]])
+        done += isinstance(work(ctx, chapter, stages[chapter["stage"]]), Done)
+    return done
 
 
 def end_waits(ctx, on, holds):
-    """Make every in-scope chapter waiting on `on` ready again at its stage when holds(ctx, chapter) is true."""
+    """Make every in-scope chapter waiting on `on` ready again at its stage when holds(ctx, chapter) is true. The
+    chapters of a needs_human series keep waiting."""
     rows = ctx.conn.execute(
         f"""SELECT c.* FROM chapter c JOIN series s ON s.id = c.series_id
-        WHERE c.status = 'waiting' AND c.waiting_on = :on AND {SCOPE} ORDER BY c.id""",
+        WHERE c.status = 'waiting' AND c.waiting_on = :on AND s.status = 'ok' AND {SCOPE} ORDER BY c.id""",
         _params(ctx, on=on),
     ).fetchall()
     for chapter in rows:
@@ -227,6 +254,22 @@ def end_waits(ctx, on, holds):
                     WHERE id = ? AND status = 'waiting' AND waiting_on = ?""",
                     (now(), chapter["id"], on),
                 )
+
+
+def charge_waits(ctx, series_id, on, reason):
+    """1 attempt for each chapter of a series waiting on `on` (a wait renewed at a cost, SPEC "Publishing"): a chapter
+    reaching the attempt limit becomes needs_human. Returns how many were charged."""
+    limit = ctx.cfg["workflow"]["attempt_limit"]
+    with db.transaction(ctx.conn):
+        rows = ctx.conn.execute(
+            """UPDATE chapter SET attempts = attempts + 1, last_error = ?, updated_at = ?
+            WHERE series_id = ? AND status = 'waiting' AND waiting_on = ? RETURNING id, attempts""",
+            (reason, now(), series_id, on),
+        ).fetchall()
+        for row in rows:
+            if row["attempts"] >= limit:
+                needs_human(ctx.conn, "chapter", row["id"], f"{reason} (after {limit} attempts)")
+    return len(rows)
 
 
 def release_own_claims(ctx):
@@ -292,12 +335,31 @@ def retry_series(conn, series_id):
         conn.execute("UPDATE series SET status = 'ok', status_reason = NULL WHERE id = ?", (series_id,))
 
 
+def move_chapters(conn, from_series, to_series):
+    """Move a series' chapters to another (series link merging a held row; inside the caller's transaction). An open
+    chapter past junk goes back to junk, ready, attempts 0, so the new series' baseline and handled-digest check
+    apply; a part holding its claim then drops its outcome."""
+    junk = STAGES.index("junk")
+    later = STAGES[junk + 1 :]
+    conn.execute(
+        f"""UPDATE chapter SET stage = 'junk', status = 'ready', waiting_on = NULL, wait_data = NULL,
+            claimed_by = NULL, attempts = 0, updated_at = ?
+        WHERE series_id = ? AND status NOT IN ('done', 'needs_human') AND stage IN ({",".join("?" * len(later))})""",
+        (now(), from_series, *later),
+    )
+    conn.execute("UPDATE chapter SET series_id = ? WHERE series_id = ?", (to_series, from_series))
+
+
 def reset(conn):
-    """Empty the workflow state (SPEC "State"): every WORKFLOW_TABLES table, and every series back to ok."""
+    """Empty the workflow state (SPEC "State"): every WORKFLOW_TABLES table, and every series back to ok but one held
+    for want of a Kavita series or a folder, which only `series link` settles (identification never runs again)."""
     with db.transaction(conn):
         for table in db.WORKFLOW_TABLES:
             conn.execute(f"DELETE FROM {table}")
-        conn.execute("UPDATE series SET status = 'ok', status_reason = NULL")
+        conn.execute(
+            """UPDATE series SET status = 'ok', status_reason = NULL
+            WHERE kavita_series_id IS NOT NULL AND folder IS NOT NULL"""
+        )
 
 
 def _ready_again(conn, where, value):
@@ -354,9 +416,11 @@ def _finish(ctx, chapter, outcome):
         if not changed:
             log.warning("chapter %s changed while %s worked on it; its outcome is dropped", chapter["id"], ctx.part)
             return False
-        if at_limit:
+        if isinstance(outcome, NeedsHuman):
+            needs_human(ctx.conn, "chapter", chapter["id"], outcome.reason)
+        elif at_limit:
             needs_human(ctx.conn, "chapter", chapter["id"], f"{outcome.error} (after {limit} attempts)")
-        if isinstance(outcome, Done) and outcome.record:
+        if isinstance(outcome, Done | Dropped) and outcome.record:
             outcome.record(ctx.conn)
     return True
 
@@ -372,7 +436,9 @@ def _outcome_columns(chapter, outcome, limit):
     if isinstance(outcome, Failed):
         attempts = chapter["attempts"] + 1
         return "status = 'ready', attempts = ?, last_error = ?", (attempts, outcome.error), attempts >= limit
-    return "status = 'ready'", (), False  # Unreachable: no attempt
+    if isinstance(outcome, Dropped):
+        return "status = 'done', last_error = ?", (f"dropped: {outcome.reason}",), False
+    return "status = 'ready'", (), False  # Unreachable: no attempt; NeedsHuman: needs_human sets the status
 
 
 @contextmanager

@@ -6,6 +6,7 @@ lists (cli.py).
 """
 
 import logging
+import os
 import shutil
 import sqlite3
 import sys
@@ -14,12 +15,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from manga_pipeline import config, db
+from manga_pipeline.clients import suwayomi
 
 log = logging.getLogger(__name__)
 HARD, SOFT = "hard", "soft"
 MIB = 1024 * 1024
 OWNER_FILE = ".pipeline-owner"
-SHARE_FOLDERS = ("downloads", "library", "staging")
+SHARE_FOLDERS = ("downloads", "library", "staging", "retention")
 
 
 @dataclass(frozen=True)
@@ -80,11 +82,13 @@ def folder_layout(cfg):
     """The folders `state reset` empties (paths.staging, paths.scratch) must hold nothing else the pipeline keeps."""
     try:
         paths = {
-            key: config.abs_path(cfg["paths"][key]).resolve() for key in ("downloads", "library", "staging", "scratch")
+            key: config.abs_path(cfg["paths"][key]).resolve()
+            for key in ("downloads", "library", "staging", "scratch", "retention")
         }
         kept = {
             "paths.downloads": paths["downloads"],
             "paths.library": paths["library"],
+            "paths.retention": paths["retention"],
             "database.path": config.abs_path(cfg["database"]["path"]).resolve(),
             "logging.dir": config.abs_path(cfg["logging"]["dir"]).resolve(),
             "lock.dir": config.abs_path(cfg["lock"]["dir"]).resolve(),
@@ -101,18 +105,26 @@ def folder_layout(cfg):
         for name in ("paths.downloads", "paths.library"):
             if folder.is_relative_to(kept[name]) and folder != kept[name]:
                 problems.append(f"paths.{key} {folder} lies inside {name} {kept[name]}")
+    retention = paths["retention"]
+    for name in ("paths.downloads", "paths.library"):
+        if retention.is_relative_to(kept[name]) or kept[name].is_relative_to(retention):
+            problems.append(f"paths.retention {retention} and {name} {kept[name]} overlap")
     return "; ".join(problems) or None
 
 
 def _missing_folders(cfg, keys):
+    """keys: paths.<key> names, or (key, subfolder) for a folder below one."""
     problems = []
     for key in keys:
+        key, sub = key if isinstance(key, tuple) else (key, None)
         folder = config.abs_path(cfg["paths"][key])
+        name = f"paths.{key}" if sub is None else f"the {sub} folder of paths.{key}"
+        folder = folder if sub is None else folder / sub
         try:
             if not folder.is_dir():
-                problems.append(f"paths.{key} {folder} is not an existing folder")
+                problems.append(f"{name} {folder} is not an existing folder")
         except OSError as e:
-            problems.append(f"cannot read paths.{key} {folder}: {e}")
+            problems.append(f"cannot read {name} {folder}: {e}")
     if problems:
         return f"{'; '.join(problems)} (the share is not mounted, or the folder was never made)"
     return None
@@ -123,15 +135,32 @@ def staging_folder(cfg):
 
 
 def share_folders(cfg):
-    return _missing_folders(cfg, ("downloads", "library"))
+    missing = _missing_folders(
+        cfg, ("downloads", ("downloads", suwayomi.MANGAS_FOLDER), "library", "retention", "naming_overrides")
+    )
+    if missing:
+        return missing
+    # A download is moved to retention by a rename, which cannot cross filesystems.
+    downloads, retention = (config.abs_path(cfg["paths"][key]) for key in ("downloads", "retention"))
+    try:
+        if os.stat(downloads).st_dev != os.stat(retention).st_dev:
+            return "paths.retention is not on the same filesystem as paths.downloads"
+    except OSError as e:
+        return f"cannot read the filesystem of paths.downloads or paths.retention: {e}"
+    return None
 
 
 def workflow_settings(cfg):
     problems = []
-    for key in ("workflow.attempt_limit", "kavita.library_id"):
+    for key, low in (
+        ("workflow.attempt_limit", 1),
+        ("kavita.library_id", 1),
+        ("kavita.rescan_after_minutes", 1),
+        ("export.retention_days", 0),
+    ):
         section, name = key.split(".")
-        if cfg[section][name] < 1:
-            problems.append(f"{key} must be at least 1, got {cfg[section][name]}")
+        if cfg[section][name] < low:
+            problems.append(f"{key} must be at least {low}, got {cfg[section][name]}")
     return "; ".join(problems) or None
 
 

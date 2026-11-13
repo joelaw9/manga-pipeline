@@ -33,11 +33,15 @@ A chapter or series that needs a person is reported 3 ways (log, `status`, Disco
 
 ## Bad downloads
 
-A chapter that fails validation is deleted through Suwayomi and downloaded again from another source; handled chapters are remembered, so a copy that appears again is not processed twice. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#bad-downloads)
+A chapter that fails validation is deleted through Suwayomi and downloaded again from another source; handled chapters are remembered with their content digest, so the same pages appearing again are put aside, not processed twice. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#bad-downloads)
 
 ## Suwayomi
 
 A download is taken only once Suwayomi flags its chapter downloaded; a completed series is refreshed by `intake` when its check is due. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#suwayomi)
+
+## Series identification
+
+A Suwayomi manga is matched to a series by a stored link, a source id, or exactly 1 Kavita name; a near or double hit is `needs_human`, fixed with `series link`. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#series-identification)
 
 ## Services
 
@@ -65,7 +69,7 @@ A check can change what is already published: series-level fields go through the
 
 ## Publishing
 
-A finished CBZ is staged on the share and renamed into its series folder; a new series lands whole with 1 library scan; the download is deleted once Kavita has indexed the file. Rules: [docs/spec/publishing.md](docs/spec/publishing.md#publishing)
+A finished CBZ is staged on the share and renamed into its series folder under the bulk converter's file name (`Vol.<v> Ch.<n> - <title>.cbz`); a new series lands whole with 1 library scan; the download goes to the retention folder once Kavita has indexed the file. Rules: [docs/spec/publishing.md](docs/spec/publishing.md#publishing)
 
 ## Config
 

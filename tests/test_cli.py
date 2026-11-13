@@ -22,6 +22,7 @@ ARGV = {
     "status": ["status"],
     "retry": ["retry", "1"],
     "smoke": ["smoke"],
+    "series link": ["series", "link", "1", "2"],
     "state reset": ["state", "reset", "--yes"],
     "state adopt": ["state", "adopt", "--yes"],
 }
@@ -30,12 +31,13 @@ LOCKED = ["runtime version", "free disk space", "database location", "folder lay
 PART_CHECKS = [*LOCKED, "workflow settings", "share ownership"]
 # SPEC "Run lock", "Logging", "Preflight": (locks held, log file, checks run) per command.
 SPEC = {
-    "intake": ({"intake"}, "intake.log", PART_CHECKS),
+    "intake": ({"intake"}, "intake.log", [*PART_CHECKS, "service settings"]),
     "process": ({"process"}, "process.log", PART_CHECKS),
-    "export": ({"export"}, "export.log", PART_CHECKS),
+    "export": ({"export"}, "export.log", [*PART_CHECKS, "service settings"]),
     "status": (set(), None, []),
     "retry": (set(), None, []),
     "smoke": (set(), None, ["workflow settings", "service settings"]),
+    "series link": (set(), None, ["workflow settings", "service settings"]),
     "state reset": (set(PARTS), None, [*LOCKED, "share ownership"]),
     "state adopt": (set(PARTS), None, [*LOCKED, "staging folder"]),
 }
@@ -54,14 +56,17 @@ def site(tmp_path):
     """--set items giving a run its own folders under tmp_path, with the staging folder present (the share is
     mounted) and no owner file yet."""
     (tmp_path / "share" / "staging").mkdir(parents=True)
-    (tmp_path / "share" / "downloads").mkdir()
+    (tmp_path / "share" / "downloads" / "mangas").mkdir(parents=True)
+    (tmp_path / "share" / "retention").mkdir()
     (tmp_path / "share" / "library").mkdir()
+    (tmp_path / "overrides").mkdir()
     return [
         f"logging.dir={tmp_path / 'logs'}",
         f"lock.dir={tmp_path / 'locks'}",
         f"database.path={tmp_path / 'pipeline.sqlite3'}",
         *(f"paths.{key}={tmp_path / 'share' / key}" for key in preflight.SHARE_FOLDERS),
         f"paths.scratch={tmp_path / 'scratch'}",
+        f"paths.naming_overrides={tmp_path / 'overrides'}",
     ]
 
 

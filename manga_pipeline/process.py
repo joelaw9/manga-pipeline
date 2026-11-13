@@ -15,6 +15,6 @@ def run(cfg):
 
 
 def work(ctx):
-    # Phase 3: end bulk_conversion waits here.
+    workflow.end_waits(ctx, "bulk_conversion", junk.bulk_conversion_over)
     workflow.end_waits(ctx, "junk_decision", junk.wait_over)
     workflow.drain(ctx, STAGES)

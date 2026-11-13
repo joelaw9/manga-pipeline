@@ -8,9 +8,9 @@ The pipeline is 3 commands, each working the chapters at its own stages. The dat
 
 | Part | Work | Talks to |
 |---|---|---|
-| `intake` | resolves `suwayomi_download` waits; discovers new CBZ files; validates; identifies the series; runs metadata checks | Suwayomi, the metadata sources, Kavita (read only, for a series the database has not seen) |
-| `process` | resolves `bulk_conversion` and `junk_decision` waits; junk; convert | the share only |
-| `export` | resolves `kavita_scan` waits; comicinfo; publish; confirm; Kavita API writes; retroactive updates; empties the retention folder | Kavita, the share |
+| `intake` | resolves `suwayomi_download` waits; discovers new CBZ files and identifies their series (SPEC "Series identification"); validates; runs metadata checks | Suwayomi, the metadata sources, Kavita (read only, for a series the database has not seen) |
+| `process` | resolves `bulk_conversion` and `junk_decision` waits; takes a series' baseline; junk; convert | the share only |
+| `export` | resolves `kavita_scan` waits; comicinfo; publish; series scans; confirm; Kavita API writes; retroactive updates; empties the retention folder | Kavita, the share |
 
 On the LXC a systemd timer starts each part, and `junk review`, every 10 minutes, at staggered minutes. Parts run at the same time as each other. A part never runs twice at once (SPEC "Run lock"), and a part with nothing to do exits 0 at once. `process` runs at low CPU and disk priority. On Windows the commands are run by hand.
 
@@ -19,7 +19,7 @@ Order of work:
 - `intake`, per series: a new series gets its full metadata retrieval; a metadata check runs if one is due (SPEC "Metadata checks"); then each discovered chapter is validated. Series due a check that have no new chapters come last.
 - `process` and `export` pick by priority: chapters of series Kavita already knows before chapters of new series, then the oldest first. They pick again after every chapter, so a new chapter of an ongoing series never waits behind a long new series, and they run until nothing is ready.
 - `process` runs the junk stage for every ready chapter of a series before it converts any of them, so what repeats across chapters is seen before a decision is made.
-- `export` works in this order each run: it ends `kavita_scan` waits, adds `ComicInfo.xml` to the ready chapters, then publishes series by series with 1 scan per series.
+- `export` works in this order each run: it deletes expired retention files, adds `ComicInfo.xml` to the ready chapters, publishes series by series, then does what needs Kavita: ends `kavita_scan` waits, requests the rescans that are due (SPEC "Publishing") and 1 scan per series it published into, then confirms.
 
 Every part works only the series in scope: a series Kavita holds in the library `kavita.library_id`, or a new series (Kavita does not hold it yet); with `series.only` set, only the series it names. Nothing else is read or written.
 
@@ -44,27 +44,29 @@ One SQLite database on the local disk of the machine that runs the pipeline, nev
 | knowledge | the junk decisions; each series' source IDs and conversion calibration |
 | sync records | what was fetched for each series, from which source and when (written only by `intake`, with a version that rises on every change); what was written for each series and each published chapter (written only by `export`, with the version it was written from) |
 
-It is the single record of what is pending. `state reset` clears the workflow state only; knowledge and sync records are kept, and the next `intake` rediscovers the downloads. It needs `--yes`, runs only while no part and no junk review is running, and also empties the staging and scratch folders. It never touches the downloads, the library or the retention folder.
+It is the single record of what is pending. `state reset` clears the workflow state only; knowledge and sync records are kept, and the next `intake` rediscovers the downloads. Every series becomes ok again, except one held for want of a Kavita series or a folder: only `series link` settles that. It needs `--yes`, runs only while no part and no junk review is running, and also empties the staging and scratch folders. It never touches the downloads, the library or the retention folder.
 
 A part claims a chapter in 1 short transaction before working on it and records the outcome in another; no transaction is open while a stage works. A claim left by a run that died is released when that part next starts. A command without a lock refuses a chapter a part has claimed, and an outcome is not recorded over a change a person made meanwhile.
 
 The database's structure is built by ordered schema steps, each recorded once applied. A database holding a step the program does not know is refused, and nothing ever recreates a database by itself.
 
+A series Kavita already holds gets a baseline before anything is published into it: the first time its bulk-converter record (`.optimizer.json` in the series folder) parses, the record's chapters are recorded as published files (origin `bulk`, confirmed), its CBZ sources as handled chapters (fate chapter, merged, carried or failed as published; duplicate or replaced as duplicate; deleted as dropped; each with its `pages_digest`), and its layout as the series' layout, in 1 transaction. No library file is opened. Until the record parses (missing, partial, broken, or without a `strip` or `pages` layout), the series' chapters wait at junk on `bulk_conversion`. The baseline also fixes the series' `ComicInfo.xml` names (SPEC "Publishing"); a record whose series name is not one of the series' Kavita names records nothing and makes the series `needs_human`.
+
 1 database owns the share at a time: a file in the staging folder holds the owning database's id, written by `state adopt --yes`. A part that finds the file missing (the share is not mounted, or was never adopted) or holding another id stops before any work (SPEC "Preflight").
 
 ## Chapter stages
 
-A chapter is at 1 stage and has 1 status: `ready`, `claimed`, `waiting`, `needs_human` or `done`. A stage ends done, waiting (with what it waits on) or failed. A chapter that failed is tried again by a later run of its part, never in the same run. A chapter that reaches its attempt limit (`workflow.attempt_limit`) becomes `needs_human` and is left alone until a person acts. A series can be `needs_human` too (for example when its source IDs disagree); its chapters wait until a person clears it.
+A chapter is at 1 stage and has 1 status: `ready`, `claimed`, `waiting`, `needs_human` or `done`. A stage ends done, waiting (with what it waits on) or failed; or it drops the chapter (the chapter is `done` where it stands, never published), or makes it `needs_human` at once when no further attempt can change the result. A chapter that failed is tried again by a later run of its part, never in the same run. A chapter that reaches its attempt limit (`workflow.attempt_limit`) becomes `needs_human` and is left alone until a person acts. A series can be `needs_human` too (for example when its source IDs disagree); its chapters wait until a person clears it.
 
 | Stage | Part | Does | Can wait on |
 |---|---|---|---|
-| discover | `intake` | accepts a CBZ once Suwayomi reports the download complete | |
+| discover | `intake` | settles the chapter's identity and content digest; drops a download already handled (SPEC "Bad downloads"); a chapter with no number is `needs_human` | |
 | validate | `intake` | finds a broken archive, an undecodable or missing page, a bad download, a duplicate | `suwayomi_download` |
-| junk | `process` | finds candidate junk pages (scanlation advertisement and credit pages) and applies the stored decisions | `bulk_conversion`, `junk_decision` |
+| junk | `process` | takes the series' baseline (SPEC "State"); drops a download already handled; finds candidate junk pages (scanlation advertisement and credit pages) and applies the stored decisions | `bulk_conversion`, `junk_decision` |
 | convert | `process` | re-encodes the pages (AVIF where it passes the quality gates) and writes the CBZ of pages to the staging folder | |
 | comicinfo | `export` | adds `ComicInfo.xml` to the CBZ | |
-| publish | `export` | renames the CBZ into the library and asks Kavita to scan | `kavita_scan` |
-| confirm | `export` | checks Kavita indexed the file, then deletes the download (a rewrite has none) | |
+| publish | `export` | renames the CBZ into the series folder | |
+| confirm | `export` | checks Kavita indexed the file, then removes the download (a rewrite has none) | `kavita_scan` |
 
 The CBZ in the downloads folder is never modified. Work happens in the scratch folder.
 

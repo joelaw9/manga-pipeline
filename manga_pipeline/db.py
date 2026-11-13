@@ -14,7 +14,7 @@ from manga_pipeline import config
 SCHEMA = Path(__file__).with_name("schema")
 BUSY_TIMEOUT_S = 30
 # Workflow-state tables, emptied by `state reset` in this order (children first). A step adding one adds it here.
-WORKFLOW_TABLES = ("page", "chapter")
+WORKFLOW_TABLES = ("page", "chapter", "unmatched_download")
 
 
 class SchemaError(RuntimeError):

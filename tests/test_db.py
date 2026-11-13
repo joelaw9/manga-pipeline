@@ -11,6 +11,7 @@ from manga_pipeline import config, db
 from tests.timing import budget
 
 SHIPPED = db.SCHEMA
+SHIPPED_STEPS = sorted(p.stem for p in SHIPPED.glob("*.sql"))
 
 
 def db_cfg(tmp_path):
@@ -62,7 +63,7 @@ def test_reopen_keeps_data_and_id(tmp_path):
     conn = db.connect(cfg)
     assert db.database_id(conn) == first_id, "re-opening must not rebuild the database"
     assert conn.execute("SELECT value FROM meta WHERE key = 'probe'").fetchone()[0] == "kept"
-    assert step_names(conn) == ["0001_skeleton"]
+    assert step_names(conn) == SHIPPED_STEPS
     conn.close()
 
 
@@ -78,15 +79,15 @@ def test_transaction_rolls_back_when_the_block_raises(tmp_path):
 
 
 @budget(load="db")
-@pytest.mark.parametrize("first, second", [("0002_a", "0003_b"), ("0003_b", "0002_a")])
+@pytest.mark.parametrize("first, second", [("0098_a", "0099_b"), ("0099_b", "0098_a")])
 def test_steps_from_2_branches_both_apply_whatever_merges_first(tmp_path, monkeypatch, first, second):
     cfg = db_cfg(tmp_path)
-    sql = {"0002_a": "CREATE TABLE a (x INTEGER) STRICT;", "0003_b": "CREATE TABLE b (x INTEGER) STRICT;"}
+    sql = {"0098_a": "CREATE TABLE a (x INTEGER) STRICT;", "0099_b": "CREATE TABLE b (x INTEGER) STRICT;"}
     monkeypatch.setattr(db, "SCHEMA", steps_folder(tmp_path, (first, sql[first])))
     db.connect(cfg).close()
     monkeypatch.setattr(db, "SCHEMA", steps_folder(tmp_path, (second, sql[second])))
     conn = db.connect(cfg)
-    assert step_names(conn) == ["0001_skeleton", "0002_a", "0003_b"]
+    assert step_names(conn) == [*SHIPPED_STEPS, "0098_a", "0099_b"]
     conn.execute("SELECT x FROM a UNION ALL SELECT x FROM b")
     conn.close()
 
@@ -94,10 +95,10 @@ def test_steps_from_2_branches_both_apply_whatever_merges_first(tmp_path, monkey
 @budget(load="db")
 def test_database_with_an_unknown_step_is_refused(tmp_path, monkeypatch):
     cfg = db_cfg(tmp_path)
-    monkeypatch.setattr(db, "SCHEMA", steps_folder(tmp_path, ("0002_newer", "CREATE TABLE n (x INTEGER) STRICT;")))
+    monkeypatch.setattr(db, "SCHEMA", steps_folder(tmp_path, ("0099_newer", "CREATE TABLE n (x INTEGER) STRICT;")))
     db.connect(cfg).close()
     monkeypatch.undo()
-    with pytest.raises(db.SchemaError, match="does not have: 0002_newer"):
+    with pytest.raises(db.SchemaError, match="does not have: 0099_newer"):
         db.connect(cfg)
 
 
@@ -119,8 +120,8 @@ def test_read_only_reads_and_never_writes(tmp_path):
 def test_read_only_refuses_a_database_with_other_steps(tmp_path, monkeypatch):
     cfg = db_cfg(tmp_path)
     db.connect(cfg).close()
-    monkeypatch.setattr(db, "SCHEMA", steps_folder(tmp_path, ("0002_newer", "CREATE TABLE n (x INTEGER) STRICT;")))
-    with pytest.raises(db.SchemaError, match="not applied yet: 0002_newer"):
+    monkeypatch.setattr(db, "SCHEMA", steps_folder(tmp_path, ("0099_newer", "CREATE TABLE n (x INTEGER) STRICT;")))
+    with pytest.raises(db.SchemaError, match="not applied yet: 0099_newer"):
         db.read_only(cfg)
 
 
@@ -128,12 +129,12 @@ def test_read_only_refuses_a_database_with_other_steps(tmp_path, monkeypatch):
 def test_failed_step_leaves_no_trace(tmp_path, monkeypatch):
     cfg = db_cfg(tmp_path)
     db.connect(cfg).close()
-    monkeypatch.setattr(db, "SCHEMA", steps_folder(tmp_path, ("0002_bad", "CREATE TABLE ok (x INTEGER); NOT SQL;")))
+    monkeypatch.setattr(db, "SCHEMA", steps_folder(tmp_path, ("0099_bad", "CREATE TABLE ok (x INTEGER); NOT SQL;")))
     with pytest.raises(Exception, match="syntax error"):
         db.connect(cfg)
     monkeypatch.undo()
     conn = db.connect(cfg)
-    assert step_names(conn) == ["0001_skeleton"]
+    assert step_names(conn) == SHIPPED_STEPS
     assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'ok'").fetchone() is None
     conn.close()
 

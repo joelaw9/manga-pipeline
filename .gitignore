@@ -7,6 +7,10 @@ state/
 # Temporary development files that go stale: plans, inventories, reviews
 agent-workspace/
 
+# Work directories: files the instance keeps or generates; the folder itself is kept
+rules/naming/*
+!rules/naming/.gitkeep
+
 # Phase 0 throwaway scripts (kept locally as a rebuild record)
 spikes/
 

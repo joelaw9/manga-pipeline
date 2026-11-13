@@ -9,6 +9,7 @@ from manga_pipeline.clients import http
 PAGE_SIZE = 50  # library manga per query: the whole library in 1 query times out
 SOURCE_TIMEOUT = 120  # seconds; a source search or chapter fetch waits on the source's site
 MAX_NAME_BYTES = 240  # UTF-8 bytes
+MANGAS_FOLDER = "mangas"  # the folder of downloads under Suwayomi's download root
 REPLACED = frozenset('"*/:<>?\\|\x7f')
 MANGA = "id title status url inLibrary sourceId source { id name lang displayName }"
 CHAPTER = "id mangaId name scanlator chapterNumber sourceOrder isDownloaded pageCount uploadDate url realUrl"
