@@ -35,6 +35,10 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `kavita.library_id` | id of the Kavita library the pipeline works; series of other libraries are out of scope |
 | `kavita.rescan_after_minutes` | minutes after a series scan request before chapters still not indexed get another (SPEC "Publishing") |
 | `export.retention_days` | days a removed download stays in `paths.retention`; 0 deletes it at once |
+| `tools.avifenc`, `tools.avifdec`, `tools.jpegtran`, `tools.oxipng` | the image tools' executables, per machine (relative = project root); nothing is searched on `PATH` (SPEC "Conversion") |
+| `tools.vship` | the Vship scorer library (`libvship.so`, or the Windows DLL), per machine |
+| `convert.workers` | processes that encode and decode one chapter's pages |
+| `convert.min_scratch_free_mb` | free space (MiB) on `paths.scratch`'s drive below which `process` does not run |
 
 ## Logging
 
@@ -59,7 +63,10 @@ After config, the run lock and logging, and before the work, the run checks its 
 | staging folder | hard | adopt | `paths.staging` is not an existing folder |
 | folder layout | hard | parts, reset, adopt | `paths.staging` or `paths.scratch` (the folders `state reset` empties) equals or contains `paths.downloads`, `paths.library`, `paths.retention`, the database file, `logging.dir`, `lock.dir`, the project root or the other of the 2, or lies inside `paths.downloads` or `paths.library`; `paths.retention` lies inside `paths.downloads` or `paths.library`, or contains either |
 | share folders | hard | parts, reset, adopt | `paths.downloads`, its `mangas` folder, `paths.library`, `paths.retention` or `paths.naming_overrides` is not an existing folder, or `paths.retention` is not on the filesystem of `paths.downloads` |
-| workflow settings | hard | parts, smoke, `series link` | `workflow.attempt_limit`, `kavita.library_id` or `kavita.rescan_after_minutes` is below 1, or `export.retention_days` below 0 |
+| workflow settings | hard | parts, smoke, `series link` | `workflow.attempt_limit`, `kavita.library_id` or `kavita.rescan_after_minutes` or `convert.workers` is below 1, or `export.retention_days` below 0 |
+| image tools | hard | `process` | a `tools.avifenc`, `tools.avifdec`, `tools.jpegtran`, `tools.oxipng` or `tools.vship` path is not an existing file |
+| scorer | hard | `process` | the scorer library does not load, or its GPU check fails |
+| scratch space | hard | `process` | less than `convert.min_scratch_free_mb` MiB free on the drive of `paths.scratch` (measured at its nearest existing folder) |
 | service settings | hard | `intake`, `export`, smoke, `series link` | `suwayomi.url` or `kavita.url` is not an http or https URL; `kavita.api_key` is not a non-empty string; `paths.kavita_path_map` is empty, one of its keys or values is not a non-empty string, or 2 of its keys are the same prefix but for a trailing `/` |
 
 The runtime check covers a runtime that can load the program; one too old to parse it fails before preflight runs.

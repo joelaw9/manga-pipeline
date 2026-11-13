@@ -41,3 +41,14 @@ kavita:
 
 export:
   retention_days: 7
+
+tools:
+  avifenc: "$TMP/tools/avifenc"
+  avifdec: "$TMP/tools/avifdec"
+  jpegtran: "$TMP/tools/jpegtran"
+  oxipng: "$TMP/tools/oxipng"
+  vship: "$TMP/tools/vship"
+
+convert:
+  workers: 2
+  min_scratch_free_mb: 0

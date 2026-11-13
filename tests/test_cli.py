@@ -32,7 +32,7 @@ PART_CHECKS = [*LOCKED, "workflow settings", "share ownership"]
 # SPEC "Run lock", "Logging", "Preflight": (locks held, log file, checks run) per command.
 SPEC = {
     "intake": ({"intake"}, "intake.log", [*PART_CHECKS, "service settings"]),
-    "process": ({"process"}, "process.log", PART_CHECKS),
+    "process": ({"process"}, "process.log", [*PART_CHECKS, "image tools", "scorer", "scratch space"]),
     "export": ({"export"}, "export.log", [*PART_CHECKS, "service settings"]),
     "status": (set(), None, []),
     "retry": (set(), None, []),

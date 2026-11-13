@@ -43,6 +43,7 @@ LOCKED_CHECKS = (
 PART_CHECKS = (*LOCKED_CHECKS, preflight.WORKFLOW_SETTINGS, preflight.SHARE_OWNERSHIP)
 # intake and export reach Suwayomi and Kavita; process reaches no service.
 SERVICE_PART_CHECKS = (*PART_CHECKS, preflight.SERVICE_SETTINGS)
+PROCESS_CHECKS = (*PART_CHECKS, preflight.IMAGE_TOOLS, preflight.SCORER, preflight.SCRATCH_SPACE)
 RESET_CHECKS = (*LOCKED_CHECKS, preflight.SHARE_OWNERSHIP)
 # state adopt writes the owner file, so it cannot require one; it needs the folder the file goes in.
 ADOPT_CHECKS = (*LOCKED_CHECKS, preflight.STAGING_FOLDER)
@@ -85,7 +86,7 @@ def series_link(cfg, args):
 
 COMMANDS = {
     "intake": Command(("intake",), "intake", SERVICE_PART_CHECKS, lambda cfg, args: intake.run(cfg)),
-    "process": Command(("process",), "process", PART_CHECKS, lambda cfg, args: process.run(cfg)),
+    "process": Command(("process",), "process", PROCESS_CHECKS, lambda cfg, args: process.run(cfg)),
     "export": Command(("export",), "export", SERVICE_PART_CHECKS, lambda cfg, args: export.run(cfg)),
     "status": Command((), None, (), lambda cfg, args: status.run(cfg)),
     "retry": Command((), None, (), retry),

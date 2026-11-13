@@ -282,3 +282,22 @@ def test_decisions_of_any_object_shape_pass():
     rec = pilot_record()
     rec["series"]["decisions"] = {"rows": {"junk": [{"decision": "maybe"}]}}
     assert record.parse(rec) is rec, "the decision rows are not checked by the reader"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    "groups",
+    [
+        [],
+        {"colour": "75"},
+        {"colour": {"q": "75"}},
+        {"colour": {"q": 75.0}},
+        {"gray": {"q": 101}},
+        {"gray": {"q": 80, "probes": {}}},
+    ],
+)
+def test_a_malformed_calibration_is_a_broken_record(groups):
+    rec = pilot_record()
+    rec["series"]["calibration"] = {"groups": groups}
+    with pytest.raises(record.RecordError, match="calibration.groups"):
+        record.check(rec)

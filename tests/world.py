@@ -7,6 +7,9 @@ import json
 import zipfile
 from contextlib import closing
 
+import numpy as np
+from PIL import Image
+
 from manga_pipeline import archive, config, db, workflow
 from manga_pipeline.clients import suwayomi as suwayomi_client
 
@@ -17,13 +20,21 @@ from tests.fakes.suwayomi import FakeSuwayomi
 LIBRARY_ID = 4  # tests/test_config.yaml kavita.library_id
 
 
+def page(n, seed):
+    """A small real JPEG page whose pixels come from (n, seed): other seed = other content (convert decodes pages)."""
+    rng = np.random.default_rng(list(hashlib.sha1(f"{n} {seed}".encode()).digest()))
+    buf = io.BytesIO()
+    Image.fromarray(rng.integers(0, 256, (48, 32, 3), dtype=np.uint8), "RGB").save(buf, "JPEG", quality=90)
+    return buf.getvalue()
+
+
 def cbz(pages=3, comicinfo=None, seed=""):
-    """A small CBZ: `pages` page files whose bytes carry seed (other seed = other content), and a ComicInfo.xml when
-    given (bytes or str)."""
+    """A small CBZ: `pages` real JPEG pages whose pixels carry seed (other seed = other content), and a ComicInfo.xml
+    when given (bytes or str)."""
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
         for n in range(1, pages + 1):
-            z.writestr(f"{n:03}.jpg", f"page {n} {seed}".encode())
+            z.writestr(f"{n:03}.jpg", page(n, seed))
         if comicinfo is not None:
             z.writestr("ComicInfo.xml", comicinfo)
     return data.getvalue()
@@ -32,6 +43,22 @@ def cbz(pages=3, comicinfo=None, seed=""):
 def comicinfo(**fields):
     body = "".join(f"<{k}>{v}</{k}>" for k, v in fields.items())
     return f'<?xml version="1.0" encoding="utf-8"?><ComicInfo>{body}</ComicInfo>'
+
+
+# A record's calibration as the bulk converter writes it: the colour group probed (fixed at q75), the gray group left
+# unprobed (no gray page sampled), so a series of colour test pages converts with no calibration probes.
+CALIBRATION = {
+    "groups": {
+        "gray": {"q": 80, "n": 0, "why": "too few sample pages (0)", "probes": [], "excluded": []},
+        "colour": {
+            "q": 75,
+            "n": 40,
+            "why": "q70 fails: mean 84.1 < 85",
+            "probes": [{"q": 75, "n": 40, "counted": 40, "mean": 86.0, "min": 81.0}],
+            "excluded": [],
+        },
+    }
+}
 
 
 def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none"):
@@ -65,7 +92,7 @@ def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none"):
         "folders": [{"name": series_name, "from_run": "r1"}], "runs": [{"run_id": "r1", "written": "2026-11-01"}],
         "errors": [], "flags": [],
         "series": {"layout": {"layout": layout, "page_aspect": [1.4]}, "naming": {"series_name": series_name,
-                   "restart": False, "basis": basis}, "calibration": {}, "covers": {}, "decisions": {}},
+                   "restart": False, "basis": basis}, "calibration": CALIBRATION, "covers": {}, "decisions": {}},
         "sources": sources, "chapters": rows,
     }  # fmt: skip
 

@@ -60,7 +60,7 @@ def test_a_download_lands_in_its_series_indexed_and_its_original_retained(world,
     assert fields["Series"] == "Solo Leveling" and fields["LocalizedSeries"] == "Na Honjaman Level Up", (
         "Series is the record's name, LocalizedSeries Kavita's"
     )
-    assert pages == ["001.jpg", "002.jpg", "003.jpg"], "the pages travel untouched"
+    assert pages == ["001.avif", "002.avif", "003.avif"], "the pages are converted, in reading order"
     assert world.rows("SELECT stage, status, waiting_on FROM chapter") == [("confirm", "waiting", "kavita_scan")], (
         "a scan is requested, not awaited"
     )

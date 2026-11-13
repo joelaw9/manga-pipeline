@@ -27,6 +27,14 @@ Suwayomi to Kavita manga pipeline: junk removal, metadata, bad-download repair, 
 
 discover, validate, junk, convert, comicinfo, publish, confirm. A stage ends done, waiting or failed; a chapter past its attempt limit is `needs_human`. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#chapter-stages)
 
+## Conversion
+
+The convert stage re-encodes a chapter with the bulk converter's tools, route and gates (AVIF where the quality gates pass, else lossless, else untouched) into a store-mode CBZ in staging; it never writes the series folder. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#conversion)
+
+## Calibration
+
+AVIF quality per series and encode group: taken from the bulk-converter record, or computed from samples of the first chapters converted. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#calibration)
+
 ## Needs human
 
 A chapter or series that needs a person is reported 3 ways (log, `status`, Discord) and cleared with `retry`. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#needs-human)
