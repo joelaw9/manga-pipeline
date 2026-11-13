@@ -126,7 +126,7 @@ def test_no_source_left_needs_a_human_naming_what_was_tried(world):
     world.run(intake)
     ((status, error),) = world.rows("SELECT status, last_error FROM chapter")
     assert status == "needs_human"
-    assert "tried: Src (EN), Other (EN)" in error and f"chapter use {1}" in error
+    assert error == "no source left to re-download from (tried: Src (EN), Other (EN))"
 
 
 @budget(load="db")

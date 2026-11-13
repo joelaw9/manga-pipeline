@@ -129,8 +129,7 @@ def pick(ctx, chapter, series, state):
     if down:
         return workflow.Failed(f"every remaining source could not answer: {'; '.join(down)} (tried: {tried})")
     return workflow.NeedsHuman(
-        f"no source left to re-download from (tried: {tried}) -> chapter use {chapter['id']} SUWAYOMI_CHAPTER_ID, "
-        f"or chapter drop {chapter['id']}"
+        f"no source left to re-download from (tried: {tried})"  # status adds the commands that settle it
     )
 
 
