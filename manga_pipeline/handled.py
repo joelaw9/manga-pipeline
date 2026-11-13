@@ -1,10 +1,13 @@
-"""Handled chapters (SPEC "Bad downloads"): a download whose pages a handled chapter of its series already had is put
-aside, not processed again. Used by the discover stage and by the junk stage once the series' baseline exists.
+"""Handled chapters (SPEC "Bad downloads"): every chapter the pipeline published, rejected, found a duplicate of or
+dropped, with its download's content digest. A download whose pages a handled chapter of its series already had is
+put aside, not processed again; checked by the discover stage and by the junk stage once the series' baseline exists.
 """
 
 from pathlib import Path
 
-from manga_pipeline import retention
+from manga_pipeline import retention, workflow
+
+OUTCOMES = ("published", "rejected", "duplicate", "dropped")
 
 
 def put_aside(ctx, chapter, digest):
@@ -19,3 +22,14 @@ def put_aside(ctx, chapter, digest):
         return None
     retention.put(ctx.cfg, Path(chapter["download_path"]))
     return f"same pages as a handled chapter ({row['outcome']}, {row['identity']})"
+
+
+def record(conn, series_id, identity, outcome, digest):
+    """Record a handled chapter (digest None for an archive that could not be read); inside the caller's
+    transaction."""
+    if outcome not in OUTCOMES:
+        raise ValueError(f"handled chapter outcome must be one of {OUTCOMES}, got {outcome!r}")
+    conn.execute(
+        "INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at) VALUES (?, ?, ?, ?, ?)",
+        (series_id, identity, outcome, digest, workflow.now()),
+    )

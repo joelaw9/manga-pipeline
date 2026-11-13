@@ -186,6 +186,33 @@ def test_a_download_an_export_confirms_during_the_listing_is_not_taken_again(wor
     )
 
 
+@budget(load="db")
+def test_a_chapter_records_its_source_by_display_name(world):
+    world.kavita_series("Solo Leveling")
+    world.download(world.manga("Solo Leveling"), "Chapter 2")
+    scan(world)
+    assert world.rows("SELECT source FROM chapter") == [("Src (EN)",)], "sources.ranking names sources this way"
+
+
+@budget(load="db")
+def test_paths_open_chapters_hold_or_expect_are_neither_new_chapters_nor_not_taken(world):
+    world.kavita_series("Solo Leveling")
+    _, held = world.download(world.manga("Solo Leveling"), "Chapter 2")
+    scan(world)
+    other = world.suwayomi.add_manga("Solo Leveling", world.suwayomi.add_source("Elsewhere"), in_library=False)
+    _, expected = world.download(other, "Chapter 2")  # a re-download into a manga outside the library
+    _, stray = world.download(other, "Chapter 3")
+    with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
+        conn.execute(
+            "UPDATE chapter SET redownload = json_object('expected', json_object('path', ?))", (str(expected),)
+        )
+    scan(world)
+    assert world.rows("SELECT download_path FROM chapter") == [(str(held),)], "no new chapter for either path"
+    assert world.rows("SELECT path FROM unmatched_download") == [(str(stray),)], (
+        "the expected re-download is not listed as not taken; another file of that folder is"
+    )
+
+
 # --- the discover stage
 
 
@@ -237,6 +264,36 @@ def test_the_same_pages_as_a_handled_chapter_are_put_aside(world):
     assert world.rows("SELECT stage, status FROM chapter") == [("discover", "done")]
     kept = config.abs_path(world.cfg["paths"]["retention"]) / "Src (EN)" / "Solo Leveling" / path.name
     assert not path.exists() and kept.exists(), "put aside the retention way"
+
+
+@budget(load="db")
+@pytest.mark.parametrize("data", [b"PK\x03\x04 truncated", b"not a zip at all"])
+def test_an_archive_that_cannot_be_read_goes_on_to_validate_without_a_digest(world, data):
+    chapter_id, _ = discovered(world, "Chapter 2", data=data)
+    assert isinstance(run_stage(world, chapter_id), workflow.Done), "validate judges a broken archive, not discover"
+    assert world.rows("SELECT stage, status, identity, content_digest FROM chapter") == [
+        ("validate", "ready", '["", null, "", "2", ""]', None)
+    ], "its number comes from its name alone"
+
+
+@budget(load="db")
+def test_an_archive_that_cannot_be_read_and_has_no_number_in_its_name_needs_a_human(world):
+    chapter_id, _ = discovered(world, "Oneshot", data=b"broken")
+    run_stage(world, chapter_id)
+    assert world.rows("SELECT status, attempts FROM chapter") == [("needs_human", 0)]
+
+
+@budget(load="db")
+def test_a_notice_is_dropped_put_aside_and_recorded(tmp_path):
+    world = World(tmp_path, validate={"non_chapter_names": ["Hiatus Notice"]})
+    chapter_id, path = discovered(world, "Chapter 12 - Hiatus Notice", scanlator="Grp")
+    outcome = run_stage(world, chapter_id)
+    assert isinstance(outcome, workflow.Dropped), "a notice is not a chapter"
+    kept = config.abs_path(world.cfg["paths"]["retention"]) / "Src (EN)" / "Solo Leveling" / path.name
+    assert not path.exists() and kept.exists(), "removed the retention way"
+    assert world.rows("SELECT outcome, content_digest FROM handled_chapter") == [
+        ("dropped", archive.pages_digest(kept))
+    ], "recorded as handled, so the same pages arriving again are put aside"
 
 
 @budget(load="db")

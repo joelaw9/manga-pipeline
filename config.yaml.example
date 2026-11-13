@@ -52,3 +52,10 @@ tools:   # per machine; relative = project root; nothing is searched on PATH
 convert:
   workers: 8                   # processes encoding and decoding one chapter's pages
   min_scratch_free_mb: 2000    # process does not run with less free space (MiB) on paths.scratch's drive
+
+sources:
+  ranking: ["Weeb Central (EN)", "MangaDot (EN)", "Kagane (EN)", "Manga Ball (EN)", "Atsumaru (EN)", "MangaK (EN)"]   # re-download sources, best first (display names)
+  download_timeout_hours: 24   # a queued re-download older than this is dropped for the next source
+
+validate:
+  non_chapter_names: ["Notice", "Break Notice", "Hiatus Notice", "Announcement", "Hiatus", "Author's Note"]   # dropped at discover; [] = none

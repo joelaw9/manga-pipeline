@@ -63,6 +63,10 @@ python -m manga_pipeline.cli --help
 | `manga_pipeline/clients/kavita_match.py` | Kavita's name `normalize`, `series_names`, `off_names`, `match_folders` (copied from the bulk converter) |
 | `manga_pipeline/smoke.py` | `smoke`: read-only check of both services; `Failed` = exit 1 |
 | `manga_pipeline/intake.py`, `process.py`, `export.py` | the 3 part loops: `run(cfg)`; their order of work (SPEC "Parts") |
+| `manga_pipeline/validation.py` | `check(cbz, key, published)` → `Verdict` (`ok` / `bad` / `human`, measured pages, notes): SPEC "Validation"; `chapter_key(identity)` = (season, side label, number) |
+| `manga_pipeline/redownload.py` | a bad download's re-download (SPEC "Bad downloads"): the `chapter.redownload` state, `pick` (same chapter once, then ranked sources), `pick_manga` / `pick_chapter` (pure), `remove` (retention, then Suwayomi delete), `wait_over` for `suwayomi_download`; driven by `stages/validate.py` |
+| `manga_pipeline/library_copy.py` | `judge(ctx, chapter)` at junk: a chapter the library already holds is a duplicate (dropped) or held (SPEC "Library copies") |
+| `manga_pipeline/measures.py` | `summary(pages)` (page count, median width, strip length, non-blank pHashes), `strip_length` |
 | `manga_pipeline/status.py` | `status`: read-only report (`db.read_only`), printed |
 | `manga_pipeline/state.py` | `state reset` (`workflow.reset`, then empties staging but its owner file, and scratch) and `state adopt` (writes the owner file) |
 | `manga_pipeline/stages/` | 1 module per stage, `run(ctx, chapter)` returns an outcome; Phase 1 stubs (junk's `.wait` marker is a test hook) |

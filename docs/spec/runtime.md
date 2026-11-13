@@ -39,6 +39,9 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `tools.vship` | the Vship scorer library (`libvship.so`, or the Windows DLL), per machine |
 | `convert.workers` | processes that encode and decode one chapter's pages |
 | `convert.min_scratch_free_mb` | free space (MiB) on `paths.scratch`'s drive below which `process` does not run |
+| `sources.ranking` | Suwayomi source display names (`"<name> (<LANG>)"`) a bad download is re-downloaded from, best first (SPEC "Bad downloads") |
+| `sources.download_timeout_hours` | hours a queued re-download may take before the next source is tried |
+| `validate.non_chapter_names` | chapter names (without scanlator and number) of notice or hiatus pages, dropped at discover; empty = none |
 
 ## Logging
 
@@ -46,7 +49,7 @@ One setup call, from the entry point. Records go to the console and, for a comma
 
 ## Run lock
 
-Each command names the lock it runs under, or none: `intake`, `process`, `export` and `junk review` each have their own (`<lock.dir>/<command>.lock`); `status`, `retry`, `smoke`, `junk list`, `junk show` and `junk decide` take none, so they work while a part is active; `state reset` and `state adopt` take all 4, so they run only while nothing else does. With `lock.enabled`, a command's lock is taken after config is loaded and before logging is set up, and freed when the command ends. A command that finds its lock held prints an error naming the lock file to stderr and exits 3 at once, without opening the log file; it never waits.
+Each command names the lock it runs under, or none: `intake`, `process`, `export` and `junk review` each have their own (`<lock.dir>/<command>.lock`); `status`, `retry`, `chapter use`, `chapter drop`, `series link`, `smoke`, `junk list`, `junk show` and `junk decide` take none, so they work while a part is active; `state reset` and `state adopt` take all 4, so they run only while nothing else does. With `lock.enabled`, a command's lock is taken after config is loaded and before logging is set up, and freed when the command ends. A command that finds its lock held prints an error naming the lock file to stderr and exits 3 at once, without opening the log file; it never waits.
 
 A lock file left by a run that died does not block the next run. Where the lock is a file holding the holder's pid (no OS file lock), 2 runs starting in the same instant against a dead holder's file can both take it.
 
@@ -73,9 +76,9 @@ The runtime check covers a runtime that can load the program; one too old to par
 
 ## CLI
 
-Commands: `intake`, `process`, `export` (SPEC "Parts"), `junk list`, `junk show`, `junk decide`, `junk review` (SPEC "Junk decisions"), `status` (what is waiting, on what, what needs a human, the downloads not taken, and published files never confirmed), `retry` (SPEC "Needs human"), `state reset`, `state adopt` (SPEC "State"), `smoke` (SPEC "Services"), `series link` (SPEC "Series identification"; no lock, refused with exit 2 like `retry`).
+Commands: `intake`, `process`, `export` (SPEC "Parts"), `junk list`, `junk show`, `junk decide`, `junk review` (SPEC "Junk decisions"), `status` (what is waiting, on what, what needs a human, the re-downloads in progress, chapter notes, the downloads not taken, and published files never confirmed), `retry` (SPEC "Needs human"), `chapter use`, `chapter drop` (SPEC "Bad downloads"; no lock, refused with exit 2 like `retry`), `state reset`, `state adopt` (SPEC "State"), `smoke` (SPEC "Services"), `series link` (SPEC "Series identification"; no lock, refused with exit 2 like `retry`).
 
-`--set KEY=VALUE` (repeatable) sets a config key for the run (SPEC "Config"). Exit codes: 0 done, 1 an unexpected error (logged with its traceback) or a failed `smoke` check, 2 usage or config error or a refused `retry`, 3 another run holds the run lock, 4 a hard preflight check failed, or the database is not one this program's version can use (it holds a schema step the program does not have, or, for `status`, lacks one).
+`--set KEY=VALUE` (repeatable) sets a config key for the run (SPEC "Config"). Exit codes: 0 done, 1 an unexpected error (logged with its traceback) or a failed `smoke` check, 2 usage or config error or a refused `retry`, `chapter use`, `chapter drop` or `series link`, 3 another run holds the run lock, 4 a hard preflight check failed, or the database is not one this program's version can use (it holds a schema step the program does not have, or, for `status`, lacks one).
 
 ## Tests
 

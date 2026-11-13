@@ -21,10 +21,10 @@ LIBRARY_ID = 4  # tests/test_config.yaml kavita.library_id
 
 
 def page(n, seed):
-    """A small real JPEG page whose pixels come from (n, seed): other seed = other content (convert decodes pages)."""
+    """A real 16 x 24 JPEG page whose pixels come from (n, seed): other seed = other content (convert decodes)."""
     rng = np.random.default_rng(list(hashlib.sha1(f"{n} {seed}".encode()).digest()))
     buf = io.BytesIO()
-    Image.fromarray(rng.integers(0, 256, (48, 32, 3), dtype=np.uint8), "RGB").save(buf, "JPEG", quality=90)
+    Image.fromarray(rng.integers(0, 256, (24, 16, 3), dtype=np.uint8), "RGB").save(buf, "JPEG", quality=90)
     return buf.getvalue()
 
 

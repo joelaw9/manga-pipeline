@@ -52,3 +52,10 @@ tools:
 convert:
   workers: 2
   min_scratch_free_mb: 0
+
+sources:
+  ranking: []
+  download_timeout_hours: 24
+
+validate:
+  non_chapter_names: []

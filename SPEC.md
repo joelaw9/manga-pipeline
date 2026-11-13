@@ -41,7 +41,7 @@ A chapter or series that needs a person is reported 3 ways (log, `status`, Disco
 
 ## Bad downloads
 
-A chapter that fails validation is deleted through Suwayomi and downloaded again from another source; handled chapters are remembered with their content digest, so the same pages appearing again are put aside, not processed twice. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#bad-downloads)
+Validation reads every page; a bad download is removed and downloaded again through Suwayomi (same chapter once, then other sources by rank), other defects need a human; a copy of a published chapter is dropped or held; `chapter use` and `chapter drop` settle a held chapter; handled chapters are remembered with their content digest, so the same pages appearing again are put aside, not processed twice. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#bad-downloads)
 
 ## Suwayomi
 

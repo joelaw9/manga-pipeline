@@ -44,7 +44,7 @@ One SQLite database on the local disk of the machine that runs the pipeline, nev
 | knowledge | the junk decisions; each series' source IDs and conversion calibration |
 | sync records | what was fetched for each series, from which source and when (written only by `intake`, with a version that rises on every change); what was written for each series and each published chapter (written only by `export`, with the version it was written from) |
 
-It is the single record of what is pending. `state reset` clears the workflow state only; knowledge and sync records are kept, and the next `intake` rediscovers the downloads. Every series becomes ok again, except one held for want of a Kavita series or a folder: only `series link` settles that. It needs `--yes`, runs only while no part and no junk review is running, and also empties the staging and scratch folders. It never touches the downloads, the library or the retention folder.
+It is the single record of what is pending. `state reset` clears the workflow state only; knowledge and sync records are kept, and the next `intake` rediscovers the downloads (what becomes of a re-download in progress: SPEC "Bad downloads"). Every series becomes ok again, except one held for want of a Kavita series or a folder: only `series link` settles that. It needs `--yes`, runs only while no part and no junk review is running, and also empties the staging and scratch folders. It never touches the downloads, the library or the retention folder.
 
 A part claims a chapter in 1 short transaction before working on it and records the outcome in another; no transaction is open while a stage works. A claim left by a run that died is released when that part next starts. A command without a lock refuses a chapter a part has claimed, and an outcome is not recorded over a change a person made meanwhile.
 
@@ -60,9 +60,9 @@ A chapter is at 1 stage and has 1 status: `ready`, `claimed`, `waiting`, `needs_
 
 | Stage | Part | Does | Can wait on |
 |---|---|---|---|
-| discover | `intake` | settles the chapter's identity and content digest; drops a download already handled (SPEC "Bad downloads"); a chapter with no number is `needs_human` | |
-| validate | `intake` | finds a broken archive, an undecodable or missing page, a bad download, a duplicate | `suwayomi_download` |
-| junk | `process` | takes the series' baseline (SPEC "State"); drops a download already handled; finds candidate junk pages (scanlation advertisement and credit pages) and applies the stored decisions | `bulk_conversion`, `junk_decision` |
+| discover | `intake` | settles the chapter's identity and content digest (an archive it cannot read gets no digest and goes on to validate); drops a download already handled, and a notice or hiatus page (SPEC "Bad downloads"); a chapter with no number is `needs_human` | |
+| validate | `intake` | reads and measures every page; a bad download is re-downloaded, and its replacement validated here; other defects are `needs_human` or noted (SPEC "Bad downloads", "Validation") | `suwayomi_download` |
+| junk | `process` | takes the series' baseline (SPEC "State"); drops a download already handled; drops a duplicate of a published file, or holds a better or doubtful copy (SPEC "Bad downloads", "Library copies"); finds candidate junk pages (scanlation advertisement and credit pages) and applies the stored decisions | `bulk_conversion`, `junk_decision` |
 | convert | `process` | re-encodes the pages (AVIF where it passes the quality gates) and writes the CBZ of pages to the staging folder | |
 | comicinfo | `export` | adds `ComicInfo.xml` to the CBZ | |
 | publish | `export` | renames the CBZ into the series folder | |
@@ -99,4 +99,4 @@ The AVIF quality is per series and encode group: gray (pages encoded 4:0:0) and 
 
 A chapter or a series that becomes `needs_human` is reported 3 ways: a line in the log, the `status` command, and a message to a Discord webhook.
 
-A person clears it with `retry` (a chapter by its id, or `--series` for a series and its chapters): the item is ready again at the stage where it stopped, with its attempts at 0. With no database, an id that does not exist, or an item that is not `needs_human` (a chapter a part has claimed included), is refused with exit code 2 and left unchanged; `--series` is refused when neither the series nor any of its chapters is `needs_human`.
+A person clears it with `retry` (a chapter by its id, or `--series` for a series and its chapters): the item is ready again at the stage where it stopped, with its attempts at 0. With no database, an id that does not exist, or an item that is not `needs_human` (a chapter a part has claimed included), is refused with exit code 2 and left unchanged; `--series` is refused when neither the series nor any of its chapters is `needs_human`. A chapter held at validate or junk can also be settled with `chapter use` or `chapter drop`, and `retry` there starts a re-download's source search again (SPEC "Bad downloads").
