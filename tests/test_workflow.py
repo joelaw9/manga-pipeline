@@ -264,6 +264,14 @@ def test_release_own_claims_frees_only_this_parts_claims(ctx):
 
 
 @budget(load="db")
+def test_release_own_claims_frees_a_claim_on_a_series_now_out_of_scope(ctx):
+    row = claimed(ctx)
+    cfg = {**ctx.cfg, "series": {"only": ["Other"]}}
+    workflow.release_own_claims(workflow.Context(cfg, ctx.conn, "process"))
+    assert chapter(ctx.conn, row["id"])["status"] == "ready", "SPEC 'Parts': a dead run's claim is freed in any scope"
+
+
+@budget(load="db")
 def test_claims_are_kept_when_locks_are_off(ctx):
     row = claimed(ctx)
     cfg = {**ctx.cfg, "lock": {**ctx.cfg["lock"], "enabled": False}}
@@ -280,6 +288,19 @@ def test_end_waits_readies_a_chapter_whose_condition_holds(ctx):
     workflow.end_waits(ctx, "junk_decision", lambda ctx, chapter: True)
     after = chapter(ctx.conn, row["id"])
     assert (after["stage"], after["status"], after["waiting_on"]) == ("junk", "ready", None)
+
+
+@budget(load="db")
+def test_end_waits_never_checks_a_wait_of_an_out_of_scope_series(ctx):
+    row = claimed(ctx)
+    workflow.work(ctx, row, returns(Waiting("junk_decision")))
+    cfg = {**ctx.cfg, "series": {"only": ["Other"]}}
+    asked = []
+    workflow.end_waits(
+        workflow.Context(cfg, ctx.conn, "process"), "junk_decision", lambda ctx, chapter: asked.append(chapter["id"])
+    )
+    assert asked == [], "SPEC 'Parts': nothing out of scope is read"
+    assert chapter(ctx.conn, row["id"])["status"] == "waiting"
 
 
 @budget(load="db")
@@ -359,7 +380,7 @@ def test_dropped_outcome_is_neither_logged_nor_counted(ctx, caplog):
 
 
 @budget(load="db")
-def test_crash_after_an_unreachable_stage_records_error_with_its_traceback(ctx, caplog):
+def test_crash_after_an_unreachable_stage_records_error_and_raises(ctx):
     def body(ctx):
         workflow.work(ctx, claimed(ctx), raises(OSError(errno.EIO, "io")))
         raise KeyError("a bug in the loop")
@@ -368,7 +389,6 @@ def test_crash_after_an_unreachable_stage_records_error_with_its_traceback(ctx, 
         workflow.run_part(ctx, body)
     got = dict(ctx.conn.execute("SELECT key, value FROM meta WHERE key = 'process.last_result'").fetchall())
     assert got == {"process.last_result": "error"}, "a crash is an error, whatever the run met before"
-    assert "process: run failed" in caplog.text and "Traceback" in caplog.text
 
 
 @budget(load="db")

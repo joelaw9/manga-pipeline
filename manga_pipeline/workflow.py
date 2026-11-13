@@ -273,15 +273,14 @@ def charge_waits(ctx, series_id, on, reason):
 
 
 def release_own_claims(ctx):
-    """Free the in-scope claims a killed run of this part left: back to ready at their stage, attempts unchanged. Not
-    when lock.enabled is false: another live run of the part may hold them."""
+    """Free the claims a killed run of this part left, in scope or not: back to ready at their stage, attempts
+    unchanged. Not when lock.enabled is false: another live run of the part may hold them."""
     if not ctx.cfg["lock"]["enabled"]:
         return
     with db.transaction(ctx.conn):
         released = ctx.conn.execute(
-            f"""UPDATE chapter SET status = 'ready', claimed_by = NULL, updated_at = :now
-            WHERE status = 'claimed' AND claimed_by = :part
-                AND series_id IN (SELECT s.id FROM series s WHERE {SCOPE})""",
+            """UPDATE chapter SET status = 'ready', claimed_by = NULL, updated_at = :now
+            WHERE status = 'claimed' AND claimed_by = :part""",
             _params(ctx),
         ).rowcount
     if released:
@@ -372,7 +371,7 @@ def run_part(ctx, body):
     """A part's run (SPEC "Parts"): record its start, release its own stale claims, run body(ctx), record its end and
     result ("ok", "unreachable: <service>, …" or "error"), and its last success when the result is ok. Unreachable
     raised outside a stage (discovery, a wait check) ends the run; either way the exit code stays 0. Any other
-    exception is logged with its traceback, recorded as "error" and raised again."""
+    exception is recorded as "error" and left to the caller, unlogged."""
     _set_meta(ctx, "last_start", now())
     result = "error"
     services = set()
@@ -383,9 +382,6 @@ def run_part(ctx, body):
         services.add(e.service)
         log.warning("%s: unreachable (%s), run ended", ctx.part, e)
         result = "unreachable"
-    except Exception:
-        log.exception("%s: run failed", ctx.part)
-        raise
     else:
         result = "ok"
     finally:

@@ -58,7 +58,7 @@ After config, the run lock and logging, and before the work, the run checks its 
 |---|---|---|---|
 | free disk space | soft | parts, reset, adopt | less than `preflight.min_free_mb` MiB free on `logging.dir`'s drive (0 skips the check; a negative value is itself the problem) |
 | runtime version | hard | parts, reset, adopt | Python older than 3.13 |
-| database location | hard | parts, reset, adopt | `database.path` lies under `paths.downloads`, `paths.library` or `paths.staging` |
+| database location | hard | parts, reset, adopt | `database.path` lies under `paths.downloads`, `paths.library`, `paths.staging` or `paths.retention` |
 | share ownership | hard | parts, reset | the owner file in `paths.staging` is missing, or holds another database's id (SPEC "State") |
 | staging folder | hard | adopt | `paths.staging` is not an existing folder |
 | folder layout | hard | parts, reset, adopt | `paths.staging` or `paths.scratch` (the folders `state reset` empties) equals or contains `paths.downloads`, `paths.library`, `paths.retention`, the database file, `logging.dir`, `lock.dir`, the project root or the other of the 2, or lies inside `paths.downloads` or `paths.library`; `paths.retention` lies inside `paths.downloads` or `paths.library`, or contains either |
