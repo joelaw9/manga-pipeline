@@ -10,19 +10,31 @@ manga's chapter list is fetched.
 import copy
 import io
 import zipfile
+import zlib
 from pathlib import Path
+
+from PIL import Image
 
 from manga_pipeline.clients import suwayomi
 
 from tests.fakes.http import NoNetwork
 
 
+def page(number, seed=""):
+    """A small real page image (PNG bytes) of 1 colour, set by its number and seed: no junk unit (it has no
+    signature), not white, and other number or seed = other bytes."""
+    shade = 40 + (zlib.crc32(f"{number} {seed}".encode()) % 160)
+    out = io.BytesIO()
+    Image.new("RGB", (40, 60), (shade, shade, 255 - shade)).save(out, "PNG")
+    return out.getvalue()
+
+
 def cbz(pages=3, comicinfo=None):
-    """The bytes of a small CBZ: `pages` fake page files and, when given, a ComicInfo.xml."""
+    """The bytes of a small CBZ: `pages` small page images (page) and, when given, a ComicInfo.xml."""
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as archive:
         for number in range(1, pages + 1):
-            archive.writestr(f"{number:03}.jpg", b"page %d" % number)
+            archive.writestr(f"{number:03}.jpg", page(number))
         if comicinfo is not None:
             archive.writestr("ComicInfo.xml", comicinfo)
     return data.getvalue()

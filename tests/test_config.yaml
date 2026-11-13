@@ -21,6 +21,7 @@ paths:
   staging: "$TMP/share/staging"
   retention: "$TMP/share/retention"
   scratch: "$TMP/scratch"
+  candidates: "$TMP/candidates"
   naming_overrides: "$TMP/overrides"
   kavita_path_map: {"/kavita": "$TMP/share"}
 
@@ -41,3 +42,14 @@ kavita:
 
 export:
   retention_days: 7
+
+junk:
+  claude_token: "test-token"
+  claude_path: "claude"
+  review_limit: 2
+  review_batch: 20
+  ocr_device: "cpu"
+  keywords: [repost, discord, scans, scanlat, translat, typeset, proofread, clean, redraw, read on, support us, patreon, ko-fi, paypal, gg/, join us, join our, raw provider, recruit, official domain, fastest, uploading, protected by copyright, protected under copyright, copyright law, unauthorized reproduction, unauthorized distribution, .com, .net, .org, .io]
+  weak: [.com, .net, .org, .io, scans]
+  paired: [clean]
+  suppress: [linguist, all rights reserved, published under license, kidaristudio, d&c media, head of localization, localization produced by, tapas media, crisis text line, localization manager, primary qc, secondary qc]

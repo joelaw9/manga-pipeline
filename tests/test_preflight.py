@@ -44,6 +44,8 @@ def test_shipped_checks():
         "service settings": (HARD, preflight.service_settings),
         "share ownership": (HARD, preflight.share_ownership),
         "staging folder": (HARD, preflight.staging_folder),
+        "OCR device": (HARD, preflight.ocr_device),
+        "Claude settings": (HARD, preflight.claude_settings),
     }
     assert shipped == want, "SPEC 'Preflight' lists every check with its kind"
 
@@ -122,6 +124,7 @@ def site(tmp_path, database):
     share = tmp_path / "share"
     paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {
         "scratch": str(tmp_path / "scratch"),
+        "candidates": str(tmp_path / "candidates"),
         "naming_overrides": str(tmp_path / "overrides"),
     }
     return {**config.cached(), "database": {"path": str(database)}, "paths": paths}

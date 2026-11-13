@@ -26,6 +26,7 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `paths.retention` | where removed downloads are kept for `export.retention_days` (on the share, same filesystem as downloads, outside downloads and every library root) |
 | `paths.naming_overrides` | the work folder of per-series volume overrides, `<series folder name>.yaml`; default `rules/naming` in the project, which the repository keeps empty (its files are the instance's, gitignored) |
 | `paths.scratch` | scratch folder for the chapter in hand (local disk) |
+| `paths.candidates` | folder of the open junk candidates' images (local disk; SPEC "Junk decisions") |
 | `paths.kavita_path_map` | Kavita path prefix to local path prefix, for the paths Kavita reports (SPEC "Services"); not empty |
 | `workflow.attempt_limit` | failed attempts after which a chapter is `needs_human` |
 | `series.only` | names of the only series to work; empty = all |
@@ -35,6 +36,12 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `kavita.library_id` | id of the Kavita library the pipeline works; series of other libraries are out of scope |
 | `kavita.rescan_after_minutes` | minutes after a series scan request before chapters still not indexed get another (SPEC "Publishing") |
 | `export.retention_days` | days a removed download stays in `paths.retention`; 0 deletes it at once |
+| `junk.claude_token` | the token `junk review` gives `claude -p` (from `claude setup-token`; secret: null in the example) |
+| `junk.claude_path` | the `claude` executable: a path, or a name found on `PATH` |
+| `junk.review_limit` | reviews that list a candidate before it is stuck (SPEC "Junk decisions") |
+| `junk.review_batch` | candidates `junk list` gives Claude per review |
+| `junk.ocr_device` | where OCR runs: `cpu`, `dml` (DirectML, Windows) or `cuda` (NVIDIA, Linux) |
+| `junk.keywords`, `junk.weak`, `junk.paired`, `junk.suppress` | the OCR keyword lists (SPEC "Junk decisions") |
 
 ## Logging
 
@@ -42,33 +49,35 @@ One setup call, from the entry point. Records go to the console and, for a comma
 
 ## Run lock
 
-Each command names the lock it runs under, or none: `intake`, `process`, `export` and `junk review` each have their own (`<lock.dir>/<command>.lock`); `status`, `retry`, `smoke`, `junk list`, `junk show` and `junk decide` take none, so they work while a part is active; `state reset` and `state adopt` take all 4, so they run only while nothing else does. With `lock.enabled`, a command's lock is taken after config is loaded and before logging is set up, and freed when the command ends. A command that finds its lock held prints an error naming the lock file to stderr and exits 3 at once, without opening the log file; it never waits.
+Each command names the lock it runs under, or none: `intake`, `process`, `export` and `junk review` each have their own (`<lock.dir>/<command>.lock`); `status`, `retry`, `smoke`, `series link`, `junk list`, `junk show`, `junk decide` and `junk import` take none, so they work while a part is active; `state reset` and `state adopt` take all 4, so they run only while nothing else does. With `lock.enabled`, a command's lock is taken after config is loaded and before logging is set up, and freed when the command ends. A command that finds its lock held prints an error naming the lock file to stderr and exits 3 at once, without opening the log file; it never waits.
 
 A lock file left by a run that died does not block the next run. Where the lock is a file holding the holder's pid (no OS file lock), 2 runs starting in the same instant against a dead holder's file can both take it.
 
 ## Preflight
 
-After config, the run lock and logging, and before the work, the run checks its requirements. Each check is hard (the run cannot work without it) or soft (the run can, but something is off), and every check runs. A soft problem is logged as a warning and the run goes on. A hard problem is printed to stderr and logged; once every check has run, the run exits 4. A check that cannot measure what it checks reports that as its problem. Each command has its own list of checks (the Runs column): `intake`, `process` and `export` (parts), `state reset` (reset), `state adopt` (adopt; it writes the owner file, so it checks the staging folder in place of share ownership), `smoke`, `series link`; the other commands without a lock run none.
+After config, the run lock and logging, and before the work, the run checks its requirements. Each check is hard (the run cannot work without it) or soft (the run can, but something is off), and every check runs. A soft problem is logged as a warning and the run goes on. A hard problem is printed to stderr and logged; once every check has run, the run exits 4. A check that cannot measure what it checks reports that as its problem. Each command has its own list of checks (the Runs column): `intake`, `process` and `export` (parts), `state reset` (reset), `state adopt` (adopt; it writes the owner file, so it checks the staging folder in place of share ownership), `junk review` (review; it touches local disk only), `smoke`, `series link`; the other commands without a lock run none.
 
 | Check | Kind | Runs | Problem when |
 |---|---|---|---|
-| free disk space | soft | parts, reset, adopt | less than `preflight.min_free_mb` MiB free on `logging.dir`'s drive (0 skips the check; a negative value is itself the problem) |
-| runtime version | hard | parts, reset, adopt | Python older than 3.13 |
-| database location | hard | parts, reset, adopt | `database.path` lies under `paths.downloads`, `paths.library` or `paths.staging` |
+| free disk space | soft | parts, reset, adopt, review | less than `preflight.min_free_mb` MiB free on `logging.dir`'s drive (0 skips the check; a negative value is itself the problem) |
+| runtime version | hard | parts, reset, adopt, review | Python older than 3.13 |
+| database location | hard | parts, reset, adopt, review | `database.path` lies under `paths.downloads`, `paths.library` or `paths.staging` |
 | share ownership | hard | parts, reset | the owner file in `paths.staging` is missing, or holds another database's id (SPEC "State") |
 | staging folder | hard | adopt | `paths.staging` is not an existing folder |
-| folder layout | hard | parts, reset, adopt | `paths.staging` or `paths.scratch` (the folders `state reset` empties) equals or contains `paths.downloads`, `paths.library`, `paths.retention`, the database file, `logging.dir`, `lock.dir`, the project root or the other of the 2, or lies inside `paths.downloads` or `paths.library`; `paths.retention` lies inside `paths.downloads` or `paths.library`, or contains either |
+| folder layout | hard | parts, reset, adopt, review | `paths.staging`, `paths.scratch` or `paths.candidates` (the folders `state reset` empties) equals or contains `paths.downloads`, `paths.library`, `paths.retention`, the database file, `logging.dir`, `lock.dir`, the project root or another of the 3, or lies inside `paths.downloads` or `paths.library`; `paths.retention` lies inside `paths.downloads` or `paths.library`, or contains either |
 | share folders | hard | parts, reset, adopt | `paths.downloads`, its `mangas` folder, `paths.library`, `paths.retention` or `paths.naming_overrides` is not an existing folder, or `paths.retention` is not on the filesystem of `paths.downloads` |
-| workflow settings | hard | parts, smoke, `series link` | `workflow.attempt_limit`, `kavita.library_id` or `kavita.rescan_after_minutes` is below 1, or `export.retention_days` below 0 |
+| workflow settings | hard | parts, review, smoke, `series link` | `workflow.attempt_limit`, `kavita.library_id`, `kavita.rescan_after_minutes`, `junk.review_limit` or `junk.review_batch` is below 1, or `export.retention_days` below 0 |
+| OCR device | hard | `process` | `junk.ocr_device` is not `cpu`, `dml` or `cuda`, or its onnxruntime execution provider does not load (a session's first provider is checked, not the listing) |
+| Claude settings | hard | review | `junk.claude_path` does not resolve to an executable file, or `junk.claude_token` is not a non-empty string |
 | service settings | hard | `intake`, `export`, smoke, `series link` | `suwayomi.url` or `kavita.url` is not an http or https URL; `kavita.api_key` is not a non-empty string; `paths.kavita_path_map` is empty, one of its keys or values is not a non-empty string, or 2 of its keys are the same prefix but for a trailing `/` |
 
 The runtime check covers a runtime that can load the program; one too old to parse it fails before preflight runs.
 
 ## CLI
 
-Commands: `intake`, `process`, `export` (SPEC "Parts"), `junk list`, `junk show`, `junk decide`, `junk review` (SPEC "Junk decisions"), `status` (what is waiting, on what, what needs a human, the downloads not taken, and published files never confirmed), `retry` (SPEC "Needs human"), `state reset`, `state adopt` (SPEC "State"), `smoke` (SPEC "Services"), `series link` (SPEC "Series identification"; no lock, refused with exit 2 like `retry`).
+Commands: `intake`, `process`, `export` (SPEC "Parts"), `junk list [--all]`, `junk show ID`, `junk decide ID junk|keep|unsure`, `junk review`, `junk import PATH` (SPEC "Junk decisions"; `junk list`, `show` and `decide` refuse with exit 2 a missing database or a candidate that is not open, `--all` while a review id is set; `junk import` refuses with exit 2 a file that is neither a bulk-converter junk store nor a pipeline database, or this pipeline's own database), `status` (what is waiting, on what, what needs a human, the downloads not taken, and published files never confirmed), `retry` (SPEC "Needs human"), `state reset`, `state adopt` (SPEC "State"), `smoke` (SPEC "Services"), `series link` (SPEC "Series identification"; no lock, refused with exit 2 like `retry`).
 
-`--set KEY=VALUE` (repeatable) sets a config key for the run (SPEC "Config"). Exit codes: 0 done, 1 an unexpected error (logged with its traceback) or a failed `smoke` check, 2 usage or config error or a refused `retry`, 3 another run holds the run lock, 4 a hard preflight check failed, or the database is not one this program's version can use (it holds a schema step the program does not have, or, for `status`, lacks one).
+`--set KEY=VALUE` (repeatable) sets a config key for the run (SPEC "Config"). Exit codes: 0 done, 1 an unexpected error (logged with its traceback), a failed `smoke` check, or a `junk review` whose Claude run failed (non-zero exit or an error result), 2 usage or config error or a refused `retry`, 3 another run holds the run lock, 4 a hard preflight check failed, or the database is not one this program's version can use (it holds a schema step the program does not have, or, for `status`, lacks one).
 
 ## Tests
 

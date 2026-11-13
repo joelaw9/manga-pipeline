@@ -21,7 +21,7 @@ Commands: `intake`, `process`, `export` (the 3 parts, each on its own timer), `s
 ## Tests
 
 ```bash
-python -m pytest -q
+python -m pytest -q -n auto
 ```
 
 Affected tests only, for iterating (pytest-testmon); the full suite runs before a merge:

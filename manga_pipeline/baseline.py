@@ -9,6 +9,7 @@ from pathlib import Path
 from manga_pipeline import db, names, workflow
 from manga_pipeline.clients.kavita_match import normalize
 from manga_pipeline.convert import record_reader
+from manga_pipeline.junk import importing, store
 
 log = logging.getLogger(__name__)
 # A source's fate in the record -> its handled_chapter outcome.
@@ -40,6 +41,10 @@ def record_problem(series):
     layout = record["series"]["layout"].get("layout")
     if layout not in LAYOUTS:
         return f"record series.layout.layout {layout!r} is not one of {LAYOUTS}"
+    try:
+        importing.record_rows(record)
+    except record_reader.RecordError as e:
+        return str(e)
     return None
 
 
@@ -112,6 +117,7 @@ def _write(conn, series, record, name, layout):
         "INSERT INTO series_conversion (series_id, layout, page_aspect, origin) VALUES (?, ?, ?, 'record')",
         (series["id"], layout, None if aspect is None else json.dumps(aspect)),
     )
+    store.upsert(conn, importing.winners(importing.record_rows(record)))  # the junk decisions it carries
     conn.execute(
         "UPDATE series SET baseline_at = ?, comicinfo_series = ?, naming_basis = ? WHERE id = ?",
         (stamp, name, record["series"]["naming"].get("basis"), series["id"]),

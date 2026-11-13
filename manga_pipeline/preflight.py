@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from manga_pipeline import config, db
 from manga_pipeline.clients import suwayomi
+from manga_pipeline.junk import ocr
 
 log = logging.getLogger(__name__)
 HARD, SOFT = "hard", "soft"
@@ -79,11 +80,12 @@ def database_location(cfg):
 
 
 def folder_layout(cfg):
-    """The folders `state reset` empties (paths.staging, paths.scratch) must hold nothing else the pipeline keeps."""
+    """The folders `state reset` empties (paths.staging, paths.scratch, paths.candidates) must hold nothing else the
+    pipeline keeps."""
     try:
         paths = {
             key: config.abs_path(cfg["paths"][key]).resolve()
-            for key in ("downloads", "library", "staging", "scratch", "retention")
+            for key in ("downloads", "library", "staging", "scratch", "candidates", "retention")
         }
         kept = {
             "paths.downloads": paths["downloads"],
@@ -97,9 +99,11 @@ def folder_layout(cfg):
     except OSError as e:
         return f"cannot resolve a configured folder: {e}"
     problems = []
-    for key, other in (("staging", "scratch"), ("scratch", "staging")):
+    emptied = ("staging", "scratch", "candidates")
+    for key in emptied:
         folder = paths[key]
-        for name, path in {**kept, f"paths.{other}": paths[other]}.items():
+        others = {f"paths.{o}": paths[o] for o in emptied if o != key}
+        for name, path in {**kept, **others}.items():
             if path.is_relative_to(folder):
                 problems.append(f"paths.{key} {folder} contains {name} {path}")
         for name in ("paths.downloads", "paths.library"):
@@ -157,6 +161,8 @@ def workflow_settings(cfg):
         ("kavita.library_id", 1),
         ("kavita.rescan_after_minutes", 1),
         ("export.retention_days", 0),
+        ("junk.review_limit", 1),
+        ("junk.review_batch", 1),
     ):
         section, name = key.split(".")
         if cfg[section][name] < low:
@@ -205,6 +211,22 @@ def share_ownership(cfg):
     return None
 
 
+def claude_settings(cfg):
+    """junk review can start Claude: junk.claude_path resolves to an executable, junk.claude_token is set."""
+    problems = []
+    if shutil.which(cfg["junk"]["claude_path"]) is None:
+        problems.append(f"junk.claude_path {cfg['junk']['claude_path']!r} is no executable (path or name on PATH)")
+    token = cfg["junk"]["claude_token"]
+    if not isinstance(token, str) or not token.strip():
+        problems.append("junk.claude_token is not a non-blank string (set MANGA_PIPELINE_JUNK_CLAUDE_TOKEN)")
+    return "; ".join(problems) or None
+
+
+def ocr_device(cfg):
+    """junk.ocr_device is known and its onnxruntime provider loads (SPEC "Preflight")."""
+    return ocr.provider_problem(cfg["junk"]["ocr_device"])
+
+
 PYTHON_VERSION = Check("runtime version", HARD, python_version)
 FREE_SPACE = Check("free disk space", SOFT, free_space)
 DATABASE_LOCATION = Check("database location", HARD, database_location)
@@ -214,6 +236,8 @@ SHARE_FOLDERS_PRESENT = Check("share folders", HARD, share_folders)
 WORKFLOW_SETTINGS = Check("workflow settings", HARD, workflow_settings)
 SERVICE_SETTINGS = Check("service settings", HARD, service_settings)
 SHARE_OWNERSHIP = Check("share ownership", HARD, share_ownership)
+OCR_DEVICE = Check("OCR device", HARD, ocr_device)
+CLAUDE_SETTINGS = Check("Claude settings", HARD, claude_settings)
 
 
 def run(cfg, checks):

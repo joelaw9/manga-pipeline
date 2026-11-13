@@ -52,16 +52,17 @@ def row(test_id, seconds, tag):
             "budget": tag["seconds"] if tag else None, "over": bool(tag) and seconds > tag["seconds"]}
 
 
-def report(rows, out, path):
-    """Print the slowest tests, over-budget tests and untagged tests; write all rows to path as JSON."""
+def report(rows, out, path, check_budgets=True):
+    """Print the slowest tests, over-budget tests and untagged tests; write all rows to path as JSON. Budgets are set
+    for a serial run: with check_budgets False (a parallel run) the over-budget list is not printed."""
     rows = sorted(rows, key=lambda r: r["seconds"], reverse=True)
     total = sum(r["seconds"] for r in rows)
     out.write(f"\nTiming: {len(rows)} tests, {total:.1f}s total\n")
     out.write(f"Slowest {min(SLOWEST, len(rows))}:\n")
     for r in rows[:SLOWEST]:
         out.write(f"  {r['seconds']:8.3f}s  {_tag(r):<22}  {r['id']}\n")
-    over = [r for r in rows if r["over"]]
-    out.write(f"Over budget: {len(over)}\n")
+    over = [r for r in rows if r["over"]] if check_budgets else []
+    out.write(f"Over budget: {len(over)}\n" if check_budgets else "Over budget: not checked (parallel run)\n")
     for r in over:
         out.write(f"  {r['seconds']:8.3f}s > {r['budget']:.3f}s  {r['load']:<10}  {r['id']}\n")
     untagged = [r for r in rows if r["budget"] is None]
