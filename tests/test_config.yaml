@@ -21,6 +21,7 @@ paths:
   staging: "$TMP/share/staging"
   retention: "$TMP/share/retention"
   scratch: "$TMP/scratch"
+  covers: "$TMP/covers"
   naming_overrides: "$TMP/overrides"
   kavita_path_map: {"/kavita": "$TMP/share"}
 

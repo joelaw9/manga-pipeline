@@ -73,6 +73,8 @@ def check(cbz, rec, x_dir, kept):
         fails.append("page-order-ambiguous: natural and lexical order differ")
     if rec["outcome"] == "lossless" or rec.get("gate") == "floor+size":
         source_bytes = sum(q["bytes"] for q in kept)
+        if rec["cover"]:  # an inserted volume cover's bytes are left out, as in the bulk converter's check
+            out_bytes -= rec["cover"]["bytes"]
         if out_bytes > source_bytes:
             fails.append(f"output-larger-than-input: {out_bytes} > {source_bytes} page bytes")
     return fails

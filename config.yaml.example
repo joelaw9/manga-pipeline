@@ -21,6 +21,7 @@ paths:
   staging: "/mnt/share/staging"       # finished chapters wait here (on the share, outside every library root)
   retention: "/mnt/share/retention"   # removed downloads, kept export.retention_days (share, same filesystem as downloads)
   scratch: "state/scratch"            # the chapter in hand (local disk); relative = project root
+  covers: "state/covers"              # fetched cover images (local disk); relative = project root
   naming_overrides: "rules/naming"    # per-series volume overrides, <series folder>.yaml (gitignored work folder); relative = project root
   kavita_path_map: {}                 # Kavita path prefix -> local path prefix, e.g. {"/manga": "/mnt/share"}; not empty ({} = any keys)
 

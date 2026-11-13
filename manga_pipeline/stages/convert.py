@@ -14,7 +14,7 @@ import shutil
 from pathlib import Path
 
 from manga_pipeline import archive, config, db, images, page_store, workflow
-from manga_pipeline.convert import calibrate, check, image, pages, plan, tools, vship
+from manga_pipeline.convert import calibrate, check, covers, image, pages, plan, tools, vship
 
 log = logging.getLogger(__name__)
 
@@ -51,13 +51,20 @@ def _layout(conn, series_id):
     return row["layout"], aspect
 
 
+def _samples_wanted(row, chapter_id):
+    """Does this group take samples from this chapter: no row yet, or open and none from this chapter yet?"""
+    return row is None or not (row["fixed"] or any(s["chapter_id"] == chapter_id for s in row["samples"]))
+
+
 def _calibrate(ctx, chapter, chapter_plan, x_dir, rendered, work, pool, scorer, tool_paths):
     """Add this chapter's samples to the series' open groups its AVIF outcome encodes; returns {group: q} after."""
     stored = calibrate.rows(ctx.conn, chapter["series_id"])
+    if not any(_samples_wanted(stored.get(g), chapter["id"]) for g in plan.avif_groups(chapter_plan)):
+        return calibrate.quality(stored)  # (a blanked rendered chapter then has no unblanked render to sample)
     groups = calibrate.units(chapter_plan, x_dir, rendered)
     for group, group_units in groups.items():
         row = stored.get(group)
-        if not group_units or (row and (row["fixed"] or any(s["chapter_id"] == chapter["id"] for s in row["samples"]))):
+        if not group_units or not _samples_wanted(row, chapter["id"]):
             continue
         picked = calibrate.pick(group_units, {s["sha1"] for s in row["samples"]} if row else set())
         if not picked:
@@ -75,6 +82,17 @@ def _calibrate(ctx, chapter, chapter_plan, x_dir, rendered, work, pool, scorer, 
         stored[group] = calibrate.add(ctx.conn, chapter["series_id"], group, chapter["id"], new)
         log.info("series %s %s calibration: %s", chapter["series_id"], group, stored[group]["why"])
     return calibrate.quality(stored)
+
+
+def _cover_skipped(chapter_plan, rec, cover):
+    """Why a chapter that takes a volume cover went out without it (None when it has it, or takes none)."""
+    if cover is None or rec["cover"]:
+        return None
+    fmts = sorted({q["format"] for q in chapter_plan.kept() if not q["cover"]})
+    wanted = images.AVIF if rec["outcome"] == "avif" else plan.cover_format(fmts)
+    if wanted == images.AVIF:
+        return f"its AVIF cover scored {cover['avif']['score']}, below the floor"
+    return f"its {rec['outcome']} pages ({', '.join(fmts)}) share no cover format"
 
 
 def _output_pages(out_dir, rec):
@@ -123,21 +141,42 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
         return workflow.NeedsHuman(str(e))
     if not chapter_plan.kept():
         return workflow.NeedsHuman("the chapter edit drops every page")
-    if chapter_plan.route == "untouched-flag":
-        log.warning(
-            "chapter %s: formats %s mix with others: untouched",
-            chapter["id"],
-            sorted({q["format"] for q in chapter_plan.kept()}),
-        )
-    rendered = image.render(chapter_plan, x_dir, render_dir) if chapter_plan.render else []
+    cover_row = ctx.conn.execute("SELECT * FROM volume_cover WHERE chapter_id = ?", (chapter["id"],)).fetchone()
+    cover = None
+    if cover_row is not None:
+        cover = {"data": covers.load(cfg, cover_row), "width": covers.width(chapter_plan)}
     tool_paths = {name: str(config.abs_path(cfg["tools"][name])) for name in tools.NAMES}
     scorer = _scorer(vship.Scorer, config.abs_path(cfg["tools"]["vship"]))
     with image.pool(cfg["convert"]["workers"]) as workers:
+        if cover is not None:  # before the route: an AVIF cover that passed can make the chapter AVIF
+            cover["avif"] = image.encode_cover(
+                workers, scorer, cover["data"], cover["width"], work / "cover", tool_paths
+            )
+        plan.routes(chapter_plan, None if cover is None else cover["avif"]["ok"])
+        if chapter_plan.route == "untouched-flag":
+            log.warning(
+                "chapter %s: formats %s mix with others: untouched",
+                chapter["id"],
+                sorted({q["format"] for q in chapter_plan.kept()}),
+            )
+        # logo blanks apply to the AVIF outcomes only; calibration samples take the unblanked pages (as the bulk
+        # converter), so a rendered chapter with blanks is rendered unblanked too when a group wants its samples
+        avif_first = chapter_plan.outcomes[0]["outcome"] == "avif"
+        blanked = image.blank_pages(chapter_plan, x_dir, scratch / "blank") if avif_first else {}
+        rendered = encoded = []
+        if chapter_plan.render:
+            stored = calibrate.rows(ctx.conn, chapter["series_id"])
+            sampling = any(_samples_wanted(stored.get(g), chapter["id"]) for g in plan.avif_groups(chapter_plan))
+            if not blanked or sampling:
+                rendered = encoded = image.render(chapter_plan, x_dir, render_dir)
+            if blanked:
+                sources = image.sources(chapter_plan, x_dir, blanked, scratch / "sources")
+                encoded = image.render(chapter_plan, sources, scratch / "render-blanked")
         chapter_plan.quality = _calibrate(
             ctx, chapter, chapter_plan, x_dir, rendered, work, workers, scorer, tool_paths
         )
         rec = image.process_chapter(
-            x_dir, rendered, out_dir, work / "encode", workers, scorer, chapter_plan, tool_paths
+            x_dir, encoded, blanked, cover, out_dir, work / "encode", workers, scorer, chapter_plan, tool_paths
         )
     staged = config.abs_path(cfg["paths"]["staging"]) / staged_name(ctx.conn, chapter["id"])
     try:
@@ -158,12 +197,19 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
         "pages_out": len(rec["output"]),
         "dropped": rec["dropped"],
         "reshape": rec.get("reshape"),
+        "blanked": rec["blanked"],
+        "cover": rec["cover"] and rec["cover"] | {"volume": cover_row["volume"]},
+        "cover_skipped": _cover_skipped(chapter_plan, rec, cover),
         "gray": rec["gray"],
         "avif_rejected": rec.get("avif_rejected"),
         "bytes_in": rec["bytes_in"],
         "bytes_out": rec["bytes_out"],
     }
     output_pages = _output_pages(out_dir, rec)
+    if result["cover_skipped"]:
+        log.warning(
+            "chapter %s: volume %s cover not inserted: %s", chapter["id"], cover_row["volume"], result["cover_skipped"]
+        )
 
     def record(conn):
         conn.execute(

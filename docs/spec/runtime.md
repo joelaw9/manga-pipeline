@@ -26,6 +26,7 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `paths.retention` | where removed downloads are kept for `export.retention_days` (on the share, same filesystem as downloads, outside downloads and every library root) |
 | `paths.naming_overrides` | the work folder of per-series volume overrides, `<series folder name>.yaml`; default `rules/naming` in the project, which the repository keeps empty (its files are the instance's, gitignored) |
 | `paths.scratch` | scratch folder for the chapter in hand (local disk) |
+| `paths.covers` | folder of fetched cover images (local disk); a volume cover's path is relative to it (SPEC "Conversion") |
 | `paths.kavita_path_map` | Kavita path prefix to local path prefix, for the paths Kavita reports (SPEC "Services"); not empty |
 | `workflow.attempt_limit` | failed attempts after which a chapter is `needs_human` |
 | `series.only` | names of the only series to work; empty = all |

@@ -6,7 +6,7 @@ import json
 
 from manga_pipeline import process, workflow
 
-NO_EDIT = {"drop_pages": [], "strip_removed": [], "bands": [], "join": [], "split": False}
+NO_EDIT = {"drop_pages": [], "strip_removed": [], "bands": [], "join": [], "split": False, "blank": []}
 
 
 def with_no_edit(junk_run):

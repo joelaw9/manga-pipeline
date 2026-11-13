@@ -20,6 +20,7 @@ def site_cfg(tmp_path, **changes):
             "staging": str(share / "staging"),
             "retention": str(share / "retention"),
             "scratch": str(tmp_path / "scratch"),
+            "covers": str(tmp_path / "covers"),
             "naming_overrides": str(tmp_path / "overrides"),
             "kavita_path_map": {"/kavita": str(share)},
         },

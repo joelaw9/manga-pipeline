@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw
 from manga_pipeline import archive, config, images
 from manga_pipeline.convert import pages, plan, vship
 
-NO_EDIT = {"drop_pages": [], "strip_removed": [], "bands": [], "join": [], "split": False}
+NO_EDIT = {"drop_pages": [], "strip_removed": [], "bands": [], "join": [], "split": False, "blank": []}
 QUALITY = {"gray": 80, "colour": 80}
 
 
@@ -76,15 +76,20 @@ class Chapter:
         self.out, self.work, self.rendered_dir = self.root / "out", self.root / "work", self.root / "render"
 
     def plan(self, edit=None, layout="pages", page_aspect=None, quality=QUALITY):
-        return plan.build("test chapter", self.measured, self.files, edit or NO_EDIT, layout, page_aspect, quality)
+        p = plan.build("test chapter", self.measured, self.files, edit or NO_EDIT, layout, page_aspect, quality)
+        plan.routes(p)
+        return p
 
     def run(self, chapter_plan):
         from manga_pipeline.convert import image
 
-        rendered = image.render(chapter_plan, self.x, self.rendered_dir) if chapter_plan.render else []
+        avif_first = chapter_plan.outcomes[0]["outcome"] == "avif"
+        blanked = image.blank_pages(chapter_plan, self.x, self.root / "blank") if avif_first else {}
+        src = image.sources(chapter_plan, self.x, blanked, self.root / "sources")
+        rendered = image.render(chapter_plan, src, self.rendered_dir) if chapter_plan.render else []
         with ThreadPoolExecutor(2) as pool:
             return image.process_chapter(
-                self.x, rendered, self.out, self.work, pool, scorer(), chapter_plan, tool_paths()
+                self.x, rendered, blanked, None, self.out, self.work, pool, scorer(), chapter_plan, tool_paths()
             )
 
 

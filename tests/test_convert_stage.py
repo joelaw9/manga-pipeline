@@ -15,7 +15,7 @@ from manga_pipeline.convert import calibrate, check
 from manga_pipeline.stages import convert
 
 from tests.builders import add_chapter, add_series, adopted, chapter, download
-from tests.convert_pages import NO_EDIT, colour, gray, jpeg
+from tests.convert_pages import NO_EDIT, colour, gray, jpeg, png, webp
 from tests.fakes import convert as fake
 from tests.timing import budget
 
@@ -230,6 +230,7 @@ def test_the_post_check_holds_avif_scores_lossless_pixels_and_size(tmp_path):
         "gate": "floor+size",
         "lossless": {},
         "scores": {},
+        "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
     fails = check.check(staged(tmp_path, [("001.jpg", a)]), avif, tmp_path, [{"name": "001.jpg", "bytes": 1}])
@@ -241,6 +242,7 @@ def test_the_post_check_holds_avif_scores_lossless_pixels_and_size(tmp_path):
         "gate": None,
         "lossless": {"001.jpg": {"source": "001.jpg", "mode": "exact"}},
         "scores": {},
+        "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
     fails = check.check(staged(tmp_path, [("001.jpg", a)]), lossless, tmp_path, [{"name": "001.jpg", "bytes": 10**6}])
@@ -258,6 +260,7 @@ def test_the_post_check_refuses_a_deflated_archive(tmp_path):
         "gate": None,
         "lossless": {},
         "scores": {},
+        "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
     assert check.check(path, rec, tmp_path, [{"name": "001.jpg", "bytes": len(a)}]) == ["not-store-mode"]
@@ -446,6 +449,7 @@ def test_a_luma_check_on_a_colour_page_is_done_exactly(tmp_path):
         "gate": None,
         "lossless": {"001.jpg": {"source": "001.jpg", "mode": "luma"}},
         "scores": {},
+        "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
     fails = check.check(staged(tmp_path, [("001.jpg", a)]), rec, tmp_path, [{"name": "001.jpg", "bytes": len(a)}])
@@ -560,3 +564,231 @@ def test_output_pages_not_as_many_as_the_outcome_writes_fail(site, monkeypatch):
     chapter_id = site.chapter(site.series(), [("001.webp", webp(colour()))])
     with pytest.raises(RuntimeError, match="2 output pages, the outcome writes 1"):
         site.run(chapter_id)
+
+
+@budget(load="pool")
+def test_a_blanked_rendered_chapter_samples_its_unblanked_render_and_records_the_blank(site, monkeypatch):
+    seen = []
+    real = calibrate.units
+
+    def units(chapter_plan, x_dir, rendered):
+        seen.extend(p.parent.name for p in rendered)
+        return real(chapter_plan, x_dir, rendered)
+
+    monkeypatch.setattr(calibrate, "units", units)
+    edit = {
+        **NO_EDIT,
+        "bands": [{"page": 0, "box": [0, 0, 96, 100]}],
+        "blank": [{"page": 1, "box": [10, 10, 40, 30], "fill": [200, 30, 30]}],
+    }
+    chapter_id = site.chapter(site.series(), pages(2), edit=edit)
+    outcome = site.run(chapter_id)
+    site.record(outcome)
+    assert seen and set(seen) == {"render"}, "calibration samples come from the unblanked render"
+    result = json.loads(chapter(site.conn, chapter_id)["convert_result"])
+    assert (result["outcome"], result["blanked"]) == ("avif", ["002.jpg"])
+
+
+# ---------------------------------------------------------------- volume covers
+
+
+def add_cover(site, chapter_id, data, rel="vol/1.jpg", sha256=None, volume="1"):
+    """Hand chapter_id a volume cover as intake does: the file under paths.covers and its volume_cover row."""
+    import hashlib
+
+    path = config.abs_path(site.cfg["paths"]["covers"]) / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "INSERT INTO volume_cover (chapter_id, path, sha256, volume) VALUES (?, ?, ?, ?)",
+            (chapter_id, rel, sha256 or hashlib.sha256(data).hexdigest(), volume),
+        )
+
+
+def staged_result(site, chapter_id):
+    outcome = site.run(chapter_id)
+    assert isinstance(outcome, workflow.Done), outcome
+    site.record(outcome)
+    row = chapter(site.conn, chapter_id)
+    return json.loads(row["convert_result"]), json.loads(row["output_pages"])
+
+
+COVER = jpeg(colour((200, 300), seed=77))  # wider than the 96 px test pages: scaled down to them
+
+
+@budget(load="pool")
+def test_a_volume_cover_goes_in_first_as_avif_at_the_page_width_and_bw_ignores_it(site):
+    chapter_id = site.chapter(site.series(), pages(2, page=lambda seed: gray(seed=seed).convert("RGB")))
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    assert [p["name"] for p in out] == ["000_cover.avif", "001.avif", "002.avif"]
+    assert (out[0]["width"], out[0]["height"]) == (96, 144), "scaled down to the pages' width, aspect kept"
+    assert result["cover"]["format"] == "AVIF" and result["cover"]["volume"] == "1" and result["cover_skipped"] is None
+    assert result["pages_out"] == 3 and result["gray"] is True, "a colour cover leaves a gray chapter gray"
+
+
+@budget(load="pool")
+def test_a_cover_page_already_there_is_replaced(site):
+    members = [("000_cover.jpg", jpeg(colour(seed=5))), *pages(2)]
+    chapter_id = site.chapter(site.series(), members)
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    assert [p["name"] for p in out] == ["000_cover.avif", "001.avif", "002.avif"] and result["pages_out"] == 3
+    assert (out[0]["width"], out[0]["height"]) == (96, 144), "the inserted cover, not the chapter's own"
+
+
+@budget(load="pool")
+def test_a_lossless_chapter_takes_the_cover_as_jpeg(site):
+    fake.SCORE[0] = lambda ref, dec: 50.0  # every AVIF fails: the cover's too
+    chapter_id = site.chapter(site.series(), pages(2))
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    assert result["outcome"] == "lossless" and [p["name"] for p in out] == ["000_cover.jpg", "001.jpg", "002.jpg"]
+    assert result["cover"]["format"] == "JPEG" and result["cover"]["score"] is None
+
+
+@budget(load="pool")
+def test_pages_of_2_formats_convert_to_avif_for_the_cover_without_the_size_gate(site, monkeypatch):
+    from manga_pipeline.convert import image
+
+    monkeypatch.setattr(image, "MAX_SIZE_RATIO", 0.0)  # the size gate would reject any AVIF
+    members = [("001.jpg", jpeg(colour(seed=1))), ("002.png", png(colour(seed=2)))]
+    chapter_id = site.chapter(site.series(), members)
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    assert (result["route"], result["outcome"]) == ("avif", "avif"), "force_avif: the floor gate only"
+    assert [p["name"] for p in out] == ["000_cover.avif", "001.avif", "002.avif"]
+
+
+@budget(load="pool")
+def test_an_untouched_chapter_takes_the_cover_in_its_own_format(site):
+    chapter_id = site.chapter(site.series(), [("001.webp", webp(colour(seed=1))), ("002.webp", webp(colour(seed=2)))])
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    assert result["outcome"] == "untouched" and [p["name"] for p in out] == ["000_cover.webp", "001.webp", "002.webp"]
+
+
+@budget(load="pool")
+def test_a_cover_whose_avif_fails_is_left_out_with_the_reason(site, caplog):
+    fake.SCORE[0] = lambda ref, dec: 50.0 if dec.name.startswith("000_cover") else 90.0
+    chapter_id = site.chapter(site.series(), pages(2))
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    assert result["outcome"] == "avif" and [p["name"] for p in out] == ["001.avif", "002.avif"]
+    assert result["cover"] is None and "below the floor" in result["cover_skipped"]
+    assert "cover not inserted" in caplog.text
+
+
+@budget(load="pool")
+def test_pages_sharing_no_cover_format_go_out_without_it(site):
+    fake.SCORE[0] = lambda ref, dec: 50.0
+    chapter_id = site.chapter(site.series(), [("001.jpg", jpeg(colour(seed=1))), ("002.webp", webp(colour(seed=2)))])
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    assert result["outcome"] == "untouched" and len(out) == 2
+    assert result["cover_skipped"] == "its untouched pages (JPEG, WEBP_LOSSY) share no cover format"
+
+
+@budget(load="pool")
+@pytest.mark.parametrize(
+    ("rel", "sha256", "write", "match"),
+    [
+        ("../outside.jpg", None, True, "not inside paths.covers"),
+        ("ABSOLUTE", None, False, "not inside paths.covers"),
+        ("vol/1.jpg", "0" * 64, True, "another sha256"),
+        ("vol/1.jpg", None, False, "is missing"),
+    ],
+)
+def test_a_cover_that_is_not_as_handed_over_fails_the_attempt_naming_its_path(
+    site, tmp_path, rel, sha256, write, match
+):
+    from manga_pipeline.convert import covers
+
+    chapter_id = site.chapter(site.series(), pages(1))
+    if rel == "ABSOLUTE":
+        rel = str(tmp_path / "abs.jpg")
+    add_cover(site, chapter_id, COVER, rel=rel, sha256=sha256)
+    if not write:
+        (config.abs_path(site.cfg["paths"]["covers"]) / rel).unlink()
+    with pytest.raises(covers.CoverError, match=match):
+        site.run(chapter_id)
+    assert not site.scratch(chapter_id).exists()
+
+
+@budget(load="pool")
+def test_an_avif_only_chapter_whose_avif_cover_fails_names_the_floor(site):
+    fake.SCORE[0] = lambda ref, dec: 50.0
+    from tests.convert_pages import encoded
+
+    chapter_id = site.chapter(site.series(), [("001.avif", encoded(colour(seed=1), "AVIF"))])
+    add_cover(site, chapter_id, COVER)
+    result, _ = staged_result(site, chapter_id)
+    assert result["outcome"] == "untouched" and "below the floor" in result["cover_skipped"]
+
+
+@budget(load="pool")
+def test_a_lossless_png_chapter_replaces_its_cover_page_with_a_png_cover(site):
+    fake.SCORE[0] = lambda ref, dec: 50.0
+    members = [("000_cover.png", png(colour(seed=5))), ("001.png", png(colour(seed=1))), ("002.png", png(gray()))]
+    chapter_id = site.chapter(site.series(), members)
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    assert result["outcome"] == "lossless" and [p["name"] for p in out] == ["000_cover.png", "001.png", "002.png"]
+    assert result["cover"]["format"] == "PNG" and (out[0]["width"], out[0]["height"]) == (96, 144)
+
+
+@budget(load="pool")
+def test_a_blanked_rendered_chapter_of_a_fixed_series_is_rendered_once(site, monkeypatch):
+    from manga_pipeline.convert import image
+
+    series_id = site.series()
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why) "
+            "VALUES (?, 'colour', 70, 1, 'record', 'r')",
+            (series_id,),
+        )
+    renders = []
+    real = image.render
+    monkeypatch.setattr(image, "render", lambda p, src, out: renders.append(out.name) or real(p, src, out))
+    edit = {
+        **NO_EDIT,
+        "bands": [{"page": 0, "box": [0, 0, 96, 100]}],
+        "blank": [{"page": 1, "box": [10, 10, 40, 30], "fill": [200, 30, 30]}],
+    }
+    result, _ = staged_result(site, site.chapter(series_id, pages(2), edit=edit))
+    assert renders == ["render-blanked"] and result["blanked"] == ["002.jpg"], "no group wants samples: 1 render"
+
+
+@budget(load="pool")
+def test_a_gray_chapter_whose_colour_cover_page_is_replaced_stays_gray(site):
+    members = [("000_cover.jpg", jpeg(colour(seed=5)))] + pages(2, page=lambda seed: gray(seed=seed).convert("RGB"))
+    chapter_id = site.chapter(site.series(), members)
+    add_cover(site, chapter_id, COVER)
+    result, _ = staged_result(site, chapter_id)
+    assert result["cover"] and result["gray"] is True, "neither the cover nor the page it replaces counts"
+
+
+@budget(load="pool")
+def test_a_strip_chapter_takes_the_cover_in_place_of_its_own(site):
+    members = [("000_cover.jpg", jpeg(colour((200, 300), seed=9)))] + [
+        (f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=70 + i))) for i in range(1, 4)
+    ]
+    chapter_id = site.chapter(site.series("Strip", layout="strip"), members)
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    names = [p["name"] for p in out]
+    assert result["route"] == "rendered-avif" and names[0] == "000_cover.avif" and names.count("000_cover.avif") == 1
+    assert out[0]["width"] == 200 and result["pages_out"] == len(names), "the cover at the strip's page width"
+
+
+@budget(load="pool")
+def test_a_forced_avif_that_fails_goes_out_untouched_without_the_cover(site):
+    fake.SCORE[0] = lambda ref, dec: 90.0 if dec.name.startswith("000_cover") else 50.0
+    members = [("001.jpg", jpeg(colour(seed=1))), ("002.png", png(colour(seed=2)))]
+    chapter_id = site.chapter(site.series(), members)
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    assert (result["route"], result["outcome"]) == ("avif", "untouched") and len(out) == 2
+    assert result["cover_skipped"] == "its untouched pages (JPEG, PNG) share no cover format"

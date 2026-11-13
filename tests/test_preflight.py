@@ -127,6 +127,7 @@ def site(tmp_path, database):
     share = tmp_path / "share"
     paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {
         "scratch": str(tmp_path / "scratch"),
+        "covers": str(tmp_path / "covers"),
         "naming_overrides": str(tmp_path / "overrides"),
     }
     return {**config.cached(), "database": {"path": str(database)}, "paths": paths}

@@ -1,6 +1,6 @@
 """The chapter plan (SPEC "Conversion"): what convert.image.process_chapter executes for 1 chapter. A slim builder in
 place of the bulk converter's planner: its route table and render specs are copied from optimizer/plan_routes.py
-(without volume covers and force_avif), its page entry from optimizer/plan.py page_entry.
+(volume covers and force_avif included), its page entry from optimizer/plan.py page_entry.
 
 Inputs: the download's measured pages (images.measure_pages), the extracted page files, the junk stage's edit
 (chapter_edit, checked by check_edit), the series' layout and page aspect, and the AVIF quality per encode group.
@@ -17,11 +17,12 @@ RENDERED = "rendered-avif"
 AVIF_SOURCES = frozenset({images.JPEG, images.PNG, images.WEBP_LOSSLESS})  # chapters of only these: AVIF, else lossless
 UNTOUCHED_SOURCES = frozenset({images.WEBP_LOSSY, images.GIF, images.AVIF, images.JXL})  # only these: untouched
 GRAYISH = (images.GRAY, images.TINTED, images.GRAY_MARK)  # encoded without chroma
+COVER_FORMATS = (images.AVIF, images.JPEG, images.PNG, images.WEBP_LOSSY)  # chapter formats a volume cover can match
 QUALITY_GROUPS = ("gray", "colour")  # encode groups: 1 AVIF quality each
 CLASS_RANK = {images.GRAY: 0, images.TINTED: 1, images.GRAY_MARK: 2, images.COLOUR: 3}  # rendered page = max
 CHROMA_RANK = {"420": 0, "422": 1, "444": 2}  # rendered page = max
 TURNED = range(2, 9)  # EXIF orientations readers apply: a rotation or mirror
-EDIT_KEYS = {"drop_pages": list, "strip_removed": list, "bands": list, "join": list, "split": bool}
+EDIT_KEYS = {"drop_pages": list, "strip_removed": list, "bands": list, "join": list, "split": bool, "blank": list}
 
 
 class EditError(ValueError):
@@ -36,12 +37,13 @@ class NeedsHuman(ValueError):
 class ChapterPlan:
     name: str
     pages: list  # [{"name", "index", "sha1", "format", "chroma", "jpeg_feed", "jpeg_gray", "size", "bytes", "cover"}]
-    edits: dict  # {"drop": [{"page"}], "crop": [{"page", "box"}], "join": [{"page", "sliver"}], "split", "strip"}
+    edits: dict  # {"drop": [{"page"}], "crop", "join", "split", "strip", "blank": [{"page", "box", "fill"}]}
     classes: dict  # {page name: page class}
     quality: dict  # {encode group: AVIF q}
     render: list = field(default_factory=list)  # rendered pages: [{"name", "parts" | "rows", "src", "class", "yuv"}]
     route: str = None
     outcomes: list = field(default_factory=list)  # tried in order; a measured failure moves to the next
+    force_avif: bool = False  # the volume cover needs the chapter in AVIF (its AVIF cover passed)
 
     def kept(self):
         dropped = {d["page"] for d in self.edits["drop"]}
@@ -80,6 +82,17 @@ def check_edit(text):
         if not isinstance(pair, list) or len(pair) != 2:
             raise EditError(f"chapter_edit join entries are [page, sliver] pairs, got {pair!r}")
         ints(pair, "join")
+    for b in edit["blank"]:
+        if (
+            not isinstance(b, dict)
+            or set(b) != {"page", "box", "fill"}
+            or not isinstance(b["box"], list)
+            or len(b["box"]) != 4
+            or not isinstance(b["fill"], list)
+            or len(b["fill"]) != 3
+        ):
+            raise EditError(f"chapter_edit blank entries are {{page, box: [l, t, r, b], fill: [r, g, b]}}, got {b!r}")
+        ints([b["page"], *b["box"], *b["fill"]], "blank page / box / fill")
     return edit
 
 
@@ -146,7 +159,7 @@ def _edits(entries, edit, layout, page_aspect, x_dir):
         return by_index[i]["name"]
 
     content = [q for q in entries if not q["cover"]]
-    out = {"drop": [], "crop": [], "join": [], "split": None, "strip": None}
+    out = {"drop": [], "crop": [], "join": [], "split": None, "strip": None, "blank": _blanks(entries, edit, name)}
     if layout == "strip":
         if edit["drop_pages"] or edit["bands"] or edit["join"] or edit["split"]:
             raise EditError("chapter_edit of a strip chapter may hold strip_removed only")
@@ -190,6 +203,26 @@ def _edits(entries, edit, layout, page_aspect, x_dir):
             "kept": [[0, pl["height"]]],
             "cuts": list(pl["cuts"]),
         }
+    return out
+
+
+def _blanks(entries, edit, name):
+    """The edit's logo blanks in page names: at most 1 per page, never on a dropped or cover-named page, the box inside
+    its page (end-exclusive) and the fill 1 RGB colour."""
+    by_index = {q["index"]: q for q in entries}
+    out, seen = [], set()
+    for b in edit["blank"]:
+        page = name(b["page"], "blank")
+        q = by_index[b["page"]]
+        if b["page"] in seen or b["page"] in edit["drop_pages"] or q["cover"]:
+            raise EditError(f"chapter_edit blank on page {b['page']}: a repeated, dropped or cover-named page")
+        seen.add(b["page"])
+        (left, top, right, bottom), (w, h) = b["box"], q["size"]
+        if not (0 <= left < right <= w and 0 <= top < bottom <= h):
+            raise EditError(f"chapter_edit blank box {b['box']} is not inside page {b['page']} ({w} x {h})")
+        if not all(0 <= v <= 255 for v in b["fill"]):
+            raise EditError(f"chapter_edit blank fill {b['fill']} is not an RGB colour")
+        out.append({"page": page, "box": list(b["box"]), "fill": list(b["fill"])})
     return out
 
 
@@ -237,23 +270,56 @@ def render_pages(plan):
     return out
 
 
-def routes(plan):
-    """Set the plan's route and outcomes: each outcome a measured attempt, a failure moving to the next. A rendered
-    plan: AVIF under the floor, else the original pages minus drops."""
+def needs_conversion(fmts):
+    """True when a volume cover cannot match every page of these formats: a format with no cover encoding, or more
+    than 1 format."""
+    fmts = set(fmts)
+    return bool(fmts - set(COVER_FORMATS)) or len(fmts) > 1
+
+
+def cover_format(fmts):
+    """The volume cover's encoding for pages of these formats: the 1 format they share, or None (needs_conversion).
+    No pages count as AVIF."""
+    fmts = set(fmts)
+    if needs_conversion(fmts):
+        return None
+    return next(iter(fmts)) if fmts else images.AVIF
+
+
+def routes(plan, cover=None):
+    """Set the plan's route, force_avif and outcomes: each outcome a measured attempt, a failure moving to the next,
+    with the volume cover's format in it ("cover": None when it takes none) and its expected pages ("pages_out", the
+    cover included). cover: None (the chapter takes no volume cover), else whether its AVIF passed. A rendered plan:
+    AVIF under the floor, else the original pages minus drops. A plan that is not rendered, whose AVIF cover passed and
+    whose non-cover pages share no cover format: AVIF under the floor, else untouched (force_avif)."""
     kept = plan.kept()
     all_fmts = sorted({q["format"] for q in kept})
-    avif = {"outcome": "avif", "gate": "floor+size", "edits": "drops"}
-    untouched = {"outcome": "untouched", "gate": None, "edits": "drops"}
+    src = sorted({q["format"] for q in kept if not q["cover"]})
+    has_cover_page = any(Path(q["name"]).stem == archive.COVER_STEM for q in kept)
+
+    def outcome(name, gate, edits, cover_fmts, pages):
+        fmt = cover_format(cover_fmts) if cover is not None else None
+        if fmt == images.AVIF and not cover:
+            fmt = None
+        replaced = 1 if fmt and has_cover_page else 0
+        return {"outcome": name, "gate": gate, "edits": edits, "cover": fmt, "pages_out": pages + bool(fmt) - replaced}
+
+    n = len(kept)
+    untouched = outcome("untouched", None, "drops", src, n)
     base = route(all_fmts)
+    plan.force_avif = not plan.render and bool(cover) and needs_conversion(src)
     if plan.render:
-        plan.outcomes = [{"outcome": "avif", "gate": "floor", "edits": "all"}, untouched]
+        plan.outcomes = [outcome("avif", "floor", "all", [images.AVIF], len(plan.render)), untouched]
+    elif plan.force_avif:
+        plan.outcomes = [outcome("avif", "floor", "drops", [images.AVIF], n), untouched]
     elif base == "avif":
-        plan.outcomes = [avif, {"outcome": "lossless", "gate": None, "edits": "drops"}]
+        avif = outcome("avif", "floor+size", "drops", [images.AVIF], n)
+        plan.outcomes = [avif, outcome("lossless", None, "drops", src, n)]
     elif base == "avif-or-untouched":
-        plan.outcomes = [avif, untouched]
+        plan.outcomes = [outcome("avif", "floor+size", "drops", [images.AVIF], n), untouched]
     else:
         plan.outcomes = [untouched]
-    plan.route = RENDERED if plan.render else base
+    plan.route = RENDERED if plan.render else "avif" if plan.force_avif else base
 
 
 def avif_groups(plan):
@@ -270,7 +336,8 @@ def avif_groups(plan):
 def build(name, measured, files, edit, layout, page_aspect, quality):
     """The ChapterPlan of 1 chapter. measured: images.measure_pages of the download; files: its pages' extracted files
     (pages.extract), in the same order; edit: check_edit's dict; layout: "strip" or "pages"; page_aspect: the series'
-    page aspects (a list) or None; quality: {encode group: q}. Raises NeedsHuman (an EXIF rotation) and EditError."""
+    page aspects (a list) or None; quality: {encode group: q}. Raises NeedsHuman (an EXIF rotation) and EditError.
+    Route and outcomes are set after, by routes: they depend on the volume cover's AVIF encode."""
     files = [Path(f) for f in files]
     entries = [page_entry(p, f) for p, f in zip(measured, files, strict=True)]
     plan = ChapterPlan(
@@ -283,5 +350,4 @@ def build(name, measured, files, edit, layout, page_aspect, quality):
     e = plan.edits
     if e["crop"] or e["join"] or e["split"] or e["strip"]:
         plan.render = render_pages(plan)
-    routes(plan)
     return plan

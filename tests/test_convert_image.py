@@ -103,6 +103,9 @@ def jpeg_with_exif(im, exif):
         ({**NO_EDIT, "join": [[1]]}, "join"),
         ({**NO_EDIT, "join": [[1, 2, 3]]}, "pairs"),
         ({**NO_EDIT, "strip_removed": [{"start": 1}]}, "start and end"),
+        ({**NO_EDIT, "blank": [{"page": 0, "box": [0, 0, 1, 1]}]}, "blank entries"),
+        ({**NO_EDIT, "blank": [{"page": 0, "box": [0, 0, 1], "fill": [1, 2, 3]}]}, "blank entries"),
+        ({**NO_EDIT, "blank": [{"page": 0, "box": [0, 0, 1, 1], "fill": [1, 2, 3.5]}]}, "integers"),
     ],
 )
 def test_a_malformed_edit_is_refused_naming_what_is_wrong(edit, match):
@@ -390,3 +393,125 @@ def test_a_page_in_3_pieces_joins_its_2_pairs_into_1_page(tmp_path):
     ch = Chapter(tmp_path, [(f"{i:03d}.jpg", jpeg(colour((96, 40), seed=i))) for i in range(3)])
     p = ch.plan({**NO_EDIT, "join": [[0, 1], [1, 2]]})
     assert [r["src"] for r in p.render] == [["001.jpg", "002.jpg", "003.jpg"]]
+
+
+# ---------------------------------------------------------------- logo blanks
+
+BOX, FILL = [10, 10, 40, 30], [200, 30, 30]
+BLANK = {**NO_EDIT, "blank": [{"page": 0, "box": BOX, "fill": FILL}]}
+
+
+def filled(path, box=BOX, fill=FILL):
+    """Is box of the PNG at path exactly fill?"""
+    import numpy as np
+
+    with Image.open(path) as im:
+        a = np.asarray(im.convert("RGB"))
+    x0, y0, x1, y1 = box
+    return bool((a[y0:y1, x0:x1] == fill).all())
+
+
+@budget(load="pool")
+@pytest.mark.parametrize(
+    ("blank", "drop", "match"),
+    [
+        ({"page": 1, "box": BOX, "fill": FILL}, [1], "repeated, dropped or cover-named"),
+        ({"page": 0, "box": BOX, "fill": FILL}, [], "repeated, dropped or cover-named"),  # page 0 is the cover
+        ({"page": 1, "box": [0, 0, 97, 10], "fill": FILL}, [], "not inside page 1"),
+        ({"page": 1, "box": [10, 10, 10, 20], "fill": FILL}, [], "not inside page 1"),
+        ({"page": 1, "box": BOX, "fill": [0, 0, 256]}, [], "not an RGB colour"),
+    ],
+)
+def test_a_blank_that_cannot_apply_is_refused(tmp_path, blank, drop, match):
+    ch = Chapter(tmp_path, [("000_cover.jpg", jpeg(colour(seed=9))), ("001.jpg", jpeg(colour()))])
+    with pytest.raises(plan.EditError, match=match):
+        ch.plan({**NO_EDIT, "drop_pages": drop, "blank": [blank]})
+
+
+@budget(load="pool")
+def test_2_blanks_on_1_page_are_refused(tmp_path):
+    ch = Chapter(tmp_path, [("001.jpg", jpeg(colour()))])
+    with pytest.raises(plan.EditError, match="repeated"):
+        ch.plan({**NO_EDIT, "blank": BLANK["blank"] * 2})
+
+
+@budget(load="pool")
+def test_a_blanked_page_is_encoded_from_its_blanked_pixels_and_keeps_its_name_and_source_bytes(tmp_path):
+    data = jpeg(colour())
+    ch = Chapter(tmp_path, [("001.jpg", data), ("002.jpg", jpeg(colour(seed=4)))])
+    rec = ch.run(ch.plan(BLANK))
+    assert rec["outcome"] == "avif" and rec["blanked"] == ["001.jpg"]
+    blanked = ch.root / "blank" / "001.png"
+    assert filled(blanked), "the box is filled with the fill colour"
+    by_page = {Path(a[-1]).stem: a for a in calls("avifenc")}
+    assert by_page["001"][-2].endswith("001.ref.png") and "--ignore-exif" not in by_page["001"], "no JPEG feed"
+    assert by_page["002"][-2].endswith("002.jpg"), "an unblanked page keeps its JPEG feed"
+    first = rec["avif_pages"][0]
+    assert (first["name"], first["bytes_in"], first["fmt"]) == ("001.jpg", len(data), image.RENDERED_FMT)
+    assert [o["name"] for o in rec["output"]] == ["001.avif", "002.avif"]
+
+
+@budget(load="pool")
+def test_a_blank_is_not_applied_on_the_lossless_or_untouched_outcomes(tmp_path):
+    fake.SCORE[0] = lambda ref, dec: 50.0
+    data = jpeg(colour())
+    ch = Chapter(tmp_path, [("001.jpg", data)])
+    rec = ch.run(ch.plan(BLANK))
+    assert rec["outcome"] == "lossless" and rec["blanked"] == []
+    assert pages.pixels_match(data, (ch.out / "001.jpg").read_bytes(), "exact")[0], "the logo is kept"
+
+
+@budget(load="pool")
+def test_a_chapter_whose_first_outcome_is_not_avif_is_never_blanked(tmp_path):
+    data = webp(colour())
+    ch = Chapter(tmp_path / "w", [("001.webp", data)])
+    rec = ch.run(ch.plan(BLANK))
+    assert rec["outcome"] == "untouched" and rec["blanked"] == [] and not (ch.root / "blank").exists()
+    assert (ch.out / "001.webp").read_bytes() == data
+
+
+@budget(load="pool")
+def test_a_rendered_chapter_is_rendered_from_its_blanked_page(tmp_path):
+    ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour(seed=4)))])
+    edit = {**BLANK, "bands": [{"page": 0, "box": [0, 0, 96, 100]}]}
+    rec = ch.run(ch.plan(edit))
+    assert rec["outcome"] == "avif" and rec["blanked"] == ["001.jpg"]
+    assert filled(ch.rendered_dir / "001.png"), "the render reads the blanked page"
+
+
+@budget(load="pool")
+def test_a_strip_chapter_is_blanked_before_it_is_stacked(tmp_path):
+    ch = Chapter(tmp_path, [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=i))) for i in range(1, 4)])
+    p = ch.plan({**BLANK, "blank": [{"page": 1, "box": [10, 10, 40, 30], "fill": FILL}]}, layout="strip")
+    rec = ch.run(p)
+    assert rec["blanked"] == ["002.jpg"]
+    top = p.edits["strip"]["pages"][1]["top"]  # page 002 starts here in the stacked strip
+    with Image.open(ch.rendered_dir / "001.png") as first:
+        h = first.height
+    assert top + 30 <= h and filled(ch.rendered_dir / "001.png", [10, top + 10, 40, top + 30])
+
+
+@budget(load="pool")
+def test_a_blanked_page_keeps_its_alpha(tmp_path):
+    im = colour().convert("RGBA")
+    im.putalpha(128)
+    ch = Chapter(tmp_path, [("001.png", png(im))])
+    p = ch.plan({**NO_EDIT, "blank": [{"page": 0, "box": BOX, "fill": FILL}]})
+    blanked = image.blank_pages(p, ch.x, tmp_path / "blank")
+    with Image.open(blanked["001.png"]) as out:
+        assert out.mode == "RGBA" and out.getchannel("A").getextrema() == (128, 128), "alpha kept"
+    assert filled(blanked["001.png"])
+
+
+@budget(load="pure")
+def test_the_cover_width_is_the_most_common_non_cover_width_first_seen_on_a_tie():
+    from types import SimpleNamespace
+
+    from manga_pipeline.convert import covers
+
+    def p(*pages):
+        return SimpleNamespace(pages=[{"size": [w, 10], "cover": c} for w, c in pages])
+
+    assert covers.width(p((300, True), (80, False), (90, False), (90, False))) == 90
+    assert covers.width(p((80, False), (90, False))) == 80, "a tie goes to the first seen"
+    assert covers.width(p((300, True))) == 300, "only cover pages: their width"
