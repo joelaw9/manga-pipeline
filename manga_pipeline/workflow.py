@@ -17,6 +17,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from manga_pipeline import db
+from manga_pipeline.clients import kavita as kavita_client
+from manga_pipeline.clients import suwayomi as suwayomi_client
+from manga_pipeline.errors import Unreachable
 
 log = logging.getLogger(__name__)
 STAGES = ("discover", "validate", "junk", "convert", "comicinfo", "publish", "confirm")
@@ -28,7 +31,7 @@ PART_STAGES = {
 # A share path failing with these is the share being unreachable, not the chapter failing.
 SHARE_ERRNOS = {errno.EIO, errno.ESTALE, errno.ETIMEDOUT}
 # The scope filter of every work-picking query: in_scope, registered on the connection by Context.
-SCOPE = "in_scope(s.name)"
+SCOPE = "in_scope(s.name, s.kavita_library_id)"
 
 
 @dataclass(frozen=True)
@@ -42,10 +45,19 @@ class Context:
     unreachable: dict = field(default_factory=dict)
     # Outcomes of this run by kind: done, waiting, failed.
     counts: Counter = field(default_factory=Counter)
+    # The run's 1 client of each service (SPEC "Services"): what it learns holds for the run. None = built from cfg.
+    suwayomi: Any = None
+    kavita: Any = None
 
     def __post_init__(self):
+        if self.suwayomi is None:
+            object.__setattr__(self, "suwayomi", suwayomi_client.from_config(self.cfg))
+        if self.kavita is None:
+            object.__setattr__(self, "kavita", kavita_client.from_config(self.cfg))
         # SQL's scope filter is in_scope itself, so the rule has 1 definition.
-        self.conn.create_function("in_scope", 1, lambda name: in_scope(self.cfg, name), deterministic=True)
+        self.conn.create_function(
+            "in_scope", 2, lambda name, library: in_scope(self.cfg, name, library), deterministic=True
+        )
 
 
 @dataclass(frozen=True)
@@ -65,18 +77,12 @@ class Failed:
     error: str
 
 
-class Unreachable(Exception):
-    """A service the stage needs cannot be reached: the chapter stays ready at no attempt, and the part claims no
-    chapter at that stage for the rest of the run (raised outside a stage, it ends the run)."""
-
-    def __init__(self, service):
-        super().__init__(service)
-        self.service = service
-
-
-def in_scope(cfg, series_name):
-    """Whether a series is worked: series.only is empty or names it. The 1 definition of scope; SQL calls it as
-    in_scope(name) (SCOPE)."""
+def in_scope(cfg, series_name, kavita_library_id):
+    """Whether a series is worked: Kavita holds it in the library kavita.library_id or does not hold it yet
+    (kavita_library_id None: a new series), and series.only is empty or names it. The 1 definition of scope; SQL
+    calls it as in_scope(name, kavita_library_id) (SCOPE)."""
+    if kavita_library_id is not None and kavita_library_id != cfg["kavita"]["library_id"]:
+        return False
     only = cfg["series"]["only"]
     return not only or series_name in only
 
@@ -151,10 +157,10 @@ def work(ctx, chapter, stage):
         _finish(ctx, chapter, e)
         ctx.unreachable[chapter["stage"]] = e.service
         log.warning(
-            "%s: %s: %s unreachable; stage %s skipped for this run",
+            "%s: %s: unreachable (%s); stage %s skipped for this run",
             ctx.part,
             _name(chapter),
-            e.service,
+            e,
             chapter["stage"],
         )
         return e
@@ -313,7 +319,7 @@ def run_part(ctx, body):
         body(ctx)
     except Unreachable as e:
         services.add(e.service)
-        log.warning("%s: %s unreachable, run ended", ctx.part, e.service)
+        log.warning("%s: unreachable (%s), run ended", ctx.part, e)
         result = "unreachable"
     except Exception:
         log.exception("%s: run failed", ctx.part)

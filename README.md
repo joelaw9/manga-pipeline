@@ -16,7 +16,7 @@ python -m pip install --group dev
 python -m manga_pipeline.cli --help
 ```
 
-Commands: `intake`, `process`, `export` (the 3 parts, each on its own timer), `status`, `retry CHAPTER_ID` / `retry --series ID`, `state reset --yes`, `state adopt --yes`. `--config` and `--set` go before the command. A part refuses to run (exit 4) until this database owns the share: run `state adopt --yes` once, with the share mounted.
+Commands: `intake`, `process`, `export` (the 3 parts, each on its own timer), `status`, `retry CHAPTER_ID` / `retry --series ID`, `state reset --yes`, `state adopt --yes`, `smoke` (checks Suwayomi and Kavita with reads only; exit 1 when a check fails). `--config` and `--set` go before the command. A part refuses to run (exit 4) until this database owns the share: run `state adopt --yes` once, with the share mounted.
 
 ## Tests
 

@@ -20,9 +20,18 @@ paths:
   library: "$TMP/share/library"
   staging: "$TMP/share/staging"
   scratch: "$TMP/scratch"
+  kavita_path_map: {"/kavita": "$TMP/share"}
 
 workflow:
   attempt_limit: 3
 
 series:
   only: []
+
+suwayomi:
+  url: "http://suwayomi.invalid"
+
+kavita:
+  url: "http://kavita.invalid"
+  api_key: "test-key"
+  library_id: 4

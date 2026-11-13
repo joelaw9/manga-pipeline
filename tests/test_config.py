@@ -39,9 +39,31 @@ def test_shipped_example_passes_itself():
 
 
 @budget(load="fs")
+@pytest.mark.parametrize(
+    ("line", "column"),
+    [
+        ('  api_key: "hunter2\\media"', 21),
+        ("  api_key: *hunter2", 12),
+        ("  api_key: !hunter2 x", 12),
+        ("  api_key: @hunter2", 12),
+    ],
+    ids=["escape", "alias", "tag", "reserved-character"],
+)
+def test_a_file_that_is_not_yaml_is_named_by_line_and_column_without_its_content(tmp_path, line, column):
+    path = tmp_path / "config.yaml"
+    path.write_text(f"kavita:\n{line}\n", encoding="utf-8")
+    with pytest.raises(config.ConfigError) as e:
+        real_load(path)
+    assert f"not valid YAML at line 2, column {column}" in str(e.value), "SPEC 'Config': line and column"
+    assert "hunter2" not in str(e.value), "SPEC 'Config': no error shows the file's content"
+
+
+@budget(load="fs")
 def test_default_config_is_the_test_copy():
     cfg = config.cached()
-    paths = [cfg["logging"]["dir"], cfg["lock"]["dir"], cfg["database"]["path"], *cfg["paths"].values()]
+    folders = {k: v for k, v in cfg["paths"].items() if k != "kavita_path_map"}
+    local_prefixes = cfg["paths"]["kavita_path_map"].values()
+    paths = [cfg["logging"]["dir"], cfg["lock"]["dir"], cfg["database"]["path"], *folders.values(), *local_prefixes]
     outside = [p for p in paths if not config.abs_path(p).is_relative_to(TMP)]
     assert not outside, "tests must get tests/test_config.yaml, every path in its $TMP dir"
 

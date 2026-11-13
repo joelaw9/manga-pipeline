@@ -1,0 +1,13 @@
+{
+ "errors": [
+  {
+   "message": "Invalid syntax with offending token '<EOF>' at line 1 column 13",
+   "locations": [
+    {
+     "line": 1,
+     "column": 13
+    }
+   ]
+  }
+ ]
+}

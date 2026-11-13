@@ -39,6 +39,10 @@ A chapter that fails validation is deleted through Suwayomi and downloaded again
 
 A download is taken only once Suwayomi flags its chapter downloaded; a completed series is refreshed by `intake` when its check is due. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#suwayomi)
 
+## Services
+
+Suwayomi and Kavita are reached through 1 HTTP layer: what is retried, when a service counts as unreachable, how Kavita's paths map to local ones, and the read-only `smoke` check. Rules: [docs/spec/services.md](docs/spec/services.md#services)
+
 ## Junk decisions
 
 Candidate junk pages are matched against stored decisions, per page signature; Claude decides the rest through `junk review`, and the chapter waits meanwhile. Rules: [docs/spec/junk.md](docs/spec/junk.md#junk-decisions)

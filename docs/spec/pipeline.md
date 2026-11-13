@@ -21,7 +21,7 @@ Order of work:
 - `process` runs the junk stage for every ready chapter of a series before it converts any of them, so what repeats across chapters is seen before a decision is made.
 - `export` works in this order each run: it ends `kavita_scan` waits, adds `ComicInfo.xml` to the ready chapters, then publishes series by series with 1 scan per series.
 
-With `series.only` set, every part works only the series it names; nothing else is read or written.
+Every part works only the series in scope: a series Kavita holds in the library `kavita.library_id`, or a new series (Kavita does not hold it yet); with `series.only` set, only the series it names. Nothing else is read or written.
 
 Hand-off between parts:
 

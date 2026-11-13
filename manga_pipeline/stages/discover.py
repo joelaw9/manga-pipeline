@@ -15,7 +15,7 @@ def scan(ctx):
     # Not Path.rglob: it swallows the OSError of a folder it cannot read, which would hide an unreachable share.
     for folder, _, files in os.walk(downloads, onerror=_raise):
         found += [Path(folder, name) for name in files if Path(name).suffix == ".cbz"]
-    found = [p for p in sorted(found) if workflow.in_scope(ctx.cfg, p.parent.name)]
+    found = [p for p in sorted(found) if workflow.in_scope(ctx.cfg, p.parent.name, None)]
     with db.transaction(ctx.conn):
         for path in found:
             if ctx.conn.execute("SELECT 1 FROM chapter WHERE download_path = ?", (str(path),)).fetchone():

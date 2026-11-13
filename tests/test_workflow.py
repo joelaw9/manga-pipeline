@@ -93,6 +93,42 @@ def test_out_of_scope_series_is_not_claimed(ctx):
     assert workflow.claim(workflow.Context(cfg, ctx.conn, "process"), ("junk",)) is None
 
 
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("only", "library", "want"),
+    [
+        ([], None, True),
+        ([], 4, True),
+        ([], 5, False),
+        (["S"], 4, True),
+        (["S"], None, True),
+        (["Other"], 4, False),
+        (["S"], 5, False),
+    ],
+    ids=["new", "its-library", "other-library", "named", "named-new", "not-named", "named-other-library"],
+)
+def test_in_scope_needs_the_configured_library_and_a_name_in_series_only(only, library, want):
+    cfg = {"kavita": {"library_id": 4}, "series": {"only": only}}
+    assert workflow.in_scope(cfg, "S", library) is want, "SPEC 'Parts': its library or new, and named"
+
+
+@budget(load="db")
+def test_a_run_has_1_client_of_each_service(ctx):
+    assert ctx.suwayomi.base == ctx.cfg["suwayomi"]["url"] and ctx.kavita.base == ctx.cfg["kavita"]["url"]
+    given = workflow.Context(ctx.cfg, ctx.conn, "intake", suwayomi="a suwayomi", kavita="a kavita")
+    assert (given.suwayomi, given.kavita) == ("a suwayomi", "a kavita"), "a test's fakes are used as given"
+
+
+@budget(load="db")
+def test_series_of_another_kavita_library_is_not_claimed(ctx):
+    other = ctx.cfg["kavita"]["library_id"] + 1
+    add_chapter(ctx.conn, add_series(ctx.conn, "Elsewhere", "kavita", kavita_library_id=other), "c1", "junk")
+    assert workflow.claim(ctx, ("junk",)) is None, "SPEC 'Parts': other libraries' series are out of scope"
+    mine = add_series(ctx.conn, "Mine", "kavita", kavita_library_id=ctx.cfg["kavita"]["library_id"])
+    chapter_id = add_chapter(ctx.conn, mine, "c1", "junk")
+    assert workflow.claim(ctx, ("junk",))["id"] == chapter_id
+
+
 @budget(load="db")
 def test_done_moves_to_the_next_stage_with_attempts_reset(ctx):
     row = claimed(ctx)

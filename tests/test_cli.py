@@ -21,6 +21,7 @@ ARGV = {
     "export": ["export"],
     "status": ["status"],
     "retry": ["retry", "1"],
+    "smoke": ["smoke"],
     "state reset": ["state", "reset", "--yes"],
     "state adopt": ["state", "adopt", "--yes"],
 }
@@ -34,6 +35,7 @@ SPEC = {
     "export": ({"export"}, "export.log", PART_CHECKS),
     "status": (set(), None, []),
     "retry": (set(), None, []),
+    "smoke": (set(), None, ["workflow settings", "service settings"]),
     "state reset": (set(PARTS), None, [*LOCKED, "share ownership"]),
     "state adopt": (set(PARTS), None, [*LOCKED, "staging folder"]),
 }

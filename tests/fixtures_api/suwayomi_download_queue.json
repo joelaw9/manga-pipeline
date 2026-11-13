@@ -1,0 +1,29 @@
+{
+ "data": {
+  "downloadStatus": {
+   "state": "STOPPED",
+   "queue": [
+    {
+     "state": "ERROR",
+     "tries": 3,
+     "progress": 0.0,
+     "position": 0,
+     "chapter": {
+      "id": 541053,
+      "mangaId": 106422
+     }
+    },
+    {
+     "state": "ERROR",
+     "tries": 3,
+     "progress": 0.0,
+     "position": 1,
+     "chapter": {
+      "id": 572051,
+      "mangaId": 106422
+     }
+    }
+   ]
+  }
+ }
+}
