@@ -268,20 +268,12 @@ def reshape_kind(edits):
     return "restitch" if edits["strip"] else "split" if edits["split"] else "rejoin"
 
 
-def blank(rgb, box, fill):
-    """A copy of the RGB page array with box (l, t, r, b; end-exclusive) filled with fill (an RGB colour)."""
-    out = np.array(rgb, dtype=np.uint8)
-    x0, y0, x1, y1 = box
-    out[y0:y1, x0:x1] = fill
-    return out
-
-
 def blank_pages(chapter_plan, x_dir, out_dir):
     """The plan's logo blanks applied: {page name: its blanked PNG in out_dir}, alpha kept ({} when it has none)."""
     out = {}
     for b in chapter_plan.edits["blank"]:
         im, alpha = images.open_image(Path(x_dir) / b["page"])
-        blanked = Image.fromarray(blank(np.asarray(im.convert("RGB")), b["box"], b["fill"]))
+        blanked = Image.fromarray(images.blank(np.asarray(im.convert("RGB")), b["box"], b["fill"]))
         if alpha:
             blanked.putalpha(im.getchannel("A"))
         Path(out_dir).mkdir(parents=True, exist_ok=True)

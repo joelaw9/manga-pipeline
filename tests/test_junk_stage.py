@@ -14,12 +14,13 @@ from PIL import Image
 from manga_pipeline import cli, config, db, intake, process, state, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
-from manga_pipeline.junk import ocr, review, store
+from manga_pipeline.convert import plan
+from manga_pipeline.junk import logo_units, ocr, review, store
 
 from tests.builders import config_file
 from tests.fakes.suwayomi import page as fake_page
 from tests.timing import budget
-from tests.world import World, cbz, decide_junk
+from tests.world import World, cbz, decide_junk, logo_cbz, logo_page
 
 
 class Site:
@@ -276,3 +277,137 @@ def test_a_chapter_leaving_junk_has_its_chapter_edit_with_every_key(site):
         "strip_removed": [],
         "blank": [],
     }, "the credit page (download index 3) is dropped; every key is present"
+
+
+# ---------------------------------------------------------------- logos (SPEC "Junk decisions": units, chapter edit)
+
+
+def decide_kinds(cfg, verdicts):
+    """A person's verdict per candidate kind {kind: verdict} on every open candidate; returns the kinds decided."""
+    with closing(db.connect(cfg)) as conn:
+        rows = review.listing(conn, cfg, everything=True)
+        for r in rows:
+            review.decide(conn, r["id"], verdicts[r["kind"]], "human", workflow.now())
+    return sorted(r["kind"] for r in rows)
+
+
+def edits(site):
+    return [json.loads(text) for (text,) in site.rows("SELECT edit FROM chapter_edit ORDER BY chapter_id")]
+
+
+@budget(load="db", seconds=10)
+def test_a_badge_holds_its_chapters_on_1_candidate_and_a_junk_decision_blanks_it(site):
+    for n in (2, 3):
+        site.download("Alpha", n, logo_cbz(f"b{n}"))
+    site.parts()
+    assert site.chapters() == [("junk", "waiting", "junk_decision")] * 2, "an undecided badge holds its chapter"
+    got = open_candidates(site)
+    assert [c["kind"] for c in got] == ["logo"], "the same badge in 2 chapters is 1 logo candidate"
+    folder = config.abs_path(site.cfg["paths"]["candidates"]) / got[0]["folder"]
+    assert {p.name for p in folder.iterdir()} >= {"unit.png", "context.png"}, "its 2 review images"
+    assert decide_junk(site.cfg, "junk") == 1
+    process.run(site.cfg)
+    assert all(c[0] != "junk" for c in site.chapters()), "1 decision frees both"
+    for edit in edits(site):
+        assert [b["page"] for b in edit["blank"]] == [3] and edit["drop_pages"] == [], "the badge page is blanked"
+        assert plan.check_edit(json.dumps(edit)) == edit, "convert accepts the blank"
+        x0, y0, x1, y1 = edit["blank"][0]["box"]
+        assert 0 <= x0 < x1 <= 1200 and 0 <= y0 < y1 <= 1800, "the box lies in the page"
+        assert all(245 <= v <= 255 for v in edit["blank"][0]["fill"]), "the fill is the white margin around it"
+
+
+@budget(load="db", seconds=10)
+def test_a_kept_badge_gives_no_blank(site):
+    site.download("Alpha", 2, logo_cbz("k2"))
+    site.parts()
+    assert decide_junk(site.cfg, "keep") == 1
+    process.run(site.cfg)
+    assert [e["blank"] for e in edits(site)] == [[]], "a kept badge stays"
+
+
+@budget(load="db", seconds=10)
+def test_a_scan_made_before_logos_is_scanned_again(site):
+    site.download("Alpha", 2, logo_cbz("o2"))
+    site.parts()
+    with closing(db.connect(site.cfg)) as conn:
+        conn.execute("UPDATE junk_scan SET scan = json_remove(scan, '$.marks'), candidates = '[]'")
+        conn.execute("DELETE FROM junk_candidate")
+    process.run(site.cfg)
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "the chapter is held again"
+    (scan,) = site.rows("SELECT scan FROM junk_scan")
+    assert [g["page"] for g in json.loads(scan[0])["marks"]] == [3], "its new scan holds the badge"
+
+
+def strip_logo_cbz(seed):
+    """4 white strip pages of 1200 x 1800, each with a gray noisy panel of its own (a gray chapter: a coloured panel
+    would make the badge page colour), the third also with the badge."""
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        for n in range(1, 5):
+            im = Image.open(io.BytesIO(logo_page())) if n == 3 else Image.new("RGB", (1200, 1800), "white")
+            im.paste(Image.open(io.BytesIO(noise(f"{seed} {n}", (1000, 600)))).convert("L"), (100, 900))
+            out = io.BytesIO()
+            im.save(out, "PNG")
+            z.writestr(f"{n:03}.png", out.getvalue())
+    return data.getvalue()
+
+
+@budget(load="db", seconds=20)
+def test_a_badge_in_a_strip_chapter_is_offered_and_blanked_on_its_page(site, monkeypatch):
+    monkeypatch.setattr(ocr, "text", lambda im, device: "")
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    site.download("Long", 2, strip_logo_cbz("s2"))
+    site.parts()
+    assert site.chapters() == [("junk", "waiting", "junk_decision")]
+    kinds = decide_kinds(site.cfg, {"block": "keep", "probe": "keep", "piece": "keep", "logo": "junk"})
+    assert kinds.count("logo") == 1, kinds
+    process.run(site.cfg)
+    (edit,) = edits(site)
+    assert [b["page"] for b in edit["blank"]] == [2] and edit["strip_removed"] == [], "download page 2 is blanked"
+    assert plan.check_edit(json.dumps(edit)) == edit, "convert accepts a strip chapter's blank"
+
+
+def jpeg_logo_cbz(seed):
+    """6 gray JPEG pages of 1200 x 1800 (AVIF outcome: a blank applies), the third a white page with the badge."""
+    from tests.convert_pages import gray, jpeg
+
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        for n in range(6):
+            im = (
+                Image.open(io.BytesIO(logo_page()))
+                if n == 2
+                else gray((1200, 1800), seed=zlib.crc32(f"{seed}{n}".encode()))
+            )
+            z.writestr(f"{n + 1:03}.jpg", jpeg(im))
+    return data.getvalue()
+
+
+@budget(load="pool", seconds=60)
+@pytest.mark.parametrize("verdict", ["junk", "keep"])
+def test_a_badge_is_painted_over_in_the_published_chapter_only_when_junk(site, verdict):
+    from manga_pipeline import export
+
+    site.download("Alpha", 2, jpeg_logo_cbz("p2"))
+    site.parts()
+    kinds = decide_kinds(site.cfg, {"page": "keep", "frame": "keep", "logo": verdict})
+    assert kinds.count("logo") == 1, kinds
+    process.run(site.cfg)
+    export.run(site.cfg)
+    ((path, result),) = site.rows(
+        "SELECT p.library_path, c.convert_result FROM published_file p JOIN chapter c ON c.identity = p.identity"
+        " WHERE p.origin = 'pipeline'"
+    )
+    result = json.loads(result)
+    assert result["outcome"] == "avif" and result["blanked"] == (["003.jpg"] if verdict == "junk" else []), result
+    logo = logo_units.measure(2, Image.open(io.BytesIO(logo_page())).convert("RGB"))
+    x0, y0, x1, y1 = logo["box"]
+    with zipfile.ZipFile(path) as z:
+        name = sorted(n for n in z.namelist() if n != "ComicInfo.xml")[2]
+        page = np.asarray(Image.open(io.BytesIO(z.read(name))).convert("L")).astype(int)
+    spread = np.ptp(page[y0:y1, x0:x1])
+    if verdict == "junk":
+        assert spread <= 12, "the published page's badge box is 1 flat colour: the badge is painted over"
+    else:
+        assert spread > 100, "a kept badge is still on the published page"

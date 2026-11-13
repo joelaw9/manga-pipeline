@@ -477,3 +477,18 @@ def measure_pages(cbz, known=None):
             raise ValueError(f"{cbz}: page {index} ({name}) cannot be measured: {e}") from e
         out.append({f: page[f] for f in PAGE_FIELDS})
     return out
+
+
+def blank(rgb, box, fill):
+    """A copy of the page (RGB uint8 array) with `box` filled with `fill`: a logo's blank (SPEC "Junk decisions", the
+    chapter edit's `blank`). Raises ValueError for a box outside the page or a fill that is not one RGB colour; the
+    input is never modified."""
+    out = np.array(rgb, dtype=np.uint8)
+    x0, y0, x1, y1 = box
+    h, w = out.shape[:2]
+    if not (0 <= x0 < x1 <= w and 0 <= y0 < y1 <= h):
+        raise ValueError(f"blank box {tuple(box)} is not inside the {w}x{h} page")
+    if len(fill) != 3 or not all(0 <= int(v) <= 255 for v in fill):
+        raise ValueError(f"blank fill {fill!r} is not an RGB colour")
+    out[y0:y1, x0:x1] = fill
+    return out

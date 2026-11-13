@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from manga_pipeline import cli, db, images, names
-from manga_pipeline.junk import candidates, frames, importing, store
+from manga_pipeline.junk import candidates, frames, importing, marks, store
 
 from tests.builders import config_file, site_cfg
 from tests.timing import budget
@@ -160,6 +160,11 @@ BULK_SCHEMA = (
 )
 
 
+def logo(grey=200, w=40):
+    """A logo template: a solid block of 1 colour (marks.Template), w x 20."""
+    return marks.Template(np.full((20, w, 3), grey, np.uint8), np.ones((20, w), bool))
+
+
 def bulk_store(path):
     """A small bulk-converter store in WAL mode whose rows stay in the WAL (the open connection is returned)."""
     c = sqlite3.connect(path, autocommit=True)
@@ -190,7 +195,16 @@ def bulk_store(path):
         " '2026-11-06 10:00:06')",
         (vec,),
     )
-    c.execute("INSERT INTO marks (series, template, w, h, decision) VALUES (NULL, x'00', 1, 1, 'approve')")
+    c.execute(
+        "INSERT INTO marks (series, template, w, h, decision, added) VALUES (NULL, ?, 40, 20, 'approve',"
+        " '2026-11-06 10:00:07')",
+        (logo().to_png(),),
+    )
+    c.execute(
+        "INSERT INTO marks (series, template, w, h, decision, added) VALUES ('S', ?, 60, 20, 'keep',"
+        " '2026-11-06 10:00:08')",
+        (logo(90, 60).to_png(),),
+    )
     for chapter, kind in (
         ("ryu_Episode 3.cbz", "block"),
         ("ryu_Episode 5.cbz", "block"),
@@ -217,7 +231,7 @@ def test_bulk_store_import_maps_verdicts_scope_and_kinds_and_reads_the_wal(conn,
         (r["series_key"], r["kind"]): r
         for r in conn.execute("SELECT * FROM junk_decision WHERE key != ?", (chained_key,))
     }
-    assert counts["added"] == 6 and counts["skipped"] == {"cut": 1, "chain": 1, "marks": 1}, counts
+    assert counts["added"] == 8 and counts["skipped"] == {"cut": 1, "chain": 1}, counts
     chained = conn.execute("SELECT verdict FROM junk_decision WHERE key = ?", (chained_key,)).fetchone()
     assert chained["verdict"] == "junk", "a chained block approve comes over as a plain decision, its chain dropped"
     assert rows[("S", "block")]["verdict"] == "junk", "approve -> junk"
@@ -226,6 +240,10 @@ def test_bulk_store_import_maps_verdicts_scope_and_kinds_and_reads_the_wal(conn,
     assert rows[("S", "band")]["verdict"] == "keep", "of 2 active rows on 1 key the keep wins, as the old lookup"
     assert rows[("", "frame")]["key"].endswith("|1.42"), "frames come over with their aspect"
     assert rows[("S", "block")]["decided_at"] == "2026-11-06T10:00:00+00:00", "the old time, in our format"
+    assert rows[("", "logo")]["verdict"] == "junk", "a global mark approval comes over as a global logo junk"
+    assert rows[("S", "logo")]["verdict"] == "keep", "a series mark keep stays the series'"
+    back = store.parse_key("logo", rows[("", "logo")]["key"])
+    assert back.size == (40, 20) and marks.same_variant(back, logo()), "the key is the stored template"
     assert all(r["decider"] == "import" for r in rows.values()), "decider import"
 
 
@@ -278,6 +296,39 @@ def test_a_decision_the_bulk_converter_deleted_or_changed_is_followed(conn, cfg,
 
 
 @budget(load="db")
+def test_the_logo_import_is_rebuilt_and_leaves_pipeline_logo_decisions(conn, cfg, tmp_path):
+    """A mark the bulk converter deleted disappears, a changed one changes, a logo decision the pipeline made on a
+    store mark's key survives every rebuild (the source row is left out)."""
+    store_path = tmp_path / "junk.sqlite3"
+    bulk_store(store_path).close()
+    importing.run(conn, store_path, cfg["database"]["path"])
+    global_key = logo().key_text()
+    put(conn, decision("S", "logo", global_key, "keep", decider="claude", at="2026-11-10T00:00:00+00:00"))
+    change_store(store_path, "UPDATE marks SET superseded = 1 WHERE series IS NULL")  # deleted there
+    change_store(store_path, "UPDATE marks SET decision = 'approve', added = '2026-11-08 00:00:00' WHERE series = 'S'")
+    counts = importing.run(conn, store_path, cfg["database"]["path"])
+    rows = {
+        (r["series_key"], r["key"]): (r["verdict"], r["decider"])
+        for r in conn.execute("SELECT * FROM junk_decision WHERE kind = 'logo'")
+    }
+    assert ("", global_key) not in rows and counts["removed"] == 1, "a mark the bulk converter dropped disappears"
+    assert rows[("S", logo(90, 60).key_text())] == ("junk", "import") and counts["changed"] == 1, (
+        "a changed one changes"
+    )
+    assert rows[("S", global_key)] == ("keep", "claude"), "the pipeline's own logo decision survives"
+    change_store(store_path, "UPDATE marks SET superseded = NULL WHERE series IS NULL")
+    change_store(
+        store_path,
+        "INSERT INTO marks (series, template, w, h, decision, added) VALUES ('S', ?, 40, 20, 'approve',"
+        " '2026-11-09 00:00:00')",
+        logo().to_png(),
+    )
+    counts = importing.run(conn, store_path, cfg["database"]["path"])
+    row = conn.execute("SELECT * FROM junk_decision WHERE series_key = 'S' AND key = ?", (global_key,)).fetchone()
+    assert row["decider"] == "claude" and counts["pipeline_kept"] == 1, "a source row on the pipeline's key stays out"
+
+
+@budget(load="db")
 def test_a_pipeline_source_brings_its_deciders_and_a_later_store_import_leaves_them(tmp_path):
     lxc = db.connect(site_cfg(tmp_path / "lxc"))
     win_cfg = site_cfg(tmp_path / "win")
@@ -322,7 +373,7 @@ def test_junk_import_command_prints_counts_and_refuses_with_exit_2(cfg, tmp_path
     bulk_store(tmp_path / "junk.sqlite3").close()
     path = config_file(tmp_path, cfg)
     assert cli.main(["--config", str(path), "junk", "import", str(tmp_path / "junk.sqlite3")]) == 0
-    assert "added 6" in capsys.readouterr().out, "the command reports what it imported"
+    assert "added 8" in capsys.readouterr().out, "the command reports what it imported"
     assert cli.main(["--config", str(path), "junk", "import", str(tmp_path / "missing.sqlite3")]) == 2
 
 
@@ -373,8 +424,19 @@ def record_with_rows(schema=4):
                 "added": "2026-11-07 10:00:01",
             }
         ],
-        "marks": [],
+        "marks": [
+            {
+                "row": 4,
+                "series": None,
+                "key": [{"tpl": "t1"}, 40, 20],
+                "decision": "approve",
+                "review_id": "m1",
+                "note": None,
+                "added": "2026-11-07 10:00:02",
+            }
+        ],
     }
+    rec["series"]["decisions"]["templates"] = {"t1": base64.b64encode(logo().to_png()).decode()}
     return rec
 
 
@@ -384,7 +446,8 @@ def test_a_schema_4_records_decision_rows_land_as_import_rows(conn):
     rows = {
         (r["series_key"], r["kind"], r["verdict"], r["decider"]) for r in conn.execute("SELECT * FROM junk_decision")
     }
-    assert rows == {("S", "block", "junk", "import"), ("", "frame", "junk", "import")}, "cut rows stay out"
+    want = {("S", "block", "junk", "import"), ("", "frame", "junk", "import"), ("", "logo", "junk", "import")}
+    assert rows == want, "cut rows stay out; a marks row lands as a logo decision"
     assert importing.record_rows(record_with_rows(schema=3)) == [], "a schema-3 record gives no rows"
 
 
@@ -417,6 +480,37 @@ def test_a_malformed_decision_row_is_a_record_that_does_not_parse(damage):
     damage(rec["series"]["decisions"]["rows"]["junk"])
     with pytest.raises(record_reader.RecordError, match="malformed"):
         importing.record_rows(rec)
+
+
+def _unknown_template(decisions):
+    decisions["rows"]["marks"][0]["key"][0] = {"tpl": "nope"}
+
+
+def _not_a_png(decisions):
+    decisions["templates"]["t1"] = base64.b64encode(b"not a png").decode()
+
+
+def _wrong_size(decisions):
+    decisions["rows"]["marks"][0]["key"][1] = 41
+
+
+@budget(load="pure")
+@pytest.mark.parametrize("damage", [_unknown_template, _not_a_png, _wrong_size])
+def test_a_malformed_marks_row_is_a_record_that_does_not_parse(damage):
+    from manga_pipeline.convert import record_reader
+
+    rec = record_with_rows()
+    damage(rec["series"]["decisions"])
+    with pytest.raises(record_reader.RecordError, match="malformed"):
+        importing.record_rows(rec)
+
+
+@budget(load="db")
+def test_a_store_marks_row_that_is_no_template_is_refused(conn, cfg, tmp_path):
+    bulk_store(tmp_path / "junk.sqlite3").close()
+    change_store(tmp_path / "junk.sqlite3", "UPDATE marks SET template = x'00' WHERE series IS NULL")
+    with pytest.raises(importing.SourceError, match="marks row 1: template is not a logo template"):
+        importing.run(conn, tmp_path / "junk.sqlite3", cfg["database"]["path"])
 
 
 @budget(load="db")
@@ -529,3 +623,36 @@ def test_a_candidate_id_and_folder_follow_its_key_not_the_order_it_is_offered_in
     assert first in both and len(both) == 2, "a matching key joins its candidate, wherever it is listed"
     row = conn.execute("SELECT folder FROM junk_candidate WHERE id = ?", (first,)).fetchone()
     assert row[0] == candidates.folder_name("S", "block", a), "the folder is named by the key"
+
+
+@budget(load="db")
+def test_step_0021_keeps_decisions_and_candidate_ids_and_allows_logos(tmp_path, monkeypatch):
+    import shutil
+
+    cfg = site_cfg(tmp_path)
+    before = tmp_path / "schema"
+    shutil.copytree(db.SCHEMA, before)
+    (before / "0021_logo.sql").unlink()
+    monkeypatch.setattr(db, "SCHEMA", before)
+    old = db.connect(cfg)
+    put(old, decision("S", "block", sig(), "junk"))
+    for key in ("a", "b", "c"):
+        old.execute(
+            "INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at)"
+            " VALUES ('S', 'page', ?, 'r', 'f', 't')",
+            (key,),
+        )
+    old.execute("DELETE FROM junk_candidate WHERE key = 'c'")
+    old.close()
+    monkeypatch.undo()
+    conn = db.connect(cfg)
+    assert [r[0] for r in conn.execute("SELECT kind FROM junk_decision")] == ["block"], "decisions are kept"
+    put(conn, decision("S", "logo", logo().key_text(), "junk"))
+    conn.execute(
+        "INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at)"
+        " VALUES ('S', 'logo', 'd', 'r', 'f', 't')"
+    )
+    ids = [r[0] for r in conn.execute("SELECT id FROM junk_candidate ORDER BY id")]
+    assert ids == [1, 2, 4], "a candidate id is never reused across the rebuild"
+    assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'junk_decision_scope'").fetchone(), "index kept"
+    conn.close()

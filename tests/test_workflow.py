@@ -435,3 +435,21 @@ def test_charge_waits_costs_1_attempt_per_waiting_chapter_and_ends_at_the_limit(
     assert chapter(ctx.conn, tired)["status"] == "needs_human", "the limit reached by waiting is needs_human"
     assert (chapter(ctx.conn, fresh)["status"], chapter(ctx.conn, fresh)["attempts"]) == ("waiting", 1)
     assert chapter(ctx.conn, ready)["attempts"] == 0, "only waiting chapters are charged"
+
+
+@budget(load="db")
+@pytest.mark.parametrize("old_scan", [False, True], ids=["current-scan", "scan-before-logos"])
+def test_a_scanned_junk_chapter_waits_while_another_of_its_series_is_unscanned(ctx, old_scan):
+    """A scan without logos ("marks") is no current scan, so its chapter is claimed (to be scanned) before the
+    scanned one is decided."""
+    series = add_series(ctx.conn, "S")
+    scanned = add_chapter(ctx.conn, series, "a", "junk", "2026-01-01T00:00:00+00:00", content_digest="d1")
+    other = add_chapter(ctx.conn, series, "b", "junk", "2026-01-02T00:00:00+00:00", content_digest="d2")
+    scans = [(scanned, "d1", '{"marks": []}'), (other, "d2", "{}" if old_scan else '{"marks": []}')]
+    with db.transaction(ctx.conn):
+        ctx.conn.executemany(
+            "INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at) VALUES (?, ?, ?, ?, 't')",
+            [(c, series, d, s) for c, d, s in scans],
+        )
+    first = other if old_scan else scanned
+    assert workflow.claim(ctx, ("junk",))["id"] == first, "a chapter with a scan before logos is rescanned first"
