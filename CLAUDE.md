@@ -4,7 +4,7 @@
 
 Suwayomi to Kavita manga pipeline: junk removal, metadata, bad-download repair, AVIF conversion
 
-`SPEC.md` is the source of truth for every decision. Read the relevant section before changing behaviour; update it in the same change.
+The spec is the source of truth for every decision: `SPEC.md` is its index (each section in 1 or 2 lines), and the rules of each section are in the `docs/spec/` file it names. Read the relevant section before changing behaviour; update it in the same change.
 
 ## Core commands
 
