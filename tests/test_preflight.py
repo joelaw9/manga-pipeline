@@ -40,6 +40,7 @@ def test_shipped_checks():
         "folder layout": (HARD, preflight.folder_layout),
         "share folders": (HARD, preflight.share_folders),
         "workflow settings": (HARD, preflight.workflow_settings),
+        "service settings": (HARD, preflight.service_settings),
         "share ownership": (HARD, preflight.share_ownership),
         "staging folder": (HARD, preflight.staging_folder),
     }
@@ -250,6 +251,57 @@ def test_workflow_settings_refuse_an_attempt_limit_below_1():
     cfg = {**config.cached(), "workflow": {"attempt_limit": 0}}
     assert preflight.workflow_settings(cfg) == "workflow.attempt_limit must be at least 1, got 0"
     assert preflight.workflow_settings(config.cached()) is None
+
+
+@budget(load="pure")
+def test_workflow_settings_refuse_a_kavita_library_id_below_1():
+    cfg = {**config.cached(), "kavita": {**config.cached()["kavita"], "library_id": 0}}
+    assert preflight.workflow_settings(cfg) == "kavita.library_id must be at least 1, got 0", "scope reads it"
+
+
+def services(**changes):
+    """The test config with (section, key) = value changes, e.g. kavita__url="x"."""
+    cfg = {**config.cached()}
+    for name, value in changes.items():
+        section, key = name.split("__")
+        cfg[section] = {**cfg[section], key: value}
+    return cfg
+
+
+@budget(load="pure")
+def test_service_settings_pass_with_urls_a_key_and_a_path_map():
+    assert preflight.service_settings(config.cached()) is None
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("change", "problem"),
+    [
+        ({"suwayomi__url": ""}, "suwayomi.url must be an http or https URL"),
+        ({"suwayomi__url": "localhost:4567"}, "suwayomi.url must be an http or https URL"),
+        ({"kavita__url": "ftp://kavita"}, "kavita.url must be an http or https URL"),
+        ({"kavita__url": "http://"}, "kavita.url must be an http or https URL"),
+        ({"kavita__api_key": None}, "kavita.api_key is not set (env MANGA_PIPELINE_KAVITA_API_KEY)"),
+        ({"kavita__api_key": "  "}, "kavita.api_key is not set (env MANGA_PIPELINE_KAVITA_API_KEY)"),
+        ({"kavita__api_key": 12345}, "kavita.api_key is not set (env MANGA_PIPELINE_KAVITA_API_KEY)"),
+        ({"paths__kavita_path_map": {}}, "paths.kavita_path_map is empty"),
+        ({"paths__kavita_path_map": {"/kavita": ""}}, "must map non-empty strings to non-empty strings"),
+        ({"paths__kavita_path_map": {"/kavita": 5}}, "must map non-empty strings to non-empty strings"),
+        ({"paths__kavita_path_map": {"": "/mnt"}}, "must map non-empty strings to non-empty strings"),
+        ({"paths__kavita_path_map": {"/manga": "/mnt/a", "/manga/": "/mnt/b"}}, "same prefix but for a trailing /"),
+    ],
+)
+def test_service_settings_name_what_is_missing(change, problem):
+    assert problem in preflight.service_settings(services(**change)), "SPEC 'Preflight': service settings"
+
+
+@budget(load="pure")
+def test_service_settings_report_every_problem_and_never_show_a_value():
+    cfg = services(suwayomi__url="nope", kavita__api_key=None, paths__kavita_path_map={})
+    got = preflight.service_settings(cfg)
+    assert got.count(";") == 2, "every problem is named"
+    cfg = services(kavita__url="secret-looking-value", kavita__api_key=0)
+    assert "secret-looking-value" not in preflight.service_settings(cfg), "a setting's value is never shown"
 
 
 @budget(load="fs")

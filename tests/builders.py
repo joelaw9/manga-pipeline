@@ -18,6 +18,7 @@ def site_cfg(tmp_path, **changes):
             "library": str(share / "library"),
             "staging": str(share / "staging"),
             "scratch": str(tmp_path / "scratch"),
+            "kavita_path_map": {"/kavita": str(share)},
         },
     }
     return {**cfg, **changes}
@@ -37,10 +38,12 @@ def adopted(tmp_path, **changes):
     return cfg
 
 
-def add_series(conn, name, origin="new", status="ok"):
+def add_series(conn, name, origin="new", status="ok", kavita_library_id=None):
+    """A series row; kavita_library_id None = Kavita does not hold it."""
     with db.transaction(conn):
         return conn.execute(
-            "INSERT INTO series (name, origin, status) VALUES (?, ?, ?) RETURNING id", (name, origin, status)
+            "INSERT INTO series (name, origin, status, kavita_library_id) VALUES (?, ?, ?, ?) RETURNING id",
+            (name, origin, status, kavita_library_id),
         ).fetchone()[0]
 
 

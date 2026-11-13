@@ -1,0 +1,53 @@
+{
+ "data": {
+  "mangas": {
+   "nodes": [
+    {
+     "id": 23,
+     "title": "I, Who Have the Natural Charismatic Traits, Was Targeted by Yandere Disciples",
+     "status": "ONGOING",
+     "url": "/manga/d1d16bd6-6b08-4985-b15e-e8586a8de78a",
+     "inLibrary": true,
+     "sourceId": "2499283573021220255",
+     "source": {
+      "id": "2499283573021220255",
+      "name": "MangaDex",
+      "lang": "en",
+      "displayName": "MangaDex (EN)"
+     }
+    },
+    {
+     "id": 31093,
+     "title": "Gachiakuta",
+     "status": "ONGOING",
+     "url": "/series/01J76XYFD97DRQQKK75FZB7PQH/Gachiakuta",
+     "inLibrary": true,
+     "sourceId": "2131019126180322627",
+     "source": {
+      "id": "2131019126180322627",
+      "name": "Weeb Central",
+      "lang": "en",
+      "displayName": "Weeb Central (EN)"
+     }
+    },
+    {
+     "id": 31094,
+     "title": "One Piece",
+     "status": "ONGOING",
+     "url": "/series/01J76XY7E9FNDZ1DBBM6PBJPFK/One-Piece",
+     "inLibrary": true,
+     "sourceId": "2131019126180322627",
+     "source": {
+      "id": "2131019126180322627",
+      "name": "Weeb Central",
+      "lang": "en",
+      "displayName": "Weeb Central (EN)"
+     }
+    }
+   ],
+   "pageInfo": {
+    "hasNextPage": true
+   }
+  }
+ }
+}

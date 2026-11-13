@@ -54,17 +54,25 @@ python -m manga_pipeline.cli --help
 | `manga_pipeline/config.py` | `load` (file, then `ENV_PREFIX` variables, then `--set`; validated against `config.yaml.example`), `init`, `cached`, `reset`, `abs_path` |
 | `manga_pipeline/db.py` | `connect(cfg)` (WAL, 30 s busy timeout, foreign keys, autocommit, `sqlite3.Row` rows; applies missing schema steps, refuses an unknown one: `SchemaError`), `read_only(cfg)` (opens an existing database without writing; `SchemaError` unless its steps are exactly the program's), `peek_id(cfg)` (the id, read without checking or applying anything), `transaction(conn)`, `database_id(conn)`, `WORKFLOW_TABLES` |
 | `manga_pipeline/schema/` | schema steps `NNNN_name.sql`, applied in name order and recorded in `schema_step` |
-| `manga_pipeline/workflow.py` | the only writer of chapter stage/status/waits/attempts/claims and `series.status`: `claim` (priority, scope, junk before convert), `work` (stage outcome `Done` / `Waiting` / `Failed`, `Unreachable` skips the stage for the run; 1 log line per outcome), `drain`, `end_waits`, `release_own_claims`, `needs_human`, `retry_chapter` / `retry_series` (`Refused`: exit 2), `reset`, `run_part` (run records in `meta`), `share_errors`, `in_scope` |
+| `manga_pipeline/workflow.py` | the only writer of chapter stage/status/waits/attempts/claims and `series.status`: `claim` (priority, scope, junk before convert), `work` (stage outcome `Done` / `Waiting` / `Failed`, `Unreachable` skips the stage for the run; 1 log line per outcome), `drain`, `end_waits`, `release_own_claims`, `needs_human`, `retry_chapter` / `retry_series` (`Refused`: exit 2), `reset`, `run_part` (run records in `meta`), `share_errors`, `in_scope(cfg, name, kavita_library_id)`; `Context` holds the run's 1 `suwayomi` and 1 `kavita` client |
+| `manga_pipeline/errors.py` | `Unreachable(service, reason)`: raised by the clients and the share, handled by `workflow` (which re-exports it) |
+| `manga_pipeline/clients/http.py` | `Service(name, min_gap)`: 1 per client per run; `request` retries, throttles, raises `Unreachable` (and remembers it), `HttpError` or `Timeout`; `redact_url`; no module state |
+| `manga_pipeline/clients/suwayomi.py` | `Suwayomi` GraphQL client (`from_config`): paged library, manga, chapters, queue, sources, `enqueue`, `delete_downloaded`, `start_downloader`, the 2 source calls (`SourceUnavailable`); `GraphQLError`; download names `source_folder`, `manga_folder`, `chapter_file` |
+| `manga_pipeline/clients/kavita.py` | `Kavita` client (`from_config`): token and the 401 rule, `libraries`, `series_in_library`, `series`, `volumes`, `series_files`, `series_folder` (`FolderError`), `local_path`, `scan_series`, `scan_library` |
+| `manga_pipeline/clients/kavita_match.py` | Kavita's name `normalize`, `series_names`, `off_names`, `match_folders` (copied from the bulk converter) |
+| `manga_pipeline/smoke.py` | `smoke`: read-only check of both services; `Failed` = exit 1 |
 | `manga_pipeline/intake.py`, `process.py`, `export.py` | the 3 part loops: `run(cfg)`; their order of work (SPEC "Parts") |
 | `manga_pipeline/status.py` | `status`: read-only report (`db.read_only`), printed |
 | `manga_pipeline/state.py` | `state reset` (`workflow.reset`, then empties staging but its owner file, and scratch) and `state adopt` (writes the owner file) |
 | `manga_pipeline/stages/` | 1 module per stage, `run(ctx, chapter)` returns an outcome; Phase 1 stubs (junk's `.wait` marker is a test hook) |
 | `manga_pipeline/logs.py` | `setup(cfg, command)`: console plus daily-rotated `<command>.log`, or console only for `None` |
 | `manga_pipeline/lock.py` | `held(cfg, *names)`: `<lock.dir>/<name>.lock` per name, all or nothing, an OS file lock (`msvcrt` on Windows, `fcntl` elsewhere); `LockHeld` |
-| `manga_pipeline/preflight.py` | `run(cfg, checks)` (`Check(name, HARD or SOFT, fn)`): soft problems warn, hard ones raise `PreflightFailed` (exit 4); ships `PYTHON_VERSION`, `DATABASE_LOCATION`, `FOLDER_LAYOUT`, `SHARE_FOLDERS_PRESENT`, `WORKFLOW_SETTINGS`, `SHARE_OWNERSHIP`, `STAGING_FOLDER` (hard), `FREE_SPACE` (soft); `owner_file(cfg)` |
+| `manga_pipeline/preflight.py` | `run(cfg, checks)` (`Check(name, HARD or SOFT, fn)`): soft problems warn, hard ones raise `PreflightFailed` (exit 4); ships `PYTHON_VERSION`, `DATABASE_LOCATION`, `FOLDER_LAYOUT`, `SHARE_FOLDERS_PRESENT`, `WORKFLOW_SETTINGS`, `SERVICE_SETTINGS`, `SHARE_OWNERSHIP`, `STAGING_FOLDER` (hard), `FREE_SPACE` (soft); `owner_file(cfg)` |
 | `tests/__init__.py` | points `config.load` at `tests/test_config.yaml`; refuses the live config |
 | `tests/conftest.py` | no-network guard, per-test timing report |
 | `tests/builders.py` | fixture builders: `site_cfg(tmp_path)`, series and chapter rows, fake downloads |
+| `tests/fakes/` | `http.py` (`Clock`, `Urlopen`, `CannedService`, `NoNetwork`), `suwayomi.py` (`FakeSuwayomi`, `cbz`), `kavita.py` (`FakeKavita`: a scan is queued until `run_scans()`, then indexes a temp library with Kavita's name rule); they import the clients, never a part, a stage or `workflow` |
+| `tests/fixtures_api/` | Suwayomi replies recorded from the real server by reads only |
 | `tests/timing.py` | `@budget` per-test time budgets (copied from the unit-tests skill; project code now) |
 
 ## Python standards
@@ -83,6 +91,7 @@ python -m manga_pipeline.cli --help
 - Each command takes the locks its row in the command table names, once in the entry point (SPEC "Run lock"); never take a lock anywhere else or wait for one.
 - A new requirement check is a function and its `Check` in the preflight module, plus its place in the command table's check lists in `cli.py` (SPEC "Preflight"): hard when the run cannot work without it, soft when it only warns. The function returns the problem text, or nothing when the requirement holds, and turns its own errors into problem text.
 - Tests stay offline and never read the live `config.yaml` (SPEC "Tests"). Test only situations that occur in real use.
+- Talk to Suwayomi and Kavita only through `clients/` (SPEC "Services"); a client never imports `workflow`, a stage or a part. Every path Kavita reports goes through `Kavita.local_path`; a series' folder is `Kavita.series_folder`, never Kavita's `folderPath`. A stage uses the run's clients, `ctx.suwayomi` and `ctx.kavita`, and never builds its own. Tests use `tests/fakes/`.
 - Module docstrings or header comments name the SPEC section they implement. Comment only where the reason isn't obvious.
 - Run the linter and formatter before finishing a change; both must pass.
 

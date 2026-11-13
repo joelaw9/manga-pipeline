@@ -1,0 +1,26 @@
+{
+ "data": {
+  "sources": {
+   "nodes": [
+    {
+     "id": "0",
+     "name": "Local source",
+     "lang": "localsourcelang",
+     "displayName": "Local source"
+    },
+    {
+     "id": "34408487862399605",
+     "name": "Manga Ball",
+     "lang": "hu",
+     "displayName": "Manga Ball (HU)"
+    },
+    {
+     "id": "35546023386335815",
+     "name": "Manga Ball",
+     "lang": "pt-BR",
+     "displayName": "Manga Ball (PT-BR)"
+    }
+   ]
+  }
+ }
+}

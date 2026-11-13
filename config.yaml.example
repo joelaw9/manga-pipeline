@@ -20,9 +20,18 @@ paths:
   library: "/mnt/share/library"       # root of the Kavita library the pipeline publishes into (on the share)
   staging: "/mnt/share/staging"       # finished chapters wait here (on the share, outside every library root)
   scratch: "state/scratch"            # the chapter in hand (local disk); relative = project root
+  kavita_path_map: {}                 # Kavita path prefix -> local path prefix, e.g. {"/manga": "/mnt/share"}; not empty ({} = any keys)
 
 workflow:
   attempt_limit: 3   # failed attempts after which a chapter is needs_human
 
 series:
   only: []   # names of the only series to work; empty = all
+
+suwayomi:
+  url: "http://localhost:4567"   # Suwayomi's base URL
+
+kavita:
+  url: "http://localhost:5000"   # Kavita's base URL
+  api_key: null                  # API key of an admin user; secret: set MANGA_PIPELINE_KAVITA_API_KEY
+  library_id: 1                  # the Kavita library the pipeline works; other libraries' series are out of scope

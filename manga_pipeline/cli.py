@@ -11,7 +11,7 @@ from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 
-from manga_pipeline import config, db, export, intake, lock, logs, preflight, process, state, status, workflow
+from manga_pipeline import config, db, export, intake, lock, logs, preflight, process, smoke, state, status, workflow
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
 log = logging.getLogger("manga_pipeline.cli")
@@ -29,6 +29,8 @@ PART_CHECKS = (*LOCKED_CHECKS, preflight.WORKFLOW_SETTINGS, preflight.SHARE_OWNE
 RESET_CHECKS = (*LOCKED_CHECKS, preflight.SHARE_OWNERSHIP)
 # state adopt writes the owner file, so it cannot require one; it needs the folder the file goes in.
 ADOPT_CHECKS = (*LOCKED_CHECKS, preflight.STAGING_FOLDER)
+# smoke takes no lock and touches no folder: it needs only what the clients and scope read.
+SMOKE_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SERVICE_SETTINGS)
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,7 @@ COMMANDS = {
     "export": Command(("export",), "export", PART_CHECKS, lambda cfg, args: export.run(cfg)),
     "status": Command((), None, (), lambda cfg, args: status.run(cfg)),
     "retry": Command((), None, (), retry),
+    "smoke": Command((), None, SMOKE_CHECKS, lambda cfg, args: smoke.run(cfg)),
     "state reset": Command(PART_LOCKS, None, RESET_CHECKS, lambda cfg, args: state.reset(cfg)),
     "state adopt": Command(PART_LOCKS, None, ADOPT_CHECKS, lambda cfg, args: state.adopt(cfg)),
 }
@@ -79,6 +82,7 @@ def parser():
     commands.add_parser("process", help="junk removal and conversion")
     commands.add_parser("export", help="ComicInfo.xml, publish into the library, confirm")
     commands.add_parser("status", help="what is waiting, on what, and what needs a human")
+    commands.add_parser("smoke", help="check Suwayomi and Kavita with reads only")
     retry = commands.add_parser("retry", help="make a needs_human chapter or series ready again")
     target = retry.add_mutually_exclusive_group(required=True)
     target.add_argument("chapter", nargs="?", type=int, help="chapter id")
@@ -95,8 +99,8 @@ def parser():
 
 
 def main(argv=None):
-    """Exit code: 0 done, 2 usage or config error or a refused retry, 3 another run holds a lock the command takes,
-    4 a hard preflight check failed or the database is not one this version can use."""
+    """Exit code: 0 done, 1 a failed smoke check, 2 usage or config error or a refused retry, 3 another run holds a
+    lock the command takes, 4 a hard preflight check failed or the database is not one this version can use."""
     p = parser()
     args = p.parse_args(argv)
     command = COMMANDS[args.command]
@@ -123,6 +127,9 @@ def main(argv=None):
             except db.SchemaError as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 4
+            except smoke.Failed as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
     except lock.LockHeld as e:
         # Not logged: a refused run must not open the log file while the holder writes it.
         print(f"error: {e}", file=sys.stderr)

@@ -71,7 +71,13 @@ def _read(path, allow_empty=False):
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as e:
-        raise ConfigError(f"{path}: not valid YAML: {e}") from None
+        # Never the parser's own message: it quotes the offending line, and the file may hold a secret.
+        mark = getattr(e, "problem_mark", None)
+        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+        raise ConfigError(
+            f"{path}: not valid YAML{where} (a value holding a backslash or starting with a special character"
+            " needs single quotes)"
+        ) from None
     if data is None and allow_empty:
         return {}
     if not isinstance(data, dict):

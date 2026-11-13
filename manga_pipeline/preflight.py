@@ -9,6 +9,7 @@ import logging
 import shutil
 import sqlite3
 import sys
+import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -126,10 +127,33 @@ def share_folders(cfg):
 
 
 def workflow_settings(cfg):
-    limit = cfg["workflow"]["attempt_limit"]
-    if limit < 1:
-        return f"workflow.attempt_limit must be at least 1, got {limit}"
-    return None
+    problems = []
+    for key in ("workflow.attempt_limit", "kavita.library_id"):
+        section, name = key.split(".")
+        if cfg[section][name] < 1:
+            problems.append(f"{key} must be at least 1, got {cfg[section][name]}")
+    return "; ".join(problems) or None
+
+
+def service_settings(cfg):
+    """What the Suwayomi and Kavita clients need (SPEC "Services"). A value is never shown: one is a secret."""
+    problems = []
+    for section, name in (("suwayomi", "url"), ("kavita", "url")):
+        value = cfg[section][name]
+        parts = urllib.parse.urlsplit(value) if isinstance(value, str) else None
+        if parts is None or parts.scheme not in ("http", "https") or not parts.netloc:
+            problems.append(f"{section}.{name} must be an http or https URL")
+    key = cfg["kavita"]["api_key"]
+    if not isinstance(key, str) or not key.strip():
+        problems.append(f"kavita.api_key is not set (env {config.ENV_PREFIX}_KAVITA_API_KEY)")
+    path_map = cfg["paths"]["kavita_path_map"]
+    if not path_map:
+        problems.append("paths.kavita_path_map is empty: it maps each Kavita path prefix to its local prefix")
+    elif not all(isinstance(text, str) and text for entry in path_map.items() for text in entry):
+        problems.append("paths.kavita_path_map must map non-empty strings to non-empty strings")
+    elif len({prefix.rstrip("/") for prefix in path_map}) < len(path_map):
+        problems.append("paths.kavita_path_map has 2 keys that are the same prefix but for a trailing /")
+    return "; ".join(problems) or None
 
 
 def share_ownership(cfg):
@@ -159,6 +183,7 @@ STAGING_FOLDER = Check("staging folder", HARD, staging_folder)
 FOLDER_LAYOUT = Check("folder layout", HARD, folder_layout)
 SHARE_FOLDERS_PRESENT = Check("share folders", HARD, share_folders)
 WORKFLOW_SETTINGS = Check("workflow settings", HARD, workflow_settings)
+SERVICE_SETTINGS = Check("service settings", HARD, service_settings)
 SHARE_OWNERSHIP = Check("share ownership", HARD, share_ownership)
 
 

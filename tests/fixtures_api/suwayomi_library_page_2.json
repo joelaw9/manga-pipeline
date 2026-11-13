@@ -1,0 +1,53 @@
+{
+ "data": {
+  "mangas": {
+   "nodes": [
+    {
+     "id": 31148,
+     "title": "Shangri-La Frontier",
+     "status": "ONGOING",
+     "url": "/series/01J76XYDXH7KT6AABVG3JAT3ZP/Shangri-La-Frontier",
+     "inLibrary": true,
+     "sourceId": "2131019126180322627",
+     "source": {
+      "id": "2131019126180322627",
+      "name": "Weeb Central",
+      "lang": "en",
+      "displayName": "Weeb Central (EN)"
+     }
+    },
+    {
+     "id": 31149,
+     "title": "The Beginning After the End",
+     "status": "ONGOING",
+     "url": "/series/01J76XYE23859ZWDP7BJ520AKY/The-Beginning-After-The-End",
+     "inLibrary": true,
+     "sourceId": "2131019126180322627",
+     "source": {
+      "id": "2131019126180322627",
+      "name": "Weeb Central",
+      "lang": "en",
+      "displayName": "Weeb Central (EN)"
+     }
+    },
+    {
+     "id": 31151,
+     "title": "Frieren - Beyond Journey's End",
+     "status": "ONGOING",
+     "url": "/series/01J76XYDGDQERFSK333582BNBZ/Sousou-no-Frieren",
+     "inLibrary": true,
+     "sourceId": "2131019126180322627",
+     "source": {
+      "id": "2131019126180322627",
+      "name": "Weeb Central",
+      "lang": "en",
+      "displayName": "Weeb Central (EN)"
+     }
+    }
+   ],
+   "pageInfo": {
+    "hasNextPage": true
+   }
+  }
+ }
+}

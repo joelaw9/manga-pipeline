@@ -1,0 +1,22 @@
+{
+ "data": {
+  "mangas": {
+   "nodes": [
+    {
+     "id": 23,
+     "title": "I, Who Have the Natural Charismatic Traits, Was Targeted by Yandere Disciples",
+     "status": "ONGOING",
+     "url": "/manga/d1d16bd6-6b08-4985-b15e-e8586a8de78a",
+     "inLibrary": true,
+     "sourceId": "2499283573021220255",
+     "source": {
+      "id": "2499283573021220255",
+      "name": "MangaDex",
+      "lang": "en",
+      "displayName": "MangaDex (EN)"
+     }
+    }
+   ]
+  }
+ }
+}
