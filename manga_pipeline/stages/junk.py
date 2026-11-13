@@ -162,7 +162,8 @@ def decide(ctx, chapter, key, row):
     def decide_unit(kind, text):
         return decisions.decide(kind, store.parse_key(kind, text))
 
-    edit = {"drop_pages": [], "bands": [], "join": [], "split": False, "strip_removed": []}
+    # blank: logo blanks (contracts, Phase 6b); empty until the logo detection is built
+    edit = {"drop_pages": [], "bands": [], "join": [], "split": False, "strip_removed": [], "blank": []}
     if sc["layout"] == "strip":
         got = strip_units.decide(sc, decide_unit)
         if got["kept_problem"]:

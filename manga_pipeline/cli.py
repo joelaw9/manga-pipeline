@@ -48,8 +48,8 @@ LOCKED_CHECKS = (
     preflight.SHARE_FOLDERS_PRESENT,
 )
 PART_CHECKS = (*LOCKED_CHECKS, preflight.WORKFLOW_SETTINGS, preflight.SHARE_OWNERSHIP)
-# process runs OCR; it reaches no service.
-PROCESS_CHECKS = (*PART_CHECKS, preflight.OCR_DEVICE)
+# process runs OCR and the image tools and scorer; it reaches no service.
+PROCESS_CHECKS = (*PART_CHECKS, preflight.OCR_DEVICE, preflight.IMAGE_TOOLS, preflight.SCORER, preflight.SCRATCH_SPACE)
 # intake and export reach Suwayomi and Kavita.
 SERVICE_PART_CHECKS = (*PART_CHECKS, preflight.SERVICE_SETTINGS)
 RESET_CHECKS = (*LOCKED_CHECKS, preflight.SHARE_OWNERSHIP)

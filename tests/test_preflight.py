@@ -9,10 +9,12 @@ from contextlib import closing
 import pytest
 
 from manga_pipeline import config, db, preflight
+from manga_pipeline.convert import vship
 from manga_pipeline.preflight import HARD, SOFT, Check
 
 from tests import real_load
 from tests.builders import site_cfg
+from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
 
@@ -44,6 +46,9 @@ def test_shipped_checks():
         "service settings": (HARD, preflight.service_settings),
         "share ownership": (HARD, preflight.share_ownership),
         "staging folder": (HARD, preflight.staging_folder),
+        "image tools": (HARD, preflight.image_tools),
+        "scorer": (HARD, preflight.scorer),
+        "scratch space": (HARD, preflight.scratch_space),
         "OCR device": (HARD, preflight.ocr_device),
         "Claude settings": (HARD, preflight.claude_settings),
     }
@@ -124,6 +129,7 @@ def site(tmp_path, database):
     share = tmp_path / "share"
     paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {
         "scratch": str(tmp_path / "scratch"),
+        "covers": str(tmp_path / "covers"),
         "candidates": str(tmp_path / "candidates"),
         "naming_overrides": str(tmp_path / "overrides"),
     }
@@ -399,3 +405,51 @@ def test_folder_layout_refuses_retention_overlapping_a_share_folder(tmp_path, in
     cfg["paths"]["retention"] = str(tmp_path / "share" / inside / "kept")
     assert "paths.retention" in preflight.folder_layout(cfg), "retention lies outside downloads and every library"
     assert preflight.folder_layout(site_cfg(tmp_path)) is None
+
+
+# ---------------------------------------------------------------- process: image tools, scorer, scratch space
+
+
+def with_tools(folder, **paths):
+    names = ("avifenc", "avifdec", "jpegtran", "oxipng", "vship")
+    return {**config.cached(), "tools": {n: str(paths.get(n, folder / n)) for n in names}}
+
+
+@budget(load="fs")
+def test_image_tools_names_every_missing_tool(tmp_path):
+    for name in ("avifenc", "avifdec", "jpegtran", "oxipng", "vship"):
+        (tmp_path / name).touch()
+    assert preflight.image_tools(with_tools(tmp_path)) is None
+    problem = preflight.image_tools(with_tools(tmp_path, oxipng=tmp_path / "gone", vship=tmp_path))
+    assert "tools.oxipng" in problem and "tools.vship" in problem, "a missing file and a folder are both problems"
+    assert "tools.avifenc" not in problem, "a present tool is not named"
+
+
+@budget(load="fs")
+def test_scorer_reports_a_library_that_does_not_load(tmp_path, monkeypatch):
+    monkeypatch.setattr(vship, "Scorer", fake_convert.REAL_SCORER)
+    (tmp_path / "vship").write_bytes(b"not a library")
+    problem = preflight.scorer(with_tools(tmp_path))
+    assert problem is not None and "cannot load the Vship library" in problem
+
+
+@budget(load="fs")
+def test_scratch_space_measures_the_scratch_drive(tmp_path):
+    free = shutil.disk_usage(tmp_path).free // preflight.MIB
+
+    def cfg(mb, folder):
+        return {
+            **config.cached(),
+            "paths": {**config.cached()["paths"], "scratch": str(folder)},
+            "convert": {**config.cached()["convert"], "min_scratch_free_mb": mb},
+        }
+
+    assert "below convert.min_scratch_free_mb" in preflight.scratch_space(cfg(int(free * 1.02) + 1, tmp_path))
+    assert preflight.scratch_space(cfg(int(free * 0.98), tmp_path / "not" / "yet")) is None, "nearest existing folder"
+    assert preflight.scratch_space(cfg(-1, tmp_path)) == "convert.min_scratch_free_mb must be 0 or more, got -1"
+
+
+@budget(load="pure")
+def test_workflow_settings_refuse_convert_workers_below_1():
+    cfg = {**config.cached(), "convert": {**config.cached()["convert"], "workers": 0}}
+    assert preflight.workflow_settings(cfg) == "convert.workers must be at least 1, got 0"

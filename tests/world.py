@@ -51,6 +51,22 @@ def comicinfo(**fields):
     return f'<?xml version="1.0" encoding="utf-8"?><ComicInfo>{body}</ComicInfo>'
 
 
+# A record's calibration as the bulk converter writes it: the colour group probed (fixed at q75), the gray group left
+# unprobed (no gray page sampled), so a series of colour test pages converts with no calibration probes.
+CALIBRATION = {
+    "groups": {
+        "gray": {"q": 80, "n": 0, "why": "too few sample pages (0)", "probes": [], "excluded": []},
+        "colour": {
+            "q": 75,
+            "n": 40,
+            "why": "q70 fails: mean 84.1 < 85",
+            "probes": [{"q": 75, "n": 40, "counted": 40, "mean": 86.0, "min": 81.0}],
+            "excluded": [],
+        },
+    }
+}
+
+
 def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none"):
     """A valid finished .optimizer.json: chapters = [(output, source file, number, source bytes)]; basis: its
     series.naming.basis (where a new chapter's volume comes from)."""
@@ -82,7 +98,7 @@ def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none"):
         "folders": [{"name": series_name, "from_run": "r1"}], "runs": [{"run_id": "r1", "written": "2026-11-01"}],
         "errors": [], "flags": [],
         "series": {"layout": {"layout": layout, "page_aspect": [1.4]}, "naming": {"series_name": series_name,
-                   "restart": False, "basis": basis}, "calibration": {}, "covers": {},
+                   "restart": False, "basis": basis}, "calibration": CALIBRATION, "covers": {},
                    "decisions": {"checks": [], "templates": {}, "frames": {},
                                  "rows": {"junk": [], "frames": [], "marks": []}}},
         "sources": sources, "chapters": rows,

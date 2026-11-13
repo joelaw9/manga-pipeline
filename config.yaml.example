@@ -21,6 +21,7 @@ paths:
   staging: "/mnt/share/staging"       # finished chapters wait here (on the share, outside every library root)
   retention: "/mnt/share/retention"   # removed downloads, kept export.retention_days (share, same filesystem as downloads)
   scratch: "state/scratch"            # the chapter in hand (local disk); relative = project root
+  covers: "state/covers"              # fetched cover images (local disk); relative = project root
   candidates: "state/candidates"      # open junk candidates' images (local disk); relative = project root
   naming_overrides: "rules/naming"    # per-series volume overrides, <series folder>.yaml (gitignored work folder); relative = project root
   kavita_path_map: {}                 # Kavita path prefix -> local path prefix, e.g. {"/manga": "/mnt/share"}; not empty ({} = any keys)
@@ -42,6 +43,17 @@ kavita:
 
 export:
   retention_days: 7   # days a removed download stays in paths.retention; 0 deletes it at once
+
+tools:   # per machine; relative = project root; nothing is searched on PATH
+  avifenc: "/opt/libavif/avifenc"
+  avifdec: "/opt/libavif/avifdec"
+  jpegtran: "/usr/bin/jpegtran"
+  oxipng: "/usr/local/bin/oxipng"
+  vship: "/opt/vship/libvship.so"   # the Vship scorer library (Windows: libvship_NVIDIA.dll)
+
+convert:
+  workers: 8                   # processes encoding and decoding one chapter's pages
+  min_scratch_free_mb: 2000    # process does not run with less free space (MiB) on paths.scratch's drive
 
 sources:
   ranking: ["Weeb Central (EN)", "MangaDot (EN)", "Kagane (EN)", "Manga Ball (EN)", "Atsumaru (EN)", "MangaK (EN)"]   # re-download sources, best first (display names)

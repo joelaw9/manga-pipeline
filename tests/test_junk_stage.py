@@ -268,6 +268,11 @@ def test_a_chapter_leaving_junk_has_its_chapter_edit_with_every_key(site):
     assert decide_junk(site.cfg, "junk") == 1
     process.run(site.cfg)
     ((text,),) = site.rows("SELECT edit FROM chapter_edit")
-    assert json.loads(text) == {"drop_pages": [3], "bands": [], "join": [], "split": False, "strip_removed": []}, (
-        "the credit page (download index 3) is dropped; every key is present"
-    )
+    assert json.loads(text) == {
+        "drop_pages": [3],
+        "bands": [],
+        "join": [],
+        "split": False,
+        "strip_removed": [],
+        "blank": [],
+    }, "the credit page (download index 3) is dropped; every key is present"

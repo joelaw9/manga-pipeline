@@ -97,3 +97,16 @@ def test_the_record_name_may_be_a_localized_kavita_name(world):
     assert world.rows("SELECT comicinfo_series FROM series") == [("na honjaman level-up",)], (
         "the record's name is written exactly, once it normalizes to a Kavita name"
     )
+
+
+@budget(load="db")
+def test_the_baseline_stores_the_records_probed_calibration_groups_and_a_reset_keeps_them(world):
+    from manga_pipeline import state
+
+    at_junk(world)
+    world.run(process)
+    want = [("colour", 75, 1, "record")]
+    got = world.rows("SELECT grp, q, fixed, origin FROM series_calibration")
+    assert got == want, "the record's probed colour group is fixed; its unprobed gray group stays open (no row)"
+    state.reset(world.cfg)
+    assert world.rows("SELECT grp, q, fixed, origin FROM series_calibration") == want, "calibration is knowledge"
