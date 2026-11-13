@@ -1,38 +1,32 @@
-"""Stage discover (SPEC "Chapter stages"). Stub: every *.cbz under paths.downloads is a chapter of the series named
-by its parent folder (identity = the file stem); the stage itself accepts it. Phase 3 replaces it."""
+"""Stage discover (SPEC "Chapter stages", "Bad downloads"): the first look inside a download. It settles the chapter's
+identity (the ComicInfo Number numbers a chapter whose name has none) and content digest, drops a download a handled
+chapter already had, and makes a chapter with no number needs_human. Finding the downloads is discovery.py's.
+"""
 
-import os
 from pathlib import Path
 
-from manga_pipeline import config, db, workflow
-
-
-def scan(ctx):
-    """Add each in-scope download not yet recorded as a chapter, creating its series (origin new) when unknown. A
-    folder that cannot be read raises its OSError (workflow.share_errors decides whether the share is unreachable)."""
-    downloads = config.abs_path(ctx.cfg["paths"]["downloads"])
-    found = []
-    # Not Path.rglob: it swallows the OSError of a folder it cannot read, which would hide an unreachable share.
-    for folder, _, files in os.walk(downloads, onerror=_raise):
-        found += [Path(folder, name) for name in files if Path(name).suffix == ".cbz"]
-    found = [p for p in sorted(found) if workflow.in_scope(ctx.cfg, p.parent.name, None)]
-    with db.transaction(ctx.conn):
-        for path in found:
-            if ctx.conn.execute("SELECT 1 FROM chapter WHERE download_path = ?", (str(path),)).fetchone():
-                continue
-            workflow.add_chapter(ctx.conn, _series_id(ctx.conn, path.parent.name), path.stem, str(path))
+from manga_pipeline import archive, comicinfo, handled, names, workflow
 
 
 def run(ctx, chapter):
-    return workflow.Done()
+    download = Path(chapter["download_path"])
+    if not download.exists():
+        # Moved away after discovery listed it, or put aside by a run that crashed before its outcome.
+        return workflow.Dropped("the download is gone")
+    xml = archive.read_comicinfo(download)
+    number = comicinfo.read_fields(xml, ("Number",))["Number"] if xml else ""
+    item = names.parse(download.stem, number)
+    if item.number is None:
+        return workflow.NeedsHuman(f"{download.name}: no chapter number in its name or its ComicInfo Number")
+    digest = archive.pages_digest(download)
+    why = handled.put_aside(ctx, chapter, digest)
+    if why:
+        return workflow.Dropped(why)
 
+    def record(conn):
+        conn.execute(
+            "UPDATE chapter SET identity = ?, content_digest = ? WHERE id = ?",
+            (names.identity(item), digest, chapter["id"]),
+        )
 
-def _raise(error):
-    raise error
-
-
-def _series_id(conn, name):
-    row = conn.execute("SELECT id FROM series WHERE name = ?", (name,)).fetchone()
-    if row:
-        return row[0]
-    return conn.execute("INSERT INTO series (name, origin) VALUES (?, 'new') RETURNING id", (name,)).fetchone()[0]
+    return workflow.Done(record)

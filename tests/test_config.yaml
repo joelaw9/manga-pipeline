@@ -19,7 +19,9 @@ paths:
   downloads: "$TMP/share/downloads"
   library: "$TMP/share/library"
   staging: "$TMP/share/staging"
+  retention: "$TMP/share/retention"
   scratch: "$TMP/scratch"
+  naming_overrides: "$TMP/overrides"
   kavita_path_map: {"/kavita": "$TMP/share"}
 
 workflow:
@@ -35,3 +37,7 @@ kavita:
   url: "http://kavita.invalid"
   api_key: "test-key"
   library_id: 4
+  rescan_after_minutes: 60
+
+export:
+  retention_days: 7

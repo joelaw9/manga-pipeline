@@ -1,4 +1,5 @@
-"""The parts as real processes: run at once on 1 database, and killed mid-stage (SPEC "Parts", "State", "Run lock")."""
+"""The parts as real processes: run at once on 1 database, and killed mid-stage (SPEC "Parts", "State", "Run lock").
+The processes reach the world's fakes through tests/world_run.py."""
 
 import os
 import subprocess
@@ -6,10 +7,15 @@ import sys
 import time
 from contextlib import closing
 
-from manga_pipeline import config, db, intake, process
+import pytest
 
-from tests.builders import adopted, config_file, download
+from manga_pipeline import config, db, intake, process
+from manga_pipeline.clients import kavita as kavita_client
+from manga_pipeline.clients import suwayomi as suwayomi_client
+
+from tests.builders import config_file
 from tests.timing import budget
+from tests.world import World
 
 PARTS = ("intake", "process", "export")
 ROUNDS = 6  # intake, process and export each need at most 1 round once the one before has finished
@@ -29,6 +35,25 @@ sys.exit(cli.main(["--config", sys.argv[2], "process"]))
 """
 
 
+@pytest.fixture
+def world(tmp_path, monkeypatch):
+    """A World whose fakes the parts run in this process get too."""
+    world = World(tmp_path)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    return world
+
+
+def downloads(world, series_count, per_series):
+    """Complete downloads "Chapter 2".. of series_count Kavita series."""
+    paths = []
+    for s in range(series_count):
+        manga = world.manga(f"Series {s}")
+        world.kavita_series(f"Series {s}")
+        paths += [world.download(manga, f"Chapter {n}")[1] for n in range(2, 2 + per_series)]
+    return paths
+
+
 def clean_env():
     """The environment without the developer's MANGA_PIPELINE_* variables."""
     return {k: v for k, v in os.environ.items() if not k.upper().startswith(f"{config.ENV_PREFIX}_")}
@@ -40,21 +65,26 @@ def start(args, out):
     )
 
 
+def part_argv(world_file, config_path, *args):
+    return ["-m", "tests.world_run", str(world_file), "--config", str(config_path), *args]
+
+
 def rows(cfg, sql):
     with closing(db.connect(cfg)) as conn:
         return [tuple(r) for r in conn.execute(sql)]
 
 
-@budget(load="subprocess", seconds=30)
-def test_parts_at_once_publish_every_chapter_exactly_once(tmp_path):
-    cfg = adopted(tmp_path)
-    path = config_file(tmp_path, cfg)
-    downloads = [download(cfg, f"Series {s}", f"ch{n:02}") for s in range(6) for n in range(10)]
+@budget(load="subprocess", seconds=40)
+def test_parts_at_once_publish_every_chapter_exactly_once(world, tmp_path):
+    cfg = world.cfg
+    paths = downloads(world, 6, 10)
+    world_file = world.dump(tmp_path / "world.json")
+    config_path = config_file(tmp_path, cfg)
     for round_ in range(ROUNDS):
         runs = []
         for part in PARTS:
             out = open(tmp_path / f"{part}-{round_}.out", "wb")
-            runs.append((part, out, start(["-m", "manga_pipeline.cli", "--config", str(path), part], out)))
+            runs.append((part, out, start(part_argv(world_file, config_path, part), out)))
         for part, out, run in runs:
             code = run.wait(timeout=STEP_TIMEOUT_S)
             out.close()
@@ -64,19 +94,18 @@ def test_parts_at_once_publish_every_chapter_exactly_once(tmp_path):
     assert rows(cfg, "SELECT count(*), count(DISTINCT identity || series_id) FROM chapter WHERE status = 'done'") == [
         (60, 60)
     ]
-    library = list(config.abs_path(cfg["paths"]["library"]).rglob("*.cbz"))
+    library = [p for p in config.abs_path(cfg["paths"]["library"]).rglob("*.cbz") if p.name != "Ch.1.cbz"]
     assert len(library) == 60, "every chapter is published exactly once"
-    assert rows(cfg, "SELECT count(*) FROM published_file WHERE state = 'confirmed'") == [(60,)]
-    assert rows(cfg, "SELECT count(*) FROM handled_chapter WHERE outcome = 'published'") == [(60,)]
-    assert not any(p.exists() for p in downloads)
+    assert rows(cfg, "SELECT count(*) FROM published_file WHERE state = 'confirmed' AND origin = 'pipeline'") == [(60,)]
+    assert not any(p.exists() for p in paths)
     staging = config.abs_path(cfg["paths"]["staging"])
     assert [p.name for p in staging.iterdir()] == [".pipeline-owner"]
 
 
 @budget(load="subprocess", seconds=30)
-def test_killed_process_run_is_finished_by_the_next_run(tmp_path, monkeypatch):
-    cfg = adopted(tmp_path)
-    download(cfg, "Alpha", "ch1")
+def test_killed_process_run_is_finished_by_the_next_run(world, tmp_path, monkeypatch):
+    cfg = world.cfg
+    downloads(world, 1, 1)
     intake.run(cfg)
     step = tmp_path / "in-convert"
     out = open(tmp_path / "killed.out", "wb")
@@ -115,10 +144,9 @@ def outcome_lines(text, outcome):
 
 
 @budget(load="subprocess", seconds=30)
-def test_2_unlocked_runs_of_a_part_never_work_a_chapter_twice(tmp_path):
-    cfg = adopted(tmp_path)
-    for n in range(40):
-        download(cfg, f"Series {n % 4}", f"ch{n:02}")
+def test_2_unlocked_runs_of_a_part_never_work_a_chapter_twice(world, tmp_path):
+    cfg = world.cfg
+    downloads(world, 4, 10)
     intake.run(cfg)
     path = config_file(tmp_path, cfg)
     runs = []

@@ -11,7 +11,22 @@ from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 
-from manga_pipeline import config, db, export, intake, lock, logs, preflight, process, smoke, state, status, workflow
+from manga_pipeline import (
+    config,
+    db,
+    export,
+    identify,
+    intake,
+    lock,
+    logs,
+    preflight,
+    process,
+    smoke,
+    state,
+    status,
+    workflow,
+)
+from manga_pipeline.clients import kavita, suwayomi
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
 log = logging.getLogger("manga_pipeline.cli")
@@ -26,11 +41,15 @@ LOCKED_CHECKS = (
     preflight.SHARE_FOLDERS_PRESENT,
 )
 PART_CHECKS = (*LOCKED_CHECKS, preflight.WORKFLOW_SETTINGS, preflight.SHARE_OWNERSHIP)
+# intake and export reach Suwayomi and Kavita; process reaches no service.
+SERVICE_PART_CHECKS = (*PART_CHECKS, preflight.SERVICE_SETTINGS)
 RESET_CHECKS = (*LOCKED_CHECKS, preflight.SHARE_OWNERSHIP)
 # state adopt writes the owner file, so it cannot require one; it needs the folder the file goes in.
 ADOPT_CHECKS = (*LOCKED_CHECKS, preflight.STAGING_FOLDER)
 # smoke takes no lock and touches no folder: it needs only what the clients and scope read.
 SMOKE_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SERVICE_SETTINGS)
+# series link reads both services and writes 1 series' link: what the clients and scope read.
+LINK_CHECKS = SMOKE_CHECKS
 
 
 @dataclass(frozen=True)
@@ -54,13 +73,24 @@ def retry(cfg, args):
             log.info("series %s and its needs_human chapters are ready again", args.series)
 
 
+def series_link(cfg, args):
+    path = config.abs_path(cfg["database"]["path"])
+    if not path.is_file():
+        raise workflow.Refused(f"no database at {path}: nothing to link")
+    with closing(db.connect(cfg)) as conn:
+        identify.link(
+            cfg, conn, suwayomi.from_config(cfg), kavita.from_config(cfg), args.manga_id, args.kavita_series_id
+        )
+
+
 COMMANDS = {
-    "intake": Command(("intake",), "intake", PART_CHECKS, lambda cfg, args: intake.run(cfg)),
+    "intake": Command(("intake",), "intake", SERVICE_PART_CHECKS, lambda cfg, args: intake.run(cfg)),
     "process": Command(("process",), "process", PART_CHECKS, lambda cfg, args: process.run(cfg)),
-    "export": Command(("export",), "export", PART_CHECKS, lambda cfg, args: export.run(cfg)),
+    "export": Command(("export",), "export", SERVICE_PART_CHECKS, lambda cfg, args: export.run(cfg)),
     "status": Command((), None, (), lambda cfg, args: status.run(cfg)),
     "retry": Command((), None, (), retry),
     "smoke": Command((), None, SMOKE_CHECKS, lambda cfg, args: smoke.run(cfg)),
+    "series link": Command((), None, LINK_CHECKS, series_link),
     "state reset": Command(PART_LOCKS, None, RESET_CHECKS, lambda cfg, args: state.reset(cfg)),
     "state adopt": Command(PART_LOCKS, None, ADOPT_CHECKS, lambda cfg, args: state.adopt(cfg)),
 }
@@ -87,6 +117,14 @@ def parser():
     target = retry.add_mutually_exclusive_group(required=True)
     target.add_argument("chapter", nargs="?", type=int, help="chapter id")
     target.add_argument("--series", type=int, metavar="ID", help="a series and its chapters")
+    link = (
+        commands.add_parser("series", help="series identification")
+        .add_subparsers(dest="series_command", required=True, metavar="ACTION")
+        .add_parser("link", help="link a Suwayomi manga to a Kavita series (or refresh that link's names and folder)")
+    )
+    link.add_argument("manga_id", type=int, help="Suwayomi manga id")
+    link.add_argument("kavita_series_id", type=int, help="Kavita series id")
+    link.set_defaults(command="series link")
     state = commands.add_parser("state", help="workflow state and share ownership").add_subparsers(
         dest="state_command", required=True, metavar="ACTION"
     )

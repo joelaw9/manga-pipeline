@@ -1,0 +1,164 @@
+"""A test world for the passthrough: an adopted site, a FakeSuwayomi over its downloads, a FakeKavita over its library,
+and builders for bulk-converted series, Suwayomi manga and complete downloads."""
+
+import hashlib
+import io
+import json
+import zipfile
+from contextlib import closing
+
+from manga_pipeline import archive, config, db, workflow
+from manga_pipeline.clients import suwayomi as suwayomi_client
+
+from tests.builders import adopted
+from tests.fakes.kavita import FakeKavita
+from tests.fakes.suwayomi import FakeSuwayomi
+
+LIBRARY_ID = 4  # tests/test_config.yaml kavita.library_id
+
+
+def cbz(pages=3, comicinfo=None, seed=""):
+    """A small CBZ: `pages` page files whose bytes carry seed (other seed = other content), and a ComicInfo.xml when
+    given (bytes or str)."""
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
+        for n in range(1, pages + 1):
+            z.writestr(f"{n:03}.jpg", f"page {n} {seed}".encode())
+        if comicinfo is not None:
+            z.writestr("ComicInfo.xml", comicinfo)
+    return data.getvalue()
+
+
+def comicinfo(**fields):
+    body = "".join(f"<{k}>{v}</{k}>" for k, v in fields.items())
+    return f'<?xml version="1.0" encoding="utf-8"?><ComicInfo>{body}</ComicInfo>'
+
+
+def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none"):
+    """A valid finished .optimizer.json: chapters = [(output, source file, number, source bytes)]; basis: its
+    series.naming.basis (where a new chapter's volume comes from)."""
+    sources, rows = [], []
+    for output, file, number, data in chapters:
+        digest = hashlib.sha256("\n".join(archive.sha1(b) for _, b in _pages_of(data)).encode()).hexdigest()
+        sources.append(
+            {
+                "file": file,
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "pages_digest": digest,
+                "fate": "chapter",
+                "output": output,
+            }
+        )
+        rows.append(
+            {
+                "output": output,
+                "file": file,
+                "sources": [file],
+                "volume": None,
+                "number": number,
+                "title": "",
+                "pages_out": len(_pages_of(data)),
+            }
+        )
+    return {
+        "schema": 4, "stages": ["structure", "image", "naming"], "kavita": {"series_id": kavita_id},
+        "folders": [{"name": series_name, "from_run": "r1"}], "runs": [{"run_id": "r1", "written": "2026-11-01"}],
+        "errors": [], "flags": [],
+        "series": {"layout": {"layout": layout, "page_aspect": [1.4]}, "naming": {"series_name": series_name,
+                   "restart": False, "basis": basis}, "calibration": {}, "covers": {}, "decisions": {}},
+        "sources": sources, "chapters": rows,
+    }  # fmt: skip
+
+
+def _pages_of(data):
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        return [(n, z.read(n)) for n in archive.archive_pages(z.namelist())]
+
+
+class World:
+    def __init__(self, tmp_path, **changes):
+        self.cfg = adopted(tmp_path, **changes)
+        self.share = tmp_path / "share"
+        self.library = config.abs_path(self.cfg["paths"]["library"])
+        self.mangas = config.abs_path(self.cfg["paths"]["downloads"]) / suwayomi_client.MANGAS_FOLDER
+        self.suwayomi = FakeSuwayomi(self.mangas)
+        self.kavita = FakeKavita({LIBRARY_ID: "/kavita/library"}, self.cfg["paths"]["kavita_path_map"])
+        self.source = self.suwayomi.add_source("Src")
+        self.kavita_specs = []  # [(id, name, folder, add_series keywords)]: rebuilds the FakeKavita in another process
+
+    def context(self, conn, part):
+        return workflow.Context(self.cfg, conn, part, suwayomi=self.suwayomi, kavita=self.kavita)
+
+    def run(self, part_module):
+        """Run a part (intake, process or export module) as its run() does, with the world's fakes."""
+        with closing(db.connect(self.cfg)) as conn:
+            workflow.run_part(self.context(conn, part_module.__name__.rsplit(".", 1)[1]), part_module.work)
+
+    def kavita_series(
+        self, name, folder=None, record=True, bulk=(("Ch.1.cbz", "Grp_Chapter 1", "1"),), basis="none", **names
+    ):
+        """A series Kavita holds in <library>/<folder or name> with bulk-converted chapters [(output, source file
+        stem, number)] and, with record, its .optimizer.json. Returns the Kavita series id."""
+        folder = folder or name
+        path = self.library / folder
+        path.mkdir(parents=True, exist_ok=True)
+        chapters = []
+        for output, stem, number in bulk:
+            data = cbz(seed=stem)
+            (path / output).write_bytes(data)
+            chapters.append((output, f"{stem}.cbz", number, data))
+        series_id = self.kavita.add_series(name, folder, LIBRARY_ID, **names)
+        self.kavita_specs.append((series_id, name, folder, names))
+        if record:
+            self.write_record(name, series_id, folder, chapters, basis)
+        return series_id
+
+    def write_record(self, name, series_id, folder, chapters, basis="none"):
+        (self.library / folder / ".optimizer.json").write_text(
+            json.dumps(bulk_record(name, series_id, chapters, basis=basis)), encoding="utf-8"
+        )
+
+    def manga(self, title):
+        return self.suwayomi.add_manga(title, self.source)
+
+    def download(self, manga_id, name, scanlator=None, data=None, flagged=True):
+        """A chapter of the manga whose CBZ is in the downloads folder, flagged downloaded unless flagged=False.
+        Returns (Suwayomi chapter id, path)."""
+        chapter_id = self.suwayomi.add_chapter(manga_id, name, scanlator)
+        path = self.suwayomi.path(chapter_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(cbz(seed=name) if data is None else data)
+        self.suwayomi.chapter_rows[chapter_id]["isDownloaded"] = flagged
+        return chapter_id, path
+
+    def rows(self, sql, *params):
+        with closing(db.connect(self.cfg)) as conn:
+            return [tuple(r) for r in conn.execute(sql, params)]
+
+    def dump(self, path):
+        """The world as JSON for tests/world_run.py: Suwayomi's rows and the Kavita series to rebuild."""
+        s = self.suwayomi
+        rows = {
+            "sources": s.source_rows,
+            "mangas": list(s.manga_rows.values()),
+            "chapters": list(s.chapter_rows.values()),
+        }
+        world = {"mangas_root": str(self.mangas), "suwayomi": rows, "kavita": self.kavita_specs,
+                 "path_map": self.cfg["paths"]["kavita_path_map"]}  # fmt: skip
+        path.write_text(json.dumps(world), encoding="utf-8")
+        return path
+
+
+def fakes_from(path):
+    """(FakeSuwayomi, FakeKavita) of a dumped world. The FakeKavita indexes every CBZ now in each series' folder: a
+    process started later sees the scans of the runs before it as done."""
+    world = json.loads(path.read_text(encoding="utf-8"))
+    suwayomi = FakeSuwayomi(world["mangas_root"])
+    suwayomi.source_rows = world["suwayomi"]["sources"]
+    suwayomi.manga_rows = {m["id"]: m for m in world["suwayomi"]["mangas"]}
+    suwayomi.chapter_rows = {c["id"]: c for c in world["suwayomi"]["chapters"]}
+    kavita = FakeKavita({LIBRARY_ID: "/kavita/library"}, world["path_map"])
+    for series_id, name, folder, names in world["kavita"]:
+        kavita._next_id = series_id - 1  # the same series id as in the test's process
+        kavita.add_series(name, folder, LIBRARY_ID, **names)
+    return suwayomi, kavita

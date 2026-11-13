@@ -12,6 +12,7 @@ from manga_pipeline import config, db, preflight
 from manga_pipeline.preflight import HARD, SOFT, Check
 
 from tests import real_load
+from tests.builders import site_cfg
 from tests.timing import budget
 
 
@@ -119,7 +120,10 @@ def test_free_space_measures_the_drive_of_a_log_folder_not_made_yet(tmp_path):
 def site(tmp_path, database):
     """Config with the share folders under tmp_path/share and the database at database."""
     share = tmp_path / "share"
-    paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {"scratch": str(tmp_path / "scratch")}
+    paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {
+        "scratch": str(tmp_path / "scratch"),
+        "naming_overrides": str(tmp_path / "overrides"),
+    }
     return {**config.cached(), "database": {"path": str(database)}, "paths": paths}
 
 
@@ -336,9 +340,59 @@ def test_share_ownership_applies_no_schema_step(tmp_path, monkeypatch):
     cfg = adopted(tmp_path)
     folder = tmp_path / "schema"
     shutil.copytree(db.SCHEMA, folder)
-    (folder / "0002_new.sql").write_text("CREATE TABLE n (x INTEGER) STRICT;", encoding="utf-8")
+    (folder / "0099_new.sql").write_text("CREATE TABLE n (x INTEGER) STRICT;", encoding="utf-8")
     monkeypatch.setattr(db, "SCHEMA", folder)
     assert preflight.share_ownership(cfg) is None
     with closing(sqlite3.connect(config.abs_path(cfg["database"]["path"]))) as conn:
         steps = [r[0] for r in conn.execute("SELECT name FROM schema_step")]
-    assert steps == ["0001_skeleton"], "a check never upgrades the database"
+    assert "0099_new" not in steps, "a check never upgrades the database"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    "key, value, want",
+    [
+        ("rescan_after_minutes", 0, "kavita.rescan_after_minutes must be at least 1, got 0"),
+        ("retention_days", -1, "export.retention_days must be at least 0, got -1"),
+    ],
+)
+def test_workflow_settings_check_the_rescan_and_retention_periods(key, value, want):
+    section = "kavita" if key == "rescan_after_minutes" else "export"
+    cfg = {**config.cached(), section: {**config.cached()[section], key: value}}
+    assert preflight.workflow_settings(cfg) == want, "a period below its floor is refused"
+
+
+@budget(load="pure")
+def test_share_folders_need_the_mangas_folder_and_retention(tmp_path):
+    cfg = site_cfg(tmp_path)
+    (tmp_path / "share" / "downloads" / "mangas").rmdir()
+    (tmp_path / "share" / "retention").rmdir()
+    (tmp_path / "overrides").rmdir()
+    text = preflight.share_folders(cfg)
+    assert "the mangas folder of paths.downloads" in text, "downloads lie under mangas (SPEC Suwayomi)"
+    assert "paths.retention" in text, "removed downloads go to the retention folder"
+    assert "paths.naming_overrides" in text, "the override folder is read at comicinfo"
+
+
+@budget(load="pure")
+def test_share_folders_need_retention_on_the_downloads_filesystem(tmp_path, monkeypatch):
+    cfg = site_cfg(tmp_path)
+    assert preflight.share_folders(cfg) is None
+    real_stat = os.stat
+    retention = str(config.abs_path(cfg["paths"]["retention"]))
+
+    def other_device(path, *args, **kwargs):
+        st = real_stat(path, *args, **kwargs)
+        return os.stat_result((*st[:2], st.st_dev + 1, *st[3:])) if str(path) == retention else st
+
+    monkeypatch.setattr(preflight.os, "stat", other_device)
+    assert "same filesystem" in preflight.share_folders(cfg), "a download moves to retention by rename"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize("inside", ["downloads", "library"])
+def test_folder_layout_refuses_retention_overlapping_a_share_folder(tmp_path, inside):
+    cfg = site_cfg(tmp_path)
+    cfg["paths"]["retention"] = str(tmp_path / "share" / inside / "kept")
+    assert "paths.retention" in preflight.folder_layout(cfg), "retention lies outside downloads and every library"
+    assert preflight.folder_layout(site_cfg(tmp_path)) is None

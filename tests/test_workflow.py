@@ -7,7 +7,7 @@ from contextlib import closing
 import pytest
 
 from manga_pipeline import db, workflow
-from manga_pipeline.workflow import Done, Failed, Waiting
+from manga_pipeline.workflow import Done, Dropped, Failed, NeedsHuman, Waiting
 
 from tests.builders import add_chapter, add_series, chapter, site_cfg
 from tests.timing import budget
@@ -369,3 +369,49 @@ def test_crash_after_an_unreachable_stage_records_error_with_its_traceback(ctx, 
     got = dict(ctx.conn.execute("SELECT key, value FROM meta WHERE key = 'process.last_result'").fetchall())
     assert got == {"process.last_result": "error"}, "a crash is an error, whatever the run met before"
     assert "process: run failed" in caplog.text and "Traceback" in caplog.text
+
+
+@budget(load="db")
+def test_dropped_ends_the_chapter_done_where_it_stands_and_runs_its_record(ctx):
+    row = claimed(ctx, "junk")
+    written = []
+    workflow.work(ctx, row, returns(Dropped("same pages again", lambda conn: written.append(row["id"]))))
+    after = chapter(ctx.conn, row["id"])
+    assert (after["stage"], after["status"]) == ("junk", "done"), "a dropped chapter is done at its own stage"
+    assert written == [row["id"]], "its record runs with the outcome"
+    assert ctx.counts["dropped"] == 1
+
+
+@budget(load="db")
+def test_needs_human_outcome_needs_no_attempts(ctx):
+    row = claimed(ctx, "junk")
+    workflow.work(ctx, row, returns(NeedsHuman("target name taken")))
+    after = chapter(ctx.conn, row["id"])
+    assert (after["status"], after["attempts"], after["last_error"]) == ("needs_human", 0, "target name taken"), (
+        "no attempt can change the result: needs_human at once"
+    )
+
+
+@budget(load="db")
+def test_drain_returns_how_many_ended_done(ctx):
+    series = add_series(ctx.conn, "S")
+    for name in ("a", "b", "c"):
+        add_chapter(ctx.conn, series, name, "junk")
+    outcomes = iter([Done(), Failed("x"), Done()])
+    assert workflow.drain(ctx, {"junk": lambda ctx, chapter: next(outcomes)}) == 2
+
+
+@budget(load="db")
+def test_charge_waits_costs_1_attempt_per_waiting_chapter_and_ends_at_the_limit(ctx):
+    series = add_series(ctx.conn, "S")
+    tired = add_chapter(ctx.conn, series, "a", "confirm", attempts=2)
+    fresh = add_chapter(ctx.conn, series, "b", "confirm")
+    ready = add_chapter(ctx.conn, series, "c", "confirm")
+    with db.transaction(ctx.conn):
+        ctx.conn.execute(
+            "UPDATE chapter SET status = 'waiting', waiting_on = 'kavita_scan' WHERE id IN (?, ?)", (tired, fresh)
+        )
+    assert workflow.charge_waits(ctx, series, "kavita_scan", "not indexed") == 2
+    assert chapter(ctx.conn, tired)["status"] == "needs_human", "the limit reached by waiting is needs_human"
+    assert (chapter(ctx.conn, fresh)["status"], chapter(ctx.conn, fresh)["attempts"]) == ("waiting", 1)
+    assert chapter(ctx.conn, ready)["attempts"] == 0, "only waiting chapters are charged"

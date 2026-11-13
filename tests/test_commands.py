@@ -9,9 +9,12 @@ from contextlib import closing
 import pytest
 
 from manga_pipeline import cli, config, db, intake, lock, preflight, status
+from manga_pipeline.clients import kavita as kavita_client
+from manga_pipeline.clients import suwayomi as suwayomi_client
 
 from tests.builders import add_chapter, add_series, adopted, config_file, download, site_cfg
 from tests.timing import budget
+from tests.world import World
 
 PARTS = ("intake", "process", "export", "junk-review")
 
@@ -139,11 +142,16 @@ def test_state_reset_waits_for_no_part(tmp_path, seeded, held):
 
 
 @budget(load="db", seconds=2)
-def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path):
-    cfg = adopted(tmp_path)
-    kept_download = download(cfg, "Alpha", "ch1")
+def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path, monkeypatch):
+    world = World(tmp_path)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    cfg = world.cfg
+    world.kavita_series("Alpha")
+    manga = world.manga("Alpha")
+    _, kept_download = world.download(manga, "Chapter 2")
     kept_download.with_suffix(".wait").write_bytes(b"")
-    download(cfg, "Alpha", "ch2")
+    _, published_download = world.download(manga, "Chapter 3")
     for part in ("intake", "process", "export"):
         assert main(tmp_path, cfg, part) == 0
     with closing(db.connect(cfg)) as conn:
@@ -160,18 +168,19 @@ def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path):
     assert main(tmp_path, cfg, "state", "reset", "--yes") == 0
     assert rows(cfg, "SELECT count(*) FROM chapter") == [(0,)] and rows(cfg, "SELECT count(*) FROM page") == [(0,)]
     assert rows(cfg, "SELECT status, status_reason FROM series") == [("ok", None)]
-    assert rows(cfg, "SELECT count(*) FROM handled_chapter") == [(1,)], "knowledge is kept"
-    assert rows(cfg, "SELECT count(*) FROM published_file") == [(1,)], "sync records are kept"
+    assert rows(cfg, "SELECT count(*) FROM handled_chapter") == [(2,)], "knowledge is kept (bulk + published)"
+    assert rows(cfg, "SELECT count(*) FROM published_file") == [(2,)], "sync records are kept"
     with closing(db.connect(cfg)) as conn:
         assert db.database_id(conn) == database_id
     assert [p.name for p in staging.iterdir()] == [preflight.OWNER_FILE], "staging keeps only the owner file"
     assert not list(scratch.iterdir())
-    assert kept_download.exists(), "downloads are never touched"
+    assert kept_download.exists() and published_download.exists(), "downloads are never touched"
     assert sorted(p.name for p in config.abs_path(cfg["paths"]["library"]).rglob("*.cbz")) == library
 
     intake.run(cfg)
-    assert rows(cfg, "SELECT identity, stage, status FROM chapter") == [("ch1", "junk", "ready")], (
-        "the next intake rediscovers the downloads"
+    got = rows(cfg, "SELECT download_path, stage, status FROM chapter ORDER BY id")
+    assert got == [(str(kept_download), "junk", "ready"), (str(published_download), "discover", "done")], (
+        "the next intake rediscovers the downloads, and puts aside the one already published"
     )
 
 
@@ -297,7 +306,7 @@ def test_part_on_a_database_from_a_newer_version_exits_4(tmp_path, capsys):
 @budget(load="db")
 def test_part_without_its_downloads_folder_exits_4(tmp_path, capsys):
     cfg = adopted(tmp_path)
-    config.abs_path(cfg["paths"]["downloads"]).rmdir()
+    shutil.rmtree(config.abs_path(cfg["paths"]["downloads"]))
     assert main(tmp_path, cfg, "intake") == 4
     assert "share folders: paths.downloads" in capsys.readouterr().err
 

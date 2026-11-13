@@ -1,0 +1,404 @@
+"""Chapter names (SPEC "Bad downloads", "Publishing"): the file-name parser, a chapter's identity and the name a
+published file gets. The parser is the bulk converter's optimizer/structure.py name part, copied (its series-level
+structure pass is not); the published name, title and volume text are its optimizer/naming.py rules, copied.
+
+A chapter name is free text written by scanlators, not a structured format: the patterns below are the heuristics the
+bulk converter settled on over its library.
+"""
+
+import json
+import re
+import unicodedata
+from dataclasses import dataclass, field
+from decimal import Decimal
+
+MAIN, SIDE, NON_CHAPTER, UNNUMBERED = "main", "side", "non-chapter", "unnumbered"
+
+# Labels that precede a chapter number. Order matters: longer labels first.
+SIDE_LABELS = [
+    "special episode",
+    "bonus episode",
+    "bonus chapter",
+    "side story",
+    "after story",
+    "extra episode",
+    "special chapter",
+    "spin-off",
+    "spin off",
+    "epilogue",
+    "special",
+    "bonus",
+    "extra",
+    "omake",
+    "side",
+]
+MAIN_LABELS = ["chapter", "chap", "episode", "ch", "ep", "rem", "prologue", "story", "day", "page", "#"]
+# labels that only count with a number after them ("Day 1", "# 10"); "Story of a Knight" is a title
+NUMBER_ONLY_LABELS = {"story", "day", "page", "#"}
+_LABEL = "|".join(re.escape(label).replace(r"\ ", r"\s+") for label in SIDE_LABELS + MAIN_LABELS)
+# "Chapter 45-1" / "Episode 15-2" / "Chapter 172-5": hyphen part = decimal part (ComicInfo Number says 45.1)
+_NUM = r"\d+(?:\.\d+)?(?:-\d+(?![\d.]))?"
+NAME_RE = re.compile(
+    rf"^(?:vol(?:ume)?\.?\s*(?P<vol>\d+(?:\.\d+)?)\s*[,.]?\s*)?(?P<label>{_LABEL})(?![a-z])\.?\s*#?\s*(?P<num>{_NUM})?"
+    rf"(?P<rest>.*)$",
+    re.I,
+)
+VOLUME_ONLY = re.compile(r"^vol(?:ume)?\.?\s*(?P<vol>\d+(?:\.\d+)?)(?P<rest>(?:\s*[-_:].*)?)$", re.I)  # "Volume 1"
+CI_NUMBER = re.compile(r"\d+(?:\.\d+)?")  # ComicInfo Number
+NUM_DOT = re.compile(r"^(?P<num>\d+(?:\.\d+)?)\.\s+(?P<rest>\S.*)$")  # "64. Title"
+# leading season tags: "S1 - Chapter 1", "S1 Episode 29", "(S2) Episode 100", "[Season 2] Chapter 2"
+SEASON_TAG = re.compile(
+    r"^\s*(?:\[\s*season\s*(\d+)\s*\]|\(\s*s(?:eason)?\s*(\d+)\s*\)|s(\d+)(?:\s*-)?(?=\s)|"
+    r"season\s*(\d+)\s*[-:]?(?=\s))\s*",
+    re.I,
+)
+LEAD_TAG = re.compile(r"^\s*[\[({〖【][^\])}〗】]*[\])}〗】]\s*")
+TITLE_SEP = re.compile(r"^\s*(?:[-_:]+\s*)+|\s*[-_:]+\s*$")
+BRACKETS = re.compile(r"[\[({〖【][^\])}〗】]*[\])}〗】]")
+# "[Side Story] Chapter 1" style tags mark side stories even under a "Ch." label: the tag is the side label itself
+# (optionally numbered). "[Epilogue End]" is an end marker on a main chapter, not a side tag.
+SIDE_MARKER = re.compile(
+    r"^\s*[\[({〖【]\s*(?P<side>"
+    + "|".join(re.escape(label) for label in SIDE_LABELS)
+    + r")(?:\s*\d+(?:\.\d+)?)?\s*[\])}〗】]",
+    re.I,
+)
+# rated editions: "[R15]" (censored), "[R19]", "[R19 version]", "[🔞]" (uncensored)
+RATING = re.compile(r"[\[(]\s*(?:R-?(?P<age>\d{2})\+?(?:\s*version)?|(?P<adult>🔞))\s*[\])]", re.I)
+END_MARKER = re.compile(r"[\[({〖【][^\])}〗】]*\b(?:end|finale)\b[^\])}〗】]*[\])}〗】]", re.I)
+# a bare chapter label ("Chapter 18", "Ep. 3"): as a whole title it only repeats the number (naming, episodes)
+BARE_LABEL = re.compile(r"(?:chapter|ch\.?|episode|ep\.?)\s*\d+(?:\.\d+)?", re.I)
+MONTHS = {
+    m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)
+}
+
+
+@dataclass
+class Item:
+    file: str
+    group: str = ""
+    volume: str | None = None
+    label: str = ""
+    number: str | None = None
+    kind: str = MAIN
+    title: str = ""
+    pages: int = 0
+    width: int = 0
+    bytes: int = 0
+    date: str | None = None
+    season: str | None = None  # leading season tag ("S1 - ", "(S2) ", "[Season 2] "), kept off the title
+    story_kind: str | None = None  # NON_CHAPTER items: the class they have if kept (numbered "Author's Note [END]")
+    error: bool = False  # unreadable CBZ: integrity's to judge, never trashed here
+    bad_number: str | None = None  # a file-name number with no single reading ("045.5-1"): a structure error
+    notes: list = field(default_factory=list)
+
+    @property
+    def num(self):
+        return float(self.number) if self.number is not None else None
+
+    @property
+    def key(self):
+        return number_key(self.number)
+
+
+def number_key(number):
+    """Chapter number as parts, so 3.1 and 3.10 stay apart: "3.10" -> (3, "10"), "3" / "3.0" -> (3, "")."""
+    if number is None:
+        return None
+    base, _, frac = str(number).strip().partition(".")
+    return int(base), frac if frac.strip("0") else ""
+
+
+def fmt_num(n):
+    """Chapter / volume number as text, every digit kept: 1.0 / "01" -> "1", 17.5 -> "17.5"; None -> None."""
+    if n is None:
+        return None
+    return format(Decimal(str(n)).normalize(), "f")  # str(float): the shortest exact repr
+
+
+def _peel(body):
+    """Leading season tags and other bracket tags before the label: (season, tags text, rest)."""
+    season, tags = None, ""
+    while True:
+        m = SEASON_TAG.match(body)
+        if m and season is None:
+            season, body = next(g for g in m.groups() if g), body[m.end() :]
+            continue
+        m = LEAD_TAG.match(body)
+        if m:
+            tags, body = tags + m.group(0), body[m.end() :]
+            continue
+        return season, tags.strip(), body
+
+
+def _match(body):
+    """(season, tags, kind of match, regex match) for a name body, or None. A label without a number counts only
+    for labels that stand alone ("Epilogue", "Prologue", "Special Episode: Ivy")."""
+    season, tags, rest = _peel(body.strip())
+    for shape, rx in (("label", NAME_RE), ("volume", VOLUME_ONLY), ("numdot", NUM_DOT)):
+        m = rx.match(rest)
+        if not m:
+            continue
+        if (
+            shape == "label"
+            and m.group("num") is None
+            and re.sub(r"\s+", " ", m.group("label").lower()) in NUMBER_ONLY_LABELS
+        ):
+            continue
+        return season, tags, shape, m
+    return None
+
+
+def _numbered(body):
+    hit = _match(body)
+    return bool(hit) and hit[2] != "volume" and (hit[3].group("num") is not None)
+
+
+def number_start(stem):
+    """Index in `stem` where parse_name's chapter number starts ("Vol.1 Ch.3.1" -> the 3 after "Ch."), None when the
+    file name carries no number (ComicInfo numbers the item)."""
+    _, body = split_group(stem)
+    hit = _match(body)
+    if not hit or "num" not in hit[3].re.groupindex or hit[3].group("num") is None:
+        return None
+    stripped = body.strip()
+    rest = hit[3].string  # the suffix of `stripped` the shape regex matched
+    return len(stem) - len(body) + (len(body) - len(body.lstrip())) + len(stripped) - len(rest) + hit[3].start("num")
+
+
+def split_group(stem):
+    """'Easy Going Scans_Vol.1 Ch.1' -> ('Easy Going Scans', 'Vol.1 Ch.1');
+    '_dumbcat__Chapter 45' -> ('_dumbcat_', ...)."""
+    if _numbered(stem):
+        return "", stem
+    for k, ch in enumerate(stem):
+        if ch == "_" and _numbered(stem[k + 1 :]):
+            return stem[:k], stem[k + 1 :]
+    m = re.match(rf"^(?P<group>.+?)_(?=(?:vol(?:ume)?\.?\s*\d|(?:{_LABEL})(?![a-z])))", stem, re.I)
+    if m and not _match(stem):
+        return m.group("group"), stem[m.end() :]
+    m = re.match(r"^(?P<group>[^_]+)_(?P<rest>.+)$", stem)
+    if m and not _match(stem):
+        return m.group("group"), m.group("rest")
+    return "", stem
+
+
+def clean_title(rest):
+    return TITLE_SEP.sub("", rest).strip()
+
+
+def _hyphen_part(num):
+    """'45-1' -> '45.1' (hyphen part = decimal part); other numbers unchanged."""
+    return num.replace("-", ".", 1) if num and "-" in num else num
+
+
+def parse_name(stem, ci=None, non_chapter_names=()):
+    """Classify one chapter file from its filename stem; ComicInfo Number numbers it when the filename has none."""
+    group, body = split_group(stem)
+    item = Item(file=stem, group=group.strip("_ ") or (ci or {}).get("Translator", ""))
+    hit = _match(body)
+    if hit:
+        season, tags, shape, m = hit
+        item.season = season
+        if shape == "label":
+            label = re.sub(r"\s+", " ", m.group("label").lower())
+            item.label, item.volume, item.number = label, m.group("vol"), _hyphen_part(m.group("num"))
+        elif shape == "volume":
+            item.label, item.volume = "volume", m.group("vol")
+        else:
+            item.number = m.group("num")
+        # other leading tags stay with the title ("[Side Story] Chapter 1" -> "[Side Story]")
+        item.title = " ".join(x for x in (tags, clean_title(m.group("rest"))) if x)
+        if item.label in SIDE_LABELS or SIDE_MARKER.match(item.title):
+            item.kind = SIDE
+        if item.label == "prologue" and item.number is None:
+            item.number, item.notes = "0", ["prologue without number -> chapter 0"]
+        if m.groupdict().get("num") and "-" in m.group("num"):
+            if not CI_NUMBER.fullmatch(item.number):  # "045.5-1": a decimal with a hyphen part
+                item.bad_number, item.number = m.group("num"), None
+            else:
+                item.notes.append(f"hyphen part {m.group('num')} -> {item.number}")
+    else:
+        item.title = clean_title(body)
+    ci_num = (ci or {}).get("Number") or ""
+    if item.number is None and ci_num:
+        if CI_NUMBER.fullmatch(ci_num):  # not "-1" (Tachiyomi's unknown number), "1e3", "nan"
+            item.number = ci_num
+            item.notes.append("number from ComicInfo")
+    elif (
+        item.number is not None
+        and "-" in ((hit and hit[3].groupdict().get("num")) or "")
+        and ci_num
+        and number_key(ci_num) != item.key
+    ):
+        item.notes.append(f"hyphen part {item.number} disagrees with ComicInfo Number {ci_num}")
+    if not hit and item.number is not None:
+        item.kind = SIDE if SIDE_MARKER.match(item.title) else MAIN
+    if item.number is None:
+        item.kind = UNNUMBERED
+    names = {normalize_title(n) for n in non_chapter_names}
+    if normalize_title(item.title) in names or (not hit and normalize_title(body) in names):
+        item.story_kind, item.kind = item.kind, NON_CHAPTER
+    return item
+
+
+def side_label(item):
+    """The side-story series an item belongs to: its own label, or the side tag's ("[Side Story] Chapter 1")."""
+    if item.label in SIDE_LABELS:
+        return item.label.replace("spin off", "spin-off")
+    m = SIDE_MARKER.match(item.title)
+    return m.group("side").lower() if m else ""
+
+
+def rating(title):
+    """'uncensored' for [R19]/[R18]/[🔞], 'censored' for [R15]/[R12], None when untagged."""
+    ages = [99 if m.group("adult") else int(m.group("age")) for m in RATING.finditer(title or "")]
+    return None if not ages else ("uncensored" if max(ages) >= 18 else "censored")
+
+
+def normalize_title(t):
+    """Lowercase words for comparison; bracketed markers ([END], [FIXED]) dropped, rating tags kept as tokens."""
+    t = RATING.sub(lambda m: " rated_" + ("adult" if m.group("adult") else "r" + m.group("age")) + " ", t or "")
+    t = BRACKETS.sub(" ", t).lower().replace("’", "'")
+    return re.sub(r"[^a-z0-9'_]+", " ", t).strip()
+
+
+def similar_titles(a, b):
+    """Both untitled, equal, or token overlap >= 60% (ignoring bracketed markers like [END], not rating tags)."""
+    na, nb = normalize_title(a), normalize_title(b)
+    if not na and not nb:
+        return True
+    if not na or not nb:
+        return False
+    ta, tb = set(na.split()), set(nb.split())
+    return na == nb or len(ta & tb) / len(ta | tb) >= 0.6
+
+
+DATE_PARTS = (("Year", 1, 9999), ("Month", 1, 12), ("Day", 1, 31))
+
+
+def ci_date_parts(ci):
+    """ComicInfo Year / Month / Day each on its own: ({part: int or None}, [(part, value)] of the values present but
+    unusable). A part is an ASCII integer in range (DATE_PARTS); Month may be a name ("Mar", "March"); never clamped."""
+    parts, bad = {}, []
+    for name, lo, hi in DATE_PARTS:
+        raw = str((ci or {}).get(name) or "").strip()
+        v = None
+        if raw:
+            if raw.isascii() and raw.isdigit():
+                v = int(raw)
+            elif name == "Month":
+                v = MONTHS.get(raw[:3].lower())
+            if v is None or not lo <= v <= hi:
+                bad.append((name, raw))
+                v = None
+        parts[name] = v
+    return parts, bad
+
+
+def ci_date(ci):
+    """'YYYY-MM-DD' from ComicInfo Year/Month/Day (ci_date_parts; a missing or unusable Month / Day counts as 1);
+    None without a usable Year."""
+    p, _ = ci_date_parts(ci)
+    if p["Year"] is None:
+        return None
+    return f"{p['Year']:04d}-{p['Month'] or 1:02d}-{p['Day'] or 1:02d}"
+
+
+# --- identity and published file name
+
+
+def parse(stem, ci_number=""):
+    """The parse of a chapter file's stem ("<scanlator>_<chapter name>", or the name alone), its ComicInfo Number
+    numbering it when the name has none."""
+    return parse_name(stem, {"Number": ci_number} if ci_number else None)
+
+
+def key(text):
+    """Letters and digits only, lower-cased (after NFKC): ":" in a chapter name is "_" in its file name, and both
+    must give 1 key."""
+    return "".join(c for c in unicodedata.normalize("NFKC", text or "").casefold() if c.isalnum())
+
+
+def identity(item):
+    """A chapter's identity (SPEC "Bad downloads"): JSON text of [scanlator key, season, side label, number, title
+    key]; numbers as fmt_num gives them, so "01" and "1" agree."""
+    season = fmt_num(item.season) if item.season is not None else None
+    return json.dumps([key(item.group), season, side_label(item), fmt_num(item.number), key(item.title)])
+
+
+# --- the bulk converter's naming of a published file (its optimizer/naming.py), copied: SPEC "Publishing"
+
+# Title markers stripped from a chapter title: the bulk converter's config naming.strip_title_markers, then its
+# STATUS_MARKERS ("(END)", "{END}", "[End of Season 1]", "(Season 2 Finale)").
+TITLE_MARKERS = (
+    r"\[END\]",
+    r"\[End of Main Story\]",
+    r"[\(\{\[]\s*S(?:eason)?\s*\d+\s*-?\s*(?:END|START|Finale)\s*[\)\}\]]",
+    r"\[Season \d+\]",
+    r"[\(\[\{]\s*(?:END|End of Main Story|End of Season\s*\d+|Season\s*\d+\s*(?:END|Finale))\s*[\)\]\}]",
+)
+ILLEGAL = re.compile(r'[\\/:*?"<>|]')
+MAX_TITLE = 80
+
+
+def to_volume(v):
+    """'2' -> 2, '0' -> 0, '2.5' -> 2.5. None, '', 'none', non-numeric ('Special') and negative values
+    (Suwayomi/Kavita write -1 for "no volume") -> None."""
+    try:
+        f = float(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+    if f != f or f < 0 or f in (float("inf"),):
+        return None
+    return int(f) if f == int(f) else f
+
+
+def title_from_comicinfo(ci_title, num=None):
+    """'Chapter 4 : Where Is She?' -> 'Where Is She?'; 'Vol.1 Ch.1' -> ''. The leading label is dropped only when
+    its number is the chapter's own (`num`): "Episode 7 Begins" on chapter 2 is the title itself."""
+    if not ci_title:
+        return ""
+    it = parse_name(ci_title, None, ())
+    if it.number is None or (num is not None and float(it.number) != float(num)):
+        return ci_title
+    return it.title
+
+
+def clean_marker_title(title):
+    """Strip status markers ([END], (END), (S1 END), {S2-END}, [End of Main Story], (End of Season 1)), unwrap
+    decorative brackets (〖Main Story Finale〗 -> Main Story Finale) and tidy separators (" _ " was ":" before
+    Suwayomi)."""
+    for m in TITLE_MARKERS:
+        title = re.sub(m, " ", title, flags=re.I)
+    title = re.sub(r"[〖【]\s*([^〗】]*?)\s*[〗】]", r"\1", title)
+    title = re.sub(r"\s+_\s+|\s+:\s*", ": ", title)
+    title = re.sub(r"\s+", " ", title)
+    # leftover separators go; a dash glued to the last word stays (MangaDex "Dreaming All Day -Revelation-")
+    title = re.sub(r"^[\s\-_:]+|(?:\s+[\-_:]+|[\s_:]+)+$", "", title)
+    # a bare label ("Chapter 18" left over from "[Season 2] Chapter 18") repeats the number: no title
+    return "" if BARE_LABEL.fullmatch(title) else title
+
+
+def chapter_title(item, ci_title):
+    """A chapter's title as the bulk converter gives it: its ComicInfo Title (which keeps characters the file name
+    lost) without a leading label of its own number, else the file name's title; markers stripped. "" for none."""
+    return clean_marker_title(title_from_comicinfo(ci_title or "", item.num) or item.title)
+
+
+def safe_title(title, limit=MAX_TITLE):
+    """Filename-safe title: Windows-illegal characters replaced, trailing dots/spaces trimmed, length capped."""
+    t = re.sub(r"\s*:\s+", " - ", re.sub(r"\s+", " ", title))  # "Side Story 1: Anxiety" reads as " - "
+    t = ILLEGAL.sub("_", t).strip().rstrip(". ")
+    return t if len(t) <= limit else t[: limit - 1].rstrip(" ._-") + "…"
+
+
+def file_name(item, title, volume=None):
+    """The name a published file gets (SPEC "Publishing"): "Vol.<volume> Ch.<number> - <title>.cbz", without
+    "Vol.<volume> " when the volume is None and without " - <title>" when the title is empty once made safe.
+    ValueError for an item with no number."""
+    if item.number is None:
+        raise ValueError(f"{item.file!r} has no chapter number")
+    name = (f"Vol.{fmt_num(volume)} " if volume is not None else "") + f"Ch.{fmt_num(item.number)}"
+    safe = safe_title(title) if title else ""
+    return name + (f" - {safe}" if safe else "") + ".cbz"

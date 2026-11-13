@@ -1,4 +1,4 @@
-"""The 3 part loops with stub stages, run in turn in-process on fake downloads (SPEC "Parts", "Chapter stages")."""
+"""The 3 part loops run in turn in-process on a world of fakes (SPEC "Parts", "Chapter stages")."""
 
 import errno
 import logging
@@ -9,15 +9,43 @@ from pathlib import Path
 import pytest
 
 from manga_pipeline import cli, config, db, export, intake, process, workflow
+from manga_pipeline.clients import kavita as kavita_client
+from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.stages import junk
 
-from tests.builders import add_chapter, add_series, adopted, config_file, download, site_cfg
+from tests.builders import add_chapter, add_series, config_file
 from tests.timing import budget
+from tests.world import World, cbz
 
 
-def run_all(cfg):
-    for part in (intake, process, export):
-        part.run(cfg)
+class Site:
+    """A World whose fakes every part run gets (from_config patched), with series made on first use."""
+
+    def __init__(self, tmp_path, monkeypatch, **changes):
+        self.world = World(tmp_path, **changes)
+        self.cfg = self.world.cfg
+        self.mangas = {}
+        monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: self.world.suwayomi)
+        monkeypatch.setattr(kavita_client, "from_config", lambda cfg: self.world.kavita)
+
+    def download(self, series, number, data=None):
+        """A complete download "Chapter <number>" of series (a Kavita series with bulk Ch.1 and a record)."""
+        if series not in self.mangas:
+            self.world.kavita_series(series)
+            self.mangas[series] = self.world.manga(series)
+        return self.world.download(self.mangas[series], f"Chapter {number}", data=data)[1]
+
+    def run_all(self):
+        """intake, process, export, then Kavita runs the scans and export confirms."""
+        for part in (intake, process, export):
+            part.run(self.cfg)
+        self.world.kavita.run_scans()
+        export.run(self.cfg)
+
+
+@pytest.fixture
+def site(tmp_path, monkeypatch):
+    return Site(tmp_path, monkeypatch)
 
 
 def rows(cfg, sql, *params):
@@ -25,67 +53,73 @@ def rows(cfg, sql, *params):
         return [tuple(r) for r in conn.execute(sql, params)]
 
 
-def library_files(cfg):
+def published(cfg):
+    """The library's pipeline-published files (bulk Ch.1.cbz and records aside), as <series>/<name>."""
     library = config.abs_path(cfg["paths"]["library"])
-    return sorted(p.relative_to(library).as_posix() for p in library.rglob("*") if p.is_file())
+    files = (p.relative_to(library).as_posix() for p in library.rglob("*.cbz") if p.name != "Ch.1.cbz")
+    return sorted(files)
 
 
-@budget(load="db", seconds=2)
-def test_parts_in_turn_publish_every_chapter_once_and_delete_the_downloads(tmp_path):
-    cfg = site_cfg(tmp_path)
-    downloads = [download(cfg, series, f"ch{n}") for series in ("Alpha", "Beta") for n in range(1, 4)]
-    run_all(cfg)
-    run_all(cfg)  # a second round finds nothing new and publishes nothing twice
-    want = [f"{s}/ch{n}.cbz" for s in ("Alpha", "Beta") for n in range(1, 4)]
-    assert library_files(cfg) == want
-    assert not any(p.exists() for p in downloads), "confirm deletes each download"
-    assert rows(cfg, "SELECT DISTINCT stage, status FROM chapter") == [("confirm", "done")]
-    assert rows(cfg, "SELECT count(*), count(DISTINCT library_path) FROM published_file WHERE state = 'confirmed'") == [
-        (6, 6)
-    ]
-    assert rows(cfg, "SELECT count(*) FROM handled_chapter WHERE outcome = 'published'") == [(6,)]
-    assert not list(config.abs_path(cfg["paths"]["staging"]).iterdir()), "nothing is left in staging"
+def chapter_of(cfg, path):
+    return rows(
+        cfg, "SELECT stage, status, attempts, last_error, waiting_on FROM chapter WHERE download_path = ?", str(path)
+    )
 
 
-@budget(load="db", seconds=2)
-def test_waiting_chapter_moves_on_once_its_marker_is_gone(tmp_path):
-    cfg = site_cfg(tmp_path)
-    held = download(cfg, "Alpha", "ch1")
-    download(cfg, "Alpha", "ch2")
+@budget(load="db", seconds=3)
+def test_parts_in_turn_publish_every_chapter_once_and_remove_the_downloads(site):
+    downloads = [site.download(series, n) for series in ("Alpha", "Beta") for n in range(2, 5)]
+    site.run_all()
+    site.run_all()  # a second round finds nothing new and publishes nothing twice
+    assert published(site.cfg) == [f"{s}/Ch.{n}.cbz" for s in ("Alpha", "Beta") for n in range(2, 5)]
+    assert not any(p.exists() for p in downloads), "confirm removes each download"
+    assert rows(site.cfg, "SELECT DISTINCT stage, status FROM chapter") == [("confirm", "done")]
+    assert rows(
+        site.cfg,
+        "SELECT count(*), count(DISTINCT library_path) FROM published_file"
+        " WHERE state = 'confirmed' AND origin = 'pipeline'",
+    ) == [(6, 6)]
+    staging = config.abs_path(site.cfg["paths"]["staging"])
+    assert [p.name for p in staging.iterdir()] == [".pipeline-owner"], "nothing is left in staging"
+
+
+@budget(load="db", seconds=3)
+def test_waiting_chapter_moves_on_once_its_marker_is_gone(site):
+    held = site.download("Alpha", 2)
+    site.download("Alpha", 3)
     marker = held.with_suffix(".wait")
     marker.write_bytes(b"")
-    run_all(cfg)
-    assert library_files(cfg) == ["Alpha/ch2.cbz"], "a waiting chapter never holds back the chapters after it"
-    assert rows(cfg, "SELECT status, waiting_on FROM chapter WHERE identity = 'ch1'") == [("waiting", "junk_decision")]
-    run_all(cfg)
-    assert library_files(cfg) == ["Alpha/ch2.cbz"], "the wait holds while the marker is there"
+    site.run_all()
+    assert published(site.cfg) == ["Alpha/Ch.3.cbz"], "a waiting chapter never holds back the chapters after it"
+    assert chapter_of(site.cfg, held)[0][1::3] == ("waiting", "junk_decision")
+    site.run_all()
+    assert published(site.cfg) == ["Alpha/Ch.3.cbz"], "the wait holds while the marker is there"
     marker.unlink()
-    run_all(cfg)
-    assert library_files(cfg) == ["Alpha/ch1.cbz", "Alpha/ch2.cbz"]
+    site.run_all()
+    assert published(site.cfg) == ["Alpha/Ch.2.cbz", "Alpha/Ch.3.cbz"]
 
 
-@budget(load="db", seconds=2)
-def test_failing_chapter_does_not_stop_the_chapters_after_it(tmp_path, monkeypatch):
-    cfg = site_cfg(tmp_path)
-    for n in range(1, 4):
-        download(cfg, "Alpha", f"ch{n}")
+@budget(load="db", seconds=3)
+def test_failing_chapter_does_not_stop_the_chapters_after_it(site, monkeypatch):
+    bad = site.download("Alpha", 2)
+    for n in (3, 4):
+        site.download("Alpha", n)
     real = process.STAGES["convert"]
 
     def convert(ctx, chapter):
-        if chapter["identity"] == "ch1":
+        if chapter["download_path"] == str(bad):
             raise ValueError("cannot decode page 3")
         return real(ctx, chapter)
 
     monkeypatch.setitem(process.STAGES, "convert", convert)
-    run_all(cfg)
-    assert library_files(cfg) == ["Alpha/ch2.cbz", "Alpha/ch3.cbz"]
-    got = rows(cfg, "SELECT stage, status, attempts, last_error FROM chapter WHERE identity = 'ch1'")
-    assert got == [("convert", "ready", 1, "ValueError: cannot decode page 3")]
+    site.run_all()
+    assert published(site.cfg) == ["Alpha/Ch.3.cbz", "Alpha/Ch.4.cbz"]
+    assert chapter_of(site.cfg, bad) == [("convert", "ready", 1, "ValueError: cannot decode page 3", None)]
 
 
 @budget(load="db", seconds=2)
-def test_new_chapter_of_a_known_series_is_worked_next(tmp_path, monkeypatch):
-    cfg = site_cfg(tmp_path)
+def test_new_chapter_of_a_known_series_is_worked_next(site, monkeypatch):
+    cfg = site.cfg
     with closing(db.connect(cfg)) as conn:
         big = add_series(conn, "Big new series", "new")
         for n in range(50):
@@ -106,27 +140,28 @@ def test_new_chapter_of_a_known_series_is_worked_next(tmp_path, monkeypatch):
     assert len(order) == 51
 
 
-@budget(load="db", seconds=2)
-def test_out_of_scope_series_is_untouched_by_every_part(tmp_path):
-    cfg = site_cfg(tmp_path, series={"only": ["Alpha"]})
-    download(cfg, "Alpha", "ch1")
-    outside = download(cfg, "Beta", "ch1")
+@budget(load="db", seconds=3)
+def test_out_of_scope_series_is_untouched_by_every_part(tmp_path, monkeypatch):
+    site = Site(tmp_path, monkeypatch, series={"only": ["Alpha"]})
+    site.download("Alpha", 2)
+    outside = site.download("Beta", 2)
     outside.with_suffix(".wait").write_bytes(b"")
-    with closing(db.connect(cfg)) as conn:
+    with closing(db.connect(site.cfg)) as conn:
         beta = add_series(conn, "Beta")
         seeded = {stage: add_chapter(conn, beta, f"seed-{stage}", stage) for stage in workflow.STAGES}
-    before = rows(cfg, "SELECT * FROM chapter WHERE series_id = ?", beta)
-    run_all(cfg)
-    assert library_files(cfg) == ["Alpha/ch1.cbz"]
-    assert rows(cfg, "SELECT * FROM chapter WHERE series_id = ?", beta) == before, "no Beta row is written or added"
+    before = rows(site.cfg, "SELECT * FROM chapter WHERE series_id = ?", beta)
+    site.run_all()
+    assert published(site.cfg) == ["Alpha/Ch.2.cbz"]
+    assert rows(site.cfg, "SELECT * FROM chapter WHERE series_id = ?", beta) == before, "no Beta row is written"
+    assert rows(site.cfg, "SELECT count(*) FROM series") == [(2,)], "Beta's manga is never identified"
     assert len(before) == len(seeded) and outside.exists()
 
 
 @budget(load="db")
 @pytest.mark.parametrize("where", ["stage", "wait check"])
-def test_unreachable_share_is_the_runs_result_with_exit_0(tmp_path, monkeypatch, where):
-    cfg = adopted(tmp_path)
-    held = download(cfg, "Alpha", "ch1")
+def test_unreachable_share_is_the_runs_result_with_exit_0(site, tmp_path, monkeypatch, where):
+    cfg = site.cfg
+    held = site.download("Alpha", 2)
     if where == "wait check":
         held.with_suffix(".wait").write_bytes(b"")
     intake.run(cfg)
@@ -156,12 +191,12 @@ def meta(cfg, part):
 
 
 def failing_scan(monkeypatch, cfg, error):
-    """os.scandir of the downloads folder raises error (errno, text)."""
-    downloads = config.abs_path(cfg["paths"]["downloads"])
+    """os.scandir of the downloads' mangas folder raises error (errno, text)."""
+    mangas = config.abs_path(cfg["paths"]["downloads"]) / "mangas"
     real = os.scandir
 
     def scandir(path="."):
-        if Path(path) == downloads:
+        if Path(path) == mangas:
             raise OSError(*error, str(path))
         return real(path)
 
@@ -169,87 +204,84 @@ def failing_scan(monkeypatch, cfg, error):
 
 
 @budget(load="db")
-def test_unreadable_downloads_folder_is_an_unreachable_share(tmp_path, monkeypatch):
-    cfg = site_cfg(tmp_path)
-    download(cfg, "Alpha", "ch1")
-    failing_scan(monkeypatch, cfg, (errno.EIO, "Input/output error"))
-    intake.run(cfg)
-    got = meta(cfg, "intake")
+def test_unreadable_downloads_folder_is_an_unreachable_share(site, monkeypatch):
+    site.download("Alpha", 2)
+    failing_scan(monkeypatch, site.cfg, (errno.EIO, "Input/output error"))
+    intake.run(site.cfg)
+    got = meta(site.cfg, "intake")
     assert got["intake.last_result"] == "unreachable: share" and "intake.last_success" not in got
-    assert rows(cfg, "SELECT count(*) FROM chapter") == [(0,)]
+    assert rows(site.cfg, "SELECT count(*) FROM chapter") == [(0,)]
 
 
 @budget(load="db")
-def test_other_scan_error_fails_the_run_loudly(tmp_path, monkeypatch):
-    cfg = site_cfg(tmp_path)
-    failing_scan(monkeypatch, cfg, (errno.EACCES, "Permission denied"))
+def test_other_scan_error_fails_the_run_loudly(site, monkeypatch):
+    failing_scan(monkeypatch, site.cfg, (errno.EACCES, "Permission denied"))
     with pytest.raises(PermissionError):
-        intake.run(cfg)
-    assert meta(cfg, "intake")["intake.last_result"] == "error"
+        intake.run(site.cfg)
+    assert meta(site.cfg, "intake")["intake.last_result"] == "error"
 
 
 @budget(load="db")
-def test_leftover_staged_files_are_not_taken_for_a_chapters_output(tmp_path):
-    cfg = site_cfg(tmp_path)
-    source = download(cfg, "Alpha", "ch1", b"the real chapter")
-    staging = config.abs_path(cfg["paths"]["staging"])
+def test_leftover_staged_files_are_not_taken_for_a_chapters_output(site):
+    source = site.download("Alpha", 2, data=cbz(seed="the real chapter"))
+    staging = config.abs_path(site.cfg["paths"]["staging"])
     leftovers = {staging / "1.cbz": b"other database!!", staging / "0123abcd-1.cbz": b"another database"}
     for path, data in leftovers.items():
-        path.write_bytes(data)  # same size as the download
-    intake.run(cfg)
-    process.run(cfg)
-    ((staged,),) = rows(cfg, "SELECT staged_path FROM chapter")
+        path.write_bytes(data)
+    intake.run(site.cfg)
+    process.run(site.cfg)
+    ((staged,),) = rows(site.cfg, "SELECT staged_path FROM chapter")
     assert Path(staged).name not in {p.name for p in leftovers}
-    assert Path(staged).read_bytes() == source.read_bytes()
+    with closing(db.connect(site.cfg)) as conn:
+        assert Path(staged).name.startswith(db.database_id(conn)[:8]), "the staged name carries this database's id"
+    assert source.exists()
     assert all(path.read_bytes() == data for path, data in leftovers.items()), "files of others are left alone"
 
 
 @budget(load="db")
-def test_each_outcome_and_the_run_counts_are_logged(tmp_path, caplog):
-    cfg = site_cfg(tmp_path)
-    download(cfg, "Alpha", "ch1")
+def test_each_outcome_and_the_run_counts_are_logged(site, caplog):
+    site.download("Alpha", 2)
     with caplog.at_level(logging.INFO, logger="manga_pipeline"):
-        intake.run(cfg)
-    assert "intake: chapter 1 (series 1, ch1, at discover) done" in caplog.text
-    assert "intake: chapter 1 (series 1, ch1, at validate) done" in caplog.text
+        intake.run(site.cfg)
+    identity = '["", null, "", "2", ""]'
+    assert f"intake: chapter 1 (series 1, {identity}, at discover) done" in caplog.text
+    assert f"intake: chapter 1 (series 1, {identity}, at validate) done" in caplog.text
     assert "intake: run ended: ok (2 done, 0 waiting, 0 failed)" in caplog.text
 
 
 @budget(load="db")
 @pytest.mark.parametrize("error", [workflow.Unreachable("share"), OSError(errno.EIO, "io")], ids=["unreachable", "eio"])
-def test_unreachable_share_in_a_wait_check_ends_the_run(tmp_path, monkeypatch, error):
-    cfg = site_cfg(tmp_path)
-    download(cfg, "Alpha", "ch1").with_suffix(".wait").write_bytes(b"")
-    intake.run(cfg)
-    process.run(cfg)
+def test_unreachable_share_in_a_wait_check_ends_the_run(site, monkeypatch, error):
+    site.download("Alpha", 2).with_suffix(".wait").write_bytes(b"")
+    intake.run(site.cfg)
+    process.run(site.cfg)
 
     def wait_over(ctx, chapter):
         raise error
 
     monkeypatch.setattr(junk, "wait_over", wait_over)
-    with closing(db.connect(cfg)) as conn, db.transaction(conn):
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
         conn.execute("DELETE FROM meta WHERE key = 'process.last_success'")
-    process.run(cfg)
-    got = meta(cfg, "process")
+    process.run(site.cfg)
+    got = meta(site.cfg, "process")
     assert got["process.last_result"] == "unreachable: share"
     assert "process.last_success" not in got, "a run that met an unreachable share is no success"
 
 
 @budget(load="db")
-def test_run_end_line_counts_waiting_and_failed(tmp_path, monkeypatch, caplog):
-    cfg = site_cfg(tmp_path)
-    download(cfg, "Alpha", "ch1").with_suffix(".wait").write_bytes(b"")
-    download(cfg, "Beta", "ch2")
-    download(cfg, "Gamma", "ch3")
-    intake.run(cfg)
+def test_run_end_line_counts_waiting_and_failed(site, monkeypatch, caplog):
+    site.download("Alpha", 2).with_suffix(".wait").write_bytes(b"")
+    bad = site.download("Beta", 2)
+    site.download("Gamma", 2)
+    intake.run(site.cfg)
     real = process.STAGES["convert"]
 
     def convert(ctx, chapter):
-        if chapter["identity"] == "ch2":
+        if chapter["download_path"] == str(bad):
             raise ValueError("cannot decode page 3")
         return real(ctx, chapter)
 
     monkeypatch.setitem(process.STAGES, "convert", convert)
     with caplog.at_level(logging.INFO, logger="manga_pipeline"):
-        process.run(cfg)
+        process.run(site.cfg)
     assert "process: run ended: ok (3 done, 1 waiting, 1 failed)" in caplog.text

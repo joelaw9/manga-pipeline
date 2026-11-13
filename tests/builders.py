@@ -8,8 +8,9 @@ from manga_pipeline import config, db, state, workflow
 def site_cfg(tmp_path, **changes):
     """The test config with the database and every path in tmp_path; changes replace whole sections."""
     share = tmp_path / "share"
-    for key in ("downloads", "library", "staging"):
+    for key in ("downloads/mangas", "library", "staging", "retention"):
         (share / key).mkdir(parents=True, exist_ok=True)
+    (tmp_path / "overrides").mkdir(exist_ok=True)
     cfg = {
         **config.cached(),
         "database": {"path": str(tmp_path / "pipeline.sqlite3")},
@@ -17,7 +18,9 @@ def site_cfg(tmp_path, **changes):
             "downloads": str(share / "downloads"),
             "library": str(share / "library"),
             "staging": str(share / "staging"),
+            "retention": str(share / "retention"),
             "scratch": str(tmp_path / "scratch"),
+            "naming_overrides": str(tmp_path / "overrides"),
             "kavita_path_map": {"/kavita": str(share)},
         },
     }
@@ -67,8 +70,9 @@ def chapter(conn, chapter_id):
 
 
 def download(cfg, series, name, data=b"fake cbz"):
-    """A fake CBZ in the downloads folder: <downloads>/<series>/<name>.cbz."""
-    path = config.abs_path(cfg["paths"]["downloads"]) / series / f"{name}.cbz"
+    """A fake CBZ where Suwayomi writes downloads: <downloads>/mangas/Src (EN)/<series>/<name>.cbz (no Suwayomi
+    chapter behind it; tests/world.py builds complete downloads)."""
+    path = config.abs_path(cfg["paths"]["downloads"]) / "mangas" / "Src (EN)" / series / f"{name}.cbz"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
     return path

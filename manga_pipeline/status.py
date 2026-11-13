@@ -56,4 +56,16 @@ def _report(conn):
         f"  chapter {r['id']} ({r['name']} / {r['identity']}, at {r['stage']}): {r['last_error']} -> retry {r['id']}"
         for r in chapters
     ]
-    return lines + (human or ["  none"])
+    lines += human or ["  none"]
+
+    lines.append("Downloads not taken:")
+    rows = conn.execute("SELECT path, reason, first_seen FROM unmatched_download ORDER BY first_seen, path").fetchall()
+    lines += [f"  {r['path']}: {r['reason']} (since {r['first_seen']})" for r in rows] or ["  none"]
+
+    lines.append("Published files never confirmed:")
+    rows = conn.execute(
+        """SELECT p.library_path FROM published_file p WHERE p.state = 'unconfirmed'
+            AND NOT EXISTS (SELECT 1 FROM chapter c WHERE c.published_file_id = p.id AND c.status != 'done')
+        ORDER BY p.library_path"""
+    ).fetchall()
+    return lines + ([f"  {r['library_path']}" for r in rows] or ["  none"])
