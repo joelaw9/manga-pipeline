@@ -14,10 +14,10 @@ Setup (system Python 3.13+, no packaging; pip 25.1+ for `--group`):
 python -m pip install --group dev
 ```
 
-Tests (pytest; each run ends with a per-test timing report and writes `state/test-timings.json`):
+Tests (pytest, in parallel with pytest-xdist; each run ends with a per-test timing report and writes `state/test-timings.json`; a serial `python -m pytest -q` also checks the per-test budgets; parallel runs, the merge hook's and CI's included, skip that check):
 
 ```bash
-python -m pytest -q
+python -m pytest -q -n auto
 ```
 
 While iterating, between implementation phases and commits: reruns only the tests whose Python code changed since the last `--testmon` run (map in `.testmondata`). It does not see edits to non-Python files (`config.yaml.example`, `tests/test_config.yaml`) or to `tests/timing.py`; after one of those, run the full suite. The full suite runs before every merge.

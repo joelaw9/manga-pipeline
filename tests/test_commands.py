@@ -14,7 +14,7 @@ from manga_pipeline.clients import suwayomi as suwayomi_client
 
 from tests.builders import add_chapter, add_series, adopted, config_file, download, site_cfg
 from tests.timing import budget
-from tests.world import World
+from tests.world import World, cbz
 
 PARTS = ("intake", "process", "export", "junk-review")
 
@@ -149,8 +149,7 @@ def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path, monkeypa
     cfg = world.cfg
     world.kavita_series("Alpha")
     manga = world.manga("Alpha")
-    _, kept_download = world.download(manga, "Chapter 2")
-    kept_download.with_suffix(".wait").write_bytes(b"")
+    _, kept_download = world.download(manga, "Chapter 2", data=cbz(credit=True))
     _, published_download = world.download(manga, "Chapter 3")
     for part in ("intake", "process", "export"):
         assert main(tmp_path, cfg, part) == 0

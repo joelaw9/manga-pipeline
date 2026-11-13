@@ -1,3 +1,3 @@
 #!/bin/sh
 # The full test suite: the merge gate pre-merge-commit and pre-commit run.
-exec python -m pytest -q
+exec python -m pytest -q -n auto

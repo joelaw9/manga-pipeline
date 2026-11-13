@@ -5,25 +5,42 @@ import hashlib
 import io
 import json
 import zipfile
+import zlib
 from contextlib import closing
+
+import numpy as np
+from PIL import Image
 
 from manga_pipeline import archive, config, db, workflow
 from manga_pipeline.clients import suwayomi as suwayomi_client
+from manga_pipeline.junk import review
 
 from tests.builders import adopted
 from tests.fakes.kavita import FakeKavita
-from tests.fakes.suwayomi import FakeSuwayomi, page
+from tests.fakes.suwayomi import FakeSuwayomi
+from tests.fakes.suwayomi import page as fake_page
 
 LIBRARY_ID = 4  # tests/test_config.yaml kavita.library_id
 
 
-def cbz(pages=3, comicinfo=None, seed=""):
-    """A small CBZ: `pages` page files whose bytes carry seed (other seed = other content), and a ComicInfo.xml when
-    given (bytes or str)."""
+def credit_page(seed=""):
+    """A noisy page wider than fake pages, but no spread (PNG bytes): in a page-format chapter it is a junk candidate
+    by its size, so the chapter waits on junk_decision until the candidate is decided."""
+    rng = np.random.default_rng(zlib.crc32(f"credit {seed}".encode()))
+    out = io.BytesIO()
+    Image.fromarray(rng.integers(0, 256, (24, 28, 3), dtype=np.uint8)).save(out, "PNG")
+    return out.getvalue()
+
+
+def cbz(pages=3, comicinfo=None, seed="", credit=False):
+    """A small CBZ: `pages` small page images whose colour carries seed (other seed = other content), then a credit
+    page when `credit` (credit_page: the same in every chapter), and a ComicInfo.xml when given (bytes or str)."""
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
         for n in range(1, pages + 1):
-            z.writestr(f"{n:03}.png", page(f"page {n} {seed}"))
+            z.writestr(f"{n:03}.png", fake_page(n, seed))
+        if credit:
+            z.writestr(f"{pages + 1:03}.png", credit_page())
         if comicinfo is not None:
             z.writestr("ComicInfo.xml", comicinfo)
     return data.getvalue()
@@ -65,7 +82,9 @@ def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none"):
         "folders": [{"name": series_name, "from_run": "r1"}], "runs": [{"run_id": "r1", "written": "2026-11-01"}],
         "errors": [], "flags": [],
         "series": {"layout": {"layout": layout, "page_aspect": [1.4]}, "naming": {"series_name": series_name,
-                   "restart": False, "basis": basis}, "calibration": {}, "covers": {}, "decisions": {}},
+                   "restart": False, "basis": basis}, "calibration": {}, "covers": {},
+                   "decisions": {"checks": [], "templates": {}, "frames": {},
+                                 "rows": {"junk": [], "frames": [], "marks": []}}},
         "sources": sources, "chapters": rows,
     }  # fmt: skip
 
@@ -95,7 +114,14 @@ class World:
             workflow.run_part(self.context(conn, part_module.__name__.rsplit(".", 1)[1]), part_module.work)
 
     def kavita_series(
-        self, name, folder=None, record=True, bulk=(("Ch.1.cbz", "Grp_Chapter 1", "1"),), basis="none", **names
+        self,
+        name,
+        folder=None,
+        record=True,
+        bulk=(("Ch.1.cbz", "Grp_Chapter 1", "1"),),
+        basis="none",
+        layout="pages",
+        **names,
     ):
         """A series Kavita holds in <library>/<folder or name> with bulk-converted chapters [(output, source file
         stem, number)] and, with record, its .optimizer.json. Returns the Kavita series id."""
@@ -110,12 +136,12 @@ class World:
         series_id = self.kavita.add_series(name, folder, LIBRARY_ID, **names)
         self.kavita_specs.append((series_id, name, folder, names))
         if record:
-            self.write_record(name, series_id, folder, chapters, basis)
+            self.write_record(name, series_id, folder, chapters, basis, layout)
         return series_id
 
-    def write_record(self, name, series_id, folder, chapters, basis="none"):
+    def write_record(self, name, series_id, folder, chapters, basis="none", layout="pages"):
         (self.library / folder / ".optimizer.json").write_text(
-            json.dumps(bulk_record(name, series_id, chapters, basis=basis)), encoding="utf-8"
+            json.dumps(bulk_record(name, series_id, chapters, layout=layout, basis=basis)), encoding="utf-8"
         )
 
     def manga(self, title):
@@ -162,3 +188,12 @@ def fakes_from(path):
         kavita._next_id = series_id - 1  # the same series id as in the test's process
         kavita.add_series(name, folder, LIBRARY_ID, **names)
     return suwayomi, kavita
+
+
+def decide_junk(cfg, verdict="keep"):
+    """A person's verdict on every open junk candidate (junk decide); the next process run frees their chapters."""
+    with closing(db.connect(cfg)) as conn:
+        rows = review.listing(conn, cfg, everything=True)
+        for r in rows:
+            review.decide(conn, r["id"], verdict, "human", workflow.now())
+    return len(rows)
