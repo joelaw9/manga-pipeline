@@ -57,7 +57,7 @@ Suwayomi and Kavita are reached through 1 HTTP layer: what is retried, when a se
 
 ## Junk decisions
 
-Candidate junk pages are matched against stored decisions, per page signature; Claude decides the rest through `junk review`, and the chapter waits meanwhile. Rules: [docs/spec/junk.md](docs/spec/junk.md#junk-decisions)
+A chapter's junk units are matched against stored decisions, per signature; Claude decides the rest through `junk review` while the chapter waits; decisions are imported from the bulk converter; the chapter edit tells convert what to drop, crop, join or cut. Rules: [docs/spec/junk.md](docs/spec/junk.md#junk-decisions)
 
 ## Metadata
 

@@ -4,14 +4,12 @@ The clients' from_config return the world's fakes, rebuilt from the file (tests/
 tools and scorer are fakes (tests/fakes/convert.py), so a part run as a real process reaches no network and no GPU.
 """
 
-import operator
 import sys
 from pathlib import Path
 
 from manga_pipeline import cli
 from manga_pipeline.clients import kavita, suwayomi
 
-from tests import junk_edits
 from tests.fakes import convert as fake_convert
 from tests.world import fakes_from
 
@@ -20,5 +18,4 @@ if __name__ == "__main__":
     suwayomi.from_config = lambda cfg: fake_suwayomi
     kavita.from_config = lambda cfg: fake_kavita
     fake_convert.install(setattr)
-    junk_edits.install(operator.setitem)
     sys.exit(cli.main(sys.argv[2:]))

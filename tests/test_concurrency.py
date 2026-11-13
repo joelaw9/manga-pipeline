@@ -25,8 +25,6 @@ BLOCKING_PROCESS = """
 import sys, threading
 from pathlib import Path
 from manga_pipeline import cli, process
-import operator
-from tests import junk_edits
 from tests.fakes import convert as fake_convert
 
 def blocking_convert(ctx, chapter):
@@ -35,7 +33,6 @@ def blocking_convert(ctx, chapter):
 
 process.STAGES["convert"] = blocking_convert
 fake_convert.install(setattr)
-junk_edits.install(operator.setitem)
 sys.exit(cli.main(["--config", sys.argv[2], "process"]))
 """
 

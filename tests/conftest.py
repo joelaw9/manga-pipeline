@@ -1,5 +1,6 @@
 """pytest wiring (SPEC "Tests"): the no-network guard, a fresh process config per test and the per-test timing report
-(tests/timing.py)."""
+(tests/timing.py). Under pytest-xdist each worker tags its tests' reports with their budgets (user_properties) and the
+controller, which receives every report, writes the 1 report."""
 
 import socket
 from pathlib import Path
@@ -8,11 +9,12 @@ import pytest
 
 from manga_pipeline import config
 
-from tests import junk_edits, timing
+from tests import timing
 from tests.fakes import convert as fake_convert
 
 TIMINGS = Path(__file__).resolve().parent.parent / "state" / "test-timings.json"
 _rows, _tags = {}, {}
+TAG = "timing_budget"  # user_properties name carrying a test's budget tag from a worker to the controller
 
 
 class NetworkBlocked(AssertionError):
@@ -39,14 +41,13 @@ def pytest_configure(config):
 
 @pytest.fixture(autouse=True)
 def fake_image_tools(request, monkeypatch):
-    """The convert stage's tools and scorer are fakes (tests/fakes/convert.py), and the junk stage writes an empty
-    chapter_edit (tests/junk_edits.py), except in a gpu test, which runs only with --vship and gets the real scorer."""
+    """The convert stage's tools and scorer are fakes (tests/fakes/convert.py), except in a gpu test, which runs only
+    with --vship and gets the real scorer."""
     if request.node.get_closest_marker("gpu"):
         if request.config.getoption("--vship") is None:
             pytest.skip("gpu test: run with --vship PATH")
         return
     fake_convert.install(monkeypatch.setattr)
-    junk_edits.install(monkeypatch.setitem)
 
 
 @pytest.fixture
@@ -62,14 +63,20 @@ def fresh_config():
 
 def pytest_runtest_logreport(report):
     _rows[report.nodeid] = _rows.get(report.nodeid, 0.0) + report.duration  # setup + call + teardown
+    for name, value in report.user_properties:
+        if name == TAG:
+            _tags[report.nodeid] = value
 
 
 def pytest_collection_modifyitems(items):
     for item in items:
-        _tags[item.nodeid] = timing.budget_for(getattr(item, "obj", None), getattr(item, "cls", None))
+        item.user_properties.append((TAG, timing.budget_for(getattr(item, "obj", None), getattr(item, "cls", None))))
 
 
-def pytest_terminal_summary(terminalreporter):
+def pytest_terminal_summary(terminalreporter, config):
+    if hasattr(config, "workerinput"):  # an xdist worker: the controller reports
+        return
     TIMINGS.parent.mkdir(parents=True, exist_ok=True)
     rows = [timing.row(i, s, _tags.get(i)) for i, s in _rows.items()]
-    timing.report(rows, terminalreporter, TIMINGS)
+    parallel = bool(getattr(config.option, "numprocesses", None))  # budgets hold for a serial run only
+    timing.report(rows, terminalreporter, TIMINGS, check_budgets=not parallel)

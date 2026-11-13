@@ -16,7 +16,7 @@ BUSY_TIMEOUT_S = 30
 # Workflow-state tables, emptied by `state reset` in this order (children first). A step adding one adds it here,
 # unless its rows belong to a chapter through a foreign key with ON DELETE CASCADE (chapter_edit): emptying chapter
 # empties it.
-WORKFLOW_TABLES = ("page", "chapter", "unmatched_download")
+WORKFLOW_TABLES = ("page", "chapter", "unmatched_download", "junk_candidate")
 
 
 class SchemaError(RuntimeError):

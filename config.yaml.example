@@ -22,6 +22,7 @@ paths:
   retention: "/mnt/share/retention"   # removed downloads, kept export.retention_days (share, same filesystem as downloads)
   scratch: "state/scratch"            # the chapter in hand (local disk); relative = project root
   covers: "state/covers"              # fetched cover images (local disk); relative = project root
+  candidates: "state/candidates"      # open junk candidates' images (local disk); relative = project root
   naming_overrides: "rules/naming"    # per-series volume overrides, <series folder>.yaml (gitignored work folder); relative = project root
   kavita_path_map: {}                 # Kavita path prefix -> local path prefix, e.g. {"/manga": "/mnt/share"}; not empty ({} = any keys)
 
@@ -60,3 +61,14 @@ sources:
 
 validate:
   non_chapter_names: ["Notice", "Break Notice", "Hiatus Notice", "Announcement", "Hiatus", "Author's Note"]   # dropped at discover; [] = none
+
+junk:
+  claude_token: null   # token from `claude setup-token`, handed to claude -p; secret: set MANGA_PIPELINE_JUNK_CLAUDE_TOKEN
+  claude_path: "claude"   # the claude executable: a path, or a name on PATH
+  review_limit: 2      # reviews listing a candidate before it is stuck (needs_human)
+  review_batch: 20     # candidates junk list gives Claude per review
+  ocr_device: "cpu"    # cpu | dml (DirectML, Windows) | cuda (NVIDIA, Linux)
+  keywords: [repost, discord, scans, scanlat, translat, typeset, proofread, clean, redraw, read on, support us, patreon, ko-fi, paypal, gg/, join us, join our, raw provider, recruit, official domain, fastest, uploading, protected by copyright, protected under copyright, copyright law, unauthorized reproduction, unauthorized distribution, .com, .net, .org, .io]   # OCR keyword hits: case-insensitive substrings
+  weak: [.com, .net, .org, .io, scans]   # keywords that count only on a unit at most 800 px tall
+  paired: [clean]      # keywords that count only beside another keyword
+  suppress: [linguist, all rights reserved, published under license, kidaristudio, d&c media, head of localization, localization produced by, tapas media, crisis text line, localization manager, primary qc, secondary qc]   # official credits: a text holding one has no hit

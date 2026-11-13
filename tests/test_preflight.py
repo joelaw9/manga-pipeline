@@ -49,6 +49,8 @@ def test_shipped_checks():
         "image tools": (HARD, preflight.image_tools),
         "scorer": (HARD, preflight.scorer),
         "scratch space": (HARD, preflight.scratch_space),
+        "OCR device": (HARD, preflight.ocr_device),
+        "Claude settings": (HARD, preflight.claude_settings),
     }
     assert shipped == want, "SPEC 'Preflight' lists every check with its kind"
 
@@ -128,6 +130,7 @@ def site(tmp_path, database):
     paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {
         "scratch": str(tmp_path / "scratch"),
         "covers": str(tmp_path / "covers"),
+        "candidates": str(tmp_path / "candidates"),
         "naming_overrides": str(tmp_path / "overrides"),
     }
     return {**config.cached(), "database": {"path": str(database)}, "paths": paths}

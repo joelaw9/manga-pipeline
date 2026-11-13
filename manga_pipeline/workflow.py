@@ -32,6 +32,9 @@ PART_STAGES = {
 SHARE_ERRNOS = {errno.EIO, errno.ESTALE, errno.ETIMEDOUT}
 # The scope filter of every work-picking query: in_scope, registered on the connection by Context.
 SCOPE = "in_scope(s.name, s.kavita_library_id)"
+# A junk-stage chapter {c} holds a current junk scan (SPEC "Junk decisions"): same series, same content digest.
+_SCANNED = """EXISTS (SELECT 1 FROM junk_scan js WHERE js.chapter_id = {c}.id AND js.series_id = {c}.series_id
+    AND js.content_digest = {c}.content_digest)"""
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,15 @@ class Done:
 class Waiting:
     on: str
     data: dict = field(default_factory=dict)
+    record: Callable[[Any], None] | None = None
+
+
+@dataclass(frozen=True)
+class Ready:
+    """The chapter stays ready at its stage, with no attempt, and may be claimed again in this run (the junk stage
+    after a scan, SPEC "Chapter stages")."""
+
+    record: Callable[[Any], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -90,9 +102,11 @@ class NeedsHuman:
     """No further attempt can change the result: the chapter is needs_human at once."""
 
     reason: str
+    record: Callable[[Any], None] | None = None
 
 
-OUTCOMES = Done | Waiting | Failed | Dropped | NeedsHuman
+OUTCOMES = Done | Waiting | Failed | Dropped | NeedsHuman | Ready
+RECORDED = Done | Dropped | Waiting | Ready | NeedsHuman  # outcomes that may carry a record
 
 
 def in_scope(cfg, series_name, kavita_library_id):
@@ -126,8 +140,10 @@ def claim(ctx, stages, series_id=None):
     """Claim the next ready chapter at one of stages, by priority: series Kavita knows before new series, then the
     oldest discovery, then id. Chapters of a needs_human series, out of scope, failed in this run, or at a stage whose
     service was unreachable in this run are not picked; nor is a convert-stage chapter while its series has a ready
-    junk-stage chapter (a series' junk is scanned before any of it converts). Returns the claimed row, or None when
-    nothing is ready."""
+    junk-stage chapter (a series' junk is decided before any of it converts), nor a scanned junk-stage chapter while
+    its series has a ready junk-stage chapter not yet scanned (every one is scanned before any is decided; a scan is
+    current while its series and content digest are the chapter's). Returns the claimed row, or None when nothing is
+    ready."""
     stages = [s for s in stages if s not in ctx.unreachable]
     with db.transaction(ctx.conn):
         return ctx.conn.execute(
@@ -142,6 +158,11 @@ def claim(ctx, stages, series_id=None):
                         SELECT 1 FROM chapter j
                         WHERE j.series_id = c.series_id AND j.stage = 'junk' AND j.status = 'ready'
                             AND j.id NOT IN (SELECT value FROM json_each(:failed))))
+                    AND NOT (c.stage = 'junk' AND {_SCANNED.format(c="c")} AND EXISTS (
+                        SELECT 1 FROM chapter u
+                        WHERE u.series_id = c.series_id AND u.stage = 'junk' AND u.status = 'ready'
+                            AND u.id NOT IN (SELECT value FROM json_each(:failed))
+                            AND NOT {_SCANNED.format(c="u")}))
                 ORDER BY s.origin = 'new', c.discovered_at, c.id
                 LIMIT 1)
             RETURNING *""",
@@ -190,7 +211,7 @@ def work(ctx, chapter, stage):
     try:
         recorded = _finish(ctx, chapter, outcome)
     except Exception as e:
-        if not (isinstance(outcome, Done | Dropped) and outcome.record):
+        if not (isinstance(outcome, RECORDED) and outcome.record):
             raise
         outcome = Failed(f"recording the outcome: {type(e).__name__}: {e}")
         recorded = _finish(ctx, chapter, outcome)
@@ -208,6 +229,9 @@ def work(ctx, chapter, stage):
         log.info("%s: %s dropped: %s", ctx.part, _name(chapter), outcome.reason)
     elif isinstance(outcome, NeedsHuman):
         ctx.counts["needs_human"] += 1  # needs_human logged the reason
+    elif isinstance(outcome, Ready):
+        ctx.counts["ready"] += 1
+        log.info("%s: %s scanned, ready again", ctx.part, _name(chapter))
     else:
         ctx.counts["done"] += 1
         log.info("%s: %s done", ctx.part, _name(chapter))
@@ -229,8 +253,9 @@ def drain(ctx, stages, series_id=None):
 
 
 def end_waits(ctx, on, holds):
-    """Make every in-scope chapter waiting on `on` ready again at its stage when holds(ctx, chapter) is true. The
-    chapters of a needs_human series keep waiting."""
+    """Make every in-scope chapter waiting on `on` ready again at its stage when holds(ctx, chapter) is true, or
+    needs_human when it returns a NeedsHuman (no further wait can help). The chapters of a needs_human series keep
+    waiting."""
     rows = ctx.conn.execute(
         f"""SELECT c.* FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status = 'waiting' AND c.waiting_on = :on AND s.status = 'ok' AND {SCOPE} ORDER BY c.id""",
@@ -247,7 +272,14 @@ def end_waits(ctx, on, holds):
                 "%s: checking the %s wait of %s failed: %s: %s", ctx.part, on, _name(chapter), type(e).__name__, e
             )
             continue
-        if ended:
+        if isinstance(ended, NeedsHuman):
+            with db.transaction(ctx.conn):
+                still = ctx.conn.execute(
+                    "SELECT 1 FROM chapter WHERE id = ? AND status = 'waiting' AND waiting_on = ?", (chapter["id"], on)
+                ).fetchone()
+                if still:
+                    needs_human(ctx.conn, "chapter", chapter["id"], ended.reason)
+        elif ended:
             with db.transaction(ctx.conn):
                 ctx.conn.execute(
                     """UPDATE chapter SET status = 'ready', waiting_on = NULL, wait_data = NULL, updated_at = ?
@@ -481,7 +513,7 @@ def _finish(ctx, chapter, outcome):
             needs_human(ctx.conn, "chapter", chapter["id"], outcome.reason)
         elif at_limit:
             needs_human(ctx.conn, "chapter", chapter["id"], f"{outcome.error} (after {limit} attempts)")
-        if isinstance(outcome, Done | Dropped) and outcome.record:
+        if isinstance(outcome, RECORDED) and outcome.record:
             outcome.record(ctx.conn)
     return True
 

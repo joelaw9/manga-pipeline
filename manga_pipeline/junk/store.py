@@ -1,0 +1,153 @@
+"""The junk decision store (SPEC "Junk decisions", decisions): lookup of the decisions that apply to a series, the
+near rule, and the 1 upsert every writer uses (import, the baseline's record rows, `junk decide`).
+
+A series key is the series folder's name; GLOBAL ('') marks a decision of every series. A key is a unit's signature
+text (images.sig_to_str) or, for a frame, frames.key_text.
+"""
+
+from pathlib import Path
+
+from manga_pipeline import images
+from manga_pipeline.junk import frames
+
+GLOBAL = ""
+KINDS = ("block", "probe", "piece", "page", "band", "frame")
+# A unit's kind -> the kinds of the decisions that decide it (the bulk converter's junk.UNIT_KINDS).
+DECIDING = {
+    "block": ("block", "probe"),
+    "probe": ("block", "probe"),
+    "piece": ("piece",),
+    "page": ("page",),
+    "band": ("band",),
+    "frame": ("frame",),
+}
+NEAR_KINDS = ("block", "band", "probe")  # the approved decisions the near rule compares against
+DECIDERS = ("import", "claude", "human")
+
+
+def series_key(folder):
+    """The series key of a series folder (its last path part)."""
+    if not folder:
+        raise ValueError("a series without a folder has no series key")
+    return Path(folder).name
+
+
+def parse_key(kind, text):
+    return frames.from_key(text) if kind == "frame" else images.sig_from_str(text)
+
+
+def matches(kind, a, b):
+    return frames.matches(a, b) if kind == "frame" else images.matches(a, b)
+
+
+def in_lookup_order(rows):
+    """Decision rows in lookup order: decisions the pipeline made (claude, human) first, so one wins for every
+    signature it covers, their keeps before their junk; then the imported ones in the bulk converter's order: the
+    series' keeps, its junk, global keeps, global junk; newest first within each. Keeps go first because matching is
+    not transitive: a unit within reach of a kept and a junk key stays kept, whichever is newer (the bulk converter's
+    rule). Equal rows keep their given order."""
+    newest = sorted(rows, key=lambda r: r["decided_at"], reverse=True)
+    return sorted(
+        newest,
+        key=lambda r: (
+            r["decider"] == "import",
+            r["decider"] == "import" and r["series_key"] == GLOBAL,
+            r["verdict"] != "keep",
+        ),
+    )
+
+
+def by_series(conn):
+    """series key -> its Decisions, each built once (for loops over many candidates)."""
+    cache = {}
+
+    def get(key):
+        if key not in cache:
+            cache[key] = Decisions(conn, key)
+        return cache[key]
+
+    return get
+
+
+class Decisions:
+    """The decisions that apply to 1 series (its own and the global ones), in lookup order (in_lookup_order)."""
+
+    def __init__(self, conn, key):
+        rows = in_lookup_order(
+            conn.execute(
+                "SELECT * FROM junk_decision WHERE series_key IN (?, ?) ORDER BY id DESC", (key, GLOBAL)
+            ).fetchall()
+        )
+        self.series_key = key
+        self._rows = [(row, parse_key(row["kind"], row["key"])) for row in rows]
+
+    def decide(self, kind, key):
+        """The deciding row for a unit of `kind` with parsed key `key`, or None (undecided)."""
+        kinds = DECIDING[kind]
+        for row, stored in self._rows:
+            if row["kind"] in kinds and matches(row["kind"], stored, key):
+                return row
+        return None
+
+
+def near(conn, series_key_, sig, threshold=images.NEAR_THRESHOLD, aspect_tol=images.NEAR_ASPECT_TOLERANCE):
+    """(row, distance, aspect difference) of the approved decision of NEAR_KINDS (any series, or global) nearest to
+    signature `sig`: same tile count, every tile within `threshold`, aspect difference within `aspect_tol`; smallest
+    distance, then aspect difference, then the oldest. None when none is that near, or when such a decision that
+    applies to the series (its own or global) matches `sig` at the live rule (it decides; near is for the undecided)."""
+    tiles, aspect = sig
+    best = None
+    rows = conn.execute(
+        f"""SELECT * FROM junk_decision WHERE verdict = 'junk' AND kind IN ({", ".join("?" * len(NEAR_KINDS))})
+        ORDER BY decided_at, id""",
+        NEAR_KINDS,
+    )
+    for row in rows:
+        t, a = images.sig_from_str(row["key"])
+        if len(t) != len(tiles):
+            continue
+        if row["series_key"] in (series_key_, GLOBAL) and images.matches((t, a), sig):
+            return None
+        diff = abs(a - aspect) / max(a, aspect)
+        if diff > aspect_tol:
+            continue
+        d = max((x ^ y).bit_count() for x, y in zip(t, tiles, strict=True))
+        if d <= threshold and (best is None or (d, diff) < best[1:]):
+            best = (row, d, diff)
+    return best
+
+
+def upsert(conn, rows):
+    """Write decisions (dicts: series_key, kind, key, verdict, decider, decided_at, source) inside the caller's
+    transaction. A new key is inserted. An existing row is replaced only when its decider is 'import' and the new one
+    is a pipeline decision or at least as new; a pipeline-made row ('claude', 'human') is never touched. Returns
+    {"inserted", "updated", "unchanged"} counts."""
+    if not conn.in_transaction:
+        raise RuntimeError("upsert runs inside the caller's transaction")
+    counts = {"inserted": 0, "updated": 0, "unchanged": 0}
+    for r in rows:
+        if r["kind"] not in KINDS or r["verdict"] not in ("junk", "keep") or r["decider"] not in DECIDERS:
+            raise ValueError(f"not a junk decision: {r}")
+        old = conn.execute(
+            "SELECT * FROM junk_decision WHERE series_key = ? AND kind = ? AND key = ?",
+            (r["series_key"], r["kind"], r["key"]),
+        ).fetchone()
+        if old is None:
+            conn.execute(
+                """INSERT INTO junk_decision (series_key, kind, key, verdict, decider, decided_at, source)
+                VALUES (:series_key, :kind, :key, :verdict, :decider, :decided_at, :source)""",
+                r,
+            )
+            counts["inserted"] += 1
+        elif old["decider"] == "import" and (r["decider"] != "import" or r["decided_at"] >= old["decided_at"]):
+            same = all(old[c] == r[c] for c in ("verdict", "decider", "decided_at", "source"))
+            if not same:
+                conn.execute(
+                    """UPDATE junk_decision SET verdict = :verdict, decider = :decider, decided_at = :decided_at,
+                        source = :source WHERE id = :id""",
+                    {**r, "id": old["id"]},
+                )
+            counts["unchanged" if same else "updated"] += 1
+        else:
+            counts["unchanged"] += 1
+    return counts

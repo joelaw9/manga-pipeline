@@ -383,7 +383,7 @@ def test_a_replacement_repeating_another_published_chapter_is_mislabelled(world)
     from manga_pipeline import images, measures
 
     bad_download(world)
-    copy = cbz(seed="a copy of chapter 30")
+    copy = _textured_cbz("a copy of chapter 30")  # the mislabel check compares page pHashes: pages need content
     probe = world.mangas / "probe.cbz"
     probe.write_bytes(copy)
     phashes = measures.summary(images.measure_pages(probe))["page_phashes"]
@@ -416,7 +416,7 @@ def test_status_lists_re_downloads_notes_and_the_commands_that_settle_a_chapter(
         text = "\n".join(status.report(conn))
     assert "waiting on Src (EN) chapter" in text and "tried: none" in text, text
     assert "-> retry 2, chapter use 2 SUWAYOMI_CHAPTER_ID, chapter drop 2" in text
-    assert "chapter 3 (Solo Leveling" in text and "duplicate pages: 001.jpg, 002.jpg" in text
+    assert "chapter 3 (Solo Leveling" in text and "duplicate pages: 001.png, 002.png" in text
 
 
 def _cbz_with_pages(*cbzs):
@@ -451,6 +451,25 @@ def _target(world, chapter_id):
 
     with closing(db.connect(world.cfg)) as conn:
         return redownload.target(world.context(conn, "intake"), chapter_id)
+
+
+def _textured_cbz(seed, pages=3):
+    """A CBZ of noise pages (16 x 24): unlike the world's 1-colour pages, they have pHashes."""
+    import io
+    import zipfile
+    import zlib
+
+    import numpy as np
+    from PIL import Image
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        for n in range(1, pages + 1):
+            rng = np.random.default_rng(zlib.crc32(f"{seed} {n}".encode()))
+            im = io.BytesIO()
+            Image.fromarray(rng.integers(0, 256, (24, 16, 3), dtype=np.uint8)).save(im, "PNG")
+            z.writestr(f"{n:03}.png", im.getvalue())
+    return out.getvalue()
 
 
 def _cbz_with(page):

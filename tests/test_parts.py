@@ -15,7 +15,7 @@ from manga_pipeline.stages import junk
 
 from tests.builders import add_chapter, add_series, config_file
 from tests.timing import budget
-from tests.world import World, cbz
+from tests.world import World, cbz, decide_junk
 
 
 class Site:
@@ -66,7 +66,7 @@ def chapter_of(cfg, path):
     )
 
 
-@budget(load="db", seconds=3)
+@budget(load="db", seconds=6)
 def test_parts_in_turn_publish_every_chapter_once_and_remove_the_downloads(site):
     downloads = [site.download(series, n) for series in ("Alpha", "Beta") for n in range(2, 5)]
     site.run_all()
@@ -84,17 +84,15 @@ def test_parts_in_turn_publish_every_chapter_once_and_remove_the_downloads(site)
 
 
 @budget(load="db", seconds=3)
-def test_waiting_chapter_moves_on_once_its_marker_is_gone(site):
-    held = site.download("Alpha", 2)
+def test_waiting_chapter_moves_on_once_its_candidate_is_decided(site):
+    held = site.download("Alpha", 2, data=cbz(credit=True))
     site.download("Alpha", 3)
-    marker = held.with_suffix(".wait")
-    marker.write_bytes(b"")
     site.run_all()
     assert published(site.cfg) == ["Alpha/Ch.3.cbz"], "a waiting chapter never holds back the chapters after it"
     assert chapter_of(site.cfg, held)[0][1::3] == ("waiting", "junk_decision")
     site.run_all()
-    assert published(site.cfg) == ["Alpha/Ch.3.cbz"], "the wait holds while the marker is there"
-    marker.unlink()
+    assert published(site.cfg) == ["Alpha/Ch.3.cbz"], "the wait holds while its candidate is undecided"
+    assert decide_junk(site.cfg) == 1, "the credit page is 1 candidate"
     site.run_all()
     assert published(site.cfg) == ["Alpha/Ch.2.cbz", "Alpha/Ch.3.cbz"]
 
@@ -145,7 +143,6 @@ def test_out_of_scope_series_is_untouched_by_every_part(tmp_path, monkeypatch):
     site = Site(tmp_path, monkeypatch, series={"only": ["Alpha"]})
     site.download("Alpha", 2)
     outside = site.download("Beta", 2)
-    outside.with_suffix(".wait").write_bytes(b"")
     with closing(db.connect(site.cfg)) as conn:
         beta = add_series(conn, "Beta")
         seeded = {stage: add_chapter(conn, beta, f"seed-{stage}", stage) for stage in workflow.STAGES}
@@ -157,13 +154,11 @@ def test_out_of_scope_series_is_untouched_by_every_part(tmp_path, monkeypatch):
     assert len(before) == len(seeded) and outside.exists()
 
 
-@budget(load="db")
+@budget(load="db", seconds=2)
 @pytest.mark.parametrize("where", ["stage", "wait check"])
 def test_unreachable_share_is_the_runs_result_with_exit_0(site, tmp_path, monkeypatch, where):
     cfg = site.cfg
-    held = site.download("Alpha", 2)
-    if where == "wait check":
-        held.with_suffix(".wait").write_bytes(b"")
+    site.download("Alpha", 2, data=cbz(credit=where == "wait check"))
     intake.run(cfg)
     process.run(cfg)  # the chapter now waits (wait check) or is done with junk (stage)
     if where == "wait check":
@@ -177,7 +172,7 @@ def test_unreachable_share_is_the_runs_result_with_exit_0(site, tmp_path, monkey
         raise OSError(errno.EIO, "Input/output error")
 
     monkeypatch.setitem(process.STAGES, "junk", eio)
-    monkeypatch.setattr(junk, "wait_over", eio)
+    monkeypatch.setattr(junk, "junk_decision_over", eio)
     assert cli.main(["--config", str(config_file(tmp_path, cfg)), "process"]) == 0
     for handler in logging.getLogger("manga_pipeline").handlers[:]:  # close the log file cli.main opened
         logging.getLogger("manga_pipeline").removeHandler(handler)
@@ -221,7 +216,7 @@ def test_other_scan_error_fails_the_run_loudly(site, monkeypatch):
     assert meta(site.cfg, "intake")["intake.last_result"] == "error"
 
 
-@budget(load="db")
+@budget(load="db", seconds=2)
 def test_leftover_staged_files_are_not_taken_for_a_chapters_output(site):
     source = site.download("Alpha", 2, data=cbz(seed="the real chapter"))
     staging = config.abs_path(site.cfg["paths"]["staging"])
@@ -249,17 +244,17 @@ def test_each_outcome_and_the_run_counts_are_logged(site, caplog):
     assert "intake: run ended: ok (2 done, 0 waiting, 0 failed)" in caplog.text
 
 
-@budget(load="db")
+@budget(load="db", seconds=2)
 @pytest.mark.parametrize("error", [workflow.Unreachable("share"), OSError(errno.EIO, "io")], ids=["unreachable", "eio"])
 def test_unreachable_share_in_a_wait_check_ends_the_run(site, monkeypatch, error):
-    site.download("Alpha", 2).with_suffix(".wait").write_bytes(b"")
+    site.download("Alpha", 2, data=cbz(credit=True))
     intake.run(site.cfg)
     process.run(site.cfg)
 
     def wait_over(ctx, chapter):
         raise error
 
-    monkeypatch.setattr(junk, "wait_over", wait_over)
+    monkeypatch.setattr(junk, "junk_decision_over", wait_over)
     with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
         conn.execute("DELETE FROM meta WHERE key = 'process.last_success'")
     process.run(site.cfg)
@@ -268,9 +263,9 @@ def test_unreachable_share_in_a_wait_check_ends_the_run(site, monkeypatch, error
     assert "process.last_success" not in got, "a run that met an unreachable share is no success"
 
 
-@budget(load="db")
+@budget(load="db", seconds=2)
 def test_run_end_line_counts_waiting_and_failed(site, monkeypatch, caplog):
-    site.download("Alpha", 2).with_suffix(".wait").write_bytes(b"")
+    site.download("Alpha", 2, data=cbz(credit=True))
     bad = site.download("Beta", 2)
     site.download("Gamma", 2)
     intake.run(site.cfg)

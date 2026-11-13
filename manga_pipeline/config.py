@@ -57,6 +57,11 @@ def cached():
     return _process
 
 
+def secret_keys(example=None):
+    """The key paths of the secrets: the keys whose example value is null (SPEC "Config")."""
+    return [parts for parts, value in _leaves(_read(Path(example or EXAMPLE))).items() if value is None]
+
+
 def abs_path(value):
     """A configured path: absolute as given, else relative to the project root."""
     p = Path(value)

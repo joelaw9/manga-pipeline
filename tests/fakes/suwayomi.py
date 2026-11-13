@@ -8,9 +8,9 @@ manga's chapter list is fetched.
 """
 
 import copy
-import hashlib
 import io
 import zipfile
+import zlib
 from pathlib import Path
 
 from PIL import Image
@@ -20,21 +20,21 @@ from manga_pipeline.clients import suwayomi
 from tests.fakes.http import NoNetwork
 
 
-def page(text):
-    """A small real PNG page (it decodes, so validation passes it) whose pixels, and so bytes, follow from text."""
-    seed = hashlib.sha1(text.encode()).digest()
-    im = Image.frombytes("RGB", (16, 24), (seed * 64)[: 16 * 24 * 3])
+def page(number, seed=""):
+    """A small real page image (PNG bytes, 16 x 24) of 1 colour, set by its number and seed: no junk unit (it has no
+    signature), not white, and other number or seed = other bytes."""
+    shade = 40 + (zlib.crc32(f"{number} {seed}".encode()) % 160)
     out = io.BytesIO()
-    im.save(out, "PNG")
+    Image.new("RGB", (16, 24), (shade, shade, 255 - shade)).save(out, "PNG")
     return out.getvalue()
 
 
 def cbz(pages=3, comicinfo=None):
-    """The bytes of a small CBZ: `pages` small real pages and, when given, a ComicInfo.xml."""
+    """The bytes of a small CBZ: `pages` small page images (page) and, when given, a ComicInfo.xml."""
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as archive:
         for number in range(1, pages + 1):
-            archive.writestr(f"{number:03}.png", page(f"page {number}"))
+            archive.writestr(f"{number:03}.png", page(number))
         if comicinfo is not None:
             archive.writestr("ComicInfo.xml", comicinfo)
     return data.getvalue()

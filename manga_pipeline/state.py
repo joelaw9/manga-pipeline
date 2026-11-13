@@ -11,12 +11,13 @@ log = logging.getLogger(__name__)
 
 
 def reset(cfg):
-    """Empty the workflow tables and set every series ok, then empty the staging folder (keeping the owner file) and
-    the scratch folder. Downloads, the library, knowledge and sync records are never touched."""
+    """Empty the workflow tables and set every series ok, then empty the staging folder (keeping the owner file), the
+    scratch folder and the junk candidates folder. Downloads, the library, knowledge and sync records are never
+    touched."""
     with closing(db.connect(cfg)) as conn:
         workflow.reset(conn)
     owner = preflight.owner_file(cfg)
-    for key in ("staging", "scratch"):
+    for key in ("staging", "scratch", "candidates"):
         folder = config.abs_path(cfg["paths"][key])
         if not folder.exists():
             continue
@@ -28,7 +29,7 @@ def reset(cfg):
                 shutil.rmtree(entry)
             else:
                 entry.unlink()
-    log.info("workflow state reset; staging and scratch emptied")
+    log.info("workflow state reset; staging, scratch and candidates emptied")
 
 
 def adopt(cfg):
