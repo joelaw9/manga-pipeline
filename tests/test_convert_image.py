@@ -102,7 +102,12 @@ def jpeg_with_exif(im, exif):
         ({**NO_EDIT, "bands": [{"page": 1, "box": [0, 0, 10]}]}, "bands"),
         ({**NO_EDIT, "join": [[1]]}, "join"),
         ({**NO_EDIT, "join": [[1, 2, 3]]}, "pairs"),
-        ({**NO_EDIT, "strip_removed": [{"start": 1}]}, "start and end"),
+        ({**NO_EDIT, "drop_pages": [1, 1]}, "twice"),
+        ({**NO_EDIT, "strip_removed": [{"start": 1}]}, "strip_removed entries"),
+        ({**NO_EDIT, "strip_removed": [{"start": 1, "end": 2}]}, "strip_removed entries"),
+        ({**NO_EDIT, "strip_removed": [{"start": 1, "end": 2, "why": 3}]}, "strip_removed entries"),
+        ({**NO_EDIT, "strip_removed": [{"start": 5, "end": 5, "why": "match"}]}, "0 <= start < end"),
+        ({**NO_EDIT, "strip_removed": [{"start": -1, "end": 5, "why": "match"}]}, "0 <= start < end"),
         ({**NO_EDIT, "blank": [{"page": 0, "box": [0, 0, 1, 1]}]}, "blank entries"),
         ({**NO_EDIT, "blank": [{"page": 0, "box": [0, 0, 1], "fill": [1, 2, 3]}]}, "blank entries"),
         ({**NO_EDIT, "blank": [{"page": 0, "box": [0, 0, 1, 1], "fill": [1, 2, 3.5]}]}, "integers"),
@@ -386,6 +391,39 @@ def test_a_join_of_a_dropped_or_cover_page_is_refused(tmp_path):
         ch.plan({**NO_EDIT, "join": [[0, 1]]})
     with pytest.raises(plan.EditError, match="dropped or cover-named"):
         ch.plan({**NO_EDIT, "drop_pages": [1], "join": [[1, 2]]})
+
+
+@budget(load="pool")
+@pytest.mark.parametrize(
+    ("drop", "bands", "match"),
+    [
+        ([0], [], "cover-named"),  # page 0 is the cover
+        ([], [{"page": 0, "box": [0, 0, 96, 100]}], "cover-named"),
+        ([], [{"page": 1, "box": [0, 0, 96, 100]}, {"page": 1, "box": [0, 20, 96, 128]}], "twice or a dropped page"),
+        ([1], [{"page": 1, "box": [0, 0, 96, 100]}], "twice or a dropped page"),
+        ([], [{"page": 1, "box": [0, 0, 97, 100]}], "not inside page 1"),
+        ([], [{"page": 1, "box": [0, 100, 96, 100]}], "not inside page 1"),
+    ],
+)
+def test_a_drop_or_band_the_junk_stage_never_writes_is_refused(tmp_path, drop, bands, match):
+    members = [("000_cover.jpg", jpeg(colour(seed=9))), ("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour(seed=3)))]
+    ch = Chapter(tmp_path, members)
+    with pytest.raises(plan.EditError, match=match):
+        ch.plan({**NO_EDIT, "drop_pages": drop, "bands": bands})
+
+
+@budget(load="pool")
+def test_removed_rows_past_the_end_of_the_strip_are_refused(tmp_path):
+    ch = Chapter(tmp_path, [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=i))) for i in range(1, 4)])
+    with pytest.raises(plan.EditError, match="past the strip's 4200 rows"):
+        ch.plan({**NO_EDIT, "strip_removed": [{"start": 3900, "end": 4300, "why": "match"}]}, layout="strip")
+
+
+@budget(load="pool")
+def test_removed_rows_of_a_strip_chapter_with_only_a_cover_page_are_refused(tmp_path):
+    ch = Chapter(tmp_path, [("000_cover.jpg", jpeg(colour(seed=9)))])
+    with pytest.raises(plan.EditError, match="past the strip's 0 rows"):
+        ch.plan({**NO_EDIT, "strip_removed": [{"start": 0, "end": 100, "why": "match"}]}, layout="strip")
 
 
 @budget(load="pool")

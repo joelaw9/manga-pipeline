@@ -50,6 +50,7 @@ def test_shipped_checks():
         "scorer": (HARD, preflight.scorer),
         "scratch space": (HARD, preflight.scratch_space),
         "OCR device": (HARD, preflight.ocr_device),
+        "junk word lists": (HARD, preflight.junk_word_lists),
         "Claude settings": (HARD, preflight.claude_settings),
     }
     assert shipped == want, "SPEC 'Preflight' lists every check with its kind"
@@ -198,6 +199,7 @@ def layout(tmp_path, **paths):
         ("scratch = project root", {"scratch": config.ROOT}, "contains the project root"),
         ("scratch holds the database", {"scratch": "state"}, "paths.scratch {state} contains database.path"),
         ("staging in the library", {"staging": "share/library/Series"}, "lies inside paths.library"),
+        ("scratch holds the covers", {"covers": "scratch/covers"}, "contains paths.covers"),
     ],
 )
 def test_folders_state_reset_empties_hold_nothing_kept(tmp_path, case, paths, problem):
@@ -257,6 +259,16 @@ def test_folder_layout_on_windows_ignores_letter_case(tmp_path):
     library = str(tmp_path / "share" / "library")
     cfg = layout(tmp_path, staging=library.upper())
     assert "contains paths.library" in preflight.folder_layout(cfg)
+
+
+@budget(load="pure")
+def test_junk_word_lists_refuse_a_weak_or_paired_term_that_is_no_keyword():
+    junk = config.cached()["junk"]
+    cfg = {**config.cached(), "junk": {**junk, "weak": [*junk["weak"], "stray"], "paired": [*junk["paired"], "odd"]}}
+    assert preflight.junk_word_lists(cfg) == (
+        "junk.weak terms not in junk.keywords: ['stray']; junk.paired terms not in junk.keywords: ['odd']"
+    ), "a weak or paired term only restricts a keyword: one that is no keyword would do nothing"
+    assert preflight.junk_word_lists(config.cached()) is None
 
 
 @budget(load="pure")

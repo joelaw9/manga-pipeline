@@ -252,6 +252,15 @@ def test_retry_without_a_database_is_refused_and_creates_none(tmp_path, capsys):
 
 
 @budget(load="db")
+def test_process_stops_at_start_on_a_paired_term_that_is_no_keyword(tmp_path, capsys):
+    cfg = adopted(tmp_path)
+    cfg = {**cfg, "junk": {**cfg["junk"], "paired": [*cfg["junk"]["paired"], "nonsense"]}}
+    assert main(tmp_path, cfg, "process") == 4
+    err = capsys.readouterr().err
+    assert "junk word lists" in err and "['nonsense']" in err, "the check and the stray term are named"
+
+
+@budget(load="db")
 @pytest.mark.parametrize("argv", [["status"], ["retry", "1"]])
 def test_database_from_a_newer_version_exits_4(tmp_path, capsys, argv):
     cfg = adopted(tmp_path)
