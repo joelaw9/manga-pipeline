@@ -19,7 +19,12 @@ def scan(ctx):
     decides whether the share is unreachable); an unreachable service raises Unreachable before anything is written
     but the series rows identification settled."""
     root = config.abs_path(ctx.cfg["paths"]["downloads"]) / suwayomi.MANGAS_FOLDER
-    folders = _list(root)
+    held = _held(ctx)
+    folders = {}
+    for key, files in _list(root).items():
+        files = [n for n in files if str(root / key[0] / key[1] / n) not in held]
+        if files:
+            folders[key] = files
     unmatched, found = [], []
     if folders:
         by_folder = {}
@@ -43,6 +48,19 @@ def scan(ctx):
             unmatched += unmatched_here
             found += found_here
     _record(ctx, found, unmatched)
+
+
+def _held(ctx):
+    """The paths open chapters hold: their downloads, the re-downloads they expect and the rejected copies they are
+    still removing (SPEC "Bad downloads"). Such a file is never a new chapter and never listed as not taken."""
+    rows = ctx.conn.execute(
+        """SELECT download_path FROM chapter WHERE status != 'done' AND download_path IS NOT NULL
+        UNION SELECT json_extract(redownload, '$.expected.path') FROM chapter
+        WHERE status != 'done' AND json_extract(redownload, '$.expected.path') IS NOT NULL
+        UNION SELECT json_extract(r.value, '$.path') FROM chapter, json_each(chapter.redownload, '$.remove') r
+        WHERE chapter.status != 'done'"""
+    )
+    return {row[0] for row in rows}
 
 
 def _list(root):
@@ -82,7 +100,7 @@ def _manga_downloads(ctx, manga, paths, kavita_series):
             unmatched.append((path, why))
         elif hits[0]["isDownloaded"]:  # not flagged: Suwayomi is still writing it
             identity = names.identity(names.parse(path.stem))
-            found.append((series["id"], identity, str(path), hits[0]["id"], str(manga["sourceId"])))
+            found.append((series["id"], identity, str(path), hits[0]["id"], manga["source"]["displayName"]))
     return unmatched, found
 
 

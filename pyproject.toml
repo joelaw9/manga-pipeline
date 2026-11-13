@@ -6,7 +6,7 @@ requires-python = ">=3.13"
 
 # No packaging: install with `python -m pip install --group dev` (pip 25.1+).
 [dependency-groups]
-runtime = ["pyyaml", "pillow", "numpy", "imagehash", "rapidocr"]
+runtime = ["pyyaml", "pillow", "numpy", "imagehash", "rapidfuzz", "rapidocr"]
 # OCR needs exactly 1 onnxruntime: dev takes DirectML on Windows and the CPU build elsewhere (CI); the LXC installs
 # --group runtime --group ocr-cuda (junk.ocr_device cuda).
 ocr-cuda = ["onnxruntime-gpu[cuda,cudnn]"]

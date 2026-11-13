@@ -3,14 +3,16 @@ file, its preflight checks, its handler; a bad config is a usage error, a held l
 exits 4 (SPEC "CLI", "Run lock", "Logging", "Preflight")."""
 
 import dataclasses
+import errno
 import logging
 import subprocess
 import sys
+from contextlib import closing
 
 import pytest
 import yaml
 
-from manga_pipeline import cli, config, lock, preflight
+from manga_pipeline import cli, config, db, discovery, lock, preflight
 
 from tests.timing import budget
 
@@ -21,6 +23,8 @@ ARGV = {
     "export": ["export"],
     "status": ["status"],
     "retry": ["retry", "1"],
+    "chapter use": ["chapter", "use", "1", "2"],
+    "chapter drop": ["chapter", "drop", "1"],
     "smoke": ["smoke"],
     "series link": ["series", "link", "1", "2"],
     "state reset": ["state", "reset", "--yes"],
@@ -36,6 +40,8 @@ SPEC = {
     "export": ({"export"}, "export.log", [*PART_CHECKS, "service settings"]),
     "status": (set(), None, []),
     "retry": (set(), None, []),
+    "chapter use": (set(), None, []),
+    "chapter drop": (set(), None, []),
     "smoke": (set(), None, ["workflow settings", "service settings"]),
     "series link": (set(), None, ["workflow settings", "service settings"]),
     "state reset": (set(PARTS), None, [*LOCKED, "share ownership"]),
@@ -202,6 +208,30 @@ def test_hard_preflight_failure_exits_4(site, monkeypatch, capsys):
     assert "preflight failed: stub: missing" in capsys.readouterr().err
     text = (config.abs_path(site_cfg(site)["logging"]["dir"]) / "intake.log").read_text(encoding="utf-8")
     assert "stub: missing" in text and "run ended" not in text, "the work must not start after a hard failure"
+
+
+@budget(load="db")
+def test_crash_inside_a_part_exits_1_with_1_traceback_in_its_log(site, monkeypatch):
+    def unreadable(ctx):
+        raise PermissionError(errno.EACCES, "Permission denied", "downloads")
+
+    assert run(site, "state adopt") == 0
+    monkeypatch.setattr(discovery, "scan", unreadable)
+    assert run(site, "intake") == 1, "SPEC 'CLI': an unexpected error exits 1"
+    text = (config.abs_path(site_cfg(site)["logging"]["dir"]) / "intake.log").read_text(encoding="utf-8")
+    assert text.count("Traceback") == 1 and "PermissionError" in text, "logged with its traceback, once"
+    with closing(db.connect(site_cfg(site))) as conn:
+        result = conn.execute("SELECT value FROM meta WHERE key = 'intake.last_result'").fetchone()[0]
+    assert result == "error"
+
+
+@budget(load="fs")
+def test_unexpected_error_of_a_command_without_a_log_file_exits_1_with_its_traceback(site, capsys):
+    config.abs_path(site_cfg(site)["database"]["path"]).write_bytes(b"not a database")
+    assert run(site, "status") == 1
+    err = capsys.readouterr().err
+    assert "status: failed" in err and "Traceback" in err and "DatabaseError" in err
+    assert log_files(site) == []
 
 
 @budget(load="pure")

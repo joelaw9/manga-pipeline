@@ -36,6 +36,9 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `kavita.library_id` | id of the Kavita library the pipeline works; series of other libraries are out of scope |
 | `kavita.rescan_after_minutes` | minutes after a series scan request before chapters still not indexed get another (SPEC "Publishing") |
 | `export.retention_days` | days a removed download stays in `paths.retention`; 0 deletes it at once |
+| `sources.ranking` | Suwayomi source display names (`"<name> (<LANG>)"`) a bad download is re-downloaded from, best first (SPEC "Bad downloads") |
+| `sources.download_timeout_hours` | hours a queued re-download may take before the next source is tried |
+| `validate.non_chapter_names` | chapter names (without scanlator and number) of notice or hiatus pages, dropped at discover; empty = none |
 | `junk.claude_token` | the token `junk review` gives `claude -p` (from `claude setup-token`; secret: null in the example) |
 | `junk.claude_path` | the `claude` executable: a path, or a name found on `PATH` |
 | `junk.review_limit` | reviews that list a candidate before it is stuck (SPEC "Junk decisions") |
@@ -49,7 +52,7 @@ One setup call, from the entry point. Records go to the console and, for a comma
 
 ## Run lock
 
-Each command names the lock it runs under, or none: `intake`, `process`, `export` and `junk review` each have their own (`<lock.dir>/<command>.lock`); `status`, `retry`, `smoke`, `series link`, `junk list`, `junk show`, `junk decide` and `junk import` take none, so they work while a part is active; `state reset` and `state adopt` take all 4, so they run only while nothing else does. With `lock.enabled`, a command's lock is taken after config is loaded and before logging is set up, and freed when the command ends. A command that finds its lock held prints an error naming the lock file to stderr and exits 3 at once, without opening the log file; it never waits.
+Each command names the lock it runs under, or none: `intake`, `process`, `export` and `junk review` each have their own (`<lock.dir>/<command>.lock`); `status`, `retry`, `chapter use`, `chapter drop`, `series link`, `smoke`, `junk list`, `junk show`, `junk decide` and `junk import` take none, so they work while a part is active; `state reset` and `state adopt` take all 4, so they run only while nothing else does. With `lock.enabled`, a command's lock is taken after config is loaded and before logging is set up, and freed when the command ends. A command that finds its lock held prints an error naming the lock file to stderr and exits 3 at once, without opening the log file; it never waits.
 
 A lock file left by a run that died does not block the next run. Where the lock is a file holding the holder's pid (no OS file lock), 2 runs starting in the same instant against a dead holder's file can both take it.
 
@@ -61,7 +64,7 @@ After config, the run lock and logging, and before the work, the run checks its 
 |---|---|---|---|
 | free disk space | soft | parts, reset, adopt, review | less than `preflight.min_free_mb` MiB free on `logging.dir`'s drive (0 skips the check; a negative value is itself the problem) |
 | runtime version | hard | parts, reset, adopt, review | Python older than 3.13 |
-| database location | hard | parts, reset, adopt, review | `database.path` lies under `paths.downloads`, `paths.library` or `paths.staging` |
+| database location | hard | parts, reset, adopt, review | `database.path` lies under `paths.downloads`, `paths.library`, `paths.staging` or `paths.retention` |
 | share ownership | hard | parts, reset | the owner file in `paths.staging` is missing, or holds another database's id (SPEC "State") |
 | staging folder | hard | adopt | `paths.staging` is not an existing folder |
 | folder layout | hard | parts, reset, adopt, review | `paths.staging`, `paths.scratch` or `paths.candidates` (the folders `state reset` empties) equals or contains `paths.downloads`, `paths.library`, `paths.retention`, the database file, `logging.dir`, `lock.dir`, the project root or another of the 3, or lies inside `paths.downloads` or `paths.library`; `paths.retention` lies inside `paths.downloads` or `paths.library`, or contains either |
@@ -75,9 +78,9 @@ The runtime check covers a runtime that can load the program; one too old to par
 
 ## CLI
 
-Commands: `intake`, `process`, `export` (SPEC "Parts"), `junk list [--all]`, `junk show ID`, `junk decide ID junk|keep|unsure`, `junk review`, `junk import PATH` (SPEC "Junk decisions"; `junk list`, `show` and `decide` refuse with exit 2 a missing database or a candidate that is not open, `--all` while a review id is set; `junk import` refuses with exit 2 a file that is neither a bulk-converter junk store nor a pipeline database, or this pipeline's own database), `status` (what is waiting, on what, what needs a human, the downloads not taken, and published files never confirmed), `retry` (SPEC "Needs human"), `state reset`, `state adopt` (SPEC "State"), `smoke` (SPEC "Services"), `series link` (SPEC "Series identification"; no lock, refused with exit 2 like `retry`).
+Commands: `intake`, `process`, `export` (SPEC "Parts"), `junk list [--all]`, `junk show ID`, `junk decide ID junk|keep|unsure`, `junk review`, `junk import PATH` (SPEC "Junk decisions"; `junk list`, `show` and `decide` refuse with exit 2 a missing database or a candidate that is not open, `--all` while a review id is set; `junk import` refuses with exit 2 a file that is neither a bulk-converter junk store nor a pipeline database, or this pipeline's own database), `status` (what is waiting, on what, what needs a human, the re-downloads in progress, chapter notes, the downloads not taken, and published files never confirmed), `retry` (SPEC "Needs human"), `chapter use`, `chapter drop` (SPEC "Bad downloads"; no lock, refused with exit 2 like `retry`), `state reset`, `state adopt` (SPEC "State"), `smoke` (SPEC "Services"), `series link` (SPEC "Series identification"; no lock, refused with exit 2 like `retry`).
 
-`--set KEY=VALUE` (repeatable) sets a config key for the run (SPEC "Config"). Exit codes: 0 done, 1 an unexpected error (logged with its traceback), a failed `smoke` check, or a `junk review` whose Claude run failed (non-zero exit or an error result), 2 usage or config error or a refused `retry`, 3 another run holds the run lock, 4 a hard preflight check failed, or the database is not one this program's version can use (it holds a schema step the program does not have, or, for `status`, lacks one).
+`--set KEY=VALUE` (repeatable) sets a config key for the run (SPEC "Config"). Exit codes: 0 done, 1 an unexpected error (logged with its traceback), a failed `smoke` check, or a `junk review` whose Claude run failed (non-zero exit or an error result), 2 usage or config error or a refused `retry`, `chapter use`, `chapter drop`, `series link` or `junk` command, 3 another run holds the run lock, 4 a hard preflight check failed, or the database is not one this program's version can use (it holds a schema step the program does not have, or, for `status`, lacks one).
 
 ## Tests
 

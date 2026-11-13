@@ -53,7 +53,7 @@ def site(tmp_path, monkeypatch):
     return Site(tmp_path, monkeypatch)
 
 
-def noise(seed, size=(40, 60)):
+def noise(seed, size=(16, 24)):
     rng = np.random.default_rng(zlib.crc32(seed.encode()))
     out = io.BytesIO()
     Image.fromarray(rng.integers(0, 256, (size[1], size[0], 3), dtype=np.uint8)).save(out, "PNG")

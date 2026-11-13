@@ -21,11 +21,11 @@ from tests.fakes.http import NoNetwork
 
 
 def page(number, seed=""):
-    """A small real page image (PNG bytes) of 1 colour, set by its number and seed: no junk unit (it has no
+    """A small real page image (PNG bytes, 16 x 24) of 1 colour, set by its number and seed: no junk unit (it has no
     signature), not white, and other number or seed = other bytes."""
     shade = 40 + (zlib.crc32(f"{number} {seed}".encode()) % 160)
     out = io.BytesIO()
-    Image.new("RGB", (40, 60), (shade, shade, 255 - shade)).save(out, "PNG")
+    Image.new("RGB", (16, 24), (shade, shade, 255 - shade)).save(out, "PNG")
     return out.getvalue()
 
 
@@ -34,7 +34,7 @@ def cbz(pages=3, comicinfo=None):
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as archive:
         for number in range(1, pages + 1):
-            archive.writestr(f"{number:03}.jpg", page(number))
+            archive.writestr(f"{number:03}.png", page(number))
         if comicinfo is not None:
             archive.writestr("ComicInfo.xml", comicinfo)
     return data.getvalue()
@@ -143,6 +143,10 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         rows = [c for c in self.chapter_rows.values() if c["mangaId"] == manga_id]
         return copy.deepcopy(sorted(rows, key=lambda c: c["sourceOrder"]))
 
+    def chapter(self, chapter_id):
+        row = self.chapter_rows.get(chapter_id)
+        return copy.deepcopy(row)
+
     def download_queue(self):
         queue = [
             {
@@ -179,6 +183,11 @@ class FakeSuwayomi(suwayomi.Suwayomi):
                 if folder.is_dir() and not any(folder.iterdir()):
                     folder.rmdir()
             self.chapter_rows[chapter_id]["isDownloaded"] = False
+
+    def dequeue(self, chapter_ids):
+        """As Suwayomi: the chapters leave the queue; one not queued is no error."""
+        self.writes.append(("dequeue", list(chapter_ids)))
+        self.queue = [e for e in self.queue if e["chapter"] not in chapter_ids]
 
     def start_downloader(self):
         self.writes.append(("start_downloader",))

@@ -28,7 +28,7 @@ def credit_page(seed=""):
     by its size, so the chapter waits on junk_decision until the candidate is decided."""
     rng = np.random.default_rng(zlib.crc32(f"credit {seed}".encode()))
     out = io.BytesIO()
-    Image.fromarray(rng.integers(0, 256, (60, 70, 3), dtype=np.uint8)).save(out, "PNG")
+    Image.fromarray(rng.integers(0, 256, (24, 28, 3), dtype=np.uint8)).save(out, "PNG")
     return out.getvalue()
 
 
@@ -38,7 +38,7 @@ def cbz(pages=3, comicinfo=None, seed="", credit=False):
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
         for n in range(1, pages + 1):
-            z.writestr(f"{n:03}.jpg", fake_page(n, seed))
+            z.writestr(f"{n:03}.png", fake_page(n, seed))
         if credit:
             z.writestr(f"{pages + 1:03}.png", credit_page())
         if comicinfo is not None:

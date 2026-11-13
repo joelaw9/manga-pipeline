@@ -305,15 +305,14 @@ def charge_waits(ctx, series_id, on, reason):
 
 
 def release_own_claims(ctx):
-    """Free the in-scope claims a killed run of this part left: back to ready at their stage, attempts unchanged. Not
-    when lock.enabled is false: another live run of the part may hold them."""
+    """Free the claims a killed run of this part left, in scope or not: back to ready at their stage, attempts
+    unchanged. Not when lock.enabled is false: another live run of the part may hold them."""
     if not ctx.cfg["lock"]["enabled"]:
         return
     with db.transaction(ctx.conn):
         released = ctx.conn.execute(
-            f"""UPDATE chapter SET status = 'ready', claimed_by = NULL, updated_at = :now
-            WHERE status = 'claimed' AND claimed_by = :part
-                AND series_id IN (SELECT s.id FROM series s WHERE {SCOPE})""",
+            """UPDATE chapter SET status = 'ready', claimed_by = NULL, updated_at = :now
+            WHERE status = 'claimed' AND claimed_by = :part""",
             _params(ctx),
         ).rowcount
     if released:
@@ -395,16 +394,81 @@ def reset(conn):
 
 
 def _ready_again(conn, where, value):
+    """Ready again at its stage, attempts 0; a re-download's source search starts again from the top, and a person's
+    choice (chapter use) is forgotten (SPEC "Bad downloads")."""
     return conn.execute(
-        f"UPDATE chapter SET status = 'ready', attempts = 0, updated_at = ? WHERE {where}", (now(), value)
+        f"""UPDATE chapter SET status = 'ready', attempts = 0, updated_at = ?,
+            redownload = CASE WHEN json_extract(redownload, '$.original') IS NULL THEN NULL
+                ELSE json_set(redownload, '$.tried', json('[]'), '$.same_source_done', json('false'),
+                    '$.chosen', json('null')) END
+        WHERE {where}""",
+        (now(), value),
     ).rowcount
+
+
+# The stages at which a person may drop a needs_human chapter: nothing of it is staged or published yet.
+DROPPABLE = ("discover", "validate", "junk")
+
+
+def use_chapter(conn, chapter_id, suwayomi_chapter_id):
+    """A person's chosen replacement (chapter use): a needs_human chapter at validate becomes ready with the Suwayomi
+    chapter to download as its replacement (SPEC "Bad downloads")."""
+    with db.transaction(conn):
+        _refuse_unless_human(conn, chapter_id, ("validate",))
+        conn.execute(
+            """UPDATE chapter SET status = 'ready', attempts = 0, updated_at = ?,
+                redownload = json_set(coalesce(redownload, '{}'), '$.chosen', ?)
+            WHERE id = ?""",
+            (now(), suwayomi_chapter_id, chapter_id),
+        )
+
+
+def droppable(conn, chapter_id):
+    """The row of a chapter a person may drop (needs_human at a DROPPABLE stage, with no removal or download of its
+    re-download outstanding); Refused otherwise."""
+    with db.transaction(conn):
+        row = _refuse_unless_human(conn, chapter_id, DROPPABLE)
+        state = json.loads(row["redownload"] or "{}")
+        pending = [r["path"] for r in state.get("remove", [])] + (
+            [state["expected"]["path"]] if state.get("expected") else []
+        )
+        if pending:
+            raise Refused(
+                f"chapter {chapter_id} still has re-download work outstanding ({', '.join(pending)}): "
+                f"retry {chapter_id} lets intake finish it"
+            )
+        return row
+
+
+def drop_chapter(conn, chapter_id, record):
+    """A person gives a needs_human chapter up (chapter drop): done where it stands, with record(conn) (its handled
+    row) in the same transaction. The caller removes its download first."""
+    with db.transaction(conn):
+        _refuse_unless_human(conn, chapter_id, DROPPABLE)
+        conn.execute(
+            """UPDATE chapter SET status = 'done', last_error = 'dropped by a person', redownload = NULL,
+                updated_at = ? WHERE id = ?""",
+            (now(), chapter_id),
+        )
+        record(conn)
+
+
+def _refuse_unless_human(conn, chapter_id, stages):
+    row = conn.execute("SELECT * FROM chapter WHERE id = ?", (chapter_id,)).fetchone()
+    if row is None:
+        raise Refused(f"no chapter {chapter_id}")
+    if row["status"] != "needs_human" or row["stage"] not in stages:
+        raise Refused(
+            f"chapter {chapter_id} is {row['status']} at {row['stage']}, not needs_human at {' or '.join(stages)}"
+        )
+    return row
 
 
 def run_part(ctx, body):
     """A part's run (SPEC "Parts"): record its start, release its own stale claims, run body(ctx), record its end and
     result ("ok", "unreachable: <service>, …" or "error"), and its last success when the result is ok. Unreachable
     raised outside a stage (discovery, a wait check) ends the run; either way the exit code stays 0. Any other
-    exception is logged with its traceback, recorded as "error" and raised again."""
+    exception is recorded as "error" and left to the caller, unlogged."""
     _set_meta(ctx, "last_start", now())
     result = "error"
     services = set()
@@ -415,9 +479,6 @@ def run_part(ctx, body):
         services.add(e.service)
         log.warning("%s: unreachable (%s), run ended", ctx.part, e)
         result = "unreachable"
-    except Exception:
-        log.exception("%s: run failed", ctx.part)
-        raise
     else:
         result = "ok"
     finally:

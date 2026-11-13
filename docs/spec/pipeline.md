@@ -21,7 +21,7 @@ Order of work:
 - `process` scans every ready junk-stage chapter of a series before it decides any of them, and runs the junk stage for all of them before it converts any, so what repeats across chapters is seen before a decision is made.
 - `export` works in this order each run: it deletes expired retention files, adds `ComicInfo.xml` to the ready chapters, publishes series by series, then does what needs Kavita: ends `kavita_scan` waits, requests the rescans that are due (SPEC "Publishing") and 1 scan per series it published into, then confirms.
 
-Every part works only the series in scope: a series Kavita holds in the library `kavita.library_id`, or a new series (Kavita does not hold it yet); with `series.only` set, only the series it names. Nothing else is read or written.
+Every part works only the series in scope: a series Kavita holds in the library `kavita.library_id`, or a new series (Kavita does not hold it yet); with `series.only` set, only the series it names. Nothing else is read or written, except that a part frees the claims a run of it that died left, whatever their series (SPEC "State").
 
 Hand-off between parts:
 
@@ -32,7 +32,7 @@ Hand-off between parts:
 
 One chapter that fails or waits never stops a part or the chapters after it. Later chapters of the series are published while an earlier one is held.
 
-When Suwayomi, Kavita, a metadata source or the share cannot be reached, the chapters and series that need it wait and are tried again by a later run of the part. That does not count as an attempt. For the rest of the run the part claims no chapter at the stage that met the unreachable service, and goes on with its other stages. For the share, "cannot be reached" is an input/output, stale-handle or timeout error on one of its paths.
+When Suwayomi, Kavita, a metadata source or the share cannot be reached, the chapters and series that need it wait and are tried again by a later run of the part. That does not count as an attempt. For the rest of the run the part claims no chapter at the stage that met the unreachable service, and goes on with its other stages. For the share, "cannot be reached" is an input/output, stale-handle or timeout error raised while a part works on files; the program does not tell which disk raised it.
 
 ## State
 
@@ -44,7 +44,7 @@ One SQLite database on the local disk of the machine that runs the pipeline, nev
 | knowledge | the junk decisions; each series' source IDs and conversion calibration |
 | sync records | what was fetched for each series, from which source and when (written only by `intake`, with a version that rises on every change); what was written for each series and each published chapter (written only by `export`, with the version it was written from) |
 
-It is the single record of what is pending. `state reset` clears the workflow state only; knowledge and sync records are kept, and the next `intake` rediscovers the downloads. Every series becomes ok again, except one held for want of a Kavita series or a folder: only `series link` settles that. It needs `--yes`, runs only while no part and no junk review is running, and also empties the staging, scratch and candidates folders. It never touches the downloads, the library or the retention folder.
+It is the single record of what is pending. `state reset` clears the workflow state only; knowledge and sync records are kept, and the next `intake` rediscovers the downloads (what becomes of a re-download in progress: SPEC "Bad downloads"). Every series becomes ok again, except one held for want of a Kavita series or a folder: only `series link` settles that. It needs `--yes`, runs only while no part and no junk review is running, and also empties the staging, scratch and candidates folders. It never touches the downloads, the library or the retention folder.
 
 A part claims a chapter in 1 short transaction before working on it and records the outcome in another; no transaction is open while a stage works. A claim left by a run that died is released when that part next starts. A command without a lock refuses a chapter a part has claimed, and an outcome is not recorded over a change a person made meanwhile.
 
@@ -60,9 +60,9 @@ A chapter is at 1 stage and has 1 status: `ready`, `claimed`, `waiting`, `needs_
 
 | Stage | Part | Does | Can wait on |
 |---|---|---|---|
-| discover | `intake` | settles the chapter's identity and content digest; drops a download already handled (SPEC "Bad downloads"); a chapter with no number is `needs_human` | |
-| validate | `intake` | finds a broken archive, an undecodable or missing page, a bad download, a duplicate | `suwayomi_download` |
-| junk | `process` | takes the series' baseline (SPEC "State"); drops a download already handled; scans the chapter's junk units, applies the stored decisions and writes the chapter edit convert applies (SPEC "Junk decisions") | `bulk_conversion`, `junk_decision` |
+| discover | `intake` | settles the chapter's identity and content digest (an archive it cannot read gets no digest and goes on to validate); drops a download already handled, and a notice or hiatus page (SPEC "Bad downloads"); a chapter with no number is `needs_human` | |
+| validate | `intake` | reads and measures every page; a bad download is re-downloaded, and its replacement validated here; other defects are `needs_human` or noted (SPEC "Bad downloads", "Validation") | `suwayomi_download` |
+| junk | `process` | takes the series' baseline (SPEC "State"); drops a download already handled; drops a duplicate of a published file, or holds a better or doubtful copy (SPEC "Bad downloads", "Library copies"); scans the chapter's junk units, applies the stored decisions and writes the chapter edit convert applies (SPEC "Junk decisions") | `bulk_conversion`, `junk_decision` |
 | convert | `process` | re-encodes the pages (AVIF where it passes the quality gates) and writes the CBZ of pages to the staging folder | |
 | comicinfo | `export` | adds `ComicInfo.xml` to the CBZ | |
 | publish | `export` | renames the CBZ into the series folder | |
@@ -74,4 +74,4 @@ The CBZ in the downloads folder is never modified. Work happens in the scratch f
 
 A chapter or a series that becomes `needs_human` is reported 3 ways: a line in the log, the `status` command, and a message to a Discord webhook.
 
-A person clears it with `retry` (a chapter by its id, or `--series` for a series and its chapters): the item is ready again at the stage where it stopped, with its attempts at 0. With no database, an id that does not exist, or an item that is not `needs_human` (a chapter a part has claimed included), is refused with exit code 2 and left unchanged; `--series` is refused when neither the series nor any of its chapters is `needs_human`.
+A person clears it with `retry` (a chapter by its id, or `--series` for a series and its chapters): the item is ready again at the stage where it stopped, with its attempts at 0. With no database, an id that does not exist, or an item that is not `needs_human` (a chapter a part has claimed included), is refused with exit code 2 and left unchanged; `--series` is refused when neither the series nor any of its chapters is `needs_human`. A chapter held at validate or junk can also be settled with `chapter use` or `chapter drop`, and `retry` there starts a re-download's source search again (SPEC "Bad downloads").

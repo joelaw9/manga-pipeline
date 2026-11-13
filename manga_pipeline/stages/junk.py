@@ -1,5 +1,6 @@
 """Stage junk (SPEC "Chapter stages", "State", "Bad downloads", "Junk decisions"): first the series' baseline (a series
-Kavita holds waits on bulk_conversion until its record parses), then the put-aside check that needed it, then junk.
+Kavita holds waits on bulk_conversion until its record parses), then the put-aside check that needed it, then the
+library-copy check (SPEC "Library copies"), then junk.
 
 A chapter with no current scan is scanned (pages extracted to its scratch folder, measured, its units keyed, OCR on
 the strip units no decision covers) and stays ready (Ready), so every ready junk chapter of a series is scanned before
@@ -14,7 +15,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from manga_pipeline import archive, baseline, config, db, handled, images, page_store, strip, workflow
+from manga_pipeline import archive, baseline, config, db, handled, images, library_copy, page_store, strip, workflow
 from manga_pipeline.junk import candidates, ocr, page_units, store, strip_units
 
 WORDS = ("keywords", "weak", "paired", "suppress")
@@ -29,6 +30,9 @@ def run(ctx, chapter):
     why = handled.put_aside(ctx, chapter, chapter["content_digest"])
     if why:
         return workflow.Dropped(why)
+    outcome = library_copy.judge(ctx, chapter)
+    if outcome:
+        return outcome
     if not chapter["content_digest"]:
         raise ValueError(f"chapter {chapter['id']} has no content digest: discovery sets it before junk")
     key = store.series_key(series["folder"])
