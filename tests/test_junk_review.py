@@ -206,3 +206,12 @@ def test_an_absolute_rule_path_starts_with_two_slashes(path, want):
 
     p = PureWindowsPath(path) if ":" in path else PurePosixPath(path)
     assert review_run.rule_path(p) == want, "Claude Code reads //path as absolute; F: becomes //f"
+
+
+@budget(load="pure")
+def test_the_junk_command_prefix_is_posix_with_forward_slashes():
+    """Claude's Bash tool is Git Bash on Windows: backslashes in a path are lost there (7a probe)."""
+    got = review_run.join_command(
+        [r"C:\Python313\python.exe", "-m", "manga_pipeline.cli", "--config", r"F:\s\c 1.yaml"]
+    )
+    assert got == "C:/Python313/python.exe -m manga_pipeline.cli --config 'F:/s/c 1.yaml'", got

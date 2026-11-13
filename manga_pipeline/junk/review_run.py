@@ -64,8 +64,9 @@ def child_env(token, review_id, environ=None):
 
 
 def join_command(parts):
-    """A command line as the platform's shell reads it (Claude's Bash rules compare text)."""
-    return subprocess.list2cmdline(parts) if os.name == "nt" else shlex.join(parts)
+    """A command line as Claude's Bash tool reads it: a POSIX shell on every platform (Git Bash on Windows, which drops
+    backslashes), so paths go in forward slashes (Claude's Bash rules compare this text)."""
+    return shlex.join(p.replace("\\", "/") for p in parts)
 
 
 def rule_path(path):

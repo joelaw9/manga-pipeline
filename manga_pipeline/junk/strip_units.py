@@ -176,7 +176,7 @@ def match_blocks(blocks, approve):
     edge blocks no junk decision removed, each with its non-uniform pieces as "probes"). approve(kind, sig text) -> the
     deciding junk row or None. A block matching whole is removed; else its hard-join pieces are tried from the chapter
     edge inward and the first match is removed, then its remainder (removed when it matches, else left as a block
-    without probes: 1 cut per block); else the block is left."""
+    without probes, marked "rest": 1 cut per block); else the block is left."""
     removed, left = [], []
 
     def gone(u, row, where):
@@ -203,7 +203,7 @@ def match_blocks(blocks, approve):
         if row is not None:
             gone(r, row, b["where"])
         else:
-            left.append({**r, "where": b["where"], "probes": []})
+            left.append({**r, "where": b["where"], "probes": [], "rest": True})
     return removed, left
 
 

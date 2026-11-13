@@ -26,7 +26,8 @@ An undecided unit becomes a candidate when, with the chapter in hand:
 - it is near an approved signature (same tile count, every tile within Hamming 8, aspect within 10 %; block, band and probe decisions of any series or global; strip units);
 - its OCR text has a keyword hit (strip edge blocks and probes; `junk.keywords`, case-insensitive substrings; a `junk.weak` term counts only on a unit at most 800 px tall; a `junk.paired` term only beside another keyword; any `junk.suppress` term cancels every hit);
 - it matches units of at least 3 chapter identities of the series, counted over every scan the pipeline has made of the series and the bulk converter's sightings of edge blocks, pages and bands, which `junk import` brings over (each chapter by the identity of its archive name);
-- its series has no decisions at all and its chapter is among the series' first 3 chapter identities by first sighting, then by season and chapter number (the time a chapter identity was first seen is knowledge: it survives `state reset`; every imported sighting counts as seen at the same time, before any scan): every keyed unmatched edge block;
+- its chapter is among the series' first 3 chapter identities by first sighting, then by season and chapter number (the time a chapter identity was first seen is knowledge: it survives `state reset`; every imported sighting counts as seen at the same time, before any scan): every keyed unmatched edge block;
+- it is the rest of an edge block whose edge piece a junk decision removed (the edge piece is often only part of a credit block);
 - it is a tail piece the rules above did not remove;
 - it is a page-format edge page whose size no middle page of the chapter has, the chapter's last page when it is mostly plain with a little colour in a gray chapter (a credits page), or an edge band page whose bands no decision covers.
 

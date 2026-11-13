@@ -231,7 +231,7 @@ def test_match_blocks_cuts_at_the_first_join_whose_edge_piece_is_approved(where,
     approve = approver(approved)
     removed, blocks = su.match_blocks([glued_block(where)], approve)
     assert removed == [{"start": cut[0], "end": cut[1], "where": where, "decision": 7, "why": "match"}], removed
-    assert [(b["start"], b["end"], b["where"], b["probes"]) for b in blocks] == [(*left, where, [])]
+    assert [(b["start"], b["end"], b["where"], b["probes"], b["rest"]) for b in blocks] == [(*left, where, [], True)]
     nearer = glued_block(where)["joins"][0]["sig"]
     assert approve.calls == [
         ("block", "whole"),

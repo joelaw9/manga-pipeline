@@ -18,7 +18,7 @@ from manga_pipeline.junk import ocr, store
 log = logging.getLogger(__name__)
 
 RECUR_CHAPTERS = 3  # D5.2 (c): a unit matching units of this many chapters of the series is a candidate
-FIRST_CHAPTERS = 3  # D5.2 (d): the first chapters of a series with no decisions offer every unmatched edge block
+FIRST_CHAPTERS = 3  # D5.2 (d): the first chapters of a series offer every unmatched edge block
 UNIT_WIDTH = 1000  # px: the unit image's largest width
 CONTEXT_PX = 300  # px of strip above and below the unit in its context image
 
@@ -76,12 +76,6 @@ def chapters_showing(conn, series_key, kind, key):
     return len({ident for k, ident in rows if store.matches(kind, store.parse_key(kind, k), parsed)})
 
 
-def has_decisions(conn, series_key):
-    return (
-        conn.execute("SELECT 1 FROM junk_decision WHERE series_key = ? LIMIT 1", (series_key,)).fetchone() is not None
-    )
-
-
 def strip_reasons(conn, series_key, unit, words):
     """Why a strip unit is a candidate (near, OCR keywords); [] when neither."""
     out = []
@@ -99,9 +93,10 @@ def strip_reasons(conn, series_key, unit, words):
 def select(conn, series_key, identity, undecided, words):
     """The candidates among a chapter's undecided units: [{"kind", "key", "reason", "unit"}]. Strip edge blocks: the
     first probe from the chapter edge that is near or has a keyword is offered instead of its block; else the block
-    when it is near, has a keyword, recurs, or its chapter is among the first of a series with no decisions. Tail
+    when it is near, has a keyword, recurs, is the rest of a block whose edge piece is junk, or its chapter is among the
+    first of the series. Tail
     pieces always. Pages, frames and bands: their per-chapter reasons, or recurrence."""
-    first = None if has_decisions(conn, series_key) else first_identities(conn, series_key)
+    first = first_identities(conn, series_key)
     out = []
     for u in undecided:
         kind = u["kind"]
@@ -119,8 +114,10 @@ def select(conn, series_key, identity, undecided, words):
                 out.append({"kind": "probe", "key": probe["sig"], "unit": unit, "reason": "; ".join(why)})
                 continue
             reasons = strip_reasons(conn, series_key, u, words)
-            if first is not None and identity in first:
-                reasons.append("a first chapter of a series with no decisions")
+            if u.get("rest"):
+                reasons.append("the rest of a block whose edge piece is junk")
+            if identity in first:
+                reasons.append("a first chapter of the series")
         else:
             reasons = list(u.get("reasons", []))
         if kind != "piece":

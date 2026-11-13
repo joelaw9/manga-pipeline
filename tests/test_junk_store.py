@@ -474,15 +474,27 @@ def test_the_first_chapters_of_imported_sightings_go_by_chapter_number(conn):
 
 
 @budget(load="db")
-def test_a_first_chapter_of_a_series_without_decisions_offers_every_unmatched_edge_block(conn):
+def test_a_first_chapter_of_a_series_offers_every_unmatched_edge_block(conn):
     imported_sightings(conn, (1, 2, 3))
     block = {"kind": "block", "sig": sig((flip(T, 60),)), "start": 0, "end": 300, "where": "head", "probes": []}
     words = {"keywords": [], "weak": [], "paired": [], "suppress": []}
     (pick,) = candidates.select(conn, "S", chapter(2), [block], words)
-    assert pick["reason"] == "a first chapter of a series with no decisions", pick
+    assert pick["reason"] == "a first chapter of the series", pick
     assert candidates.select(conn, "S", chapter(4), [block], words) == [], "a later chapter offers nothing by rule (d)"
     put(conn, decision("S", "piece", sig((flip(T, 20),)), "keep"))
-    assert candidates.select(conn, "S", chapter(2), [block], words) == [], "once the series has a decision, (d) is off"
+    (pick,) = candidates.select(conn, "S", chapter(2), [block], words)
+    assert pick["reason"] == "a first chapter of the series", "the series' decisions do not turn (d) off"
+
+
+@budget(load="db")
+def test_the_rest_of_a_block_whose_edge_piece_is_junk_is_offered(conn):
+    put(conn, decision("S", "piece", sig((flip(T, 20),)), "keep"))  # rule (d) aside: chapter 9 is no first chapter
+    imported_sightings(conn, (1, 2, 3))
+    rest = {"kind": "block", "sig": sig((flip(T, 60),)), "start": 120, "end": 300, "where": "tail", "probes": []}
+    words = {"keywords": [], "weak": [], "paired": [], "suppress": []}
+    assert candidates.select(conn, "S", chapter(9), [rest], words) == [], "a plain block with no reason: not offered"
+    (pick,) = candidates.select(conn, "S", chapter(9), [{**rest, "rest": True}], words)
+    assert pick["reason"] == "the rest of a block whose edge piece is junk", pick
 
 
 @budget(load="db")
