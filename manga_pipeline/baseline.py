@@ -1,5 +1,5 @@
-"""A series' baseline (SPEC "State", "Publishing"): what a series Kavita already holds is taken from its bulk-converter
-record before anything is published into it. Read by `process` only; no library file is opened.
+"""A series' baseline (SPEC "State", "Publishing", "Calibration"): what a series Kavita already holds is taken from its
+bulk-converter record before anything is published into it. Read by `process` only; no library file is opened.
 """
 
 import json
@@ -8,7 +8,7 @@ from pathlib import Path
 
 from manga_pipeline import db, names, workflow
 from manga_pipeline.clients.kavita_match import normalize
-from manga_pipeline.convert import record_reader
+from manga_pipeline.convert import calibrate, record_reader
 from manga_pipeline.junk import importing, store
 
 log = logging.getLogger(__name__)
@@ -117,6 +117,11 @@ def _write(conn, series, record, name, layout):
         "INSERT INTO series_conversion (series_id, layout, page_aspect, origin) VALUES (?, ?, ?, 'record')",
         (series["id"], layout, None if aspect is None else json.dumps(aspect)),
     )
+    for group, (q, why) in calibrate.from_record(record).items():
+        conn.execute(
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why) VALUES (?, ?, ?, 1, 'record', ?)",
+            (series["id"], group, q, why),
+        )
     store.upsert(conn, importing.winners(importing.record_rows(record)))  # the junk decisions it carries
     conn.execute(
         "UPDATE series SET baseline_at = ?, comicinfo_series = ?, naming_basis = ? WHERE id = ?",

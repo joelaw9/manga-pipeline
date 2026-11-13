@@ -25,12 +25,14 @@ BLOCKING_PROCESS = """
 import sys, threading
 from pathlib import Path
 from manga_pipeline import cli, process
+from tests.fakes import convert as fake_convert
 
 def blocking_convert(ctx, chapter):
     Path(sys.argv[1]).write_text(str(chapter["id"]), encoding="utf-8")
     threading.Event().wait()
 
 process.STAGES["convert"] = blocking_convert
+fake_convert.install(setattr)
 sys.exit(cli.main(["--config", sys.argv[2], "process"]))
 """
 
@@ -149,10 +151,11 @@ def test_2_unlocked_runs_of_a_part_never_work_a_chapter_twice(world, tmp_path):
     downloads(world, 4, 10)
     intake.run(cfg)
     path = config_file(tmp_path, cfg)
+    world_file = world.dump(tmp_path / "world.json")
     runs = []
     for n in range(2):
         out = open(tmp_path / f"process-{n}.out", "wb")
-        argv = ["-m", "manga_pipeline.cli", "--config", str(path), "--set", "lock.enabled=false", "process"]
+        argv = part_argv(world_file, path, "--set", "lock.enabled=false", "process")
         runs.append((out, start(argv, out)))
     for out, run in runs:
         assert run.wait(timeout=STEP_TIMEOUT_S) == 0

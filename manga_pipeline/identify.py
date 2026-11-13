@@ -233,9 +233,10 @@ def link(cfg, conn, suwayomi, kavita, manga_id, kavita_series_id):
 def _merge_held(conn, held_id, series_id):
     """Move a held row's chapters (workflow.move_chapters) and manga links to the series row, and delete it (inside
     link's transaction). A held row publishes nothing (it has no ComicInfo Series name), so it has no published or
-    handled chapter; a layout computed for it is dropped."""
+    handled chapter; a layout or calibration computed for it is dropped."""
     workflow.move_chapters(conn, held_id, series_id)
     conn.execute("UPDATE suwayomi_manga SET series_id = ? WHERE series_id = ?", (series_id, held_id))
     conn.execute("DELETE FROM series_conversion WHERE series_id = ?", (held_id,))
+    conn.execute("DELETE FROM series_calibration WHERE series_id = ?", (held_id,))
     conn.execute("DELETE FROM series WHERE id = ?", (held_id,))
     log.info("held series %s merged into series %s", held_id, series_id)

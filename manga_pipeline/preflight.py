@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from manga_pipeline import config, db
 from manga_pipeline.clients import suwayomi
+from manga_pipeline.convert import tools, vship
 from manga_pipeline.junk import ocr
 
 log = logging.getLogger(__name__)
@@ -54,7 +55,11 @@ def free_space(cfg):
     if want == 0:
         return None
     # The drive is what counts; logging.dir itself may not exist yet (console-only commands never create it).
-    wanted = config.abs_path(cfg["logging"]["dir"])
+    return _below(config.abs_path(cfg["logging"]["dir"]), want, "preflight.min_free_mb")
+
+
+def _below(wanted, want, key):
+    """The problem when the drive of wanted (measured at its nearest existing folder) has less than want MiB free."""
     folder = next((p for p in (wanted, *wanted.parents) if p.exists()), None)
     if folder is None:
         return f"cannot read free space at {wanted}: no part of the path exists"
@@ -63,7 +68,7 @@ def free_space(cfg):
     except OSError as e:
         return f"cannot read free space at {folder}: {e}"
     if free < want:
-        return f"{free} MiB free at {folder}, below preflight.min_free_mb {want}"
+        return f"{free} MiB free at {folder}, below {key} {want}"
     return None
 
 
@@ -161,6 +166,7 @@ def workflow_settings(cfg):
         ("kavita.library_id", 1),
         ("kavita.rescan_after_minutes", 1),
         ("export.retention_days", 0),
+        ("convert.workers", 1),
         ("junk.review_limit", 1),
         ("junk.review_batch", 1),
     ):
@@ -211,6 +217,30 @@ def share_ownership(cfg):
     return None
 
 
+def image_tools(cfg):
+    missing = [
+        f"tools.{name} {path}"
+        for name in (*tools.NAMES, "vship")
+        if not (path := config.abs_path(cfg["tools"][name])).is_file()
+    ]
+    return f"not an existing file: {', '.join(missing)}" if missing else None
+
+
+def scorer(cfg):
+    try:
+        vship.Scorer(config.abs_path(cfg["tools"]["vship"]))
+    except (OSError, vship.VshipError) as e:
+        return str(e)
+    return None
+
+
+def scratch_space(cfg):
+    want = cfg["convert"]["min_scratch_free_mb"]
+    if want < 0:
+        return f"convert.min_scratch_free_mb must be 0 or more, got {want}"
+    return _below(config.abs_path(cfg["paths"]["scratch"]), want, "convert.min_scratch_free_mb")
+
+
 def claude_settings(cfg):
     """junk review can start Claude: junk.claude_path resolves to an executable, junk.claude_token is set."""
     problems = []
@@ -237,6 +267,9 @@ WORKFLOW_SETTINGS = Check("workflow settings", HARD, workflow_settings)
 SERVICE_SETTINGS = Check("service settings", HARD, service_settings)
 SHARE_OWNERSHIP = Check("share ownership", HARD, share_ownership)
 OCR_DEVICE = Check("OCR device", HARD, ocr_device)
+IMAGE_TOOLS = Check("image tools", HARD, image_tools)
+SCORER = Check("scorer", HARD, scorer)
+SCRATCH_SPACE = Check("scratch space", HARD, scratch_space)
 CLAUDE_SETTINGS = Check("Claude settings", HARD, claude_settings)
 
 

@@ -58,8 +58,8 @@ def parse(rec):
 
 def check(rec):
     """The structural validation of a record: schema 3 or 4, every top key and series block, runs, folders, the
-    naming restart flag, unique outputs and chapter files, and sources that name existing outputs. Raises
-    RecordError."""
+    naming restart flag, the calibration groups' shape, unique outputs and chapter files, and sources that name
+    existing outputs. Raises RecordError."""
     if not isinstance(rec, dict):
         raise RecordError(f"record is a {type(rec).__name__}, not an object")
     if rec.get("schema") not in (FROZEN, SCHEMA) or isinstance(rec.get("schema"), bool):
@@ -82,6 +82,15 @@ def check(rec):
         raise RecordError("record: series.naming.restart missing or not a bool")
     if not isinstance(naming.get("series_name"), str) or not naming["series_name"]:
         raise RecordError("record: series.naming.series_name missing or empty")
+    groups = rec["series"]["calibration"].get("groups", {})
+    if not isinstance(groups, dict) or any(
+        not isinstance(g, dict)
+        or type(g.get("q")) is not int
+        or not 0 <= g["q"] <= 100
+        or not isinstance(g.get("probes", []), list)
+        for g in groups.values()
+    ):
+        raise RecordError("record: series.calibration.groups is not {group: {q: integer 0-100, probes: list}}")
     outputs, files = {}, set()
     for c in rec["chapters"]:
         absent = [k for k in CHAPTER_KEYS if k not in c]

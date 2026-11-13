@@ -26,6 +26,7 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `paths.retention` | where removed downloads are kept for `export.retention_days` (on the share, same filesystem as downloads, outside downloads and every library root) |
 | `paths.naming_overrides` | the work folder of per-series volume overrides, `<series folder name>.yaml`; default `rules/naming` in the project, which the repository keeps empty (its files are the instance's, gitignored) |
 | `paths.scratch` | scratch folder for the chapter in hand (local disk) |
+| `paths.covers` | folder of fetched cover images (local disk); a volume cover's path is relative to it (SPEC "Conversion") |
 | `paths.candidates` | folder of the open junk candidates' images (local disk; SPEC "Junk decisions") |
 | `paths.kavita_path_map` | Kavita path prefix to local path prefix, for the paths Kavita reports (SPEC "Services"); not empty |
 | `workflow.attempt_limit` | failed attempts after which a chapter is `needs_human` |
@@ -36,6 +37,10 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `kavita.library_id` | id of the Kavita library the pipeline works; series of other libraries are out of scope |
 | `kavita.rescan_after_minutes` | minutes after a series scan request before chapters still not indexed get another (SPEC "Publishing") |
 | `export.retention_days` | days a removed download stays in `paths.retention`; 0 deletes it at once |
+| `tools.avifenc`, `tools.avifdec`, `tools.jpegtran`, `tools.oxipng` | the image tools' executables, per machine (relative = project root); nothing is searched on `PATH` (SPEC "Conversion") |
+| `tools.vship` | the Vship scorer library (`libvship.so`, or the Windows DLL), per machine |
+| `convert.workers` | processes that encode and decode one chapter's pages |
+| `convert.min_scratch_free_mb` | free space (MiB) on `paths.scratch`'s drive below which `process` does not run |
 | `sources.ranking` | Suwayomi source display names (`"<name> (<LANG>)"`) a bad download is re-downloaded from, best first (SPEC "Bad downloads") |
 | `sources.download_timeout_hours` | hours a queued re-download may take before the next source is tried |
 | `validate.non_chapter_names` | chapter names (without scanlator and number) of notice or hiatus pages, dropped at discover; empty = none |
@@ -69,8 +74,11 @@ After config, the run lock and logging, and before the work, the run checks its 
 | staging folder | hard | adopt | `paths.staging` is not an existing folder |
 | folder layout | hard | parts, reset, adopt, review | `paths.staging`, `paths.scratch` or `paths.candidates` (the folders `state reset` empties) equals or contains `paths.downloads`, `paths.library`, `paths.retention`, the database file, `logging.dir`, `lock.dir`, the project root or another of the 3, or lies inside `paths.downloads` or `paths.library`; `paths.retention` lies inside `paths.downloads` or `paths.library`, or contains either |
 | share folders | hard | parts, reset, adopt | `paths.downloads`, its `mangas` folder, `paths.library`, `paths.retention` or `paths.naming_overrides` is not an existing folder, or `paths.retention` is not on the filesystem of `paths.downloads` |
-| workflow settings | hard | parts, review, smoke, `series link` | `workflow.attempt_limit`, `kavita.library_id`, `kavita.rescan_after_minutes`, `junk.review_limit` or `junk.review_batch` is below 1, or `export.retention_days` below 0 |
+| workflow settings | hard | parts, review, smoke, `series link` | `workflow.attempt_limit`, `kavita.library_id`, `kavita.rescan_after_minutes`, `junk.review_limit`, `junk.review_batch` or `convert.workers` is below 1, or `export.retention_days` below 0 |
 | OCR device | hard | `process` | `junk.ocr_device` is not `cpu`, `dml` or `cuda`, or its onnxruntime execution provider does not load (a session's first provider is checked, not the listing) |
+| image tools | hard | `process` | a `tools.avifenc`, `tools.avifdec`, `tools.jpegtran`, `tools.oxipng` or `tools.vship` path is not an existing file |
+| scorer | hard | `process` | the scorer library does not load, or its GPU check fails |
+| scratch space | hard | `process` | less than `convert.min_scratch_free_mb` MiB free on the drive of `paths.scratch` (measured at its nearest existing folder) |
 | Claude settings | hard | review | `junk.claude_path` does not resolve to an executable file, or `junk.claude_token` is not a non-empty string |
 | service settings | hard | `intake`, `export`, smoke, `series link` | `suwayomi.url` or `kavita.url` is not an http or https URL; `kavita.api_key` is not a non-empty string; `paths.kavita_path_map` is empty, one of its keys or values is not a non-empty string, or 2 of its keys are the same prefix but for a trailing `/` |
 

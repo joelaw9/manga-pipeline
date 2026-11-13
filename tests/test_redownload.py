@@ -428,7 +428,8 @@ def _cbz_with_pages(*cbzs):
     with zipfile.ZipFile(out, "w") as z:
         for i, data in enumerate(cbzs, 1):
             with zipfile.ZipFile(io.BytesIO(data)) as src:
-                z.writestr(f"{i:03}.png", src.read("001.png"))
+                first = src.namelist()[0]
+                z.writestr(f"{i:03}{first[first.rfind('.') :]}", src.read(first))
     return out.getvalue()
 
 

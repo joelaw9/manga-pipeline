@@ -49,7 +49,7 @@ A review counts for each candidate it listed, once the review ends. A candidate 
 
 ### The chapter edit
 
-A decided chapter's edit is 1 JSON object, read by convert. It always holds all 5 keys; a key that does not apply to the chapter's layout holds its empty value. Page indexes are integers: the download's pages in archive order (`archive.archive_pages`); a cover-named page is never in any of them.
+A decided chapter's edit is 1 JSON object, read by convert. It always holds all 6 keys; a key that does not apply to the chapter's layout holds its empty value. Page indexes are integers: the download's pages in archive order (`archive.archive_pages`); a cover-named page is never in any of them.
 
 | Key | Type | Empty | Layout | Holds |
 |---|---|---|---|---|
@@ -58,5 +58,6 @@ A decided chapter's edit is 1 JSON object, read by convert. It always holds all 
 | `join` | list of `[int, int]` | `[]` | pages | `[page, sliver]`: a sliver is a page cut off the bottom of the page before it (same width, at most half its height, the seam continuous); rejoined under it. A page in 3 pieces is `[[a, b], [b, c]]` |
 | `split` | bool | `false` | pages | true when the chapter is stitched (whole pages joined into tall images): convert cuts it back into pages; a split chapter has no drops, bands or joins |
 | `strip_removed` | list of `{"start": int, "end": int, "why": str}` | `[]` | strip | rows removed, `end` exclusive, in the stack of the non-cover pages at their modal width; final (the gutter rule and the minimum length applied). `why`: `match` (a junk decision on an edge block, probe or remainder), `piece` (a junk decision on a tail piece), `blank` or `wedge` (removed by rule after the credit start), `join` (blank rows the gutter rule removes) |
+| `blank` | list of `{"page": int, "box": [int, int, int, int], "fill": [int, int, int]}` | `[]` | both | a logo badge to fill: `box` in that page's own pixels (right and bottom exclusive), `fill` its plain surround's RGB colour; at most 1 per page, never on a dropped or cover-named page; convert fills it before every other edit, in AVIF outcomes only (SPEC "Conversion"). Empty until logo detection is built |
 
 Convert drops pages first, then crops bands, then joins; joins are found among the kept pages, cropped where cropped. Convert treats a chapter with no edit, or a malformed one, as `needs_human` (Phase 6's rule, SPEC "Chapter stages").

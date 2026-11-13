@@ -10,6 +10,7 @@ import pytest
 from manga_pipeline import config
 
 from tests import timing
+from tests.fakes import convert as fake_convert
 
 TIMINGS = Path(__file__).resolve().parent.parent / "state" / "test-timings.json"
 _rows, _tags = {}, {}
@@ -28,6 +29,30 @@ def _refuse(*args, **kwargs):
 def no_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", _refuse)
     monkeypatch.setattr(socket.socket, "connect_ex", _refuse)
+
+
+def pytest_addoption(parser):
+    parser.addoption("--vship", default=None, help="path of the real Vship library: runs the gpu tests")
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "gpu: needs the real Vship library and a GPU (run with --vship PATH)")
+
+
+@pytest.fixture(autouse=True)
+def fake_image_tools(request, monkeypatch):
+    """The convert stage's tools and scorer are fakes (tests/fakes/convert.py), except in a gpu test, which runs only
+    with --vship and gets the real scorer."""
+    if request.node.get_closest_marker("gpu"):
+        if request.config.getoption("--vship") is None:
+            pytest.skip("gpu test: run with --vship PATH")
+        return
+    fake_convert.install(monkeypatch.setattr)
+
+
+@pytest.fixture
+def vship_path(request):
+    return Path(request.config.getoption("--vship"))
 
 
 @pytest.fixture(autouse=True)
