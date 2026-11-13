@@ -67,14 +67,15 @@ def judge(ctx, chapter):
 
 def _original(published):
     """The published copy's original measurements: as stored when the pipeline published it, else measured from the
-    library file (the bulk converter's, or published before they were stored)."""
+    library file (the bulk converter's, or published before they were stored). Each page is read whole and not
+    decoded: an AVIF page gives no size from its first bytes."""
     if published["pages_in"] is not None:
         return {k: published[k] for k in ("pages_in", "median_page_width", "strip_length")}
     with zipfile.ZipFile(published["library_path"]) as z:
         names = archive.archive_pages(z.namelist())
-        sizes = [images.dimensions(z.open(n).read(images.HEADER_BYTES)) for n in names]
+        sizes = [images.dimensions(z.read(n)) for n in names]
     if not sizes or None in sizes:
-        raise ValueError(f"{published['library_path']}: page sizes cannot be read from its headers")
+        raise ValueError(f"{published['library_path']}: page sizes cannot be read")
     return measures.summary([{"width": w, "height": h, "phash": None, "blank": True} for w, h in sizes])
 
 

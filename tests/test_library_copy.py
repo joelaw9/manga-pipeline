@@ -1,12 +1,16 @@
 """The junk stage's library-copy check (SPEC "Library copies"): a chapter the series already has published is a
 duplicate, a better copy, or doubtful."""
 
+import io
 import json
+import random
+import zipfile
 from contextlib import closing
 
 import pytest
+from PIL import Image
 
-from manga_pipeline import config, db, intake, process
+from manga_pipeline import config, db, images, intake, process
 
 from tests.timing import budget
 from tests.world import World, cbz
@@ -22,10 +26,10 @@ def world(tmp_path):
     return w
 
 
-def published_copy(world, number="5", source=BEST, pages_in=3, width=16, strip=4500, season=None, name=None):
+def published_copy(world, number="5", source=BEST, pages_in=3, width=16, strip=4500, season=None, name=None, data=None):
     """A pipeline-published file of the series with its stored original measurements."""
     path = world.library / "Solo Leveling" / (name or f"Ch.{number}.cbz")
-    path.write_bytes(cbz(seed=f"published {number}"))
+    path.write_bytes(data or cbz(seed=f"published {number}"))
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute(
             """INSERT INTO published_file (library_path, series_id, identity, source, state, pages_in,
@@ -118,6 +122,25 @@ def test_a_pipeline_copy_with_no_stored_original_is_measured_from_the_library_fi
         "3 pages of 16 px read from the file's headers: an equal copy from a lower-ranked source"
     )
     assert not path.exists()
+
+
+@budget(load="db", seconds=4)
+def test_a_library_file_whose_pages_are_bigger_than_a_header_read_is_measured(world):
+    size = (512, 768)
+    page = io.BytesIO()
+    noise = Image.frombytes("RGB", size, random.Random(1).randbytes(size[0] * size[1] * 3))
+    noise.save(page, "AVIF", quality=100)
+    assert len(page.getvalue()) > images.HEADER_BYTES, "the page must be bigger than a header read to test the rule"
+    library_file = io.BytesIO()
+    with zipfile.ZipFile(library_file, "w") as z:
+        for n in (1, 2, 3):
+            z.writestr(f"{n:03}.avif", page.getvalue())
+    copy = {"pages_in": None, "width": None, "strip": None, "data": library_file.getvalue()}
+    through_junk(world, copies=[copy])
+    stage, status, error = outcome(world)
+    assert (stage, status) == ("junk", "done") and "a duplicate" in error, (
+        "the bulk converter's big AVIF pages are sized from their whole bytes: 3 pages, wider than the download's"
+    )
 
 
 @budget(load="db")

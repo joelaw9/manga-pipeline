@@ -28,7 +28,7 @@ EXTENSION = {
     AVIF: ".avif",
     JXL: ".jxl",
 }
-HEADER_BYTES = 256 * 1024  # enough of a file for dimensions() on every format we meet
+HEADER_BYTES = 256 * 1024  # enough of a file for dimensions() on every format we meet but AVIF (the whole file)
 
 
 def _webp_kind(data):
@@ -76,7 +76,8 @@ def detect(data):
 
 def dimensions(head):
     """(width, height) from the first bytes of an image, without decoding. WebP needs this because
-    Pillow decodes the whole stream to learn the size. Returns None if the header isn't understood."""
+    Pillow decodes the whole stream to learn the size. Returns None if the header isn't understood: always for an
+    AVIF cut short, whose size Pillow reads only from the whole file."""
     if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         chunk = head[12:16]
         if chunk == b"VP8X" and len(head) >= 30:

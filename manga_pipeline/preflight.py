@@ -90,12 +90,13 @@ def folder_layout(cfg):
     try:
         paths = {
             key: config.abs_path(cfg["paths"][key]).resolve()
-            for key in ("downloads", "library", "staging", "scratch", "candidates", "retention")
+            for key in ("downloads", "library", "staging", "scratch", "candidates", "retention", "covers")
         }
         kept = {
             "paths.downloads": paths["downloads"],
             "paths.library": paths["library"],
             "paths.retention": paths["retention"],
+            "paths.covers": paths["covers"],
             "database.path": config.abs_path(cfg["database"]["path"]).resolve(),
             "logging.dir": config.abs_path(cfg["logging"]["dir"]).resolve(),
             "lock.dir": config.abs_path(cfg["lock"]["dir"]).resolve(),
@@ -257,6 +258,11 @@ def ocr_device(cfg):
     return ocr.provider_problem(cfg["junk"]["ocr_device"])
 
 
+def junk_word_lists(cfg):
+    """junk.weak and junk.paired hold only terms of junk.keywords (SPEC "Preflight")."""
+    return ocr.word_list_problem(cfg["junk"])
+
+
 PYTHON_VERSION = Check("runtime version", HARD, python_version)
 FREE_SPACE = Check("free disk space", SOFT, free_space)
 DATABASE_LOCATION = Check("database location", HARD, database_location)
@@ -267,6 +273,7 @@ WORKFLOW_SETTINGS = Check("workflow settings", HARD, workflow_settings)
 SERVICE_SETTINGS = Check("service settings", HARD, service_settings)
 SHARE_OWNERSHIP = Check("share ownership", HARD, share_ownership)
 OCR_DEVICE = Check("OCR device", HARD, ocr_device)
+JUNK_WORD_LISTS = Check("junk word lists", HARD, junk_word_lists)
 IMAGE_TOOLS = Check("image tools", HARD, image_tools)
 SCORER = Check("scorer", HARD, scorer)
 SCRATCH_SPACE = Check("scratch space", HARD, scratch_space)

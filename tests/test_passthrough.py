@@ -77,6 +77,12 @@ def test_a_download_lands_in_its_series_indexed_and_its_original_retained(world,
     assert world.rows("SELECT state, origin FROM published_file WHERE library_path = ?", str(target)) == [
         ("confirmed", "pipeline")
     ]
+    assert world.rows(
+        "SELECT pages_in, median_page_width, strip_length, page_phashes FROM published_file WHERE library_path = ?",
+        str(target),
+    ) == [(3, 16, 4500, "[]")], (
+        "the download's own measurements are stored for later copies: 3 pages of 16 x 24, no pHash for a flat page"
+    )
 
 
 @budget(load="db", seconds=2)

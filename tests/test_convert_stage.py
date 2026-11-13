@@ -346,6 +346,11 @@ def test_choose_follows_the_bulk_converters_rule():
     assert calibrate.choose(passing[:19]) is None, "fewer than 20 counted samples"
     two_chapters = [sample(c % 2, lambda q: 90.0) for c in range(20)]
     assert calibrate.choose(two_chapters) is None, "samples from fewer than 3 chapters"
+    third_low = [*two_chapters, sample(2, lambda q: 79.0)]
+    assert calibrate.choose(third_low) is not None, (
+        "a 3rd chapter counts though its samples score under the floor: a group takes no sample past 40, so it "
+        "would otherwise stay open for good"
+    )
     one_low = passing[:-1] + [sample(0, lambda q: 90.0 if q >= 70 else 79.0)]
     assert calibrate.choose(one_low)[0] == 70, "a sample under the floor at q65 fails that probe"
 

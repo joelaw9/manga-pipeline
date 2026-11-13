@@ -113,9 +113,9 @@ def probe(pool, scorer, picked, work_dir, tool_paths):
 
 def choose(samples):
     """(q, why) once the samples can fix the group, else None: MIN_COUNTED samples scoring at least the floor at
-    CEILING (the others are left out of every probe), from MIN_CHAPTERS chapters. Down the LADDER, a probe fails with
-    fewer than MIN_COUNTED counted samples, a mean below MEAN_MIN or a minimum below the floor; the quality is the
-    last step before the first failure, else CEILING."""
+    CEILING (the others are left out of every probe), and samples, counted or not, from MIN_CHAPTERS chapters. Down
+    the LADDER, a probe fails with fewer than MIN_COUNTED counted samples, a mean below MEAN_MIN or a minimum below
+    the floor; the quality is the last step before the first failure, else CEILING."""
     floor = image.SCORE_FLOOR
     counted = [s for s in samples if s["scores"][str(CEILING)][0] >= floor]
     if len(counted) < MIN_COUNTED or len({s["chapter_id"] for s in samples}) < MIN_CHAPTERS:
