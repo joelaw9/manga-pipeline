@@ -1,6 +1,7 @@
 """The status command (SPEC "CLI", "Needs human"): what is where, what waits and on what, and what needs a human.
 Read-only: it never creates, migrates or writes the database."""
 
+import json
 from contextlib import closing
 
 from manga_pipeline import config, db, workflow
@@ -22,6 +23,28 @@ def report(conn):
         return _report(conn)
     finally:
         conn.execute("COMMIT")
+
+
+def _settle(row):
+    """The other commands that settle a needs_human chapter at its stage (SPEC "Bad downloads")."""
+    hint = ""
+    if row["stage"] == "validate":
+        hint += f", chapter use {row['id']} SUWAYOMI_CHAPTER_ID"
+    if row["stage"] in workflow.DROPPABLE:
+        hint += f", chapter drop {row['id']}"
+    return hint
+
+
+def _redownload(row):
+    state = json.loads(row["redownload"])
+    expected = state.get("expected")
+    now = (
+        f"waiting on {expected['source']} chapter {expected['chapter_id']} since {expected['enqueued_at']}"
+        if expected
+        else "picking the next source"
+    )
+    tried = ", ".join(state.get("tried") or []) or "none"
+    return f"  chapter {row['id']} ({row['name']} / {row['identity']}): {now}; tried: {tried}"
 
 
 def _report(conn):
@@ -54,9 +77,26 @@ def _report(conn):
     human = [f"  series {r['id']} ({r['name']}): {r['status_reason']} -> retry --series {r['id']}" for r in series]
     human += [
         f"  chapter {r['id']} ({r['name']} / {r['identity']}, at {r['stage']}): {r['last_error']} -> retry {r['id']}"
+        + _settle(r)
         for r in chapters
     ]
     lines += human or ["  none"]
+
+    lines.append("Re-downloads:")
+    rows = conn.execute(
+        """SELECT c.id, c.identity, c.redownload, s.name FROM chapter c JOIN series s ON s.id = c.series_id
+        WHERE c.status != 'done' AND c.redownload IS NOT NULL ORDER BY c.id"""
+    ).fetchall()
+    lines += [_redownload(r) for r in rows] or ["  none"]
+
+    lines.append("Chapter notes:")
+    rows = conn.execute(
+        """SELECT c.id, c.identity, c.notes, s.name FROM chapter c JOIN series s ON s.id = c.series_id
+        WHERE c.notes IS NOT NULL ORDER BY c.id"""
+    ).fetchall()
+    lines += [f"  chapter {r['id']} ({r['name']} / {r['identity']}): {'; '.join(json.loads(r['notes']))}" for r in rows]
+    if not rows:
+        lines.append("  none")
 
     lines.append("Downloads not taken:")
     rows = conn.execute("SELECT path, reason, first_seen FROM unmatched_download ORDER BY first_seen, path").fetchall()
@@ -65,7 +105,7 @@ def _report(conn):
     lines.append("Published files never confirmed:")
     rows = conn.execute(
         """SELECT p.library_path FROM published_file p WHERE p.state = 'unconfirmed'
-            AND NOT EXISTS (SELECT 1 FROM chapter c WHERE c.published_file_id = p.id AND c.status != 'done')
+            AND NOT EXISTS (SELECT 1 FROM chapter c WHERE c.library_path = p.library_path AND c.status != 'done')
         ORDER BY p.library_path"""
     ).fetchall()
     return lines + ([f"  {r['library_path']}" for r in rows] or ["  none"])

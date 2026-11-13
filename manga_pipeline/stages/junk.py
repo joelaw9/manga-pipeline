@@ -8,7 +8,7 @@ junk_decision; `process` ends the wait once the marker is gone (wait_over).
 
 from pathlib import Path
 
-from manga_pipeline import baseline, handled, workflow
+from manga_pipeline import baseline, handled, library_copy, workflow
 
 
 def run(ctx, chapter):
@@ -20,6 +20,9 @@ def run(ctx, chapter):
     why = handled.put_aside(ctx, chapter, chapter["content_digest"])
     if why:
         return workflow.Dropped(why)
+    outcome = library_copy.judge(ctx, chapter)
+    if outcome:
+        return outcome
     marker = _marker(chapter)
     if marker.exists():
         return workflow.Waiting("junk_decision", {"marker": str(marker)})

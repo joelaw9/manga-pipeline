@@ -24,7 +24,7 @@ def run(ctx, chapter):
     retention.put(ctx.cfg, Path(chapter["download_path"]))
 
     def record(conn):
-        conn.execute("UPDATE published_file SET state = 'confirmed' WHERE id = ?", (chapter["published_file_id"],))
+        conn.execute("UPDATE published_file SET state = 'confirmed' WHERE library_path = ?", (chapter["library_path"],))
 
     return workflow.Done(record)
 

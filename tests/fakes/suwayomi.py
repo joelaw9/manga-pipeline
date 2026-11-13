@@ -8,21 +8,33 @@ manga's chapter list is fetched.
 """
 
 import copy
+import hashlib
 import io
 import zipfile
 from pathlib import Path
+
+from PIL import Image
 
 from manga_pipeline.clients import suwayomi
 
 from tests.fakes.http import NoNetwork
 
 
+def page(text):
+    """A small real PNG page (it decodes, so validation passes it) whose pixels, and so bytes, follow from text."""
+    seed = hashlib.sha1(text.encode()).digest()
+    im = Image.frombytes("RGB", (16, 24), (seed * 64)[: 16 * 24 * 3])
+    out = io.BytesIO()
+    im.save(out, "PNG")
+    return out.getvalue()
+
+
 def cbz(pages=3, comicinfo=None):
-    """The bytes of a small CBZ: `pages` fake page files and, when given, a ComicInfo.xml."""
+    """The bytes of a small CBZ: `pages` small real pages and, when given, a ComicInfo.xml."""
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as archive:
         for number in range(1, pages + 1):
-            archive.writestr(f"{number:03}.jpg", b"page %d" % number)
+            archive.writestr(f"{number:03}.png", page(f"page {number}"))
         if comicinfo is not None:
             archive.writestr("ComicInfo.xml", comicinfo)
     return data.getvalue()
@@ -131,6 +143,10 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         rows = [c for c in self.chapter_rows.values() if c["mangaId"] == manga_id]
         return copy.deepcopy(sorted(rows, key=lambda c: c["sourceOrder"]))
 
+    def chapter(self, chapter_id):
+        row = self.chapter_rows.get(chapter_id)
+        return copy.deepcopy(row)
+
     def download_queue(self):
         queue = [
             {
@@ -167,6 +183,11 @@ class FakeSuwayomi(suwayomi.Suwayomi):
                 if folder.is_dir() and not any(folder.iterdir()):
                     folder.rmdir()
             self.chapter_rows[chapter_id]["isDownloaded"] = False
+
+    def dequeue(self, chapter_ids):
+        """As Suwayomi: the chapters leave the queue; one not queued is no error."""
+        self.writes.append(("dequeue", list(chapter_ids)))
+        self.queue = [e for e in self.queue if e["chapter"] not in chapter_ids]
 
     def start_downloader(self):
         self.writes.append(("start_downloader",))

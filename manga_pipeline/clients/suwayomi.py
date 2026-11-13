@@ -77,6 +77,12 @@ class Suwayomi:
         )
         return self.graphql(query, {"id": manga_id})["chapters"]["nodes"]
 
+    def chapter(self, chapter_id):
+        """1 chapter by its id (of any manga, in the library or not); None when Suwayomi holds no chapter of that id."""
+        query = f"query ($id: Int!) {{ chapters(condition: {{id: $id}}) {{ nodes {{ {CHAPTER} }} }} }}"
+        nodes = self.graphql(query, {"id": chapter_id})["chapters"]["nodes"]
+        return nodes[0] if nodes else None
+
     def download_queue(self):
         """{state, queue}: the downloader's state (STARTED, STOPPED) and its entries, each with its state (QUEUED,
         DOWNLOADING, FINISHED, ERROR), tries, progress and chapter {id mangaId}. A finished download has left the
@@ -97,6 +103,11 @@ class Suwayomi:
     def delete_downloaded(self, chapter_ids):
         """Delete the downloaded files of chapters and clear their downloaded flag."""
         query = "mutation ($ids: [Int!]!) { deleteDownloadedChapters(input: {ids: $ids}) { chapters { id } } }"
+        self.graphql(query, {"ids": list(chapter_ids)})
+
+    def dequeue(self, chapter_ids):
+        """Remove chapters from the download queue (a chapter not queued is no error)."""
+        query = "mutation ($ids: [Int!]!) { dequeueChapterDownloads(input: {ids: $ids}) { downloadStatus { state } } }"
         self.graphql(query, {"ids": list(chapter_ids)})
 
     def start_downloader(self):
