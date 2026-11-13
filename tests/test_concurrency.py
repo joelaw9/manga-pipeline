@@ -19,7 +19,8 @@ from tests.world import World
 
 PARTS = ("intake", "process", "export")
 ROUNDS = 6  # intake, process and export each need at most 1 round once the one before has finished
-STEP_TIMEOUT_S = 30
+# A hang guard, not a speed check: under the parallel suite every core is busy and a part takes far longer to start.
+STEP_TIMEOUT_S = 120
 # A process run whose convert stage writes the step file (argv[1]) and then blocks until killed.
 BLOCKING_PROCESS = """
 import sys, threading
