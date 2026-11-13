@@ -32,9 +32,10 @@ PART_STAGES = {
 SHARE_ERRNOS = {errno.EIO, errno.ESTALE, errno.ETIMEDOUT}
 # The scope filter of every work-picking query: in_scope, registered on the connection by Context.
 SCOPE = "in_scope(s.name, s.kavita_library_id)"
-# A junk-stage chapter {c} holds a current junk scan (SPEC "Junk decisions"): same series, same content digest.
-_SCANNED = """EXISTS (SELECT 1 FROM junk_scan js WHERE js.chapter_id = {c}.id AND js.series_id = {c}.series_id
-    AND js.content_digest = {c}.content_digest)"""
+# A junk-stage chapter {c} holds a current junk scan (SPEC "Junk decisions"): same series, same content digest, and
+# made with logo detection (a scan without "marks" is not current). The one test of a current scan.
+SCANNED = """EXISTS (SELECT 1 FROM junk_scan js WHERE js.chapter_id = {c}.id AND js.series_id = {c}.series_id
+    AND js.content_digest = {c}.content_digest AND json_type(js.scan, '$.marks') = 'array')"""
 
 
 @dataclass(frozen=True)
@@ -158,11 +159,11 @@ def claim(ctx, stages, series_id=None):
                         SELECT 1 FROM chapter j
                         WHERE j.series_id = c.series_id AND j.stage = 'junk' AND j.status = 'ready'
                             AND j.id NOT IN (SELECT value FROM json_each(:failed))))
-                    AND NOT (c.stage = 'junk' AND {_SCANNED.format(c="c")} AND EXISTS (
+                    AND NOT (c.stage = 'junk' AND {SCANNED.format(c="c")} AND EXISTS (
                         SELECT 1 FROM chapter u
                         WHERE u.series_id = c.series_id AND u.stage = 'junk' AND u.status = 'ready'
                             AND u.id NOT IN (SELECT value FROM json_each(:failed))
-                            AND NOT {_SCANNED.format(c="u")}))
+                            AND NOT {SCANNED.format(c="u")}))
                 ORDER BY s.origin = 'new', c.discovered_at, c.id
                 LIMIT 1)
             RETURNING *""",

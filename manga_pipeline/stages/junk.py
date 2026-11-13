@@ -3,10 +3,10 @@ Kavita holds waits on bulk_conversion until its record parses), then the put-asi
 library-copy check (SPEC "Library copies"), then junk.
 
 A chapter with no current scan is scanned (pages extracted to its scratch folder, measured, its units keyed, OCR on
-the strip units no decision covers) and stays ready (Ready), so every ready junk chapter of a series is scanned before
-any is decided. A chapter with a current scan is decided from it with no decode: done with its chapter edit, waiting
-on junk_decision with its candidates (their images written first), or needs_human (a removal that would leave too
-little; a candidate Claude was unsure of or past the review limit).
+the strip units no decision covers, every content page's logo measured) and stays ready (Ready), so every ready junk
+chapter of a series is scanned before any is decided. A chapter with a current scan is decided from it with no
+decode: done with its chapter edit, waiting on junk_decision with its candidates (their images written first), or
+needs_human (a removal that would leave too little; a candidate Claude was unsure of or past the review limit).
 """
 
 import json
@@ -16,7 +16,7 @@ from pathlib import Path
 from PIL import Image
 
 from manga_pipeline import archive, baseline, config, db, handled, images, library_copy, page_store, strip, workflow
-from manga_pipeline.junk import candidates, ocr, page_units, store, strip_units
+from manga_pipeline.junk import candidates, logo_units, ocr, page_units, store, strip_units
 
 WORDS = ("keywords", "weak", "paired", "suppress")
 
@@ -43,11 +43,11 @@ def run(ctx, chapter):
 
 
 def current_scan(conn, chapter):
-    """The chapter's junk_scan row when it is current (same series, same content digest), else None."""
-    return conn.execute(
-        "SELECT * FROM junk_scan WHERE chapter_id = ? AND series_id = ? AND content_digest = ?",
-        (chapter["id"], chapter["series_id"], chapter["content_digest"]),
-    ).fetchone()
+    """The chapter's junk_scan row when it is current (same series, same content digest, holding logos: a scan made
+    before logo detection holds none), else None."""
+    current = workflow.SCANNED.format(c="c")
+    sql = f"SELECT s.* FROM chapter c JOIN junk_scan s ON s.chapter_id = c.id WHERE c.id = ? AND {current}"
+    return conn.execute(sql, (chapter["id"],)).fetchone()
 
 
 # ---------------------------------------------------------------- pages on local disk
@@ -126,8 +126,18 @@ def scan(ctx, chapter, series, key):
 
 def _scan_strip(ctx, key, paths, sizes, content):
     cpaths = [paths[i] for i in content]
-    rows = [strip.page_rows(strip._open(p)) for p in cpaths]
+    rows, logos = [], []
+    for i, path in zip(content, cpaths, strict=True):
+        im = strip._open(path)
+        rows.append(strip.page_rows(im))
+        logo = logo_units.measure(i, im)
+        if logo is not None:
+            logos.append(logo)
     st = strip.make_strip(cpaths, [sizes[i] for i in content], rows)
+    placed = {i: p for i, p in zip(content, st.pages, strict=True)}
+    for logo in logos:  # its tight box's rows in the strip, end exclusive
+        p, (_, y0, _, y1) = placed[logo["page"]], logo["tight"]
+        logo["rows"] = [p["top"] + y0 * p["th"] // p["h"], p["top"] + -(-y1 * p["th"] // p["h"])]
     decisions = store.Decisions(ctx.conn, key)
     device = ctx.cfg["junk"]["ocr_device"]
     sc = strip_units.scan(
@@ -136,6 +146,7 @@ def _scan_strip(ctx, key, paths, sizes, content):
         lambda sig: decisions.decide("block", sig) is None,
     )
     sc["content"] = content
+    sc["marks"] = logos
     return sc, [("block", b["sig"]) for b in sc["blocks"]]
 
 
@@ -162,18 +173,22 @@ def decide(ctx, chapter, key, row):
     def decide_unit(kind, text):
         return decisions.decide(kind, store.parse_key(kind, text))
 
-    # blank: logo blanks (contracts, Phase 6b); empty until the logo detection is built
     edit = {"drop_pages": [], "bands": [], "join": [], "split": False, "strip_removed": [], "blank": []}
     if sc["layout"] == "strip":
         got = strip_units.decide(sc, decide_unit)
         if got["kept_problem"]:
             return workflow.NeedsHuman(got["kept_problem"])
         edit["strip_removed"] = got["removed"]
+        survives = logo_units.strip_survives(edit["strip_removed"])
     else:
         got = page_units.decide(sc, decide_unit)
         edit.update(got["edit"])
+        survives = logo_units.page_survives(edit)
+    logos = logo_units.decide(sc["marks"], survives, decide_unit)
+    edit["blank"] = logos["blank"]
     words = {w: ctx.cfg["junk"][w] for w in WORDS}
-    picks = candidates.select(ctx.conn, key, chapter["identity"], got["undecided"], words)
+    undecided = got["undecided"] + logos["undecided"]
+    picks = candidates.select(ctx.conn, key, chapter["identity"], undecided, words)
     if not picks:
 
         def done(conn):
@@ -254,9 +269,13 @@ def write_images(ctx, chapter, key, sc, picks):
     try:
         paths, names, sizes, _ = extract(ctx, chapter, work)
         for p in picks:
-            unit_im, context_im = (
-                _strip_images(sc, paths, sizes, p) if sc["layout"] == "strip" else _page_images(paths, p)
-            )
+            if p["kind"] == "logo":
+                page = images.open_flat(paths[p["unit"]["page"]])[0].convert("RGB")
+                unit_im, context_im = logo_units.review_images(page, p["unit"]["logo"])
+            elif sc["layout"] == "strip":
+                unit_im, context_im = _strip_images(sc, paths, sizes, p)
+            else:
+                unit_im, context_im = _page_images(paths, p)
             info = {
                 "series": key,
                 "kind": p["kind"],

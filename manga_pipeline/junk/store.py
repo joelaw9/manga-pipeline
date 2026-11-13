@@ -2,16 +2,16 @@
 near rule, and the 1 upsert every writer uses (import, the baseline's record rows, `junk decide`).
 
 A series key is the series folder's name; GLOBAL ('') marks a decision of every series. A key is a unit's signature
-text (images.sig_to_str) or, for a frame, frames.key_text.
+text (images.sig_to_str), for a frame frames.key_text, for a logo marks.Template.key_text.
 """
 
 from pathlib import Path
 
 from manga_pipeline import images
-from manga_pipeline.junk import frames
+from manga_pipeline.junk import frames, marks
 
 GLOBAL = ""
-KINDS = ("block", "probe", "piece", "page", "band", "frame")
+KINDS = ("block", "probe", "piece", "page", "band", "frame", "logo")
 # A unit's kind -> the kinds of the decisions that decide it (the bulk converter's junk.UNIT_KINDS).
 DECIDING = {
     "block": ("block", "probe"),
@@ -20,6 +20,7 @@ DECIDING = {
     "page": ("page",),
     "band": ("band",),
     "frame": ("frame",),
+    "logo": ("logo",),
 }
 NEAR_KINDS = ("block", "band", "probe")  # the approved decisions the near rule compares against
 DECIDERS = ("import", "claude", "human")
@@ -33,11 +34,20 @@ def series_key(folder):
 
 
 def parse_key(kind, text):
-    return frames.from_key(text) if kind == "frame" else images.sig_from_str(text)
+    if kind == "frame":
+        return frames.from_key(text)
+    if kind == "logo":
+        return marks.Template.from_key(text)
+    return images.sig_from_str(text)
 
 
-def matches(kind, a, b):
-    return frames.matches(a, b) if kind == "frame" else images.matches(a, b)
+def matches(kind, stored, unit):
+    """Whether a unit's parsed key matches a stored one (a logo's match is not symmetric: stored first)."""
+    if kind == "frame":
+        return frames.matches(stored, unit)
+    if kind == "logo":
+        return marks.same_variant(stored, unit)
+    return images.matches(stored, unit)
 
 
 def in_lookup_order(rows):

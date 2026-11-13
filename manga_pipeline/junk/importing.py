@@ -15,7 +15,7 @@ from pathlib import Path
 
 from manga_pipeline import db, images, names
 from manga_pipeline.convert import record_reader
-from manga_pipeline.junk import frames, store
+from manga_pipeline.junk import frames, marks, store
 
 VERDICT = {"approve": "junk", "keep": "keep"}  # the bulk converter's decision -> ours
 UNIT_ORIGINS = ("block", "probe", "piece", "page", "band")  # the bulk converter's origins imported (not cut)
@@ -83,8 +83,24 @@ def bulk_rows(src, name):
     ).fetchall():
         key = frames.key_text(frames.from_bytes(r["vec"], r["aspect"]))
         rows.append(_row(r["series"], "frame", key, r, f"{name} frames row {r['id']}"))
-    skipped["marks"] = src.execute("SELECT count(*) FROM marks WHERE superseded IS NULL").fetchone()[0]
+    for r in src.execute(
+        "SELECT id, series, template, w, h, decision, added FROM marks WHERE superseded IS NULL"
+    ).fetchall():
+        source = f"{name} marks row {r['id']}"
+        rows.append(_row(r["series"], "logo", logo_key(r["template"], (r["w"], r["h"]), source), r, source))
     return rows, skipped
+
+
+def logo_key(png, size, source):
+    """A logo decision's key from a bulk-converter template PNG (marks.Template.key_text); SourceError when it is no
+    template or its size is not the recorded (w, h)."""
+    try:
+        template = marks.Template.from_png(png)
+    except (OSError, ValueError) as e:
+        raise SourceError(f"{source}: template is not a logo template: {e}") from None
+    if template.size != tuple(size):
+        raise SourceError(f"{source}: template is {template.size}, recorded as {tuple(size)}")
+    return template.key_text()
 
 
 def _row(series, kind, key, r, source):
@@ -103,8 +119,9 @@ def _row(series, kind, key, r, source):
 
 def record_rows(record):
     """Rows to upsert from a bulk-converter series record: schema 4 carries the decision rows its runs used
-    (series.decisions.rows); a schema-3 record carries none it can give (its decisions are in the store). Cut rows are
-    left out and chains dropped, as in the store import. RecordError on a malformed row."""
+    (series.decisions.rows; a marks row names its template in series.decisions.templates); a schema-3 record carries
+    none it can give (its decisions are in the store). Cut rows are left out and chains dropped, as in the store
+    import. RecordError on a malformed row."""
     if record["schema"] != record_reader.SCHEMA:
         return []
     block = record["series"]["decisions"]
@@ -123,6 +140,11 @@ def record_rows(record):
             vec, aspect = r["key"]
             key = frames.key_text(frames.from_bytes(base64.b64decode(vec["b64"]), aspect))
             out.append(_row(r["series"], "frame", key, r, f"record frames row {r['row']}"))
+        for r in block["rows"]["marks"]:
+            tpl, w, h = r["key"]
+            source = f"record marks row {r['row']}"
+            png = base64.b64decode(block["templates"][tpl["tpl"]], validate=True)
+            out.append(_row(r["series"], "logo", logo_key(png, (w, h), source), r, source))
     except (AttributeError, KeyError, TypeError, ValueError) as e:
         why = f"{type(e).__name__}: {e}"
         raise record_reader.RecordError(f"record series.decisions.rows: malformed row ({why})") from None
