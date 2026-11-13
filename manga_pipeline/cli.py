@@ -137,8 +137,9 @@ def parser():
 
 
 def main(argv=None):
-    """Exit code: 0 done, 1 a failed smoke check, 2 usage or config error or a refused retry, 3 another run holds a
-    lock the command takes, 4 a hard preflight check failed or the database is not one this version can use."""
+    """Exit code: 0 done, 1 an unexpected error (logged with its traceback) or a failed smoke check, 2 usage or config
+    error or a refused retry, 3 another run holds a lock the command takes, 4 a hard preflight check failed or the
+    database is not one this version can use."""
     p = parser()
     args = p.parse_args(argv)
     command = COMMANDS[args.command]
@@ -154,11 +155,10 @@ def main(argv=None):
                 p.error(str(e))
             try:
                 preflight.run(cfg, command.checks)
+                command.handler(cfg, args)
             except preflight.PreflightFailed as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 4
-            try:
-                command.handler(cfg, args)
             except workflow.Refused as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 2
@@ -167,6 +167,10 @@ def main(argv=None):
                 return 4
             except smoke.Failed as e:
                 print(f"error: {e}", file=sys.stderr)
+                return 1
+            except Exception:
+                # The only place an unexpected error is logged; inside the lock, which guards the log file.
+                log.exception("%s: failed", args.command)
                 return 1
     except lock.LockHeld as e:
         # Not logged: a refused run must not open the log file while the holder writes it.

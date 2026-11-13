@@ -21,7 +21,7 @@ Order of work:
 - `process` runs the junk stage for every ready chapter of a series before it converts any of them, so what repeats across chapters is seen before a decision is made.
 - `export` works in this order each run: it deletes expired retention files, adds `ComicInfo.xml` to the ready chapters, publishes series by series, then does what needs Kavita: ends `kavita_scan` waits, requests the rescans that are due (SPEC "Publishing") and 1 scan per series it published into, then confirms.
 
-Every part works only the series in scope: a series Kavita holds in the library `kavita.library_id`, or a new series (Kavita does not hold it yet); with `series.only` set, only the series it names. Nothing else is read or written.
+Every part works only the series in scope: a series Kavita holds in the library `kavita.library_id`, or a new series (Kavita does not hold it yet); with `series.only` set, only the series it names. Nothing else is read or written, except that a part frees the claims a run of it that died left, whatever their series (SPEC "State").
 
 Hand-off between parts:
 
@@ -32,7 +32,7 @@ Hand-off between parts:
 
 One chapter that fails or waits never stops a part or the chapters after it. Later chapters of the series are published while an earlier one is held.
 
-When Suwayomi, Kavita, a metadata source or the share cannot be reached, the chapters and series that need it wait and are tried again by a later run of the part. That does not count as an attempt. For the rest of the run the part claims no chapter at the stage that met the unreachable service, and goes on with its other stages. For the share, "cannot be reached" is an input/output, stale-handle or timeout error on one of its paths.
+When Suwayomi, Kavita, a metadata source or the share cannot be reached, the chapters and series that need it wait and are tried again by a later run of the part. That does not count as an attempt. For the rest of the run the part claims no chapter at the stage that met the unreachable service, and goes on with its other stages. For the share, "cannot be reached" is an input/output, stale-handle or timeout error raised while a part works on files; the program does not tell which disk raised it.
 
 ## State
 
