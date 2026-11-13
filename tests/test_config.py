@@ -40,8 +40,10 @@ def test_shipped_example_passes_itself():
 
 @budget(load="fs")
 def test_default_config_is_the_test_copy():
-    path = config.abs_path(config.cached()["logging"]["dir"])
-    assert path.is_relative_to(TMP), "tests must get tests/test_config.yaml with its $TMP paths"
+    cfg = config.cached()
+    paths = [cfg["logging"]["dir"], cfg["lock"]["dir"], cfg["database"]["path"], *cfg["paths"].values()]
+    outside = [p for p in paths if not config.abs_path(p).is_relative_to(TMP)]
+    assert not outside, "tests must get tests/test_config.yaml, every path in its $TMP dir"
 
 
 @budget(load="fs")

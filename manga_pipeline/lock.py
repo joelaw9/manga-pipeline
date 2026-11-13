@@ -1,7 +1,7 @@
-"""Run lock: one run at a time per project (SPEC "Run lock")."""
+"""Run locks: 1 per command name, <lock.dir>/<name>.lock (SPEC "Run lock")."""
 
 import os
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 
 from manga_pipeline import config
 
@@ -20,14 +20,23 @@ class LockHeld(RuntimeError):
 
 
 @contextmanager
-def held(cfg):
-    """Holds the run lock for the block when lock.enabled, raising LockHeld at once if another run holds it. It is an
-    OS lock on the file, so the OS frees it when the process ends, crash included; a leftover file blocks nothing."""
+def held(cfg, *names):
+    """Holds the named locks for the block when lock.enabled (no names: none). All or nothing: when another run holds
+    one, the ones already taken are freed and LockHeld names the held one, at once. Each is an OS lock on its file, so
+    the OS frees it when the process ends, crash included; a leftover file blocks nothing."""
     if not cfg["lock"]["enabled"]:
         yield
         return
-    path = config.abs_path(cfg["lock"]["path"])
-    path.parent.mkdir(parents=True, exist_ok=True)
+    folder = config.abs_path(cfg["lock"]["dir"])
+    folder.mkdir(parents=True, exist_ok=True)
+    with ExitStack() as stack:
+        for name in names:
+            stack.enter_context(_held_one(folder / f"{name}.lock"))
+        yield
+
+
+@contextmanager
+def _held_one(path):
     with open(path, "a+b") as f:
         try:
             _lock(f)

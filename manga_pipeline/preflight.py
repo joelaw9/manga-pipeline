@@ -1,20 +1,24 @@
 """Preflight (SPEC "Preflight"): the run's hard and soft requirements, checked before its work.
 
 A check is a function of the config returning the problem text, or None when the requirement holds; it turns its own
-errors into problem text. A new check is a function plus 1 line in CHECKS.
+errors into problem text. A new check is a function and its Check here, plus its place in the command table's check
+lists (cli.py).
 """
 
 import logging
 import shutil
+import sqlite3
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from manga_pipeline import config
+from manga_pipeline import config, db
 
 log = logging.getLogger(__name__)
 HARD, SOFT = "hard", "soft"
 MIB = 1024 * 1024
+OWNER_FILE = ".pipeline-owner"
+SHARE_FOLDERS = ("downloads", "library", "staging")
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,11 @@ class Check:
 
 class PreflightFailed(RuntimeError):
     pass
+
+
+def owner_file(cfg):
+    """The share's owner file: it holds the id of the database that owns the share (SPEC "State")."""
+    return config.abs_path(cfg["paths"]["staging"]) / OWNER_FILE
 
 
 def python_version(cfg, version=sys.version_info):
@@ -40,7 +49,11 @@ def free_space(cfg):
         return f"preflight.min_free_mb must be 0 or more, got {want}"
     if want == 0:
         return None
-    folder = config.abs_path(cfg["logging"]["dir"])
+    # The drive is what counts; logging.dir itself may not exist yet (console-only commands never create it).
+    wanted = config.abs_path(cfg["logging"]["dir"])
+    folder = next((p for p in (wanted, *wanted.parents) if p.exists()), None)
+    if folder is None:
+        return f"cannot read free space at {wanted}: no part of the path exists"
     try:
         free = shutil.disk_usage(folder).free // MIB
     except OSError as e:
@@ -50,10 +63,103 @@ def free_space(cfg):
     return None
 
 
-CHECKS = [
-    Check("python version", HARD, python_version),
-    Check("free disk space", SOFT, free_space),
-]
+def database_location(cfg):
+    try:
+        database = config.abs_path(cfg["database"]["path"]).resolve()
+        folders = {key: config.abs_path(cfg["paths"][key]).resolve() for key in SHARE_FOLDERS}
+    except OSError as e:
+        return f"cannot resolve database.path or a share folder: {e}"
+    for key, folder in folders.items():
+        if database.is_relative_to(folder):
+            return f"database.path {database} lies under paths.{key} {folder}; it must be on local disk"
+    return None
+
+
+def folder_layout(cfg):
+    """The folders `state reset` empties (paths.staging, paths.scratch) must hold nothing else the pipeline keeps."""
+    try:
+        paths = {
+            key: config.abs_path(cfg["paths"][key]).resolve() for key in ("downloads", "library", "staging", "scratch")
+        }
+        kept = {
+            "paths.downloads": paths["downloads"],
+            "paths.library": paths["library"],
+            "database.path": config.abs_path(cfg["database"]["path"]).resolve(),
+            "logging.dir": config.abs_path(cfg["logging"]["dir"]).resolve(),
+            "lock.dir": config.abs_path(cfg["lock"]["dir"]).resolve(),
+            "the project root": config.ROOT.resolve(),
+        }
+    except OSError as e:
+        return f"cannot resolve a configured folder: {e}"
+    problems = []
+    for key, other in (("staging", "scratch"), ("scratch", "staging")):
+        folder = paths[key]
+        for name, path in {**kept, f"paths.{other}": paths[other]}.items():
+            if path.is_relative_to(folder):
+                problems.append(f"paths.{key} {folder} contains {name} {path}")
+        for name in ("paths.downloads", "paths.library"):
+            if folder.is_relative_to(kept[name]) and folder != kept[name]:
+                problems.append(f"paths.{key} {folder} lies inside {name} {kept[name]}")
+    return "; ".join(problems) or None
+
+
+def _missing_folders(cfg, keys):
+    problems = []
+    for key in keys:
+        folder = config.abs_path(cfg["paths"][key])
+        try:
+            if not folder.is_dir():
+                problems.append(f"paths.{key} {folder} is not an existing folder")
+        except OSError as e:
+            problems.append(f"cannot read paths.{key} {folder}: {e}")
+    if problems:
+        return f"{'; '.join(problems)} (the share is not mounted, or the folder was never made)"
+    return None
+
+
+def staging_folder(cfg):
+    return _missing_folders(cfg, ("staging",))
+
+
+def share_folders(cfg):
+    return _missing_folders(cfg, ("downloads", "library"))
+
+
+def workflow_settings(cfg):
+    limit = cfg["workflow"]["attempt_limit"]
+    if limit < 1:
+        return f"workflow.attempt_limit must be at least 1, got {limit}"
+    return None
+
+
+def share_ownership(cfg):
+    path = owner_file(cfg)
+    try:
+        owner = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return f"{path} is missing: the share is not mounted, or no database adopted it (state adopt --yes)"
+    except OSError as e:
+        return f"cannot read {path}: {e}"
+    database = config.abs_path(cfg["database"]["path"])
+    if not database.exists():
+        return f"{path} holds database id {owner!r}, and there is no database at {database}"
+    try:
+        mine = db.peek_id(cfg)  # applies nothing: a run refused here must not have upgraded the database
+    except (OSError, sqlite3.Error) as e:
+        return f"cannot read the database id from {database}: {e}"
+    if owner != mine:
+        return f"{path} holds database id {owner!r}, this database is {mine!r} (state adopt --yes moves the share)"
+    return None
+
+
+PYTHON_VERSION = Check("runtime version", HARD, python_version)
+FREE_SPACE = Check("free disk space", SOFT, free_space)
+DATABASE_LOCATION = Check("database location", HARD, database_location)
+STAGING_FOLDER = Check("staging folder", HARD, staging_folder)
+FOLDER_LAYOUT = Check("folder layout", HARD, folder_layout)
+SHARE_FOLDERS_PRESENT = Check("share folders", HARD, share_folders)
+WORKFLOW_SETTINGS = Check("workflow settings", HARD, workflow_settings)
+SHARE_OWNERSHIP = Check("share ownership", HARD, share_ownership)
 
 
 def run(cfg, checks):

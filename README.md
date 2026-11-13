@@ -16,6 +16,8 @@ python -m pip install --group dev
 python -m manga_pipeline.cli --help
 ```
 
+Commands: `intake`, `process`, `export` (the 3 parts, each on its own timer), `status`, `retry CHAPTER_ID` / `retry --series ID`, `state reset --yes`, `state adopt --yes`. `--config` and `--set` go before the command. A part refuses to run (exit 4) until this database owns the share: run `state adopt --yes` once, with the share mounted.
+
 ## Tests
 
 ```bash
@@ -64,4 +66,4 @@ Before its work the program checks its requirements (SPEC "Preflight"): a hard p
 
 ## Logs
 
-Log records also go to `application.log` in the `logging.dir` folder. A new file starts each midnight; the newest `logging.keep_days` dated files are kept.
+Log records go to the console. `intake`, `process` and `export` also write them to their own file in the `logging.dir` folder (`intake.log`, `process.log`, `export.log`). A new file starts each midnight; the newest `logging.keep_days` dated files of each are kept.

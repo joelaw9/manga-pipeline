@@ -29,7 +29,7 @@ discover, validate, junk, convert, comicinfo, publish, confirm. A stage ends don
 
 ## Needs human
 
-A chapter or series that needs a person is reported 3 ways: log, `status`, Discord. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#needs-human)
+A chapter or series that needs a person is reported 3 ways (log, `status`, Discord) and cleared with `retry`. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#needs-human)
 
 ## Bad downloads
 
@@ -69,7 +69,7 @@ A finished CBZ is staged on the share and renamed into its series folder; a new 
 
 ## Logging
 
-Console plus a daily-rotated log file. Rules: [docs/spec/runtime.md](docs/spec/runtime.md#logging)
+Console, plus 1 daily-rotated log file per command that runs under its own lock. Rules: [docs/spec/runtime.md](docs/spec/runtime.md#logging)
 
 ## Run lock
 
