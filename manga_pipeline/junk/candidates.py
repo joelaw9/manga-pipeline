@@ -95,7 +95,8 @@ def select(conn, series_key, identity, undecided, words):
     first probe from the chapter edge that is near or has a keyword is offered instead of its block; else the block
     when it is near, has a keyword, recurs, is the rest of a block whose edge piece is junk, or its chapter is among the
     first of the series. Tail
-    pieces always. Pages, frames and bands: their per-chapter reasons, or recurrence."""
+    pieces always. Pages, frames and bands: their per-chapter reasons, or recurrence. Logos always; a logo variant
+    offers the first of its representatives' keys that an existing candidate matches, else its first."""
     first = first_identities(conn, series_key)
     out = []
     for u in undecided:
@@ -118,6 +119,10 @@ def select(conn, series_key, identity, undecided, words):
                 reasons.append("the rest of a block whose edge piece is junk")
             if identity in first:
                 reasons.append("a first chapter of the series")
+        elif kind == "logo":
+            key = next((k for k in u["keys"] if find(conn, series_key, kind, k) is not None), u["keys"][0])
+            out.append({"kind": kind, "key": key, "unit": u, "reason": "; ".join(u["reasons"])})
+            continue
         else:
             reasons = list(u.get("reasons", []))
         if kind != "piece":

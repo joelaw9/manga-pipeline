@@ -46,6 +46,28 @@ def cbz(pages=3, comicinfo=None, seed="", credit=False):
     return data.getvalue()
 
 
+def logo_page(badge="marks_scans_plain.png", size=(1200, 1800), at=(100, 100)):
+    """A white page (PNG bytes) with a real scanlator badge crop (tests/fixtures_pages) pasted at `at`: a gray-mark
+    page. 1200 x 1800 has the fake pages' aspect, so it is no other page size."""
+    from tests.pages import PAGE_FIX
+
+    im = Image.new("RGB", size, "white")
+    im.paste(Image.open(PAGE_FIX / badge).convert("RGB"), at)
+    out = io.BytesIO()
+    im.save(out, "PNG")
+    return out.getvalue()
+
+
+def logo_cbz(seed="", badge="marks_scans_plain.png", pages=8, at=3):
+    """A page-format CBZ of `pages` fake pages whose download page `at` is a logo_page: a middle page, so the badge is
+    the chapter's only junk unit."""
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
+        for n in range(pages):
+            z.writestr(f"{n + 1:03}.png", logo_page(badge) if n == at else fake_page(n + 1, seed))
+    return data.getvalue()
+
+
 def comicinfo(**fields):
     body = "".join(f"<{k}>{v}</{k}>" for k, v in fields.items())
     return f'<?xml version="1.0" encoding="utf-8"?><ComicInfo>{body}</ComicInfo>'

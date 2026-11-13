@@ -4,13 +4,13 @@ page-format steps of its planner (plan_scan.page_chapter / white_edges, plan_rev
 page_items_review / uncovered_bands), reshaped to 1 chapter:
 
 - `scan(...)` decodes once: per edge page its whole-page signature, frame, white flag and (last pages) text
-  features; per tall page its credit bands; the edge rows of the pages slice repair may join; or, for a stitched
-  chapter, only that it is split.
+  features; per tall page its credit bands; the edge rows of the pages slice repair may join; per content page its
+  logo (logo_units.measure); or, for a stitched chapter, only that it is split.
 - `decide(sc, decide_unit)` applies decisions with no decode and returns the page-layout edit and the units left
   undecided, each with the per-chapter reasons it is a candidate (size, text, band).
 
-Not ported: the cross-series frame index (frame recurrence is counted like any unit's, SPEC "Junk decisions"),
-logo marks. Constants are the bulk converter's, frozen: the stored decisions were made with them.
+Not ported: the cross-series frame index (frame recurrence is counted like any unit's, SPEC "Junk decisions").
+Constants are the bulk converter's, frozen: the stored decisions were made with them.
 """
 
 import base64
@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image
 
 from manga_pipeline import images, strip
-from manga_pipeline.junk import frames, store
+from manga_pipeline.junk import frames, logo_units, store
 
 BAND = MappingProxyType(
     {
@@ -246,7 +246,7 @@ def scan(paths, names, sizes, uniform, aspects):
     content = strip._content_indexes(names)
     csizes = [sizes[i] for i in content]
     if strip.is_stitched(csizes, aspects):
-        return {"layout": "pages", "split": True}
+        return {"layout": "pages", "split": True, "marks": []}
     shape = strip.series_shape(aspects)
     opened = {}
 
@@ -280,9 +280,12 @@ def scan(paths, names, sizes, uniform, aspects):
             bands[str(i)] = found
     # edge rows of every content page, and of every band page as each of its crops leaves it: slice repair runs on
     # the pages decisions keep, cropped where cropped
-    rows = {}
+    rows, logos = {}, []
     for i in content:
         rows[_box_key(i, None)] = _pack_edges(strip.edge_rows(page(i)))
+        logo = logo_units.measure(i, page(i))
+        if logo is not None:
+            logos.append(logo)
         for box in _crop_boxes(bands.get(str(i), []), sizes[i]):
             rows[_box_key(i, box)] = _pack_edges(strip.edge_rows(page(i).crop(tuple(box))))
     return {
@@ -295,6 +298,7 @@ def scan(paths, names, sizes, uniform, aspects):
         "bands": bands,
         "rows": rows,
         "aspects": list(aspects or []),
+        "marks": logos,
     }
 
 

@@ -557,7 +557,7 @@ def test_a_stitched_chapter_is_only_split():
     """Pages 1.9 x the series shape: the scan says split, decoding nothing; the edit is split and nothing else."""
     sizes = [(600, round(600 * ASPECT * 1.9))] * 4
     sc = page_units.scan([None] * 4, names(4), sizes, [False] * 4, [ASPECT])
-    assert sc == {"layout": "pages", "split": True}, "a stitched chapter has no page units"
+    assert sc == {"layout": "pages", "split": True, "marks": []}, "a stitched chapter has no page or logo units"
     out = page_units.decide(sc, decider({}))
     assert out == {"edit": {"split": True, "drop_pages": [], "bands": [], "join": []}, "undecided": []}, (
         "a stitched chapter is only split"
