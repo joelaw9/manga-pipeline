@@ -32,6 +32,21 @@ def test_put_moves_the_download_under_its_source_and_title_and_touches_it(tmp_pa
 
 
 @budget(load="fs")
+def test_put_keeps_every_download_of_1_name(tmp_path):
+    cfg = with_days(site_cfg(tmp_path), 7)
+    for content in (b"first", b"second", b"third"):
+        download = a_download(cfg)
+        download.write_bytes(content)
+        retention.put(cfg, download)
+    folder = config.abs_path(cfg["paths"]["retention"]) / "Src (EN)" / "Title"
+    assert {p.name: p.read_bytes() for p in folder.iterdir()} == {
+        "ch1.cbz": b"first",
+        "ch1 (2).cbz": b"second",
+        "ch1 (3).cbz": b"third",
+    }, "a later rejected download of the same name never replaces an earlier one"
+
+
+@budget(load="fs")
 def test_put_with_period_0_deletes_and_a_missing_download_counts_as_removed(tmp_path):
     cfg = with_days(site_cfg(tmp_path), 0)
     download = a_download(cfg)

@@ -100,6 +100,32 @@ def test_the_record_name_may_be_a_localized_kavita_name(world):
 
 
 @budget(load="db")
+def test_the_baseline_imports_the_junk_decisions_the_record_carries(world):
+    at_junk(world)
+    path = world.library / "Solo Leveling" / ".optimizer.json"
+    record = json.loads(path.read_bytes())
+    record["series"]["decisions"]["rows"]["junk"] = [
+        {
+            "row": 1,
+            "series": "Solo Leveling",
+            "key": ["0123456789abcdef", 1.0],
+            "decision": "approve",
+            "review_id": "j1",
+            "note": None,
+            "added": "2026-11-07 10:00:00",
+            "origin": "block",
+            "chain": None,
+            "credit": False,
+        }
+    ]
+    path.write_bytes(json.dumps(record).encode())
+    world.run(process)
+    assert world.rows("SELECT series_key, kind, verdict, decider FROM junk_decision") == [
+        ("Solo Leveling", "block", "junk", "import")
+    ], "a decision the bulk converter recorded for the series is known to the pipeline from the baseline on"
+
+
+@budget(load="db")
 def test_the_baseline_stores_the_records_probed_calibration_groups_and_a_reset_keeps_them(world):
     from manga_pipeline import state
 

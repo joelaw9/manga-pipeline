@@ -52,7 +52,8 @@ class ChapterPlan:
 
 def check_edit(text):
     """The chapter_edit row's edit (JSON text) as a dict, checked: exactly EDIT_KEYS with their types, indexes ints,
-    ranges and boxes of ints. Raises EditError naming what is wrong."""
+    no page dropped twice, ranges ({start, end, why}, 0 <= start < end) and boxes of ints. Raises EditError naming
+    what is wrong."""
     try:
         edit = json.loads(text)
     except (TypeError, ValueError) as e:
@@ -70,10 +71,14 @@ def check_edit(text):
             raise EditError(f"chapter_edit {what} must hold integers, got {values!r}")
 
     ints(edit["drop_pages"], "drop_pages")
+    if len(set(edit["drop_pages"])) < len(edit["drop_pages"]):
+        raise EditError(f"chapter_edit drop_pages names a page twice: {edit['drop_pages']!r}")
     for r in edit["strip_removed"]:
-        if not isinstance(r, dict) or not {"start", "end"} <= set(r):
-            raise EditError(f"chapter_edit strip_removed entries need start and end, got {r!r}")
+        if not isinstance(r, dict) or set(r) != {"start", "end", "why"} or not isinstance(r["why"], str):
+            raise EditError(f"chapter_edit strip_removed entries are {{start, end, why}}, got {r!r}")
         ints([r["start"], r["end"]], "strip_removed start / end")
+        if not 0 <= r["start"] < r["end"]:
+            raise EditError(f"chapter_edit strip_removed rows {r['start']}-{r['end']} are not 0 <= start < end")
     for b in edit["bands"]:
         if not isinstance(b, dict) or set(b) != {"page", "box"} or not isinstance(b["box"], list) or len(b["box"]) != 4:
             raise EditError(f"chapter_edit bands entries are {{page, box: [l, t, r, b]}}, got {b!r}")
@@ -150,7 +155,8 @@ def route(fmts):
 
 def _edits(entries, edit, layout, page_aspect, x_dir):
     """The edit in page names (the bulk converter's planned-edit shape): drops and bands first, then join and split
-    (page layout); a strip chapter's strip spec over its non-cover pages with the edit's removed rows taken out."""
+    (page layout); a strip chapter's strip spec over its non-cover pages with the edit's removed rows taken out.
+    Raises EditError for an edit the junk stage never writes (SPEC "The chapter edit")."""
     by_index = {q["index"]: q for q in entries}
 
     def name(i, what):
@@ -164,10 +170,15 @@ def _edits(entries, edit, layout, page_aspect, x_dir):
         if edit["drop_pages"] or edit["bands"] or edit["join"] or edit["split"]:
             raise EditError("chapter_edit of a strip chapter may hold strip_removed only")
         if not content:
+            if edit["strip_removed"]:
+                raise EditError(f"chapter_edit strip_removed ends past the strip's 0 rows: {edit['strip_removed']!r}")
             return out
         sizes = [tuple(q["size"]) for q in content]
         rows = [strip.page_rows(images.open_flat(x_dir / q["name"])[0]) for q in content]
         st = strip.make_strip([x_dir / q["name"] for q in content], sizes, rows)
+        past = [r for r in edit["strip_removed"] if r["end"] > st.height]
+        if past:
+            raise EditError(f"chapter_edit strip_removed ends past the strip's {st.height} rows: {past!r}")
         cut = strip.cut_strip(st.height, strip.find_gaps(st), edit["strip_removed"])
         pages = [{"name": q["name"], "top": p["top"], "th": p["th"]} for q, p in zip(content, st.pages, strict=True)]
         out["strip"] = {"width": st.width, "pages": pages, "kept": cut["kept"], "cuts": cut["cuts"]}
@@ -176,6 +187,15 @@ def _edits(entries, edit, layout, page_aspect, x_dir):
         raise EditError("chapter_edit of a page chapter holds strip_removed")
     out["drop"] = [{"page": name(i, "drop_pages")} for i in edit["drop_pages"]]
     out["crop"] = [{"page": name(b["page"], "bands"), "box": b["box"]} for b in edit["bands"]]
+    banded = [b["page"] for b in edit["bands"]]
+    if {q["index"] for q in entries if q["cover"]} & {*edit["drop_pages"], *banded}:
+        raise EditError("chapter_edit drops or crops a cover-named page")
+    if len(set(banded)) < len(banded) or set(banded) & set(edit["drop_pages"]):
+        raise EditError(f"chapter_edit bands name a page twice or a dropped page: {edit['bands']!r}")
+    for b in edit["bands"]:
+        (left, top, right, bottom), (w, h) = b["box"], by_index[b["page"]]["size"]
+        if not (0 <= left < right <= w and 0 <= top < bottom <= h):
+            raise EditError(f"chapter_edit band box {b['box']} is not inside page {b['page']} ({w} x {h})")
     pages_, slivers = [a for a, _ in edit["join"]], [b for _, b in edit["join"]]
     if len(set(pages_)) < len(pages_) or len(set(slivers)) < len(slivers) or any(a == b for a, b in edit["join"]):
         raise EditError(f"chapter_edit join pairs must chain each page to 1 sliver: {edit['join']!r}")

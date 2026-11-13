@@ -1,6 +1,7 @@
 """The retention folder (SPEC "Publishing"): every download the pipeline removes goes through here.
 
-`put` moves a download to <paths.retention>/<source>/<title>/<file> and touches it, or deletes it when
+`put` moves a download to <paths.retention>/<source>/<title>/<file> (a taken name: the first free
+"<stem> (<n>)<suffix>") and touches it, or deletes it when
 export.retention_days is 0; `purge` deletes what is older than the period. Both are safe to run again after a crash.
 """
 
@@ -25,9 +26,12 @@ def put(cfg, download):
         download.unlink()
         log.info("retention: deleted %s", download)
         return
-    target = config.abs_path(cfg["paths"]["retention"]) / download.parent.parent.name / download.parent.name
-    target.mkdir(parents=True, exist_ok=True)
-    target /= download.name
+    folder = config.abs_path(cfg["paths"]["retention"]) / download.parent.parent.name / download.parent.name
+    folder.mkdir(parents=True, exist_ok=True)
+    target, n = folder / download.name, 1
+    while target.exists():  # an earlier download of the same name is kept: this one is "<stem> (2)<suffix>", ...
+        n += 1
+        target = folder / f"{download.stem} ({n}){download.suffix}"
     os.utime(download)  # the period runs from the move, not from the download; touched first, so a crash keeps it
     os.replace(download, target)
     log.info("retention: moved %s to %s", download, target)

@@ -194,6 +194,8 @@ def test_the_review_child_sees_the_reviews_set_values(world, tmp_path):
     assert cli.main(["--config", str(path), "--set", "junk.review_batch=7", "junk", "review"]) == 0
     (child,) = [yaml.safe_load(p.read_bytes()) for p in sorted((tmp_path / "claude" / "dump").glob("config-*.yaml"))]
     assert child["junk"]["review_batch"] == 7, "Claude's junk commands run with the review's --set values"
+    for section, key in config.secret_keys():
+        assert child[section][key] is None, f"the config file Claude can read holds no secret: {section}.{key}"
 
 
 @budget(load="pure")
