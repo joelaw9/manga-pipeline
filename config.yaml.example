@@ -3,11 +3,26 @@
 logging:
   dir: "state/logs"   # log folder; relative = project root
   level: "INFO"       # lowest level logged: DEBUG, INFO, WARNING, ERROR
-  keep_days: 14       # rotated daily log files kept
+  keep_days: 14       # rotated daily log files kept, per command
 
 lock:
-  enabled: true             # one run at a time; false lets runs overlap
-  path: "state/run.lock"    # run lock file; relative = project root
+  enabled: true           # each command takes its own lock; false lets runs overlap
+  dir: "state/locks"      # folder of the lock files (<command>.lock); relative = project root
 
 preflight:
   min_free_mb: 500   # warn when logging.dir's drive has less free space (MiB); 0 skips the check
+
+database:
+  path: "state/pipeline.sqlite3"   # SQLite database; relative = project root; local disk, never under a share folder
+
+paths:
+  downloads: "/mnt/share/downloads"   # Suwayomi's downloads folder (on the share)
+  library: "/mnt/share/library"       # root of the Kavita library the pipeline publishes into (on the share)
+  staging: "/mnt/share/staging"       # finished chapters wait here (on the share, outside every library root)
+  scratch: "state/scratch"            # the chapter in hand (local disk); relative = project root
+
+workflow:
+  attempt_limit: 3   # failed attempts after which a chapter is needs_human
+
+series:
+  only: []   # names of the only series to work; empty = all

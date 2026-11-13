@@ -7,7 +7,22 @@ logging:
 
 lock:
   enabled: true
-  path: "$TMP/run.lock"
+  dir: "$TMP/locks"
 
 preflight:
   min_free_mb: 0
+
+database:
+  path: "$TMP/pipeline.sqlite3"
+
+paths:
+  downloads: "$TMP/share/downloads"
+  library: "$TMP/share/library"
+  staging: "$TMP/share/staging"
+  scratch: "$TMP/scratch"
+
+workflow:
+  attempt_limit: 3
+
+series:
+  only: []

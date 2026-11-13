@@ -17,7 +17,11 @@ On the LXC a systemd timer starts each part, and `junk review`, every 10 minutes
 Order of work:
 
 - `intake`, per series: a new series gets its full metadata retrieval; a metadata check runs if one is due (SPEC "Metadata checks"); then each discovered chapter is validated. Series due a check that have no new chapters come last.
-- `process` and `export` take the highest-priority ready chapter each time: chapters of ongoing series before chapters of new series, then oldest first. They run until nothing is ready.
+- `process` and `export` pick by priority: chapters of series Kavita already knows before chapters of new series, then the oldest first. They pick again after every chapter, so a new chapter of an ongoing series never waits behind a long new series, and they run until nothing is ready.
+- `process` runs the junk stage for every ready chapter of a series before it converts any of them, so what repeats across chapters is seen before a decision is made.
+- `export` works in this order each run: it ends `kavita_scan` waits, adds `ComicInfo.xml` to the ready chapters, then publishes series by series with 1 scan per series.
+
+With `series.only` set, every part works only the series it names; nothing else is read or written.
 
 Hand-off between parts:
 
@@ -28,7 +32,7 @@ Hand-off between parts:
 
 One chapter that fails or waits never stops a part or the chapters after it. Later chapters of the series are published while an earlier one is held.
 
-When Suwayomi, Kavita or a metadata source cannot be reached, the chapters and series that need it wait and are tried again by a later run of the part. That does not count as an attempt.
+When Suwayomi, Kavita, a metadata source or the share cannot be reached, the chapters and series that need it wait and are tried again by a later run of the part. That does not count as an attempt. For the rest of the run the part claims no chapter at the stage that met the unreachable service, and goes on with its other stages. For the share, "cannot be reached" is an input/output, stale-handle or timeout error on one of its paths.
 
 ## State
 
@@ -40,11 +44,17 @@ One SQLite database on the local disk of the machine that runs the pipeline, nev
 | knowledge | the junk decisions; each series' source IDs and conversion calibration |
 | sync records | what was fetched for each series, from which source and when (written only by `intake`, with a version that rises on every change); what was written for each series and each published chapter (written only by `export`, with the version it was written from) |
 
-It is the single record of what is pending. `state reset` clears the workflow state only; knowledge and sync records are kept, and the next `intake` rediscovers the downloads.
+It is the single record of what is pending. `state reset` clears the workflow state only; knowledge and sync records are kept, and the next `intake` rediscovers the downloads. It needs `--yes`, runs only while no part and no junk review is running, and also empties the staging and scratch folders. It never touches the downloads, the library or the retention folder.
+
+A part claims a chapter in 1 short transaction before working on it and records the outcome in another; no transaction is open while a stage works. A claim left by a run that died is released when that part next starts. A command without a lock refuses a chapter a part has claimed, and an outcome is not recorded over a change a person made meanwhile.
+
+The database's structure is built by ordered schema steps, each recorded once applied. A database holding a step the program does not know is refused, and nothing ever recreates a database by itself.
+
+1 database owns the share at a time: a file in the staging folder holds the owning database's id, written by `state adopt --yes`. A part that finds the file missing (the share is not mounted, or was never adopted) or holding another id stops before any work (SPEC "Preflight").
 
 ## Chapter stages
 
-A stage ends done, waiting (with what it waits on) or failed. A chapter that reaches its attempt limit becomes `needs_human` and is left alone until a person acts. A series can be `needs_human` too (for example when its source IDs disagree); its chapters wait until a person clears it.
+A chapter is at 1 stage and has 1 status: `ready`, `claimed`, `waiting`, `needs_human` or `done`. A stage ends done, waiting (with what it waits on) or failed. A chapter that failed is tried again by a later run of its part, never in the same run. A chapter that reaches its attempt limit (`workflow.attempt_limit`) becomes `needs_human` and is left alone until a person acts. A series can be `needs_human` too (for example when its source IDs disagree); its chapters wait until a person clears it.
 
 | Stage | Part | Does | Can wait on |
 |---|---|---|---|
@@ -61,3 +71,5 @@ The CBZ in the downloads folder is never modified. Work happens in the scratch f
 ## Needs human
 
 A chapter or a series that becomes `needs_human` is reported 3 ways: a line in the log, the `status` command, and a message to a Discord webhook.
+
+A person clears it with `retry` (a chapter by its id, or `--series` for a series and its chapters): the item is ready again at the stage where it stopped, with its attempts at 0. With no database, an id that does not exist, or an item that is not `needs_human` (a chapter a part has claimed included), is refused with exit code 2 and left unchanged; `--series` is refused when neither the series nor any of its chapters is `needs_human`.

@@ -50,13 +50,21 @@ python -m manga_pipeline.cli --help
 
 | Path | Role |
 |---|---|
-| `manga_pipeline/cli.py` | entry point: parses arguments (`--config`, `--set`), loads config (`config.init`), takes the run lock, sets up logging, then runs preflight |
+| `manga_pipeline/cli.py` | entry point: argparse subcommands (global `--config`, `--set`); `COMMANDS`, the command table: each command's locks, log file, preflight checks and handler; runs config (`config.init`), locks, logging, preflight, handler |
 | `manga_pipeline/config.py` | `load` (file, then `ENV_PREFIX` variables, then `--set`; validated against `config.yaml.example`), `init`, `cached`, `reset`, `abs_path` |
-| `manga_pipeline/logs.py` | `setup(cfg)`: console plus daily-rotated `application.log` |
-| `manga_pipeline/lock.py` | `held(cfg)`: the run lock, an OS file lock (`msvcrt` on Windows, `fcntl` elsewhere); `LockHeld` |
-| `manga_pipeline/preflight.py` | `run(cfg, checks)` over `CHECKS` (`Check(name, HARD or SOFT, fn)`): soft problems warn, hard ones raise `PreflightFailed` (exit 4); ships `python_version` (hard) and `free_space` (soft) |
+| `manga_pipeline/db.py` | `connect(cfg)` (WAL, 30 s busy timeout, foreign keys, autocommit, `sqlite3.Row` rows; applies missing schema steps, refuses an unknown one: `SchemaError`), `read_only(cfg)` (opens an existing database without writing; `SchemaError` unless its steps are exactly the program's), `peek_id(cfg)` (the id, read without checking or applying anything), `transaction(conn)`, `database_id(conn)`, `WORKFLOW_TABLES` |
+| `manga_pipeline/schema/` | schema steps `NNNN_name.sql`, applied in name order and recorded in `schema_step` |
+| `manga_pipeline/workflow.py` | the only writer of chapter stage/status/waits/attempts/claims and `series.status`: `claim` (priority, scope, junk before convert), `work` (stage outcome `Done` / `Waiting` / `Failed`, `Unreachable` skips the stage for the run; 1 log line per outcome), `drain`, `end_waits`, `release_own_claims`, `needs_human`, `retry_chapter` / `retry_series` (`Refused`: exit 2), `reset`, `run_part` (run records in `meta`), `share_errors`, `in_scope` |
+| `manga_pipeline/intake.py`, `process.py`, `export.py` | the 3 part loops: `run(cfg)`; their order of work (SPEC "Parts") |
+| `manga_pipeline/status.py` | `status`: read-only report (`db.read_only`), printed |
+| `manga_pipeline/state.py` | `state reset` (`workflow.reset`, then empties staging but its owner file, and scratch) and `state adopt` (writes the owner file) |
+| `manga_pipeline/stages/` | 1 module per stage, `run(ctx, chapter)` returns an outcome; Phase 1 stubs (junk's `.wait` marker is a test hook) |
+| `manga_pipeline/logs.py` | `setup(cfg, command)`: console plus daily-rotated `<command>.log`, or console only for `None` |
+| `manga_pipeline/lock.py` | `held(cfg, *names)`: `<lock.dir>/<name>.lock` per name, all or nothing, an OS file lock (`msvcrt` on Windows, `fcntl` elsewhere); `LockHeld` |
+| `manga_pipeline/preflight.py` | `run(cfg, checks)` (`Check(name, HARD or SOFT, fn)`): soft problems warn, hard ones raise `PreflightFailed` (exit 4); ships `PYTHON_VERSION`, `DATABASE_LOCATION`, `FOLDER_LAYOUT`, `SHARE_FOLDERS_PRESENT`, `WORKFLOW_SETTINGS`, `SHARE_OWNERSHIP`, `STAGING_FOLDER` (hard), `FREE_SPACE` (soft); `owner_file(cfg)` |
 | `tests/__init__.py` | points `config.load` at `tests/test_config.yaml`; refuses the live config |
 | `tests/conftest.py` | no-network guard, per-test timing report |
+| `tests/builders.py` | fixture builders: `site_cfg(tmp_path)`, series and chapter rows, fake downloads |
 | `tests/timing.py` | `@budget` per-test time budgets (copied from the unit-tests skill; project code now) |
 
 ## Python standards
@@ -72,8 +80,8 @@ python -m manga_pipeline.cli --help
 - Fail fast: validate inputs at the boundary and raise a clear error naming what is wrong.
 - Read config only through the config module: the entry point calls its `init` once (with `--set`), everything else reads `cached`. It merges `config.yaml`, `MANGA_PIPELINE_*` environment variables and `--set`, and checks the result against `config.yaml.example` (SPEC "Config").
 - Log only through the logs module's logger; set up once, from the entry point (SPEC "Logging"). No `print` except a command's own output and its errors on stderr.
-- Every command runs under the run lock, taken once in the entry point (SPEC "Run lock"); never add a second lock or a wait.
-- A new requirement check is a function in the preflight module plus 1 line in its `CHECKS` list (SPEC "Preflight"): hard when the run cannot work without it, soft when it only warns. The function returns the problem text, or nothing when the requirement holds, and turns its own errors into problem text.
+- Each command takes the locks its row in the command table names, once in the entry point (SPEC "Run lock"); never take a lock anywhere else or wait for one.
+- A new requirement check is a function and its `Check` in the preflight module, plus its place in the command table's check lists in `cli.py` (SPEC "Preflight"): hard when the run cannot work without it, soft when it only warns. The function returns the problem text, or nothing when the requirement holds, and turns its own errors into problem text.
 - Tests stay offline and never read the live `config.yaml` (SPEC "Tests"). Test only situations that occur in real use.
 - Module docstrings or header comments name the SPEC section they implement. Comment only where the reason isn't obvious.
 - Run the linter and formatter before finishing a change; both must pass.
@@ -87,4 +95,4 @@ python -m manga_pipeline.cli --help
 
 - `config.yaml` is gitignored and may hold secrets: never print, log, copy or commit it. A new key goes in `config.yaml.example`, `tests/test_config.yaml` and `config.yaml`; loading refuses a mismatch. A secret may instead come from its environment variable.
 - `.gitattributes` forces LF line endings; keep every file LF.
-- `state/` is local runtime output (logs, run lock, test timings) and is gitignored: nothing there is a source of truth.
+- `state/` is local runtime output (logs, locks, scratch, test timings, and by default the database) and is gitignored: nothing there but the database is a source of truth.

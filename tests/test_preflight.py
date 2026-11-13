@@ -1,13 +1,17 @@
 """preflight.run: every check runs; soft problems warn, hard ones stop the run (SPEC "Preflight")."""
 
 import logging
+import os
 import shutil
+import sqlite3
+from contextlib import closing
 
 import pytest
 
-from manga_pipeline import config, preflight
+from manga_pipeline import config, db, preflight
 from manga_pipeline.preflight import HARD, SOFT, Check
 
+from tests import real_load
 from tests.timing import budget
 
 
@@ -28,9 +32,18 @@ def with_min_free(mb, folder=None):
 
 @budget(load="pure")
 def test_shipped_checks():
-    got = [(c.name, c.level, c.run) for c in preflight.CHECKS]
-    want = [("python version", HARD, preflight.python_version), ("free disk space", SOFT, preflight.free_space)]
-    assert got == want, "SPEC 'Preflight' lists these checks with these kinds"
+    shipped = {c.name: (c.level, c.run) for c in vars(preflight).values() if isinstance(c, Check)}
+    want = {
+        "runtime version": (HARD, preflight.python_version),
+        "free disk space": (SOFT, preflight.free_space),
+        "database location": (HARD, preflight.database_location),
+        "folder layout": (HARD, preflight.folder_layout),
+        "share folders": (HARD, preflight.share_folders),
+        "workflow settings": (HARD, preflight.workflow_settings),
+        "share ownership": (HARD, preflight.share_ownership),
+        "staging folder": (HARD, preflight.staging_folder),
+    }
+    assert shipped == want, "SPEC 'Preflight' lists every check with its kind"
 
 
 @budget(load="pure")
@@ -87,5 +100,193 @@ def test_zero_skips_the_check_and_negative_is_a_problem(tmp_path):
 
 
 @budget(load="fs")
-def test_free_space_reports_an_unreadable_folder(tmp_path):
-    assert preflight.free_space(with_min_free(1, tmp_path / "missing")).startswith("cannot read free space at")
+def test_free_space_reports_an_unreadable_drive(tmp_path, monkeypatch):
+    def unreadable(path):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(shutil, "disk_usage", unreadable)
+    assert preflight.free_space(with_min_free(1, tmp_path)).startswith("cannot read free space at")
+
+
+@budget(load="fs")
+def test_free_space_measures_the_drive_of_a_log_folder_not_made_yet(tmp_path):
+    missing = tmp_path / "logs" / "not-yet"
+    assert preflight.free_space(with_min_free(1, missing)) is None, "a console-only command never makes logging.dir"
+    assert not (tmp_path / "logs").exists(), "the check creates no folder"
+
+
+def site(tmp_path, database):
+    """Config with the share folders under tmp_path/share and the database at database."""
+    share = tmp_path / "share"
+    paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {"scratch": str(tmp_path / "scratch")}
+    return {**config.cached(), "database": {"path": str(database)}, "paths": paths}
+
+
+@budget(load="pure")
+@pytest.mark.parametrize("key", preflight.SHARE_FOLDERS)
+def test_database_under_a_share_folder_is_a_problem(tmp_path, key):
+    cfg = site(tmp_path, tmp_path / "share" / key / "sub" / "pipeline.sqlite3")
+    assert f"lies under paths.{key}" in preflight.database_location(cfg)
+
+
+@budget(load="pure")
+def test_database_on_local_disk_passes(tmp_path):
+    assert preflight.database_location(site(tmp_path, tmp_path / "state" / "pipeline.sqlite3")) is None
+
+
+def adopted(tmp_path, owner=None):
+    """A database and an owner file holding owner (default: that database's id)."""
+    cfg = site(tmp_path, tmp_path / "pipeline.sqlite3")
+    with closing(db.connect(cfg)) as conn:
+        mine = db.database_id(conn)
+    path = preflight.owner_file(cfg)
+    path.parent.mkdir(parents=True)
+    path.write_text(mine if owner is None else owner, encoding="utf-8")
+    return cfg
+
+
+@budget(load="db")
+def test_share_owned_by_this_database_passes(tmp_path):
+    assert preflight.share_ownership(adopted(tmp_path)) is None
+
+
+@budget(load="db")
+def test_share_owned_by_another_database_is_a_problem(tmp_path):
+    assert "holds database id 'other'" in preflight.share_ownership(adopted(tmp_path, owner="other"))
+
+
+@budget(load="fs")
+def test_missing_owner_file_is_a_problem(tmp_path):
+    problem = preflight.share_ownership(site(tmp_path, tmp_path / "pipeline.sqlite3"))
+    assert "is missing: the share is not mounted" in problem
+
+
+@budget(load="fs")
+def test_owner_file_without_a_database_is_a_problem_and_creates_none(tmp_path):
+    cfg = site(tmp_path, tmp_path / "pipeline.sqlite3")
+    preflight.owner_file(cfg).parent.mkdir(parents=True)
+    preflight.owner_file(cfg).write_text("abc", encoding="utf-8")
+    assert "there is no database at" in preflight.share_ownership(cfg)
+    assert not (tmp_path / "pipeline.sqlite3").exists(), "a check never creates the database"
+
+
+def layout(tmp_path, **paths):
+    """site() with some paths.* replaced."""
+    cfg = site(tmp_path, tmp_path / "state" / "pipeline.sqlite3")
+    return {**cfg, "paths": {**cfg["paths"], **{k: str(v) for k, v in paths.items()}}}
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    "case, paths, problem",
+    [
+        ("staging = share root", {"staging": "share"}, "paths.staging {share} contains paths.downloads"),
+        ("scratch = project root", {"scratch": config.ROOT}, "contains the project root"),
+        ("scratch holds the database", {"scratch": "state"}, "paths.scratch {state} contains database.path"),
+        ("staging in the library", {"staging": "share/library/Series"}, "lies inside paths.library"),
+    ],
+)
+def test_folders_state_reset_empties_hold_nothing_kept(tmp_path, case, paths, problem):
+    paths = {k: v if isinstance(v, type(config.ROOT)) else tmp_path / v for k, v in paths.items()}
+    text = preflight.folder_layout(layout(tmp_path, **paths))
+    want = problem.format(share=tmp_path.resolve() / "share", state=tmp_path.resolve() / "state")
+    assert want in text, f"{case}: state reset would delete what the pipeline keeps"
+
+
+@budget(load="pure")
+def test_example_folder_layout_passes():
+    assert preflight.folder_layout(real_load(config.EXAMPLE)) is None
+
+
+def dir_link(link, target):
+    """A link to a folder that needs no privilege: a junction on Windows, a symlink elsewhere."""
+    if os.name == "nt":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link, target_is_directory=True)
+
+
+@budget(load="fs")
+def test_staging_linked_into_the_library_is_a_problem(tmp_path):
+    library = tmp_path / "share" / "library"
+    (library / "Series").mkdir(parents=True)
+    dir_link(tmp_path / "staging-link", library / "Series")
+    text = preflight.folder_layout(layout(tmp_path, staging=tmp_path / "staging-link"))
+    assert "lies inside paths.library" in text, "a link is judged by where it leads"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    "paths, problem",
+    [
+        ({"staging": "x/../scratch"}, "contains paths.scratch"),
+        ({"scratch": "state/.."}, "contains the project root"),
+        ({"scratch": "."}, "contains the project root"),
+    ],
+    ids=["staging-is-scratch", "scratch-dotdot-root", "scratch-dot"],
+)
+def test_folder_layout_compares_resolved_paths(tmp_path, paths, problem):
+    paths = {k: (tmp_path / v if k == "staging" else v) for k, v in paths.items()}
+    cfg = layout(tmp_path, **paths)
+    if "scratch" in paths:
+        cfg["paths"]["scratch"] = paths["scratch"]  # relative: to the project root
+    else:
+        cfg["paths"]["scratch"] = str(tmp_path / "scratch")
+    assert problem in preflight.folder_layout(cfg)
+
+
+@budget(load="pure")
+@pytest.mark.skipif(os.name != "nt", reason="Windows paths compare without case")
+def test_folder_layout_on_windows_ignores_letter_case(tmp_path):
+    library = str(tmp_path / "share" / "library")
+    cfg = layout(tmp_path, staging=library.upper())
+    assert "contains paths.library" in preflight.folder_layout(cfg)
+
+
+@budget(load="pure")
+def test_workflow_settings_refuse_an_attempt_limit_below_1():
+    cfg = {**config.cached(), "workflow": {"attempt_limit": 0}}
+    assert preflight.workflow_settings(cfg) == "workflow.attempt_limit must be at least 1, got 0"
+    assert preflight.workflow_settings(config.cached()) is None
+
+
+@budget(load="fs")
+def test_share_folders_missing_is_a_problem(tmp_path):
+    cfg = site(tmp_path, tmp_path / "pipeline.sqlite3")
+    (tmp_path / "share" / "library").mkdir(parents=True)
+    text = preflight.share_folders(cfg)
+    assert "paths.downloads" in text and "is not an existing folder" in text and "paths.library" not in text
+
+
+@budget(load="pure")
+def test_folder_checks_report_what_they_cannot_measure(tmp_path, monkeypatch):
+    def broken(self, *args, **kwargs):
+        raise OSError(5, "Input/output error")
+
+    cfg = site(tmp_path, tmp_path / "pipeline.sqlite3")
+    monkeypatch.setattr(type(tmp_path), "resolve", broken)
+    assert preflight.folder_layout(cfg).startswith("cannot resolve a configured folder")
+    monkeypatch.setattr(type(tmp_path), "is_dir", broken)
+    assert preflight.staging_folder(cfg).startswith("cannot read paths.staging")
+
+
+@budget(load="db")
+def test_unreadable_owner_file_is_a_problem(tmp_path):
+    cfg = site(tmp_path, tmp_path / "pipeline.sqlite3")
+    preflight.owner_file(cfg).mkdir(parents=True)  # a folder where the file should be: reading it fails
+    assert preflight.share_ownership(cfg).startswith(f"cannot read {preflight.owner_file(cfg)}")
+
+
+@budget(load="db")
+def test_share_ownership_applies_no_schema_step(tmp_path, monkeypatch):
+    cfg = adopted(tmp_path)
+    folder = tmp_path / "schema"
+    shutil.copytree(db.SCHEMA, folder)
+    (folder / "0002_new.sql").write_text("CREATE TABLE n (x INTEGER) STRICT;", encoding="utf-8")
+    monkeypatch.setattr(db, "SCHEMA", folder)
+    assert preflight.share_ownership(cfg) is None
+    with closing(sqlite3.connect(config.abs_path(cfg["database"]["path"]))) as conn:
+        steps = [r[0] for r in conn.execute("SELECT name FROM schema_step")]
+    assert steps == ["0001_skeleton"], "a check never upgrades the database"
