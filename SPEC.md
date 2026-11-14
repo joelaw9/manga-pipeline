@@ -21,7 +21,7 @@ Suwayomi to Kavita manga pipeline: junk removal, metadata, bad-download repair, 
 
 ## State
 
-1 SQLite database on local disk holds workflow state, knowledge and sync records; `state reset` clears only the workflow state. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#state)
+1 PostgreSQL 17 database on a server holds workflow state, knowledge and sync records; its write transactions run 1 at a time; `state reset` clears only the workflow state. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#state)
 
 ## Chapter stages
 

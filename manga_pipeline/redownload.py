@@ -39,9 +39,9 @@ def save(ctx, chapter, state):
 def save_in(ctx, chapter, state, **columns):
     """Write the state (None clears it) and other chapter columns inside the caller's transaction, while this part
     holds the chapter's claim; raises when a person changed the row meanwhile."""
-    sets = "".join(f", {name} = ?" for name in columns)
+    sets = "".join(f", {name} = %s" for name in columns)
     changed = ctx.conn.execute(
-        f"UPDATE chapter SET redownload = ?{sets} WHERE id = ? AND claimed_by = ? AND status = 'claimed'",
+        f"UPDATE chapter SET redownload = %s{sets} WHERE id = %s AND claimed_by = %s AND status = 'claimed'",
         (None if state is None else json.dumps(state), *columns.values(), chapter["id"], ctx.part),
     ).rowcount
     if not changed:
@@ -137,8 +137,8 @@ def held_elsewhere(ctx, chapter, found):
     """Whether another open chapter holds the target's Suwayomi chapter or file: its download, not this one's."""
     return (
         ctx.conn.execute(
-            """SELECT 1 FROM chapter WHERE id != :id AND status != 'done' AND (suwayomi_chapter_id = :chapter
-                OR download_path = :path OR json_extract(redownload, '$.expected.path') = :path)""",
+            """SELECT 1 FROM chapter WHERE id != %(id)s AND status != 'done' AND (suwayomi_chapter_id = %(chapter)s
+                OR download_path = %(path)s OR redownload::jsonb #>> '{expected,path}' = %(path)s)""",
             {"id": chapter["id"], "chapter": found["chapter_id"], "path": found["path"]},
         ).fetchone()
         is not None

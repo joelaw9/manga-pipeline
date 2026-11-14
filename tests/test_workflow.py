@@ -93,23 +93,43 @@ def test_out_of_scope_series_is_not_claimed(ctx):
     assert workflow.claim(workflow.Context(cfg, ctx.conn, "process"), ("junk",)) is None
 
 
+# (case, series.only, the series' Kavita library, in scope) with kavita.library_id 4 and the series named "S".
+SCOPE_CASES = [
+    ("new", [], None, True),
+    ("its-library", [], 4, True),
+    ("other-library", [], 5, False),
+    ("named", ["S"], 4, True),
+    ("named-new", ["S"], None, True),
+    ("not-named", ["Other"], 4, False),
+    ("named-other-library", ["S"], 5, False),
+]
+
+
 @budget(load="pure")
-@pytest.mark.parametrize(
-    ("only", "library", "want"),
-    [
-        ([], None, True),
-        ([], 4, True),
-        ([], 5, False),
-        (["S"], 4, True),
-        (["S"], None, True),
-        (["Other"], 4, False),
-        (["S"], 5, False),
-    ],
-    ids=["new", "its-library", "other-library", "named", "named-new", "not-named", "named-other-library"],
-)
-def test_in_scope_needs_the_configured_library_and_a_name_in_series_only(only, library, want):
+@pytest.mark.parametrize(("case", "only", "library", "want"), SCOPE_CASES, ids=[c[0] for c in SCOPE_CASES])
+def test_in_scope_needs_the_configured_library_and_a_name_in_series_only(case, only, library, want):
     cfg = {"kavita": {"library_id": 4}, "series": {"only": only}}
     assert workflow.in_scope(cfg, "S", library) is want, "SPEC 'Parts': its library or new, and named"
+
+
+@budget(load="db")
+def test_the_sql_scope_agrees_with_in_scope_on_every_case(ctx):
+    with db.transaction(ctx.conn):
+        ids = {
+            library: ctx.conn.execute(
+                "INSERT INTO series (name, kavita_series_id, kavita_library_id, origin) VALUES ('S', %s, %s, 'kavita')"
+                " RETURNING id",
+                (library, library),
+            ).fetchone()[0]
+            for library in {c[2] for c in SCOPE_CASES}
+        }
+    for case, only, library, want in SCOPE_CASES:
+        cfg = {"kavita": {"library_id": 4}, "series": {"only": only}}
+        got = ctx.conn.execute(
+            f"SELECT 1 FROM series s WHERE s.id = %(id)s AND {workflow.SCOPE}",
+            {**workflow.scope_params(cfg), "id": ids[library]},
+        ).fetchone()
+        assert (got is not None) is want is workflow.in_scope(cfg, "S", library), f"{case}: SQL and Python agree"
 
 
 @budget(load="db")
@@ -133,7 +153,7 @@ def test_series_of_another_kavita_library_is_not_claimed(ctx):
 def test_done_moves_to_the_next_stage_with_attempts_reset(ctx):
     row = claimed(ctx)
     with db.transaction(ctx.conn):
-        ctx.conn.execute("UPDATE chapter SET attempts = 2 WHERE id = ?", (row["id"],))
+        ctx.conn.execute("UPDATE chapter SET attempts = 2 WHERE id = %s", (row["id"],))
     workflow.work(ctx, chapter(ctx.conn, row["id"]), returns(Done()))
     after = chapter(ctx.conn, row["id"])
     assert (after["stage"], after["status"], after["attempts"], after["claimed_by"]) == ("convert", "ready", 0, None)
@@ -160,7 +180,7 @@ def test_failing_record_is_a_failed_attempt(ctx):
     workflow.work(ctx, row, returns(Done(lambda conn: conn.execute("INSERT INTO meta VALUES ('database_id', 'x')"))))
     after = chapter(ctx.conn, row["id"])
     assert (after["stage"], after["status"], after["attempts"]) == ("junk", "ready", 1), "the whole outcome rolls back"
-    assert after["last_error"].startswith("recording the outcome: IntegrityError")
+    assert after["last_error"].startswith("recording the outcome: UniqueViolation")
 
 
 @budget(load="db")
@@ -235,7 +255,7 @@ def test_outcome_does_not_overwrite_a_persons_change(ctx):
     def stage(ctx, chapter):
         with db.transaction(ctx.conn):  # a person acts on the row while the stage works
             ctx.conn.execute(
-                "UPDATE chapter SET status = 'ready', claimed_by = NULL, attempts = 0 WHERE id = ?", (row["id"],)
+                "UPDATE chapter SET status = 'ready', claimed_by = NULL, attempts = 0 WHERE id = %s", (row["id"],)
             )
         return Failed("bad page")
 
@@ -247,7 +267,7 @@ def test_outcome_does_not_overwrite_a_persons_change(ctx):
 @budget(load="db")
 def test_no_transaction_is_open_while_a_stage_runs(ctx):
     seen = []
-    workflow.work(ctx, claimed(ctx), lambda ctx, chapter: seen.append(ctx.conn.in_transaction) or Done())
+    workflow.work(ctx, claimed(ctx), lambda ctx, chapter: seen.append(db.in_transaction(ctx.conn)) or Done())
     assert seen == [False]
 
 
@@ -257,7 +277,7 @@ def test_release_own_claims_frees_only_this_parts_claims(ctx):
     add_chapter(ctx.conn, mine["series_id"], "c2", "comicinfo")
     other = workflow.claim(workflow.Context(ctx.cfg, ctx.conn, "export"), ("comicinfo",))
     with db.transaction(ctx.conn):
-        ctx.conn.execute("UPDATE chapter SET attempts = 1 WHERE id = ?", (mine["id"],))
+        ctx.conn.execute("UPDATE chapter SET attempts = 1 WHERE id = %s", (mine["id"],))
     workflow.release_own_claims(ctx)
     assert (chapter(ctx.conn, mine["id"])["status"], chapter(ctx.conn, mine["id"])["attempts"]) == ("ready", 1)
     assert chapter(ctx.conn, other["id"])["claimed_by"] == "export", "another part's claim is not this part's to free"
@@ -308,7 +328,7 @@ def test_needs_human_series(ctx, caplog):
     series = add_series(ctx.conn, "S")
     with db.transaction(ctx.conn):
         workflow.needs_human(ctx.conn, "series", series, "source ids disagree")
-    row = ctx.conn.execute("SELECT status, status_reason FROM series WHERE id = ?", (series,)).fetchone()
+    row = ctx.conn.execute("SELECT status, status_reason FROM series WHERE id = %s", (series,)).fetchone()
     assert tuple(row) == ("needs_human", "source ids disagree")
     assert "needs human: series" in caplog.text
 
@@ -371,7 +391,7 @@ def test_dropped_outcome_is_neither_logged_nor_counted(ctx, caplog):
 
     def stage(ctx, chapter):
         with db.transaction(ctx.conn):  # a person acts on the row while the stage works
-            ctx.conn.execute("UPDATE chapter SET status = 'ready', claimed_by = NULL WHERE id = ?", (row["id"],))
+            ctx.conn.execute("UPDATE chapter SET status = 'ready', claimed_by = NULL WHERE id = %s", (row["id"],))
         return Failed("bad page")
 
     workflow.work(ctx, row, stage)
@@ -433,23 +453,23 @@ def test_charge_waits_costs_1_attempt_per_chapter_waiting_since_the_cutoff_and_e
         ctx.conn.execute(
             """UPDATE chapter SET status = 'waiting', waiting_on = 'kavita_scan',
                 updated_at = '2000-01-01T00:00:00+00:00'
-            WHERE id = ?""",
+            WHERE id = %s""",
             (tired,),
         )
         ctx.conn.execute(  # waiting since exactly the cutoff: charged
             """UPDATE chapter SET status = 'waiting', waiting_on = 'kavita_scan',
-                updated_at = '2000-01-01T00:00:01+00:00' WHERE id = ?""",
+                updated_at = '2000-01-01T00:00:01+00:00' WHERE id = %s""",
             (fresh,),
         )
         ctx.conn.execute(
             """UPDATE chapter SET status = 'waiting', waiting_on = 'junk_decision',
-                updated_at = '2000-01-01T00:00:00+00:00' WHERE id = ?""",
+                updated_at = '2000-01-01T00:00:00+00:00' WHERE id = %s""",
             (other_wait,),
         )
         ctx.conn.execute(
             """UPDATE chapter SET status = 'waiting', waiting_on = 'kavita_scan',
                 updated_at = '2000-01-01T00:00:02+00:00'
-            WHERE id = ?""",
+            WHERE id = %s""",
             (late,),
         )
         assert workflow.charge_waits(ctx, "kavita_scan", "not indexed", "2000-01-01T00:00:01+00:00", "2000-01-02") == 2
@@ -489,8 +509,10 @@ def test_a_scanned_junk_chapter_waits_while_another_of_its_series_is_unscanned(c
     other = add_chapter(ctx.conn, series, "b", "junk", "2026-01-02T00:00:00+00:00", content_digest="d2")
     scans = [(scanned, "d1", '{"marks": []}'), (other, "d2", "{}" if old_scan else '{"marks": []}')]
     with db.transaction(ctx.conn):
-        ctx.conn.executemany(
-            "INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at) VALUES (?, ?, ?, ?, 't')",
+        db.executemany(
+            ctx.conn,
+            "INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at) VALUES"
+            " (%s, %s, %s, %s, 't')",
             [(c, series, d, s) for c, d, s in scans],
         )
     first = other if old_scan else scanned

@@ -30,8 +30,9 @@ def listing(conn, cfg, review_id=None, everything=False):
         return candidates.open_rows(conn) if everything else listable(conn, cfg)
     with db.transaction(conn):  # read and mark together: cleanup cannot delete a candidate in between
         rows = listable(conn, cfg)
-        conn.executemany(
-            "UPDATE junk_candidate SET review_id = ?, review_open = 1 WHERE id = ?",
+        db.executemany(
+            conn,
+            "UPDATE junk_candidate SET review_id = %s, review_open = 1 WHERE id = %s",
             [(review_id, r["id"]) for r in rows],
         )
     return rows
@@ -40,12 +41,12 @@ def listing(conn, cfg, review_id=None, everything=False):
 def chapters(conn, candidate_id):
     """How many chapters wait on a candidate."""
     return conn.execute(
-        "SELECT count(*) FROM junk_scan WHERE ? IN (SELECT value FROM json_each(candidates))", (candidate_id,)
+        "SELECT count(*) FROM junk_scan WHERE candidates::jsonb @> to_jsonb(%s::bigint)", (candidate_id,)
     ).fetchone()[0]
 
 
 def get_open(conn, candidate_id):
-    row = conn.execute("SELECT * FROM junk_candidate WHERE id = ?", (candidate_id,)).fetchone()
+    row = conn.execute("SELECT * FROM junk_candidate WHERE id = %s", (candidate_id,)).fetchone()
     if row is None or not candidates.is_open(conn, row):
         raise Refused(f"junk candidate {candidate_id} is not open (unknown, decided, or no chapter waits on it)")
     return row
@@ -59,7 +60,7 @@ def decide(conn, candidate_id, verdict, decider, at):
     with db.transaction(conn):
         row = get_open(conn, candidate_id)
         if verdict == "unsure":
-            conn.execute("UPDATE junk_candidate SET verdict = 'unsure' WHERE id = ?", (candidate_id,))
+            conn.execute("UPDATE junk_candidate SET verdict = 'unsure' WHERE id = %s", (candidate_id,))
             return row
         store.upsert(
             conn,

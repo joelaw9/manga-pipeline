@@ -44,7 +44,7 @@ def seeded(tmp_path):
         ok = add_series(conn, "Alpha")
         held = add_series(conn, "Beta", status="needs_human")
         with db.transaction(conn):
-            conn.execute("UPDATE series SET status_reason = 'source ids disagree' WHERE id = ?", (held,))
+            conn.execute("UPDATE series SET status_reason = 'source ids disagree' WHERE id = %s", (held,))
         ids = {
             "stuck": add_chapter(conn, ok, "c1", "convert", status="needs_human", attempts=3, last_error="bad page 3"),
             "waiting": add_chapter(conn, ok, "c2", "junk", status="waiting", waiting_on="bulk_conversion"),
@@ -75,10 +75,10 @@ def test_status_reports_while_every_part_runs(tmp_path, seeded, capsys):
 
 @budget(load="fs")
 def test_status_without_a_database_says_so_and_creates_none(tmp_path, capsys):
-    cfg = site_cfg(tmp_path)
+    cfg = site_cfg(tmp_path, built=False)
     assert main(tmp_path, cfg, "status") == 0
-    assert "no database at" in capsys.readouterr().out
-    assert not config.abs_path(cfg["database"]["path"]).exists()
+    assert "no run has built it yet" in capsys.readouterr().out
+    assert not db.built(cfg), "status builds nothing"
 
 
 @budget(load="db")
@@ -86,7 +86,7 @@ def test_retry_chapter_while_every_part_runs(tmp_path, seeded):
     cfg, ids, _, _ = seeded
     with lock.held(cfg, *PARTS):
         assert main(tmp_path, cfg, "retry", str(ids["stuck"])) == 0, "retry takes no lock"
-    got = rows(cfg, "SELECT stage, status, attempts FROM chapter WHERE id = ?", ids["stuck"])
+    got = rows(cfg, "SELECT stage, status, attempts FROM chapter WHERE id = %s", ids["stuck"])
     assert got == [("convert", "ready", 0)], "ready again at the stage where it stopped, attempts 0"
 
 
@@ -94,10 +94,10 @@ def test_retry_chapter_while_every_part_runs(tmp_path, seeded):
 def test_retry_series_clears_it_and_its_needs_human_chapters(tmp_path, seeded):
     cfg, ids, ok, held = seeded
     assert main(tmp_path, cfg, "retry", "--series", str(held)) == 0
-    assert rows(cfg, "SELECT status, status_reason FROM series WHERE id = ?", held) == [("ok", None)]
+    assert rows(cfg, "SELECT status, status_reason FROM series WHERE id = %s", held) == [("ok", None)]
     assert main(tmp_path, cfg, "retry", "--series", str(ok)) == 0, "an ok series with a needs_human chapter"
-    assert rows(cfg, "SELECT status, attempts FROM chapter WHERE id = ?", ids["stuck"]) == [("ready", 0)]
-    assert rows(cfg, "SELECT status FROM chapter WHERE id = ?", ids["waiting"]) == [("waiting",)]
+    assert rows(cfg, "SELECT status, attempts FROM chapter WHERE id = %s", ids["stuck"]) == [("ready", 0)]
+    assert rows(cfg, "SELECT status FROM chapter WHERE id = %s", ids["waiting"]) == [("waiting",)]
 
 
 @budget(load="db")
@@ -115,8 +115,8 @@ def test_retry_refuses_what_is_not_needs_human(tmp_path, seeded, capsys, target,
     cfg, ids, ok, _ = seeded
     with closing(db.connect(cfg)) as conn:
         with db.transaction(conn):
-            conn.execute("UPDATE chapter SET status = 'claimed', claimed_by = 'process' WHERE id = ?", (ids["ready"],))
-            conn.execute("UPDATE chapter SET status = 'ready', attempts = 0 WHERE id = ?", (ids["stuck"],))
+            conn.execute("UPDATE chapter SET status = 'claimed', claimed_by = 'process' WHERE id = %s", (ids["ready"],))
+            conn.execute("UPDATE chapter SET status = 'ready', attempts = 0 WHERE id = %s", (ids["stuck"],))
         claimed_id = ids["ready"]
         ready_id = add_chapter(conn, ok, "c4", "junk")
     argv = {
@@ -245,10 +245,10 @@ def test_chapter_ids_are_never_reused(tmp_path):
 
 @budget(load="fs")
 def test_retry_without_a_database_is_refused_and_creates_none(tmp_path, capsys):
-    cfg = site_cfg(tmp_path)
+    cfg = site_cfg(tmp_path, built=False)
     assert main(tmp_path, cfg, "retry", "1") == 2
-    assert "no database at" in capsys.readouterr().err
-    assert not config.abs_path(cfg["database"]["path"]).exists()
+    assert "built yet: nothing to retry" in capsys.readouterr().err
+    assert not db.built(cfg), "retry builds nothing"
 
 
 @budget(load="db")
@@ -330,6 +330,9 @@ def test_status_sections_come_from_1_snapshot(tmp_path):
 
             def __init__(self, conn):
                 self.conn, self.reads = conn, 0
+
+            def transaction(self):
+                return self.conn.transaction()
 
             def execute(self, sql, *params):
                 cursor = self.conn.execute(sql, *params)

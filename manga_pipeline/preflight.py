@@ -8,7 +8,6 @@ lists (cli.py).
 import logging
 import os
 import shutil
-import sqlite3
 import sys
 import urllib.parse
 from collections.abc import Callable
@@ -72,18 +71,6 @@ def _below(wanted, want, key):
     return None
 
 
-def database_location(cfg):
-    try:
-        database = config.abs_path(cfg["database"]["path"]).resolve()
-        folders = {key: config.abs_path(cfg["paths"][key]).resolve() for key in SHARE_FOLDERS}
-    except OSError as e:
-        return f"cannot resolve database.path or a share folder: {e}"
-    for key, folder in folders.items():
-        if database.is_relative_to(folder):
-            return f"database.path {database} lies under paths.{key} {folder}; it must be on local disk"
-    return None
-
-
 def folder_layout(cfg):
     """The folders `state reset` empties (paths.staging, paths.scratch, paths.candidates) must hold nothing else the
     pipeline keeps."""
@@ -97,7 +84,6 @@ def folder_layout(cfg):
             "paths.library": paths["library"],
             "paths.retention": paths["retention"],
             "paths.covers": paths["covers"],
-            "database.path": config.abs_path(cfg["database"]["path"]).resolve(),
             "logging.dir": config.abs_path(cfg["logging"]["dir"]).resolve(),
             "lock.dir": config.abs_path(cfg["lock"]["dir"]).resolve(),
             "the project root": config.ROOT.resolve(),
@@ -206,13 +192,12 @@ def share_ownership(cfg):
         return f"{path} is missing: the share is not mounted, or no database adopted it (state adopt --yes)"
     except OSError as e:
         return f"cannot read {path}: {e}"
-    database = config.abs_path(cfg["database"]["path"])
-    if not database.exists():
-        return f"{path} holds database id {owner!r}, and there is no database at {database}"
     try:
         mine = db.peek_id(cfg)  # applies nothing: a run refused here must not have upgraded the database
-    except (OSError, sqlite3.Error) as e:
-        return f"cannot read the database id from {database}: {e}"
+    except db.NoDatabase as e:
+        return f"{path} holds database id {owner!r}, and there is {e}"
+    except (db.CannotConnect, db.Error) as e:
+        return f"cannot read the database id: {e}"
     if owner != mine:
         return f"{path} holds database id {owner!r}, this database is {mine!r} (state adopt --yes moves the share)"
     return None
@@ -265,7 +250,6 @@ def junk_word_lists(cfg):
 
 PYTHON_VERSION = Check("runtime version", HARD, python_version)
 FREE_SPACE = Check("free disk space", SOFT, free_space)
-DATABASE_LOCATION = Check("database location", HARD, database_location)
 STAGING_FOLDER = Check("staging folder", HARD, staging_folder)
 FOLDER_LAYOUT = Check("folder layout", HARD, folder_layout)
 SHARE_FOLDERS_PRESENT = Check("share folders", HARD, share_folders)

@@ -37,7 +37,8 @@ class Site:
         series_id = add_series(self.conn, name)
         with db.transaction(self.conn):
             self.conn.execute(
-                "INSERT INTO series_conversion (series_id, layout, page_aspect, origin) VALUES (?, ?, ?, 'computed')",
+                "INSERT INTO series_conversion (series_id, layout, page_aspect, origin) VALUES (%s,"
+                " %s, %s, 'computed')",
                 (series_id, layout, None if aspect is None else json.dumps(aspect)),
             )
         return series_id
@@ -52,7 +53,7 @@ class Site:
         if edit is not None:
             with db.transaction(self.conn):
                 self.conn.execute(
-                    "INSERT INTO chapter_edit (chapter_id, edit) VALUES (?, ?)",
+                    "INSERT INTO chapter_edit (chapter_id, edit) VALUES (%s, %s)",
                     (chapter_id, edit if isinstance(edit, str) else json.dumps(edit)),
                 )
         return chapter_id
@@ -505,7 +506,7 @@ def test_a_fixed_group_is_not_probed(site):
     with db.transaction(site.conn):
         site.conn.execute(
             "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why) "
-            "VALUES (?, 'colour', 70, 1, 'record', 'r')",
+            "VALUES (%s, 'colour', 70, 1, 'record', 'r')",
             (series_id,),
         )
     chapter_id = site.chapter(series_id, pages(2))
@@ -606,7 +607,7 @@ def add_cover(site, chapter_id, data, rel="vol/1.jpg", sha256=None, volume="1"):
     path.write_bytes(data)
     with db.transaction(site.conn):
         site.conn.execute(
-            "INSERT INTO volume_cover (chapter_id, path, sha256, volume) VALUES (?, ?, ?, ?)",
+            "INSERT INTO volume_cover (chapter_id, path, sha256, volume) VALUES (%s, %s, %s, %s)",
             (chapter_id, rel, sha256 or hashlib.sha256(data).hexdigest(), volume),
         )
 
@@ -751,7 +752,7 @@ def test_a_blanked_rendered_chapter_of_a_fixed_series_is_rendered_once(site, mon
     with db.transaction(site.conn):
         site.conn.execute(
             "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why) "
-            "VALUES (?, 'colour', 70, 1, 'record', 'r')",
+            "VALUES (%s, 'colour', 70, 1, 'record', 'r')",
             (series_id,),
         )
     renders = []

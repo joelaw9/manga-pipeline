@@ -2,8 +2,8 @@
 
 import logging
 import os
+import secrets
 import shutil
-import sqlite3
 from contextlib import closing
 
 import pytest
@@ -12,7 +12,7 @@ from manga_pipeline import config, db, preflight
 from manga_pipeline.convert import vship
 from manga_pipeline.preflight import HARD, SOFT, Check
 
-from tests import real_load
+from tests import pg, real_load
 from tests.builders import site_cfg
 from tests.fakes import convert as fake_convert
 from tests.timing import budget
@@ -39,7 +39,6 @@ def test_shipped_checks():
     want = {
         "runtime version": (HARD, preflight.python_version),
         "free disk space": (SOFT, preflight.free_space),
-        "database location": (HARD, preflight.database_location),
         "folder layout": (HARD, preflight.folder_layout),
         "share folders": (HARD, preflight.share_folders),
         "workflow settings": (HARD, preflight.workflow_settings),
@@ -125,8 +124,9 @@ def test_free_space_measures_the_drive_of_a_log_folder_not_made_yet(tmp_path):
     assert not (tmp_path / "logs").exists(), "the check creates no folder"
 
 
-def site(tmp_path, database):
-    """Config with the share folders under tmp_path/share and the database at database."""
+def site(tmp_path, database=pg.UNASSIGNED):
+    """Config with the share folders under tmp_path/share and the database named database (default: one never
+    built, for checks that open none)."""
     share = tmp_path / "share"
     paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {
         "scratch": str(tmp_path / "scratch"),
@@ -134,24 +134,12 @@ def site(tmp_path, database):
         "candidates": str(tmp_path / "candidates"),
         "naming_overrides": str(tmp_path / "overrides"),
     }
-    return {**config.cached(), "database": {"path": str(database)}, "paths": paths}
-
-
-@budget(load="pure")
-@pytest.mark.parametrize("key", preflight.SHARE_FOLDERS)
-def test_database_under_a_share_folder_is_a_problem(tmp_path, key):
-    cfg = site(tmp_path, tmp_path / "share" / key / "sub" / "pipeline.sqlite3")
-    assert f"lies under paths.{key}" in preflight.database_location(cfg)
-
-
-@budget(load="pure")
-def test_database_on_local_disk_passes(tmp_path):
-    assert preflight.database_location(site(tmp_path, tmp_path / "state" / "pipeline.sqlite3")) is None
+    return {**pg.cfg_for(database), "paths": paths}
 
 
 def adopted(tmp_path, owner=None):
     """A database and an owner file holding owner (default: that database's id)."""
-    cfg = site(tmp_path, tmp_path / "pipeline.sqlite3")
+    cfg = site(tmp_path, pg.process.database(tmp_path.resolve(), built=True))
     with closing(db.connect(cfg)) as conn:
         mine = db.database_id(conn)
     path = preflight.owner_file(cfg)
@@ -172,22 +160,22 @@ def test_share_owned_by_another_database_is_a_problem(tmp_path):
 
 @budget(load="fs")
 def test_missing_owner_file_is_a_problem(tmp_path):
-    problem = preflight.share_ownership(site(tmp_path, tmp_path / "pipeline.sqlite3"))
+    problem = preflight.share_ownership(site(tmp_path))
     assert "is missing: the share is not mounted" in problem
 
 
 @budget(load="fs")
 def test_owner_file_without_a_database_is_a_problem_and_creates_none(tmp_path):
-    cfg = site(tmp_path, tmp_path / "pipeline.sqlite3")
+    cfg = site(tmp_path, f"{pg.PREFIX}missing_{secrets.token_hex(4)}")
     preflight.owner_file(cfg).parent.mkdir(parents=True)
     preflight.owner_file(cfg).write_text("abc", encoding="utf-8")
-    assert "there is no database at" in preflight.share_ownership(cfg)
-    assert not (tmp_path / "pipeline.sqlite3").exists(), "a check never creates the database"
+    assert "there is no database" in preflight.share_ownership(cfg)
+    assert not db.built(cfg), "a check never creates the database"
 
 
 def layout(tmp_path, **paths):
     """site() with some paths.* replaced."""
-    cfg = site(tmp_path, tmp_path / "state" / "pipeline.sqlite3")
+    cfg = site(tmp_path)
     return {**cfg, "paths": {**cfg["paths"], **{k: str(v) for k, v in paths.items()}}}
 
 
@@ -197,7 +185,6 @@ def layout(tmp_path, **paths):
     [
         ("staging = share root", {"staging": "share"}, "paths.staging {share} contains paths.downloads"),
         ("scratch = project root", {"scratch": config.ROOT}, "contains the project root"),
-        ("scratch holds the database", {"scratch": "state"}, "paths.scratch {state} contains database.path"),
         ("staging in the library", {"staging": "share/library/Series"}, "lies inside paths.library"),
         ("scratch holds the covers", {"covers": "scratch/covers"}, "contains paths.covers"),
     ],
@@ -331,7 +318,7 @@ def test_service_settings_report_every_problem_and_never_show_a_value():
 
 @budget(load="fs")
 def test_share_folders_missing_is_a_problem(tmp_path):
-    cfg = site(tmp_path, tmp_path / "pipeline.sqlite3")
+    cfg = site(tmp_path)
     (tmp_path / "share" / "library").mkdir(parents=True)
     text = preflight.share_folders(cfg)
     assert "paths.downloads" in text and "is not an existing folder" in text and "paths.library" not in text
@@ -342,16 +329,16 @@ def test_folder_checks_report_what_they_cannot_measure(tmp_path, monkeypatch):
     def broken(self, *args, **kwargs):
         raise OSError(5, "Input/output error")
 
-    cfg = site(tmp_path, tmp_path / "pipeline.sqlite3")
+    cfg = site(tmp_path)
     monkeypatch.setattr(type(tmp_path), "resolve", broken)
     assert preflight.folder_layout(cfg).startswith("cannot resolve a configured folder")
     monkeypatch.setattr(type(tmp_path), "is_dir", broken)
     assert preflight.staging_folder(cfg).startswith("cannot read paths.staging")
 
 
-@budget(load="db")
+@budget(load="fs")
 def test_unreadable_owner_file_is_a_problem(tmp_path):
-    cfg = site(tmp_path, tmp_path / "pipeline.sqlite3")
+    cfg = site(tmp_path)
     preflight.owner_file(cfg).mkdir(parents=True)  # a folder where the file should be: reading it fails
     assert preflight.share_ownership(cfg).startswith(f"cannot read {preflight.owner_file(cfg)}")
 
@@ -361,10 +348,10 @@ def test_share_ownership_applies_no_schema_step(tmp_path, monkeypatch):
     cfg = adopted(tmp_path)
     folder = tmp_path / "schema"
     shutil.copytree(db.SCHEMA, folder)
-    (folder / "0099_new.sql").write_text("CREATE TABLE n (x INTEGER) STRICT;", encoding="utf-8")
+    (folder / "0099_new.sql").write_text("CREATE TABLE n (x BIGINT);", encoding="utf-8")
     monkeypatch.setattr(db, "SCHEMA", folder)
     assert preflight.share_ownership(cfg) is None
-    with closing(sqlite3.connect(config.abs_path(cfg["database"]["path"]))) as conn:
+    with closing(pg._connect(cfg["database"]["name"])) as conn:
         steps = [r[0] for r in conn.execute("SELECT name FROM schema_step")]
     assert "0099_new" not in steps, "a check never upgrades the database"
 

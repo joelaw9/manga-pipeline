@@ -30,18 +30,20 @@ PART_STAGES = {
 }
 # A share path failing with these is the share being unreachable, not the chapter failing.
 SHARE_ERRNOS = {errno.EIO, errno.ESTALE, errno.ETIMEDOUT}
-# The scope filter of every work-picking query: in_scope, registered on the connection by Context.
-SCOPE = "in_scope(s.name, s.kavita_library_id)"
+# The scope filter of every work-picking query, on series s: in_scope's rule in SQL, with the named parameters of
+# scope_params. tests/test_workflow.py runs both forms over 1 table of cases.
+SCOPE = """(s.kavita_library_id IS NULL OR s.kavita_library_id = %(scope_library)s::bigint)
+    AND (cardinality(%(scope_only)s::text[]) = 0 OR s.name = ANY(%(scope_only)s::text[]))"""
 # A junk-stage chapter {c} holds a current junk scan (SPEC "Junk decisions"): same series, same content digest, and
 # made with logo detection (a scan without "marks" is not current). The one test of a current scan.
 SCANNED = """EXISTS (SELECT 1 FROM junk_scan js WHERE js.chapter_id = {c}.id AND js.series_id = {c}.series_id
-    AND js.content_digest = {c}.content_digest AND json_type(js.scan, '$.marks') = 'array')"""
+    AND js.content_digest = {c}.content_digest AND jsonb_typeof(js.scan::jsonb -> 'marks') = 'array')"""
 
 
 @dataclass(frozen=True)
 class Context:
     cfg: dict
-    conn: Any  # sqlite3.Connection from db.connect
+    conn: Any  # a connection from db.connect
     part: str
     # Chapters that failed in this run: tried again by a later run, so 1 run never spends all their attempts.
     failed: set = field(default_factory=set)
@@ -58,10 +60,6 @@ class Context:
             object.__setattr__(self, "suwayomi", suwayomi_client.from_config(self.cfg))
         if self.kavita is None:
             object.__setattr__(self, "kavita", kavita_client.from_config(self.cfg))
-        # SQL's scope filter is in_scope itself, so the rule has 1 definition.
-        self.conn.create_function(
-            "in_scope", 2, lambda name, library: in_scope(self.cfg, name, library), deterministic=True
-        )
 
 
 @dataclass(frozen=True)
@@ -112,12 +110,16 @@ RECORDED = Done | Dropped | Waiting | Ready | NeedsHuman  # outcomes that may ca
 
 def in_scope(cfg, series_name, kavita_library_id):
     """Whether a series is worked: Kavita holds it in the library kavita.library_id or does not hold it yet
-    (kavita_library_id None: a new series), and series.only is empty or names it. The 1 definition of scope; SQL
-    calls it as in_scope(name, kavita_library_id) (SCOPE)."""
+    (kavita_library_id None: a new series), and series.only is empty or names it. SQL's form is SCOPE."""
     if kavita_library_id is not None and kavita_library_id != cfg["kavita"]["library_id"]:
         return False
     only = cfg["series"]["only"]
     return not only or series_name in only
+
+
+def scope_params(cfg):
+    """The parameters SCOPE names."""
+    return {"scope_library": cfg["kavita"]["library_id"], "scope_only": list(cfg["series"]["only"])}
 
 
 def now():
@@ -126,13 +128,13 @@ def now():
 
 def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, source):
     """Record a discovered download as a chapter ready at the first stage; runs inside the caller's transaction."""
-    if not conn.in_transaction:
+    if not db.in_transaction(conn):
         raise RuntimeError("add_chapter runs inside the caller's transaction")
     stamp = now()
     conn.execute(
         """INSERT INTO chapter (series_id, kind, identity, download_path, suwayomi_chapter_id, source, stage, status,
             discovered_at, updated_at)
-        VALUES (?, 'download', ?, ?, ?, ?, ?, 'ready', ?, ?)""",
+        VALUES (%s, 'download', %s, %s, %s, %s, %s, 'ready', %s, %s)""",
         (series_id, identity, download_path, suwayomi_chapter_id, source, STAGES[0], stamp, stamp),
     )
 
@@ -148,26 +150,26 @@ def claim(ctx, stages, series_id=None):
     stages = [s for s in stages if s not in ctx.unreachable]
     with db.transaction(ctx.conn):
         return ctx.conn.execute(
-            f"""UPDATE chapter SET status = 'claimed', claimed_by = :part, updated_at = :now
+            f"""UPDATE chapter SET status = 'claimed', claimed_by = %(part)s, updated_at = %(now)s
             WHERE id = (
                 SELECT c.id FROM chapter c JOIN series s ON s.id = c.series_id
-                WHERE c.status = 'ready' AND c.stage IN (SELECT value FROM json_each(:stages))
+                WHERE c.status = 'ready' AND c.stage = ANY(%(stages)s::text[])
                     AND s.status = 'ok' AND {SCOPE}
-                    AND (:series_id IS NULL OR c.series_id = :series_id)
-                    AND c.id NOT IN (SELECT value FROM json_each(:failed))
+                    AND (%(series_id)s::bigint IS NULL OR c.series_id = %(series_id)s::bigint)
+                    AND c.id <> ALL(%(failed)s::bigint[])
                     AND NOT (c.stage = 'convert' AND EXISTS (
                         SELECT 1 FROM chapter j
                         WHERE j.series_id = c.series_id AND j.stage = 'junk' AND j.status = 'ready'
-                            AND j.id NOT IN (SELECT value FROM json_each(:failed))))
+                            AND j.id <> ALL(%(failed)s::bigint[])))
                     AND NOT (c.stage = 'junk' AND {SCANNED.format(c="c")} AND EXISTS (
                         SELECT 1 FROM chapter u
                         WHERE u.series_id = c.series_id AND u.stage = 'junk' AND u.status = 'ready'
-                            AND u.id NOT IN (SELECT value FROM json_each(:failed))
+                            AND u.id <> ALL(%(failed)s::bigint[])
                             AND NOT {SCANNED.format(c="u")}))
                 ORDER BY s.origin = 'new', c.discovered_at, c.id
                 LIMIT 1)
             RETURNING *""",
-            _params(ctx, stages=json.dumps(stages), series_id=series_id, failed=json.dumps(sorted(ctx.failed))),
+            _params(ctx, stages=stages, series_id=series_id, failed=sorted(ctx.failed)),
         ).fetchone()
 
 
@@ -175,10 +177,10 @@ def series_with_ready(ctx, stages):
     """Ids of the in-scope, not needs_human series with a ready chapter at one of stages, in priority order."""
     rows = ctx.conn.execute(
         f"""SELECT c.series_id FROM chapter c JOIN series s ON s.id = c.series_id
-        WHERE c.status = 'ready' AND c.stage IN (SELECT value FROM json_each(:stages)) AND s.status = 'ok' AND {SCOPE}
-        GROUP BY c.series_id
+        WHERE c.status = 'ready' AND c.stage = ANY(%(stages)s::text[]) AND s.status = 'ok' AND {SCOPE}
+        GROUP BY c.series_id, s.origin
         ORDER BY s.origin = 'new', MIN(c.discovered_at), MIN(c.id)""",
-        _params(ctx, stages=json.dumps(stages)),
+        _params(ctx, stages=list(stages)),
     )
     return [row[0] for row in rows]
 
@@ -189,7 +191,7 @@ def work(ctx, chapter, stage):
     the chapter ready with its attempts unchanged, and the chapter's stage is not claimed again in this run. Returns
     the outcome (the Unreachable for that case). An outcome dropped because a person changed the row meanwhile is
     neither logged as an outcome nor counted."""
-    if ctx.conn.in_transaction:
+    if db.in_transaction(ctx.conn):
         raise RuntimeError("a stage must run with no transaction open")
     try:
         with share_errors():
@@ -259,7 +261,7 @@ def end_waits(ctx, on, holds):
     waiting."""
     rows = ctx.conn.execute(
         f"""SELECT c.* FROM chapter c JOIN series s ON s.id = c.series_id
-        WHERE c.status = 'waiting' AND c.waiting_on = :on AND s.status = 'ok' AND {SCOPE} ORDER BY c.id""",
+        WHERE c.status = 'waiting' AND c.waiting_on = %(on)s AND s.status = 'ok' AND {SCOPE} ORDER BY c.id""",
         _params(ctx, on=on),
     ).fetchall()
     for chapter in rows:
@@ -276,15 +278,16 @@ def end_waits(ctx, on, holds):
         if isinstance(ended, NeedsHuman):
             with db.transaction(ctx.conn):
                 still = ctx.conn.execute(
-                    "SELECT 1 FROM chapter WHERE id = ? AND status = 'waiting' AND waiting_on = ?", (chapter["id"], on)
+                    "SELECT 1 FROM chapter WHERE id = %s AND status = 'waiting' AND waiting_on = %s",
+                    (chapter["id"], on),
                 ).fetchone()
                 if still:
                     needs_human(ctx.conn, "chapter", chapter["id"], ended.reason)
         elif ended:
             with db.transaction(ctx.conn):
                 ctx.conn.execute(
-                    """UPDATE chapter SET status = 'ready', waiting_on = NULL, wait_data = NULL, updated_at = ?
-                    WHERE id = ? AND status = 'waiting' AND waiting_on = ?""",
+                    """UPDATE chapter SET status = 'ready', waiting_on = NULL, wait_data = NULL, updated_at = %s
+                    WHERE id = %s AND status = 'waiting' AND waiting_on = %s""",
                     (now(), chapter["id"], on),
                 )
 
@@ -294,12 +297,12 @@ def charge_waits(ctx, on, reason, waited_since, at):
     waited_since (a wait renewed at a cost, SPEC "Publishing"); the charge stamps updated_at with `at`, so a charged
     chapter's wait counts from then. A chapter reaching the attempt limit becomes needs_human. Runs inside the caller's
     transaction; returns how many were charged."""
-    if not ctx.conn.in_transaction:
+    if not db.in_transaction(ctx.conn):
         raise RuntimeError("charge_waits runs inside the caller's transaction")
     limit = ctx.cfg["workflow"]["attempt_limit"]
     rows = ctx.conn.execute(
-        f"""UPDATE chapter SET attempts = attempts + 1, last_error = :reason, updated_at = :at
-        WHERE status = 'waiting' AND waiting_on = :on AND updated_at <= :since
+        f"""UPDATE chapter SET attempts = attempts + 1, last_error = %(reason)s, updated_at = %(at)s
+        WHERE status = 'waiting' AND waiting_on = %(on)s AND updated_at <= %(since)s
             AND series_id IN (SELECT s.id FROM series s WHERE s.status = 'ok' AND {SCOPE})
         RETURNING id, attempts""",
         _params(ctx, reason=reason, on=on, since=waited_since, at=at),
@@ -317,8 +320,8 @@ def release_own_claims(ctx):
         return
     with db.transaction(ctx.conn):
         released = ctx.conn.execute(
-            """UPDATE chapter SET status = 'ready', claimed_by = NULL, updated_at = :now
-            WHERE status = 'claimed' AND claimed_by = :part""",
+            """UPDATE chapter SET status = 'ready', claimed_by = NULL, updated_at = %(now)s
+            WHERE status = 'claimed' AND claimed_by = %(part)s""",
             _params(ctx),
         ).rowcount
     if released:
@@ -328,17 +331,17 @@ def release_own_claims(ctx):
 def needs_human(conn, kind, item_id, reason):
     """The single place a chapter or a series becomes needs_human (kind "chapter" or "series"); runs inside the
     caller's transaction."""
-    if not conn.in_transaction:
+    if not db.in_transaction(conn):
         raise RuntimeError("needs_human runs inside the caller's transaction")
     if kind == "chapter":
         conn.execute(
             """UPDATE chapter SET status = 'needs_human', claimed_by = NULL, waiting_on = NULL, wait_data = NULL,
-                last_error = ?, updated_at = ?
-            WHERE id = ?""",
+                last_error = %s, updated_at = %s
+            WHERE id = %s""",
             (reason, now(), item_id),
         )
     elif kind == "series":
-        conn.execute("UPDATE series SET status = 'needs_human', status_reason = ? WHERE id = ?", (reason, item_id))
+        conn.execute("UPDATE series SET status = 'needs_human', status_reason = %s WHERE id = %s", (reason, item_id))
     else:
         raise ValueError(f"needs_human: kind must be chapter or series, got {kind!r}")
     log.warning("needs human: %s %s: %s", kind, item_id, reason)  # Phase 8 adds the Discord message
@@ -351,25 +354,25 @@ class Refused(ValueError):
 def retry_chapter(conn, chapter_id):
     """A needs_human chapter becomes ready again at the stage where it stopped, with its attempts at 0."""
     with db.transaction(conn):
-        row = conn.execute("SELECT status FROM chapter WHERE id = ?", (chapter_id,)).fetchone()
+        row = conn.execute("SELECT status FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
         if row is None:
             raise Refused(f"no chapter {chapter_id}")
         if row["status"] != "needs_human":
             raise Refused(f"chapter {chapter_id} is {row['status']}, not needs_human")
-        _ready_again(conn, "id = ?", chapter_id)
+        _ready_again(conn, "id = %s", chapter_id)
 
 
 def retry_series(conn, series_id):
     """A series becomes ok (reason cleared), and its needs_human chapters ready again at their stages, attempts 0.
     Refused when neither the series nor any of its chapters is needs_human."""
     with db.transaction(conn):
-        row = conn.execute("SELECT status FROM series WHERE id = ?", (series_id,)).fetchone()
+        row = conn.execute("SELECT status FROM series WHERE id = %s", (series_id,)).fetchone()
         if row is None:
             raise Refused(f"no series {series_id}")
-        chapters = _ready_again(conn, "series_id = ? AND status = 'needs_human'", series_id)
+        chapters = _ready_again(conn, "series_id = %s AND status = 'needs_human'", series_id)
         if row["status"] != "needs_human" and not chapters:
             raise Refused(f"series {series_id} is {row['status']} and has no needs_human chapter")
-        conn.execute("UPDATE series SET status = 'ok', status_reason = NULL WHERE id = ?", (series_id,))
+        conn.execute("UPDATE series SET status = 'ok', status_reason = NULL WHERE id = %s", (series_id,))
 
 
 def move_chapters(conn, from_series, to_series):
@@ -380,11 +383,12 @@ def move_chapters(conn, from_series, to_series):
     later = STAGES[junk + 1 :]
     conn.execute(
         f"""UPDATE chapter SET stage = 'junk', status = 'ready', waiting_on = NULL, wait_data = NULL,
-            claimed_by = NULL, attempts = 0, updated_at = ?
-        WHERE series_id = ? AND status NOT IN ('done', 'needs_human') AND stage IN ({",".join("?" * len(later))})""",
+            claimed_by = NULL, attempts = 0, updated_at = %s
+        WHERE series_id = %s AND status NOT IN ('done', 'needs_human')
+            AND stage IN ({",".join(["%s"] * len(later))})""",
         (now(), from_series, *later),
     )
-    conn.execute("UPDATE chapter SET series_id = ? WHERE series_id = ?", (to_series, from_series))
+    conn.execute("UPDATE chapter SET series_id = %s WHERE series_id = %s", (to_series, from_series))
 
 
 def reset(conn):
@@ -403,10 +407,10 @@ def _ready_again(conn, where, value):
     """Ready again at its stage, attempts 0; a re-download's source search starts again from the top, and a person's
     choice (chapter use) is forgotten (SPEC "Bad downloads")."""
     return conn.execute(
-        f"""UPDATE chapter SET status = 'ready', attempts = 0, updated_at = ?,
-            redownload = CASE WHEN json_extract(redownload, '$.original') IS NULL THEN NULL
-                ELSE json_set(redownload, '$.tried', json('[]'), '$.same_source_done', json('false'),
-                    '$.chosen', json('null')) END
+        f"""UPDATE chapter SET status = 'ready', attempts = 0, updated_at = %s,
+            redownload = CASE WHEN redownload::jsonb ->> 'original' IS NULL THEN NULL
+                ELSE jsonb_set(jsonb_set(jsonb_set(redownload::jsonb, '{{tried}}', '[]'), '{{same_source_done}}',
+                    'false'), '{{chosen}}', 'null')::text END
         WHERE {where}""",
         (now(), value),
     ).rowcount
@@ -422,9 +426,9 @@ def use_chapter(conn, chapter_id, suwayomi_chapter_id):
     with db.transaction(conn):
         _refuse_unless_human(conn, chapter_id, ("validate",))
         conn.execute(
-            """UPDATE chapter SET status = 'ready', attempts = 0, updated_at = ?,
-                redownload = json_set(coalesce(redownload, '{}'), '$.chosen', ?)
-            WHERE id = ?""",
+            """UPDATE chapter SET status = 'ready', attempts = 0, updated_at = %s,
+                redownload = jsonb_set(coalesce(redownload, '{}')::jsonb, '{chosen}', to_jsonb(%s::bigint))::text
+            WHERE id = %s""",
             (now(), suwayomi_chapter_id, chapter_id),
         )
 
@@ -453,14 +457,14 @@ def drop_chapter(conn, chapter_id, record):
         _refuse_unless_human(conn, chapter_id, DROPPABLE)
         conn.execute(
             """UPDATE chapter SET status = 'done', last_error = 'dropped by a person', redownload = NULL,
-                updated_at = ? WHERE id = ?""",
+                updated_at = %s WHERE id = %s""",
             (now(), chapter_id),
         )
         record(conn)
 
 
 def _refuse_unless_human(conn, chapter_id, stages):
-    row = conn.execute("SELECT * FROM chapter WHERE id = ?", (chapter_id,)).fetchone()
+    row = conn.execute("SELECT * FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
     if row is None:
         raise Refused(f"no chapter {chapter_id}")
     if row["status"] != "needs_human" or row["stage"] not in stages:
@@ -508,8 +512,8 @@ def _finish(ctx, chapter, outcome):
     set_, values, at_limit = _outcome_columns(chapter, outcome, limit)
     with db.transaction(ctx.conn):
         changed = ctx.conn.execute(
-            f"UPDATE chapter SET {set_}, claimed_by = NULL, updated_at = ? "
-            "WHERE id = ? AND claimed_by = ? AND status = 'claimed'",
+            f"UPDATE chapter SET {set_}, claimed_by = NULL, updated_at = %s "
+            "WHERE id = %s AND claimed_by = %s AND status = 'claimed'",
             (*values, now(), chapter["id"], ctx.part),
         ).rowcount
         if not changed:
@@ -529,14 +533,14 @@ def _outcome_columns(chapter, outcome, limit):
     if isinstance(outcome, Done):
         last = chapter["stage"] == STAGES[-1]
         stage = chapter["stage"] if last else STAGES[STAGES.index(chapter["stage"]) + 1]
-        return "stage = ?, status = ?, attempts = 0", (stage, "done" if last else "ready"), False
+        return "stage = %s, status = %s, attempts = 0", (stage, "done" if last else "ready"), False
     if isinstance(outcome, Waiting):
-        return "status = 'waiting', waiting_on = ?, wait_data = ?", (outcome.on, json.dumps(outcome.data)), False
+        return "status = 'waiting', waiting_on = %s, wait_data = %s", (outcome.on, json.dumps(outcome.data)), False
     if isinstance(outcome, Failed):
         attempts = chapter["attempts"] + 1
-        return "status = 'ready', attempts = ?, last_error = ?", (attempts, outcome.error), attempts >= limit
+        return "status = 'ready', attempts = %s, last_error = %s", (attempts, outcome.error), attempts >= limit
     if isinstance(outcome, Dropped):
-        return "status = 'done', last_error = ?", (f"dropped: {outcome.reason}",), False
+        return "status = 'done', last_error = %s", (f"dropped: {outcome.reason}",), False
     return "status = 'ready'", (), False  # Unreachable: no attempt; NeedsHuman: needs_human sets the status
 
 
@@ -552,7 +556,7 @@ def share_errors():
 
 
 def _params(ctx, **extra):
-    return {"part": ctx.part, "now": now(), **extra}
+    return {"part": ctx.part, "now": now(), **scope_params(ctx.cfg), **extra}
 
 
 def _set_meta(ctx, name, value):
@@ -562,15 +566,15 @@ def _set_meta(ctx, name, value):
 
 def set_meta(conn, key, value):
     """Store a meta value; runs inside the caller's transaction."""
-    if not conn.in_transaction:
+    if not db.in_transaction(conn):
         raise RuntimeError("set_meta runs inside the caller's transaction")
     conn.execute(
-        "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        "INSERT INTO meta (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
         (key, value),
     )
 
 
 def get_meta(conn, key):
     """A meta value, or None when it was never stored."""
-    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    row = conn.execute("SELECT value FROM meta WHERE key = %s", (key,)).fetchone()
     return None if row is None else row[0]

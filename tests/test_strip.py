@@ -1106,10 +1106,10 @@ def test_ensure_series_layout_keeps_a_stored_layout_and_stores_a_computed_one(tm
         recorded, fresh = add_series(conn, "Recorded", "kavita"), add_series(conn, "Fresh", "kavita")
         with db.transaction(conn):
             conn.execute(
-                "INSERT INTO series_conversion (series_id, layout, origin) VALUES (?, 'strip', 'record')", (recorded,)
+                "INSERT INTO series_conversion (series_id, layout, origin) VALUES (%s, 'strip', 'record')", (recorded,)
             )
         monkeypatch.setattr(strip, "classify_layout", lambda pages: ("pages", "why", []))
         assert strip.ensure_series_layout(conn, recorded, []) == "strip", "the record's layout wins"
         assert strip.ensure_series_layout(conn, fresh, []) == "pages"
-        rows = conn.execute("SELECT layout, origin FROM series_conversion WHERE series_id = ?", (fresh,)).fetchall()
+        rows = conn.execute("SELECT layout, origin FROM series_conversion WHERE series_id = %s", (fresh,)).fetchall()
         assert [tuple(r) for r in rows] == [("pages", "computed")], "computed once, then stored"

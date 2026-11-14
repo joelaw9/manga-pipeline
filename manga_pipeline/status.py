@@ -4,13 +4,12 @@ Read-only: it never creates, migrates or writes the database."""
 import json
 from contextlib import closing
 
-from manga_pipeline import config, db, workflow
+from manga_pipeline import db, workflow
 
 
 def run(cfg):
-    path = config.abs_path(cfg["database"]["path"])
-    if not path.is_file():
-        print(f"no database at {path}: no run has built it yet")
+    if not db.built(cfg):
+        print(f"no database {cfg['database']['name']}: no run has built it yet")
         return
     with closing(db.read_only(cfg)) as conn:
         print("\n".join(report(conn)))
@@ -18,11 +17,8 @@ def run(cfg):
 
 def report(conn):
     """The status report as lines, read in 1 read transaction so its sections agree while a part runs."""
-    conn.execute("BEGIN")
-    try:
+    with conn.transaction():  # read_only's transactions are repeatable-read: 1 snapshot
         return _report(conn)
-    finally:
-        conn.execute("COMMIT")
 
 
 def _settle(row):

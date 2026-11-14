@@ -25,7 +25,7 @@ MEAN_MIN = 85  # a probe's mean score at least this
 def rows(conn, series_id):
     """{group: {"q", "fixed", "origin", "why", "samples"}} of the series' stored groups."""
     out = {}
-    for r in conn.execute("SELECT * FROM series_calibration WHERE series_id = ?", (series_id,)):
+    for r in conn.execute("SELECT * FROM series_calibration WHERE series_id = %s", (series_id,)):
         out[r["grp"]] = {k: r[k] for k in ("q", "fixed", "origin", "why")} | {"samples": json.loads(r["samples"])}
     return out
 
@@ -139,7 +139,7 @@ def add(conn, series_id, group, chapter_id, new):
     the chapter has added samples before (a retried chapter, a second run). Returns the group's row as stored."""
     with db.transaction(conn):
         row = conn.execute(
-            "SELECT q, fixed, origin, why, samples FROM series_calibration WHERE series_id = ? AND grp = ?",
+            "SELECT q, fixed, origin, why, samples FROM series_calibration WHERE series_id = %s AND grp = %s",
             (series_id, group),
         ).fetchone()
         samples = json.loads(row["samples"]) if row else []
@@ -151,7 +151,7 @@ def add(conn, series_id, group, chapter_id, new):
         q, fixed, why = (chosen[0], 1, chosen[1]) if chosen else (CEILING, 0, f"open: {len(samples)} samples")
         conn.execute(
             """INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples)
-            VALUES (?, ?, ?, ?, 'computed', ?, ?)
+            VALUES (%s, %s, %s, %s, 'computed', %s, %s)
             ON CONFLICT (series_id, grp) DO UPDATE SET q = excluded.q, fixed = excluded.fixed, why = excluded.why,
                 samples = excluded.samples""",
             (series_id, group, q, fixed, why, json.dumps(samples)),

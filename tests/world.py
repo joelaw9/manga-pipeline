@@ -197,7 +197,7 @@ class World:
 
     def rows(self, sql, *params):
         with closing(db.connect(self.cfg)) as conn:
-            return [tuple(r) for r in conn.execute(sql, params)]
+            return [tuple(r) for r in conn.execute(sql, params or None)]  # none: a literal % stays %
 
     def dump(self, path):
         """The world as JSON for tests/world_run.py: Suwayomi's rows and the Kavita series to rebuild."""

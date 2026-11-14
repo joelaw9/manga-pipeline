@@ -69,7 +69,7 @@ def _check(ctx, chapter, path):
             "strip_length": row["strip_length"],
         }
         for row in ctx.conn.execute(
-            "SELECT identity, page_phashes, strip_length FROM published_file WHERE series_id = ?",
+            "SELECT identity, page_phashes, strip_length FROM published_file WHERE series_id = %s",
             (chapter["series_id"],),
         )
     ]
@@ -96,7 +96,7 @@ def _file_key(path):
 
 
 def _series(ctx, chapter):
-    return ctx.conn.execute("SELECT * FROM series WHERE id = ?", (chapter["series_id"],)).fetchone()
+    return ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
 
 
 def _reject(ctx, chapter, state, copy, why):
@@ -154,7 +154,7 @@ def _done(chapter, verdict, adopted=None):
         if adopted:
             columns["redownload"] = None
         conn.execute(
-            f"UPDATE chapter SET {', '.join(f'{name} = ?' for name in columns)} WHERE id = ?",
+            f"UPDATE chapter SET {', '.join(f'{name} = %s' for name in columns)} WHERE id = %s",
             (*columns.values(), chapter["id"]),
         )
         page_store.save(conn, chapter["id"], verdict.pages)

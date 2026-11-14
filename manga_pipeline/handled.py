@@ -14,7 +14,7 @@ def put_aside(ctx, chapter, digest):
     """When a handled chapter of the chapter's series has this content digest: move the download the retention way and
     return why (the stage then drops the chapter); else None."""
     row = ctx.conn.execute(
-        """SELECT identity, outcome FROM handled_chapter WHERE series_id = ? AND content_digest = ?
+        """SELECT identity, outcome FROM handled_chapter WHERE series_id = %s AND content_digest = %s
         ORDER BY id LIMIT 1""",
         (chapter["series_id"], digest),
     ).fetchone()
@@ -30,6 +30,7 @@ def record(conn, series_id, identity, outcome, digest):
     if outcome not in OUTCOMES:
         raise ValueError(f"handled chapter outcome must be one of {OUTCOMES}, got {outcome!r}")
     conn.execute(
-        "INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at)"
+        " VALUES (%s, %s, %s, %s, %s)",
         (series_id, identity, outcome, digest, workflow.now()),
     )

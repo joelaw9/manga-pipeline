@@ -42,7 +42,8 @@ def request_scan(ctx):
     previous = workflow.get_meta(ctx.conn, REQUESTED_AT)
     waiting = ctx.conn.execute(
         f"""SELECT COUNT(*) FROM chapter c JOIN series s ON s.id = c.series_id
-        WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {workflow.SCOPE}"""
+        WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {workflow.SCOPE}""",
+        workflow.scope_params(ctx.cfg),
     ).fetchone()[0]
     cutoff = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat(timespec="seconds")
     if waiting and previous is not None and previous > cutoff:

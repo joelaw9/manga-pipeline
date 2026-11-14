@@ -55,9 +55,10 @@ def _held(ctx):
     still removing (SPEC "Bad downloads"). Such a file is never a new chapter and never listed as not taken."""
     rows = ctx.conn.execute(
         """SELECT download_path FROM chapter WHERE status != 'done' AND download_path IS NOT NULL
-        UNION SELECT json_extract(redownload, '$.expected.path') FROM chapter
-        WHERE status != 'done' AND json_extract(redownload, '$.expected.path') IS NOT NULL
-        UNION SELECT json_extract(r.value, '$.path') FROM chapter, json_each(chapter.redownload, '$.remove') r
+        UNION SELECT redownload::jsonb #>> '{expected,path}' FROM chapter
+        WHERE status != 'done' AND redownload::jsonb #>> '{expected,path}' IS NOT NULL
+        UNION SELECT r.value ->> 'path' FROM chapter
+            CROSS JOIN LATERAL jsonb_array_elements(chapter.redownload::jsonb -> 'remove') r
         WHERE chapter.status != 'done'"""
     )
     return {row[0] for row in rows}
@@ -111,7 +112,7 @@ def _record(ctx, found, unmatched):
         added = 0
         for series_id, identity, path, chapter_id, source in found:
             open_ = ctx.conn.execute(
-                "SELECT 1 FROM chapter WHERE download_path = ? AND status != 'done'", (path,)
+                "SELECT 1 FROM chapter WHERE download_path = %s AND status != 'done'", (path,)
             ).fetchone()
             # Checked after the row: confirm moves a download away before its chapter is done, so a file still here
             # once its chapter reads done is a new download, not one an export confirmed since the listing.
@@ -120,8 +121,9 @@ def _record(ctx, found, unmatched):
                 added += 1
         seen = dict(ctx.conn.execute("SELECT path, first_seen FROM unmatched_download").fetchall())
         ctx.conn.execute("DELETE FROM unmatched_download")
-        ctx.conn.executemany(
-            "INSERT INTO unmatched_download (path, reason, first_seen) VALUES (?, ?, ?)",
+        db.executemany(
+            ctx.conn,
+            "INSERT INTO unmatched_download (path, reason, first_seen) VALUES (%s, %s, %s)",
             [(str(p), why, seen.get(str(p), stamp)) for p, why in unmatched],
         )
     if added:

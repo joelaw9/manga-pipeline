@@ -1,8 +1,8 @@
 """Tests never read the live config.yaml (SPEC "Tests").
 
 Importing this package points config.load (and with it config.init and config.cached) at tests/test_config.yaml,
-whose "$TMP/..." values land in one temp dir per test run, and removes every MANGA_PIPELINE_* variable from the
-environment so the developer's shell cannot change a result. Asking for the live config.yaml raises LiveConfigRead.
+whose "$TMP/..." values land in one temp dir per test run, and removes every MANGA_PIPELINE_* and PG* variable from
+the environment so the developer's shell cannot change a result. Asking for the live config.yaml raises LiveConfigRead.
 """
 
 import atexit
@@ -42,7 +42,8 @@ def _load(path=None, example=None, env=None, sets=()):
     return _in_tmp(cfg) if p == TEST_CONFIG else cfg
 
 
-for name in [n for n in os.environ if n.upper().startswith(f"{config.ENV_PREFIX}_")]:
+# PG* too: libpq would read them (SPEC "Tests"); the CLI subprocesses a test starts inherit this environment.
+for name in [n for n in os.environ if n.upper().startswith((f"{config.ENV_PREFIX}_", "PG"))]:
     del os.environ[name]
 config.load = _load
 config.reset()

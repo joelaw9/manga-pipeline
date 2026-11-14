@@ -607,14 +607,14 @@ def ensure_series_layout(conn, series_id, chapter_pages):
     """The series' layout ("strip" or "pages", contracts section 5): the stored one (from the bulk converter's record
     at the baseline, or computed earlier), else classify_layout over chapter_pages (the sampled chapters' extracted
     page paths), stored with origin "computed". The caller holds no transaction."""
-    row = conn.execute("SELECT layout FROM series_conversion WHERE series_id = ?", (series_id,)).fetchone()
+    row = conn.execute("SELECT layout FROM series_conversion WHERE series_id = %s", (series_id,)).fetchone()
     if row is not None:
         return row[0]
     layout, _, _ = classify_layout(chapter_pages)
     with db.transaction(conn):
         conn.execute(
-            """INSERT INTO series_conversion (series_id, layout, origin) VALUES (?, ?, 'computed')
+            """INSERT INTO series_conversion (series_id, layout, origin) VALUES (%s, %s, 'computed')
             ON CONFLICT (series_id) DO NOTHING""",
             (series_id, layout),
         )
-        return conn.execute("SELECT layout FROM series_conversion WHERE series_id = ?", (series_id,)).fetchone()[0]
+        return conn.execute("SELECT layout FROM series_conversion WHERE series_id = %s", (series_id,)).fetchone()[0]

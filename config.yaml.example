@@ -13,7 +13,11 @@ preflight:
   min_free_mb: 500   # warn when logging.dir's drive has less free space (MiB); 0 skips the check
 
 database:
-  path: "state/pipeline.sqlite3"   # SQLite database; relative = project root; local disk, never under a share folder
+  host: "/var/run/postgresql"   # PostgreSQL server: host name or address, or its local socket folder (a path from /)
+  port: 5432                    # the server's port
+  name: "manga_pipeline"        # the pipeline's database; created on the server by the first part's run
+  user: "root"                  # the role to log in as; over the local socket, the machine user that runs the pipeline
+  password: null                # secret, when the server asks for one: set MANGA_PIPELINE_DATABASE_PASSWORD
 
 paths:
   downloads: "/mnt/share/downloads"   # Suwayomi's download root, the folder holding mangas/ (on the share)

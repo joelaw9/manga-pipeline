@@ -68,7 +68,7 @@ def take(ctx, series):
         return reason
     layout = record["series"]["layout"]["layout"]
     with db.transaction(ctx.conn):
-        if ctx.conn.execute("SELECT baseline_at FROM series WHERE id = ?", (series["id"],)).fetchone()[0]:
+        if ctx.conn.execute("SELECT baseline_at FROM series WHERE id = %s", (series["id"],)).fetchone()[0]:
             return None  # another run took it meanwhile
         _write(ctx.conn, series, record, name, layout)
     log.info("%s: series %s baseline taken from its record", ctx.part, series["id"])
@@ -86,7 +86,7 @@ def _write(conn, series, record, name, layout):
         conn.execute(
             """INSERT INTO published_file (library_path, series_id, identity, state, pages_out, comicinfo_series,
                 comicinfo_volume, comicinfo_number, comicinfo_title, origin)
-            VALUES (?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, 'bulk')""",
+            VALUES (%s, %s, %s, 'confirmed', %s, %s, %s, %s, %s, 'bulk')""",
             (
                 str(folder / c["output"]),
                 series["id"],
@@ -103,7 +103,7 @@ def _write(conn, series, record, name, layout):
             continue  # a carried ComicInfo.xml or a replaced cover: not a chapter
         conn.execute(
             """INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at)
-            VALUES (?, ?, ?, ?, ?)""",
+            VALUES (%s, %s, %s, %s, %s)""",
             (
                 series["id"],
                 names.identity(names.parse(Path(s["file"]).stem)),
@@ -114,16 +114,17 @@ def _write(conn, series, record, name, layout):
         )
     aspect = record["series"]["layout"].get("page_aspect")
     conn.execute(
-        "INSERT INTO series_conversion (series_id, layout, page_aspect, origin) VALUES (?, ?, ?, 'record')",
+        "INSERT INTO series_conversion (series_id, layout, page_aspect, origin) VALUES (%s, %s, %s, 'record')",
         (series["id"], layout, None if aspect is None else json.dumps(aspect)),
     )
     for group, (q, why) in calibrate.from_record(record).items():
         conn.execute(
-            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why) VALUES (?, ?, ?, 1, 'record', ?)",
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why) VALUES (%s, %s,"
+            " %s, 1, 'record', %s)",
             (series["id"], group, q, why),
         )
     store.upsert(conn, importing.winners(importing.record_rows(record)))  # the junk decisions it carries
     conn.execute(
-        "UPDATE series SET baseline_at = ?, comicinfo_series = ?, naming_basis = ? WHERE id = ?",
+        "UPDATE series SET baseline_at = %s, comicinfo_series = %s, naming_basis = %s WHERE id = %s",
         (stamp, name, record["series"]["naming"].get("basis"), series["id"]),
     )

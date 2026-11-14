@@ -9,7 +9,7 @@ import pytest
 
 from manga_pipeline import config
 
-from tests import timing
+from tests import pg, timing
 from tests.fakes import convert as fake_convert
 
 TIMINGS = Path(__file__).resolve().parent.parent / "state" / "test-timings.json"
@@ -35,8 +35,39 @@ def pytest_addoption(parser):
     parser.addoption("--vship", default=None, help="path of the real Vship library: runs the gpu tests")
 
 
+def _runs_tests(config):
+    """An xdist worker or a serial run; the xdist controller only hands out tests."""
+    return hasattr(config, "workerinput") or not getattr(config.option, "numprocesses", None)
+
+
 def pytest_configure(config):
     config.addinivalue_line("markers", "gpu: needs the real Vship library and a GPU (run with --vship PATH)")
+    if _runs_tests(config):
+        pg.process = pg.Process()  # takes its pool databases here, outside every test's timing
+
+
+def pytest_sessionfinish(session):
+    if not hasattr(session.config, "workerinput") and pg.unassigned_built():
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+        session.config.get_terminal_writer().line(
+            f"error: a test built the database tests/test_config.yaml names ({pg.UNASSIGNED}, dropped now): "
+            "take the database from site_cfg",
+            red=True,
+        )
+
+
+def pytest_unconfigure(config):
+    if pg.process is not None:
+        pg.process.close()
+        pg.process = None
+
+
+@pytest.fixture(autouse=True)
+def test_databases():
+    """Every database the test used is emptied in its teardown (tests/pg.py)."""
+    yield
+    if pg.process is not None:
+        pg.process.end_test()
 
 
 @pytest.fixture(autouse=True)

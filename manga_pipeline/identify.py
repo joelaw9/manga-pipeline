@@ -43,7 +43,7 @@ def series_for(ctx, manga, kavita_series):
     usable folder): its chapters are recorded and held."""
     conn, cfg = ctx.conn, ctx.cfg
     row = conn.execute(
-        "SELECT s.* FROM suwayomi_manga m JOIN series s ON s.id = m.series_id WHERE m.manga_id = ?", (manga["id"],)
+        "SELECT s.* FROM suwayomi_manga m JOIN series s ON s.id = m.series_id WHERE m.manga_id = %s", (manga["id"],)
     ).fetchone()
     by_source_id = row is None
     if by_source_id:
@@ -87,7 +87,7 @@ def _by_source_id(conn, ids):
     for source, source_id in ids:
         row = conn.execute(
             """SELECT s.* FROM series_source_id i JOIN series s ON s.id = i.series_id
-            WHERE i.source = ? AND i.source_id = ?""",
+            WHERE i.source = %s AND i.source_id = %s""",
             (source, source_id),
         ).fetchone()
         if row is not None:
@@ -107,14 +107,14 @@ def _store_kavita_series(ctx, manga, found):
     """The series row of a strict Kavita hit: the row already holding its Kavita id (another source's manga of the
     same series), else a new one with its names and folder; a series with no usable folder is needs_human."""
     conn = ctx.conn
-    existing = conn.execute("SELECT id FROM series WHERE kavita_series_id = ?", (found["id"],)).fetchone()
+    existing = conn.execute("SELECT id FROM series WHERE kavita_series_id = %s", (found["id"],)).fetchone()
     folder, problem = _folder(ctx, found["id"])
     with db.transaction(conn):
         if existing is None:
             series_id = conn.execute(
                 """INSERT INTO series (name, kavita_series_id, kavita_library_id, folder, origin, localized_name,
                     original_name)
-                VALUES (?, ?, ?, ?, 'kavita', ?, ?) RETURNING id""",
+                VALUES (%s, %s, %s, %s, 'kavita', %s, %s) RETURNING id""",
                 (
                     found["name"],
                     found["id"],
@@ -129,7 +129,7 @@ def _store_kavita_series(ctx, manga, found):
         else:
             series_id = existing[0]
         _link_manga(conn, manga, series_id)
-    return conn.execute("SELECT * FROM series WHERE id = ?", (series_id,)).fetchone()
+    return conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone()
 
 
 def _folder(ctx, kavita_series_id):
@@ -144,19 +144,19 @@ def _store_held_series(conn, manga, reason):
     """A needs_human series row for a manga a person must link (no Kavita id: in scope as not yet known)."""
     with db.transaction(conn):
         series_id = conn.execute(
-            "INSERT INTO series (name, origin) VALUES (?, 'new') RETURNING id", (manga["title"],)
+            "INSERT INTO series (name, origin) VALUES (%s, 'new') RETURNING id", (manga["title"],)
         ).fetchone()[0]
         workflow.needs_human(conn, "series", series_id, f"{reason} -> series link {manga['id']} KAVITA_SERIES_ID")
         _link_manga(conn, manga, series_id)
-    return conn.execute("SELECT * FROM series WHERE id = ?", (series_id,)).fetchone()
+    return conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone()
 
 
 def _link_manga(conn, manga, series_id):
     """Store the manga's link to its series (inside the caller's transaction, or its own)."""
-    sql = """INSERT INTO suwayomi_manga (manga_id, source_id, title, series_id) VALUES (?, ?, ?, ?)
+    sql = """INSERT INTO suwayomi_manga (manga_id, source_id, title, series_id) VALUES (%s, %s, %s, %s)
         ON CONFLICT (manga_id) DO UPDATE SET series_id = excluded.series_id, title = excluded.title"""
     params = (manga["id"], str(manga["sourceId"]), manga["title"], series_id)
-    if conn.in_transaction:
+    if db.in_transaction(conn):
         conn.execute(sql, params)
     else:
         with db.transaction(conn):
@@ -186,14 +186,14 @@ def link(cfg, conn, suwayomi, kavita, manga_id, kavita_series_id):
     except kavita_client.FolderError as e:
         raise workflow.Refused(str(e)) from None
     with db.transaction(conn):
-        by_kavita = conn.execute("SELECT id FROM series WHERE kavita_series_id = ?", (kavita_series_id,)).fetchone()
+        by_kavita = conn.execute("SELECT id FROM series WHERE kavita_series_id = %s", (kavita_series_id,)).fetchone()
         by_manga = conn.execute(
             """SELECT s.id, s.kavita_series_id FROM suwayomi_manga m JOIN series s ON s.id = m.series_id
-            WHERE m.manga_id = ?""",
+            WHERE m.manga_id = %s""",
             (manga_id,),
         ).fetchone()
         other_kavita = by_manga and by_manga["kavita_series_id"] not in (None, kavita_series_id)
-        if other_kavita and conn.execute("SELECT 1 FROM chapter WHERE series_id = ?", (by_manga["id"],)).fetchone():
+        if other_kavita and conn.execute("SELECT 1 FROM chapter WHERE series_id = %s", (by_manga["id"],)).fetchone():
             raise workflow.Refused(
                 f"manga {manga_id} is linked to series {by_manga['id']} (Kavita {by_manga['kavita_series_id']}), "
                 f"which has chapters: they are not moved to another Kavita series"
@@ -215,14 +215,14 @@ def link(cfg, conn, suwayomi, kavita, manga_id, kavita_series_id):
             series_id = conn.execute(
                 """INSERT INTO series (name, kavita_series_id, kavita_library_id, folder, localized_name, original_name,
                     origin)
-                VALUES (?, ?, ?, ?, ?, ?, 'kavita') RETURNING id""",
+                VALUES (%s, %s, %s, %s, %s, %s, 'kavita') RETURNING id""",
                 values,
             ).fetchone()[0]
         else:
             conn.execute(
-                """UPDATE series SET name = ?, kavita_series_id = ?, kavita_library_id = ?, folder = ?,
-                    localized_name = ?, original_name = ?, origin = 'kavita'
-                WHERE id = ?""",
+                """UPDATE series SET name = %s, kavita_series_id = %s, kavita_library_id = %s, folder = %s,
+                    localized_name = %s, original_name = %s, origin = 'kavita'
+                WHERE id = %s""",
                 (*values, series_id),
             )
         _link_manga(conn, manga, series_id)
@@ -235,8 +235,8 @@ def _merge_held(conn, held_id, series_id):
     link's transaction). A held row publishes nothing (it has no ComicInfo Series name), so it has no published or
     handled chapter; a layout or calibration computed for it is dropped."""
     workflow.move_chapters(conn, held_id, series_id)
-    conn.execute("UPDATE suwayomi_manga SET series_id = ? WHERE series_id = ?", (series_id, held_id))
-    conn.execute("DELETE FROM series_conversion WHERE series_id = ?", (held_id,))
-    conn.execute("DELETE FROM series_calibration WHERE series_id = ?", (held_id,))
-    conn.execute("DELETE FROM series WHERE id = ?", (held_id,))
+    conn.execute("UPDATE suwayomi_manga SET series_id = %s WHERE series_id = %s", (series_id, held_id))
+    conn.execute("DELETE FROM series_conversion WHERE series_id = %s", (held_id,))
+    conn.execute("DELETE FROM series_calibration WHERE series_id = %s", (held_id,))
+    conn.execute("DELETE FROM series WHERE id = %s", (held_id,))
     log.info("held series %s merged into series %s", held_id, series_id)

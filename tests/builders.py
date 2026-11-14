@@ -4,16 +4,19 @@ import yaml
 
 from manga_pipeline import config, db, state, workflow
 
+from tests import pg
 
-def site_cfg(tmp_path, **changes):
-    """The test config with the database and every path in tmp_path; changes replace whole sections."""
+
+def site_cfg(tmp_path, built=True, **changes):
+    """The test config with every path in tmp_path and this process's database for tmp_path (built, or with no
+    schema when not built: tests/pg.py); changes replace whole sections, and a replaced database section takes none."""
     share = tmp_path / "share"
     for key in ("downloads/mangas", "library", "staging", "retention"):
         (share / key).mkdir(parents=True, exist_ok=True)
     (tmp_path / "overrides").mkdir(exist_ok=True)
     cfg = {
         **config.cached(),
-        "database": {"path": str(tmp_path / "pipeline.sqlite3")},
+        "database": changes.get("database") or pg.cfg_for(pg.process.database(tmp_path.resolve(), built))["database"],
         "paths": {
             "downloads": str(share / "downloads"),
             "library": str(share / "library"),
@@ -47,7 +50,7 @@ def add_series(conn, name, origin="new", status="ok", kavita_library_id=None):
     """A series row; kavita_library_id None = Kavita does not hold it."""
     with db.transaction(conn):
         return conn.execute(
-            "INSERT INTO series (name, origin, status, kavita_library_id) VALUES (?, ?, ?, ?) RETURNING id",
+            "INSERT INTO series (name, origin, status, kavita_library_id) VALUES (%s, %s, %s, %s) RETURNING id",
             (name, origin, status, kavita_library_id),
         ).fetchone()[0]
 
@@ -58,17 +61,17 @@ def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None,
     with db.transaction(conn):
         chapter_id = conn.execute(
             """INSERT INTO chapter (series_id, kind, identity, download_path, stage, status, discovered_at, updated_at)
-            VALUES (?, 'download', ?, ?, ?, 'ready', ?, ?) RETURNING id""",
+            VALUES (%s, 'download', %s, %s, %s, 'ready', %s, %s) RETURNING id""",
             (series_id, identity, download_path, stage, stamp, stamp),
         ).fetchone()[0]
         if columns:
-            assignments = ", ".join(f"{name} = ?" for name in columns)
-            conn.execute(f"UPDATE chapter SET {assignments} WHERE id = ?", (*columns.values(), chapter_id))
+            assignments = ", ".join(f"{name} = %s" for name in columns)
+            conn.execute(f"UPDATE chapter SET {assignments} WHERE id = %s", (*columns.values(), chapter_id))
     return chapter_id
 
 
 def chapter(conn, chapter_id):
-    return conn.execute("SELECT * FROM chapter WHERE id = ?", (chapter_id,)).fetchone()
+    return conn.execute("SELECT * FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
 
 
 def download(cfg, series, name, data=b"fake cbz"):

@@ -50,7 +50,7 @@ def site(tmp_path, monkeypatch):
 
 def rows(cfg, sql, *params):
     with closing(db.connect(cfg)) as conn:
-        return [tuple(r) for r in conn.execute(sql, params)]
+        return [tuple(r) for r in conn.execute(sql, params or None)]  # none: a literal % stays %
 
 
 def published(cfg):
@@ -62,7 +62,7 @@ def published(cfg):
 
 def chapter_of(cfg, path):
     return rows(
-        cfg, "SELECT stage, status, attempts, last_error, waiting_on FROM chapter WHERE download_path = ?", str(path)
+        cfg, "SELECT stage, status, attempts, last_error, waiting_on FROM chapter WHERE download_path = %s", str(path)
     )
 
 
@@ -146,10 +146,10 @@ def test_out_of_scope_series_is_untouched_by_every_part(tmp_path, monkeypatch):
     with closing(db.connect(site.cfg)) as conn:
         beta = add_series(conn, "Beta")
         seeded = {stage: add_chapter(conn, beta, f"seed-{stage}", stage) for stage in workflow.STAGES}
-    before = rows(site.cfg, "SELECT * FROM chapter WHERE series_id = ?", beta)
+    before = rows(site.cfg, "SELECT * FROM chapter WHERE series_id = %s", beta)
     site.run_all()
     assert published(site.cfg) == ["Alpha/Ch.2.cbz"]
-    assert rows(site.cfg, "SELECT * FROM chapter WHERE series_id = ?", beta) == before, "no Beta row is written"
+    assert rows(site.cfg, "SELECT * FROM chapter WHERE series_id = %s", beta) == before, "no Beta row is written"
     assert rows(site.cfg, "SELECT count(*) FROM series") == [(2,)], "Beta's manga is never identified"
     assert len(before) == len(seeded) and outside.exists()
 
