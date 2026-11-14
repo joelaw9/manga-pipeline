@@ -66,6 +66,15 @@ def test_the_chapter_with_our_number_is_ours_when_the_numbering_agrees():
 
 
 @budget(load="pure")
+def test_a_chapter_numbered_with_2_readings_is_never_picked_for_the_shorter_decimal():
+    ours = rows([f"Chapter {n}" for n in range(1, 21)] + ["Chapter 12.1"])
+    other = rows([f"Ch. {n}" for n in range(1, 21)] + ["Ch. 12.10"], start=100)
+    assert redownload.pick_chapter(identity("Chapter 12.1"), ours, other) is None, "12.10 is not chapter 12.1"
+    with_ours = rows([f"Ch. {n}" for n in range(1, 21)] + ["Ch. 12.10", "Ch. 12.1"], start=100)
+    assert redownload.pick_chapter(identity("Chapter 12.1"), ours, with_ours)["name"] == "Ch. 12.1"
+
+
+@budget(load="pure")
 def test_numbering_that_does_not_agree_is_not_confident():
     other = rows([f"Chapter {n}" for n in range(30, 50)], start=100)  # another numbering (absolute vs per season)
     other += rows(["Chapter 12"], start=500)

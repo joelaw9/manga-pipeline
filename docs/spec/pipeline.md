@@ -60,7 +60,7 @@ A chapter is at 1 stage and has 1 status: `ready`, `claimed`, `waiting`, `needs_
 
 | Stage | Part | Does | Can wait on |
 |---|---|---|---|
-| discover | `intake` | settles the chapter's identity and content digest (an archive it cannot read gets no digest and goes on to validate); drops a download already handled, and a notice or hiatus page (SPEC "Bad downloads"); a chapter with no number is `needs_human` | |
+| discover | `intake` | settles the chapter's identity and content digest (an archive it cannot read gets no digest and goes on to validate); drops a download already handled, and a notice or hiatus page (SPEC "Bad downloads"); a chapter with no number, or a number with 2 readings (26.10), is `needs_human` | |
 | validate | `intake` | reads and measures every page; a bad download is re-downloaded, and its replacement validated here; other defects are `needs_human` or noted (SPEC "Bad downloads", "Validation") | `suwayomi_download` |
 | junk | `process` | takes the series' baseline (SPEC "State"); drops a download already handled; drops a duplicate of a published file, or holds a better or doubtful copy (SPEC "Bad downloads", "Library copies"); scans the chapter's junk units, applies the stored decisions and writes the chapter edit convert applies (SPEC "Junk decisions") | `bulk_conversion`, `junk_decision` |
 | convert | `process` | re-encodes the pages (AVIF where it passes the quality gates) and writes the CBZ of pages to the staging folder | |
