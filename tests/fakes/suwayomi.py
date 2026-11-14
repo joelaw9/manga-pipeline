@@ -1,7 +1,7 @@
 """FakeSuwayomi: the Suwayomi client with its narrow calls answered from memory and a temp downloads folder.
 
-It models what the pipeline must cope with (local library `suwayomi-downloads.md`): a CBZ appears under its final
-name before the chapter is flagged downloaded; the flag changes only through the API, so a file removed from the
+It models what the pipeline must cope with (local library `suwayomi/suwayomi-downloads.md`): a CBZ appears under its
+final name before the chapter is flagged downloaded; the flag changes only through the API, so a file removed from the
 folder directly stays flagged; enqueueing a flagged chapter whose file is gone downloads it again; a finished
 download leaves the queue, a failed one stays in it as ERROR; a chapter new on the source is listed only once the
 manga's chapter list is fetched.
