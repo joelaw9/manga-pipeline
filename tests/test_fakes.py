@@ -158,17 +158,17 @@ def test_a_held_series_reports_its_files_and_the_top_folder_as_folder_path(kav, 
 
 
 @budget(load="fs")
-def test_series_scan_indexes_a_new_file_that_carries_the_series_name(kav, tmp_path):
+def test_a_scan_indexes_a_new_file_that_carries_the_series_name(kav, tmp_path):
     put(tmp_path, "Alpha/Ch.1.cbz", "Alpha")
     sid = kav.add_series("Alpha", "Alpha", localized="Arufa")
     first = kav.series_files(sid)[0]
     put(tmp_path, "Alpha/Ch.2.cbz", "ALPHA?")  # normalises to the series' name
     put(tmp_path, "Alpha/Ch.3.cbz", "Something", localized="Arufa")  # matches by LocalizedSeries
-    kav.scan_series(4, sid)
+    kav.scan_library(4)
     kav.run_scans()
     assert names(kav, sid) == ["Ch.1.cbz", "Ch.2.cbz", "Ch.3.cbz"]
     assert kav.series_files(sid)[0] == first, "a file already indexed keeps its ids"
-    assert kav.writes == [("scan_series", 4, sid)]
+    assert kav.writes == [("scan_library", 4)]
 
 
 @budget(load="fs")
@@ -177,10 +177,9 @@ def test_a_requested_scan_changes_nothing_until_kavita_runs_it(kav, tmp_path):
     sid = kav.add_series("Alpha", "Alpha")
     put(tmp_path, "Alpha/Ch.2.cbz", "Alpha")
     put(tmp_path, "Beta/Ch.1.cbz", "Beta")
-    kav.scan_series(4, sid)
     kav.scan_library(4)
     assert names(kav, sid) == ["Ch.1.cbz"] and len(kav.series_in_library(4)) == 1, "SPEC 'Services': never awaited"
-    assert kav.writes == [("scan_series", 4, sid), ("scan_library", 4)]
+    assert kav.writes == [("scan_library", 4)]
     kav.run_scans()
     assert names(kav, sid) == ["Ch.1.cbz", "Ch.2.cbz"] and len(kav.series_in_library(4)) == 2
     assert kav.pending == []
@@ -191,7 +190,7 @@ def test_a_file_carrying_another_name_is_not_indexed_into_the_series(kav, tmp_pa
     put(tmp_path, "Alpha/Ch.1.cbz", "Alpha")
     sid = kav.add_series("Alpha", "Alpha")
     put(tmp_path, "Alpha/Ch.2.cbz", "Alpha (Source Title)")
-    kav.scan_series(4, sid)
+    kav.scan_library(4)
     kav.run_scans()
     assert names(kav, sid) == ["Ch.1.cbz"], "Kavita files it under another series"
     other = [s for s in kav.series_in_library(4) if s["id"] != sid]
@@ -202,7 +201,7 @@ def test_a_file_carrying_another_name_is_not_indexed_into_the_series(kav, tmp_pa
 def test_a_series_whose_files_all_carry_another_name_is_deleted_and_recreated(kav, tmp_path):
     put(tmp_path, "Alpha/Ch.1.cbz", "Source Title")
     sid = kav.add_series("Alpha", "Alpha")
-    kav.scan_series(4, sid)
+    kav.scan_library(4)
     kav.run_scans()
     assert kav.series(sid) is None and kav.volumes(sid) == [], "the series id is gone"
     [new] = kav.series_in_library(4)
@@ -213,20 +212,9 @@ def test_a_series_whose_files_all_carry_another_name_is_deleted_and_recreated(ka
 def test_a_file_without_comicinfo_takes_its_folders_name(kav, tmp_path):
     put(tmp_path, "Alpha/Ch.1.cbz")
     sid = kav.add_series("Alpha", "Alpha")
-    kav.scan_series(4, sid)
+    kav.scan_library(4)
     kav.run_scans()
     assert names(kav, sid) == ["Ch.1.cbz"]
-
-
-@budget(load="fs")
-def test_series_scan_of_a_missing_folder_deletes_the_series(kav, tmp_path):
-    path = put(tmp_path, "Alpha/Ch.1.cbz", "Alpha")
-    sid = kav.add_series("Alpha", "Alpha")
-    path.unlink()
-    path.parent.rmdir()
-    kav.scan_series(4, sid)
-    kav.run_scans()
-    assert kav.series(sid) is None
 
 
 @budget(load="fs")
@@ -236,11 +224,11 @@ def test_a_scan_sees_a_replaced_file_unless_sizes_are_stale(kav, tmp_path):
     old = kav.series_files(sid)[0]["bytes"]
     put(tmp_path, "Alpha/Ch.1.cbz", "Alpha", pages=9)
     kav.stale_sizes = True
-    kav.scan_series(4, sid)
+    kav.scan_library(4)
     kav.run_scans()
     assert kav.series_files(sid)[0]["bytes"] == old != path.stat().st_size, "the stale-size hazard"
     kav.stale_sizes = False
-    kav.scan_series(4, sid)
+    kav.scan_library(4)
     kav.run_scans()
     assert kav.series_files(sid)[0]["bytes"] == path.stat().st_size
 
@@ -250,7 +238,7 @@ def test_a_broken_archive_is_not_indexed(kav, tmp_path):
     put(tmp_path, "Alpha/Ch.1.cbz", "Alpha")
     sid = kav.add_series("Alpha", "Alpha")
     (tmp_path / "library" / "Alpha" / "Ch.2.cbz").write_bytes(b"not a zip")
-    kav.scan_series(4, sid)
+    kav.scan_library(4)
     kav.run_scans()
     assert names(kav, sid) == ["Ch.1.cbz"]
 
@@ -309,10 +297,6 @@ def test_series_with_files_in_2_folders_has_no_usable_folder(kav, tmp_path):
         kav.series_folder(sid)
     row = kav.series(sid)
     assert (row["lowestFolderPath"], row["folderPath"]) == (ROOT, ROOT), "the common parent of its files"
-    put(tmp_path, "Weeb/Alpha/Ch.3.cbz", "Alpha")
-    kav.scan_series(4, sid)
-    kav.run_scans()
-    assert names(kav, sid) == ["Ch.1.cbz", "Ch.2.cbz", "Ch.3.cbz"], "a series scan covers its lowest folder and below"
 
 
 @budget(load="fs")

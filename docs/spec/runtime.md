@@ -35,7 +35,7 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `kavita.url` | Kavita's base URL |
 | `kavita.api_key` | Kavita API key of an admin user (secret: null in the example) |
 | `kavita.library_id` | id of the Kavita library the pipeline works; series of other libraries are out of scope |
-| `kavita.rescan_after_minutes` | minutes after a series scan request before chapters still not indexed get another (SPEC "Publishing") |
+| `kavita.rescan_after_minutes` | minutes after a library scan request before chapters still not indexed get another (and the scan is no longer awaited) (SPEC "Publishing") |
 | `export.retention_days` | days a removed download stays in `paths.retention`; 0 deletes it at once |
 | `tools.avifenc`, `tools.avifdec`, `tools.jpegtran`, `tools.oxipng` | the image tools' executables, per machine (relative = project root); nothing is searched on `PATH` (SPEC "Conversion") |
 | `tools.vship` | the Vship scorer library (`libvship.so`, or the Windows DLL), per machine |

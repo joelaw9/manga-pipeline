@@ -422,19 +422,61 @@ def test_drain_returns_how_many_ended_done(ctx):
 
 
 @budget(load="db")
-def test_charge_waits_costs_1_attempt_per_waiting_chapter_and_ends_at_the_limit(ctx):
+def test_charge_waits_costs_1_attempt_per_chapter_waiting_since_the_cutoff_and_ends_at_the_limit(ctx):
     series = add_series(ctx.conn, "S")
     tired = add_chapter(ctx.conn, series, "a", "confirm", attempts=2)
     fresh = add_chapter(ctx.conn, series, "b", "confirm")
     ready = add_chapter(ctx.conn, series, "c", "confirm")
+    late = add_chapter(ctx.conn, series, "d", "confirm")
+    other_wait = add_chapter(ctx.conn, series, "e", "junk")
     with db.transaction(ctx.conn):
         ctx.conn.execute(
-            "UPDATE chapter SET status = 'waiting', waiting_on = 'kavita_scan' WHERE id IN (?, ?)", (tired, fresh)
+            """UPDATE chapter SET status = 'waiting', waiting_on = 'kavita_scan',
+                updated_at = '2000-01-01T00:00:00+00:00'
+            WHERE id = ?""",
+            (tired,),
         )
-    assert workflow.charge_waits(ctx, series, "kavita_scan", "not indexed") == 2
+        ctx.conn.execute(  # waiting since exactly the cutoff: charged
+            """UPDATE chapter SET status = 'waiting', waiting_on = 'kavita_scan',
+                updated_at = '2000-01-01T00:00:01+00:00' WHERE id = ?""",
+            (fresh,),
+        )
+        ctx.conn.execute(
+            """UPDATE chapter SET status = 'waiting', waiting_on = 'junk_decision',
+                updated_at = '2000-01-01T00:00:00+00:00' WHERE id = ?""",
+            (other_wait,),
+        )
+        ctx.conn.execute(
+            """UPDATE chapter SET status = 'waiting', waiting_on = 'kavita_scan',
+                updated_at = '2000-01-01T00:00:02+00:00'
+            WHERE id = ?""",
+            (late,),
+        )
+        assert workflow.charge_waits(ctx, "kavita_scan", "not indexed", "2000-01-01T00:00:01+00:00", "2000-01-02") == 2
     assert chapter(ctx.conn, tired)["status"] == "needs_human", "the limit reached by waiting is needs_human"
     assert (chapter(ctx.conn, fresh)["status"], chapter(ctx.conn, fresh)["attempts"]) == ("waiting", 1)
+    assert chapter(ctx.conn, late)["attempts"] == 0, "a chapter that began waiting after the cutoff is not charged"
+    assert chapter(ctx.conn, fresh)["updated_at"] == "2000-01-02", "its wait counts from the charge"
     assert chapter(ctx.conn, ready)["attempts"] == 0, "only waiting chapters are charged"
+    assert chapter(ctx.conn, other_wait)["attempts"] == 0, "only waits on `on` are charged"
+
+
+@budget(load="db")
+def test_charge_waits_skips_chapters_of_out_of_scope_and_needs_human_series(ctx):
+    other = ctx.cfg["kavita"]["library_id"] + 1
+    elsewhere = add_chapter(
+        ctx.conn, add_series(ctx.conn, "Elsewhere", "kavita", kavita_library_id=other), "a", "confirm"
+    )
+    held = add_chapter(ctx.conn, add_series(ctx.conn, "Held", status="needs_human"), "b", "confirm")
+    with db.transaction(ctx.conn):
+        ctx.conn.execute(
+            """UPDATE chapter SET status = 'waiting', waiting_on = 'kavita_scan',
+                updated_at = '2000-01-01T00:00:00+00:00'"""
+        )
+        assert workflow.charge_waits(ctx, "kavita_scan", "not indexed", "2000-01-01T00:00:01+00:00", "2000-01-02") == 0
+    assert chapter(ctx.conn, elsewhere)["attempts"] == chapter(ctx.conn, held)["attempts"] == 0, (
+        "only in-scope chapters of ok series are charged"
+    )
 
 
 @budget(load="db")
