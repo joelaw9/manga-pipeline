@@ -6,7 +6,7 @@ series' baseline has recorded what the library holds. Reads the share and the da
 import zipfile
 from pathlib import Path
 
-from manga_pipeline import archive, handled, images, measures, page_store, retention, validation, workflow
+from manga_pipeline import archive, handled, images, measures, page_store, retention, validation, volumes, workflow
 
 SAME_CHAPTER = 0.15  # page count or strip length within this share: the same chapter (old duplicate_page_tolerance)
 WIDER = 1.05  # median page width this many times the published copy's: better
@@ -14,8 +14,9 @@ SAME_WIDTH = 0.95  # at least this, from a higher-ranked source: better
 
 
 def judge(ctx, chapter):
-    """None when the series has no published file of the chapter's key; else the outcome: Dropped (a duplicate, put
-    aside the retention way and recorded) or NeedsHuman."""
+    """None when the series has no published file of the chapter (its key, and in a `filename` series its volume:
+    volumes.same_chapter); else the outcome: Dropped (a duplicate, put aside the retention way and recorded) or
+    NeedsHuman."""
     key = validation.chapter_key(chapter["identity"])
     rows = [
         r
@@ -23,6 +24,14 @@ def judge(ctx, chapter):
         # A published file gone from the library is no copy: publishing replaces its record (SPEC "Publishing").
         if validation.chapter_key(r["identity"]) == key and Path(r["library_path"]).exists()
     ]
+    if rows:  # the series row as it is now: the baseline may just have set its volume basis
+        series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
+        try:
+            rows = [
+                r for r in rows if volumes.same_as_published(series, chapter["download_path"], r["comicinfo_volume"])
+            ]
+        except volumes.VolumeError as e:
+            return workflow.NeedsHuman(str(e))
     if not rows:
         return None
     if len(rows) > 1:

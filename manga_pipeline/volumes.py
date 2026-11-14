@@ -6,10 +6,11 @@ gives no volume (the metadata phase resolves those).
 """
 
 from pathlib import Path
+from xml.etree.ElementTree import ParseError
 
 import yaml
 
-from manga_pipeline import names
+from manga_pipeline import archive, comicinfo, names
 
 FILENAME, SEASON_TAGS, OVERRIDE = "filename", "season tags", "override"
 SIDE_DEFAULT = "side stories need volumes: main story = Vol 1"
@@ -44,6 +45,29 @@ def chapter_volume(series, item, ci_volume, overrides):
     if basis == OVERRIDE:
         return override_volume(override_volumes(overrides, series["rules_key"]), item.num)
     return None
+
+
+def same_chapter(basis, kind, ours, theirs):
+    """Whether a published file of a download's key (season, side label, number) is the same chapter (SPEC "Library
+    copies"), the bulk converter's rule (its optimizer/structure.py `_same_scope`): in a series whose volume basis is
+    `filename`, a main chapter's volume (ours) and the file's (theirs) must not differ where both have one. A side
+    story's volume, and every volume under another basis, is assigned: there the key alone decides."""
+    return basis != FILENAME or kind != names.MAIN or ours is None or theirs is None or ours == theirs
+
+
+def same_as_published(series, download, published_volume):
+    """same_chapter for a download and a published file of its key (published_volume: its ComicInfo Volume as
+    written). The download is read only in a `filename` series, for the volume the comicinfo stage would write; a
+    ComicInfo.xml that cannot be read gives no volume of its own (the name's still counts; the comicinfo stage reports
+    it). VolumeError for a volume that is not a whole number."""
+    if series["naming_basis"] != FILENAME:
+        return True
+    try:
+        fields, item = comicinfo.read_download(download)
+    except (*archive.UNREADABLE, ParseError):
+        fields, item = {}, names.parse(Path(download).stem)
+    ours = chapter_volume(series, item, fields.get("Volume"), None)  # a `filename` series reads no override file
+    return same_chapter(FILENAME, item.kind, ours, names.to_volume(published_volume))
 
 
 def override_volumes(overrides, folder_name):

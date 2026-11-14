@@ -332,9 +332,9 @@ def test_an_archive_that_cannot_be_read_and_has_no_number_in_its_name_needs_a_hu
 
 
 @budget(load="db")
-def test_a_notice_is_dropped_put_aside_and_recorded(tmp_path):
+def test_an_unnumbered_notice_is_dropped_put_aside_and_recorded(tmp_path):
     world = World(tmp_path, validate={"non_chapter_names": ["Hiatus Notice"]})
-    chapter_id, path = discovered(world, "Chapter 12 - Hiatus Notice", scanlator="Grp")
+    chapter_id, path = discovered(world, "Hiatus Notice", scanlator="Grp")
     outcome = run_stage(world, chapter_id)
     assert isinstance(outcome, workflow.Dropped), "a notice is not a chapter"
     kept = config.abs_path(world.cfg["paths"]["retention"]) / "Src (EN)" / "Solo Leveling" / path.name
@@ -342,6 +342,13 @@ def test_a_notice_is_dropped_put_aside_and_recorded(tmp_path):
     assert world.rows("SELECT outcome, content_digest FROM handled_chapter") == [
         ("dropped", archive.pages_digest(kept))
     ], "recorded as handled, so the same pages arriving again are put aside"
+
+
+@budget(load="db")
+def test_a_numbered_notice_goes_on_to_be_judged_at_junk(tmp_path):
+    world = World(tmp_path, validate={"non_chapter_names": ["Hiatus Notice"]})
+    chapter_id, _ = discovered(world, "Chapter 12 - Hiatus Notice", scanlator="Grp")
+    assert isinstance(run_stage(world, chapter_id), workflow.Done), "numbered: it may be a chapter"
 
 
 @budget(load="db")

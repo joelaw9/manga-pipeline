@@ -16,10 +16,7 @@ def run(ctx, chapter):
     series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
     if not series["comicinfo_series"]:
         raise ValueError(f"series {series['id']} has no ComicInfo Series name (no baseline)")
-    download = Path(chapter["download_path"])
-    xml = archive.read_comicinfo(download)
-    fields = {k: v for k, v in comicinfo.read_all(xml).items() if comicinfo.field_ok(k, v)} if xml else {}
-    item = names.parse(download.stem, fields.get("Number", ""))
+    fields, item = comicinfo.read_download(chapter["download_path"])
     fields.setdefault("Number", names.fmt_num(item.number))
     try:
         overrides = config.abs_path(ctx.cfg["paths"]["naming_overrides"])

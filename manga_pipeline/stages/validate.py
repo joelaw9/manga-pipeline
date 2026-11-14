@@ -9,7 +9,18 @@ Suwayomi, because each lands in the database before the next call.
 import json
 from pathlib import Path
 
-from manga_pipeline import archive, comicinfo, db, handled, names, page_store, redownload, validation, workflow
+from manga_pipeline import (
+    archive,
+    comicinfo,
+    db,
+    handled,
+    names,
+    page_store,
+    redownload,
+    validation,
+    volumes,
+    workflow,
+)
 
 
 def run(ctx, chapter):
@@ -67,14 +78,21 @@ def _check(ctx, chapter, path):
             "key": validation.chapter_key(row["identity"]),
             "page_phashes": None if row["page_phashes"] is None else json.loads(row["page_phashes"]),
             "strip_length": row["strip_length"],
+            "volume": row["comicinfo_volume"],
         }
         for row in ctx.conn.execute(
-            "SELECT identity, page_phashes, strip_length FROM published_file WHERE series_id = %s",
+            "SELECT identity, page_phashes, strip_length, comicinfo_volume FROM published_file WHERE series_id = %s",
             (chapter["series_id"],),
         )
     ]
     ours = validation.chapter_key(chapter["identity"])
-    verdict = validation.check(Path(path), ours, published)
+    series = _series(ctx, chapter)
+    try:
+        verdict = validation.check(
+            Path(path), ours, published, lambda p: volumes.same_as_published(series, path, p["volume"])
+        )
+    except volumes.VolumeError as e:
+        return validation.Verdict("human", str(e))
     theirs = _file_key(path)
     if verdict.kind != "bad" and theirs != ours:
         # A file numbered otherwise (only a person's choice can bring one) would be published under its own number
@@ -87,12 +105,7 @@ def _check(ctx, chapter, path):
 def _file_key(path):
     """(season, side label, number) of a download as discover reads it: its name, numbered by its ComicInfo Number
     when the name has none."""
-    try:
-        xml = archive.read_comicinfo(path)
-    except archive.UNREADABLE:
-        xml = None
-    number = comicinfo.read_fields(xml, ("Number",))["Number"] if xml else ""
-    return validation.chapter_key(names.identity(names.parse(Path(path).stem, number)))
+    return validation.chapter_key(names.identity(names.parse(Path(path).stem, comicinfo.download_number(path))))
 
 
 def _series(ctx, chapter):

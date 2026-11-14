@@ -8,6 +8,8 @@ from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 
+from manga_pipeline import archive, names
+
 XSD = Path(__file__).with_name("ComicInfo-v2.1.xsd")
 XS = "{http://www.w3.org/2001/XMLSchema}"
 INT = re.compile(r"^-?\d+$")
@@ -138,3 +140,22 @@ def build(fields, pages=None):
     if errors:
         raise ValueError(f"built ComicInfo is invalid: {errors}")
     return xml
+
+
+def download_number(path):
+    """A download's ComicInfo Number: '' without one, or for an archive that cannot be read."""
+    try:
+        xml = archive.read_comicinfo(path)
+    except archive.UNREADABLE:
+        return ""
+    return read_fields(xml, ("Number",))["Number"] if xml else ""
+
+
+def read_download(path):
+    """(fields, item) of a download as the comicinfo stage reads it: the ComicInfo.xml fields valid for the schema
+    ({} without one), and its name's parse, numbered by that Number when the name has none. Raises
+    archive.UNREADABLE or ET.ParseError for an archive or a ComicInfo.xml that cannot be read."""
+    path = Path(path)
+    xml = archive.read_comicinfo(path)
+    fields = {k: v for k, v in read_all(xml).items() if field_ok(k, v)} if xml else {}
+    return fields, names.parse(path.stem, fields.get("Number", ""))
