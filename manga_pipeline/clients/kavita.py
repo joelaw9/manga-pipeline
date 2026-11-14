@@ -1,4 +1,5 @@
-"""Kavita API client (SPEC "Services"): the token, the reads, the 2 scan requests, path mapping and a series' folder.
+"""Kavita API client (SPEC "Services"): the token, the reads, the library scan request, path mapping and a series'
+folder.
 
 Endpoints as verified against Kavita v0.9.1.4 by the bulk converter's client (optimizer/kavita.py), which this is
 ported from. 1 object per run: it keeps the token, the library folders and whether Kavita was found unreachable.
@@ -118,17 +119,11 @@ class Kavita:
 
     # --- scans: requested, never awaited
 
-    def scan_series(self, library_id, series_id):
-        """POST /api/Series/scan. Kavita always forces it, scans the series' lowestFolderPath or folderPath, keeps the
-        series id, and deletes the series when none of its files parse back to its name; with a scan running it is put
-        off 10 minutes. (POST /api/Library/scan-folder is never the call for 1 series: it rewrites folderPath to the
-        top folder and rescans the library.)"""
-        body = {"libraryId": library_id, "seriesId": series_id, "forceUpdate": True, "forceColorscape": False}
-        self._call("POST", "/api/Series/scan", body)
-
     def scan_library(self, library_id):
         """POST /api/Library/scan (not forced): Kavita's own library scan, which matches files to series by their
-        ComicInfo Series against each series' names."""
+        ComicInfo Series against each series' names and keeps their ids. The pipeline's only scan: a series scan
+        deletes a series whose files no longer parse back to it, and any scan requested while one runs does not work.
+        (POST /api/Library/scan-folder is never used: it rewrites a series' folderPath to the top folder.)"""
         self._call("POST", f"/api/Library/scan?libraryId={int(library_id)}&force=false")
 
     # --- transport

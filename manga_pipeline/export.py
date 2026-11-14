@@ -1,6 +1,5 @@
 """Part export (SPEC "Parts", "Publishing"): empties expired retention files, adds ComicInfo.xml, publishes series by
-series, then does what needs Kavita: ends kavita_scan waits, requests the rescans that are due and 1 scan per series
-published into, and confirms."""
+series, then does what needs Kavita: ends kavita_scan waits, confirms, and requests at most 1 library scan."""
 
 import logging
 from contextlib import closing
@@ -11,6 +10,8 @@ from manga_pipeline.clients import http
 from manga_pipeline.stages import comicinfo, confirm, publish
 
 log = logging.getLogger(__name__)
+
+REQUESTED_AT = "export.kavita_scan_requested_at"  # meta: when the last library scan request succeeded
 
 
 def run(cfg):
@@ -26,54 +27,43 @@ def work(ctx):
         workflow.drain(ctx, {"publish": publish.run}, series_id)
     # Kavita unreachable here ends the run: what is left all needs Kavita.
     workflow.end_waits(ctx, "kavita_scan", confirm.wait_over)
-    rescan(ctx)
-    request_scans(ctx)
+    # Confirm before the request: every chapter this run published then waits on kavita_scan, so the awaited test
+    # sees it.
     workflow.drain(ctx, {"confirm": confirm.run})
+    request_scan(ctx)
 
 
-def request_scans(ctx):
-    """1 series scan for each in-scope, ok series a publish made due. A failed request leaves it due, free, for the
-    next run."""
-    rows = ctx.conn.execute(
-        f"SELECT s.* FROM series s WHERE s.scan_due = 1 AND s.status = 'ok' AND {workflow.SCOPE} ORDER BY s.id"
-    ).fetchall()
-    for series in rows:
-        _scan(ctx, series)
-
-
-def rescan(ctx):
-    """A series whose chapters still wait on kavita_scan kavita.rescan_after_minutes after its last request gets
-    1 more request, and each of those chapters 1 attempt. A series still due its first request is request_scans'."""
+def request_scan(ctx):
+    """At most 1 library scan per run, never while one is awaited (requested less than kavita.rescan_after_minutes
+    ago with chapters still waiting on kavita_scan): requested when a publish made a scan due or chapters still wait.
+    A repeat request charges 1 attempt to each chapter already waiting at the previous one. A failed request writes
+    nothing and is decided again by the next run."""
     minutes = ctx.cfg["kavita"]["rescan_after_minutes"]
+    previous = workflow.get_meta(ctx.conn, REQUESTED_AT)
+    waiting = ctx.conn.execute(
+        f"""SELECT COUNT(*) FROM chapter c JOIN series s ON s.id = c.series_id
+        WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {workflow.SCOPE}"""
+    ).fetchone()[0]
     cutoff = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat(timespec="seconds")
-    rows = ctx.conn.execute(
-        f"""SELECT s.* FROM series s WHERE s.status = 'ok' AND s.scan_due = 0 AND {workflow.SCOPE}
-            AND (s.scan_requested_at IS NULL OR s.scan_requested_at <= ?)
-            AND EXISTS (SELECT 1 FROM chapter c WHERE c.series_id = s.id AND c.status = 'waiting'
-                AND c.waiting_on = 'kavita_scan')
-        ORDER BY s.id""",
-        (cutoff,),
-    ).fetchall()
-    for series in rows:
-        if not _scan(ctx, series):
-            continue
-        charged = workflow.charge_waits(
-            ctx, series["id"], "kavita_scan", f"not indexed {minutes} minutes after the series scan request"
-        )
-        log.warning("%s: series %s rescanned; %d waiting chapter(s) charged 1 attempt", ctx.part, series["id"], charged)
-
-
-def _scan(ctx, series):
-    """Request the series' scan and record it. Returns whether it was requested; a failed request is logged and left
-    for the next run."""
+    if waiting and previous is not None and previous > cutoff:
+        log.info("%s: library scan requested at %s still awaited (%d chapter(s) wait)", ctx.part, previous, waiting)
+        return
+    due = ctx.conn.execute("SELECT EXISTS (SELECT 1 FROM series WHERE scan_due = 1)").fetchone()[0]
+    if not (due or waiting):
+        return
     try:
-        ctx.kavita.scan_series(series["kavita_library_id"], series["kavita_series_id"])
+        ctx.kavita.scan_library(ctx.cfg["kavita"]["library_id"])
     except http.HttpError as e:
-        log.error("%s: series scan request for series %s failed: %s", ctx.part, series["id"], e)
-        return False
+        log.error("%s: library scan request failed: %s", ctx.part, e)
+        return
+    requested = workflow.now()  # 1 stamp: a charged chapter must not count as waiting since after the request
     with db.transaction(ctx.conn):
-        ctx.conn.execute(
-            "UPDATE series SET scan_requested_at = ?, scan_due = 0 WHERE id = ?", (workflow.now(), series["id"])
-        )
-    log.info("%s: series scan requested for series %s", ctx.part, series["id"])
-    return True
+        ctx.conn.execute("UPDATE series SET scan_due = 0 WHERE scan_due = 1")
+        workflow.set_meta(ctx.conn, REQUESTED_AT, requested)
+        charged = 0
+        if previous is not None:
+            reason = f"not indexed {minutes} minutes after the library scan request"
+            charged = workflow.charge_waits(ctx, "kavita_scan", reason, previous, requested)
+    log.info("%s: library scan requested", ctx.part)
+    if charged:
+        log.warning("%s: %d chapter(s) still not indexed charged 1 attempt", ctx.part, charged)

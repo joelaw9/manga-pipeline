@@ -6,8 +6,6 @@ It models what the pipeline must cope with (local library `kavita-scanning.md`):
   joins another series;
 - a series left with no file is deleted, so a series whose files all carry another name comes back under a new id;
 - a scan is only requested: nothing changes until Kavita runs it (here: until the test calls run_scans());
-- a series scan covers the series' lowestFolderPath and everything below it, and deletes the series when that
-  folder is gone;
 - lowestFolderPath is the common parent of the series' files (the library root for a series spanning 2 top folders);
   folderPath is the top folder under the library root, shared by every series below it;
 - with `stale_sizes` set, a scan keeps the old size of a file replaced under the same name.
@@ -82,29 +80,23 @@ class FakeKavita(kavita.Kavita):
         ]
         return [{"id": volume_id, "chapters": chapters}]
 
-    def scan_series(self, library_id, series_id):
-        self.writes.append(("scan_series", library_id, series_id))
-        self.pending.append(("scan_series", library_id, series_id))
-
     def scan_library(self, library_id):
         self.writes.append(("scan_library", library_id))
-        self.pending.append(("scan_library", library_id, None))
+        self.pending.append(library_id)
 
     # --- the scan model
 
     def run_scans(self):
-        """Kavita runs the scans requested so far, in order. Until then a request has changed nothing."""
+        """Kavita runs the library scans requested so far, in order. Until then a request has changed nothing."""
         requests, self.pending = self.pending, []
-        for kind, library_id, series_id in requests:
-            if kind == "scan_library":
-                self._scan(library_id, self.library_folders[library_id])
-            elif series_id in self.series_rows:
-                self._scan(library_id, self.series_rows[series_id]["lowestFolderPath"])
+        for library_id in requests:
+            self._scan(library_id)
 
-    def _scan(self, library_id, top):
-        """Index again every CBZ in the Kavita folder `top` and below it, each into the series its name matches;
+    def _scan(self, library_id):
+        """Index again every CBZ in the library, each into the series its name matches;
         then delete every series of the library left with no file, and move the others' folders to where their files
         are."""
+        top = self.library_folders[library_id]
         on_disk = [self._kavita_path(folder) for folder, _, _ in os.walk(self.local_path(top))]
         indexed = [p.rpartition("/")[0] for p in self.files if p.startswith(top + "/")]
         for folder in sorted({*on_disk, *indexed}):
