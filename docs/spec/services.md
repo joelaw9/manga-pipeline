@@ -29,5 +29,5 @@ The pipeline talks to Suwayomi (GraphQL) and Kavita (REST) through 1 HTTP layer,
 - A series Kavita answers with 404 or an empty reply is gone.
 - Kavita reports file paths in its own mount. `paths.kavita_path_map` (Kavita path prefix to local path prefix) turns each into a local path: the longest prefix that ends on a path boundary wins, case counts, and a path under no prefix is an error. A prefix counts without its trailing `/`; 2 entries giving the same prefix are refused (SPEC "Preflight"). Every path from Kavita goes through it.
 - A series' folder is the single folder that holds its files, never the folder Kavita records for the series (for a series under a shared top folder that is the top folder). A series whose files lie in no folder, in 2 or more, or directly in one of a library's own folders has no usable folder.
-- A series scan and a library scan are requested, never awaited: Kavita runs them later, so a file just published is not indexed when the request returns.
+- A library scan is requested, never awaited: Kavita runs them later, so a file just published is not indexed when the request returns.
 - A library's series are listed in name order.

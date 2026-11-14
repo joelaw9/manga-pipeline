@@ -276,14 +276,6 @@ def test_library_folders_are_read_once_per_client():
 
 
 @budget(load="pure")
-def test_scan_series_posts_a_series_scan():
-    k, service = client({"/api/Series/scan": b""})
-    k.scan_series(4, 12)
-    body = {"libraryId": 4, "seriesId": 12, "forceUpdate": True, "forceColorscape": False}
-    assert service.sent[-1] == ("POST", "/api/Series/scan", body)
-
-
-@budget(load="pure")
 def test_scan_library_posts_an_unforced_library_scan():
     k, service = client({"/api/Library/scan": b""})
     k.scan_library(4)

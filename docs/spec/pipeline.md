@@ -10,7 +10,7 @@ The pipeline is 3 commands, each working the chapters at its own stages. The dat
 |---|---|---|
 | `intake` | resolves `suwayomi_download` waits; discovers new CBZ files and identifies their series (SPEC "Series identification"); validates; runs metadata checks | Suwayomi, the metadata sources, Kavita (read only, for a series the database has not seen) |
 | `process` | resolves `bulk_conversion` and `junk_decision` waits; takes a series' baseline; junk; convert | the share only |
-| `export` | resolves `kavita_scan` waits; comicinfo; publish; series scans; confirm; Kavita API writes; retroactive updates; empties the retention folder | Kavita, the share |
+| `export` | resolves `kavita_scan` waits; comicinfo; publish; retroactive updates; confirm; 1 library scan; Kavita API writes; empties the retention folder | Kavita, the share |
 
 On the LXC a systemd timer starts each part, and `junk review`, every 10 minutes, at staggered minutes. Parts run at the same time as each other. A part never runs twice at once (SPEC "Run lock"), and a part with nothing to do exits 0 at once. `process` runs at low CPU and disk priority. On Windows the commands are run by hand.
 
@@ -19,7 +19,7 @@ Order of work:
 - `intake`, per series: a new series gets its full metadata retrieval; a metadata check runs if one is due (SPEC "Metadata checks"); then each discovered chapter is validated. Series due a check that have no new chapters come last.
 - `process` and `export` pick by priority: chapters of series Kavita already knows before chapters of new series, then the oldest first. They pick again after every chapter, so a new chapter of an ongoing series never waits behind a long new series, and they run until nothing is ready.
 - `process` scans every ready junk-stage chapter of a series before it decides any of them, and runs the junk stage for all of them before it converts any, so what repeats across chapters is seen before a decision is made.
-- `export` works in this order each run: it deletes expired retention files, adds `ComicInfo.xml` to the ready chapters, publishes series by series, then does what needs Kavita: ends `kavita_scan` waits, requests the rescans that are due (SPEC "Publishing") and 1 scan per series it published into, then confirms.
+- `export` works in this order each run: it deletes expired retention files, adds `ComicInfo.xml` to the ready chapters, publishes series by series, then does what needs Kavita: ends `kavita_scan` waits, confirms, then requests at most 1 library scan (SPEC "Publishing").
 
 Every part works only the series in scope: a series Kavita holds in the library `kavita.library_id`, or a new series (Kavita does not hold it yet); with `series.only` set, only the series it names. Nothing else is read or written, except that a part frees the claims a run of it that died left, whatever their series (SPEC "State").
 

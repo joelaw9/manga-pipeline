@@ -289,19 +289,24 @@ def end_waits(ctx, on, holds):
                 )
 
 
-def charge_waits(ctx, series_id, on, reason):
-    """1 attempt for each chapter of a series waiting on `on` (a wait renewed at a cost, SPEC "Publishing"): a chapter
-    reaching the attempt limit becomes needs_human. Returns how many were charged."""
+def charge_waits(ctx, on, reason, waited_since, at):
+    """1 attempt for each in-scope chapter of an ok series waiting on `on` whose wait was recorded at or before
+    waited_since (a wait renewed at a cost, SPEC "Publishing"); the charge stamps updated_at with `at`, so a charged
+    chapter's wait counts from then. A chapter reaching the attempt limit becomes needs_human. Runs inside the caller's
+    transaction; returns how many were charged."""
+    if not ctx.conn.in_transaction:
+        raise RuntimeError("charge_waits runs inside the caller's transaction")
     limit = ctx.cfg["workflow"]["attempt_limit"]
-    with db.transaction(ctx.conn):
-        rows = ctx.conn.execute(
-            """UPDATE chapter SET attempts = attempts + 1, last_error = ?, updated_at = ?
-            WHERE series_id = ? AND status = 'waiting' AND waiting_on = ? RETURNING id, attempts""",
-            (reason, now(), series_id, on),
-        ).fetchall()
-        for row in rows:
-            if row["attempts"] >= limit:
-                needs_human(ctx.conn, "chapter", row["id"], f"{reason} (after {limit} attempts)")
+    rows = ctx.conn.execute(
+        f"""UPDATE chapter SET attempts = attempts + 1, last_error = :reason, updated_at = :at
+        WHERE status = 'waiting' AND waiting_on = :on AND updated_at <= :since
+            AND series_id IN (SELECT s.id FROM series s WHERE s.status = 'ok' AND {SCOPE})
+        RETURNING id, attempts""",
+        _params(ctx, reason=reason, on=on, since=waited_since, at=at),
+    ).fetchall()
+    for row in rows:
+        if row["attempts"] >= limit:
+            needs_human(ctx.conn, "chapter", row["id"], f"{reason} (after {limit} attempts)")
     return len(rows)
 
 
@@ -552,7 +557,20 @@ def _params(ctx, **extra):
 
 def _set_meta(ctx, name, value):
     with db.transaction(ctx.conn):
-        ctx.conn.execute(
-            "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-            (f"{ctx.part}.{name}", value),
-        )
+        set_meta(ctx.conn, f"{ctx.part}.{name}", value)
+
+
+def set_meta(conn, key, value):
+    """Store a meta value; runs inside the caller's transaction."""
+    if not conn.in_transaction:
+        raise RuntimeError("set_meta runs inside the caller's transaction")
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+
+
+def get_meta(conn, key):
+    """A meta value, or None when it was never stored."""
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return None if row is None else row[0]

@@ -39,7 +39,7 @@ kavita:
   url: "http://localhost:5000"   # Kavita's base URL
   api_key: null                  # API key of an admin user; secret: set MANGA_PIPELINE_KAVITA_API_KEY
   library_id: 1                  # the Kavita library the pipeline works; other libraries' series are out of scope
-  rescan_after_minutes: 60       # a series scan is requested again when its chapters are not indexed after this
+  rescan_after_minutes: 60       # a library scan is requested again when chapters are not indexed after this
 
 export:
   retention_days: 7   # days a removed download stays in paths.retention; 0 deletes it at once

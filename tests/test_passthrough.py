@@ -65,11 +65,12 @@ def test_a_download_lands_in_its_series_indexed_and_its_original_retained(world,
     assert world.rows("SELECT stage, status, waiting_on FROM chapter") == [("confirm", "waiting", "kavita_scan")], (
         "a scan is requested, not awaited"
     )
-    assert world.kavita.pending, "1 series scan was requested"
+    assert world.kavita.pending == [world.cfg["kavita"]["library_id"]], "1 library scan was requested"
     assert path.exists(), "the download stays until Kavita has indexed the file"
     world.kavita.run_scans()
     world.run(export)
     assert world.rows("SELECT stage, status FROM chapter") == [("confirm", "done")]
+    assert world.kavita.pending == [], "nothing published and nothing waits: no scan"
     assert world.kavita.series(kavita_id) is not None, "the series id is unchanged"
     assert target in [f["path"] for f in world.kavita.series_files(kavita_id)]
     assert not path.exists() and retained(world, path).exists(), "the original goes to the retention folder"
@@ -168,19 +169,84 @@ def test_a_rename_done_before_a_crash_is_carried_on(world, solo):
     assert world.rows("SELECT stage, status FROM chapter") == [("confirm", "waiting")]
 
 
+def scans(world):
+    return [w for w in world.kavita.writes if w[0].startswith("scan")]
+
+
+def an_hour_passes(world):
+    """The last scan request and every wait so far are older than kavita.rescan_after_minutes."""
+    with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE chapter SET updated_at = '2000-01-01T00:00:00+00:00' WHERE status = 'waiting'")
+        conn.execute("UPDATE meta SET value = '2000-01-01T00:00:01+00:00' WHERE key = ?", (export.REQUESTED_AT,))
+
+
+@budget(load="db", seconds=4)
+def test_a_run_publishing_into_3_series_requests_exactly_1_library_scan(world):
+    for name in ("Alpha", "Beta", "Gamma"):
+        world.kavita_series(name)
+        world.download(world.manga(name), "Chapter 2")
+    through(world)
+    assert world.rows("SELECT COUNT(*) FROM chapter WHERE status = 'waiting'") == [(3,)], "all 3 published"
+    assert scans(world) == [("scan_library", world.cfg["kavita"]["library_id"])], "1 library scan, no series scan"
+    world.kavita.run_scans()
+    world.run(export)
+    assert world.rows("SELECT DISTINCT status FROM chapter") == [("done",)], "the 1 scan indexed all 3 series"
+
+
 @budget(load="db", seconds=2)
-def test_chapters_not_indexed_an_hour_after_the_scan_are_rescanned_at_1_attempt(world, solo):
+def test_no_scan_is_requested_while_one_is_awaited_even_after_a_publish(world, solo):
+    _, manga = solo
+    world.download(manga, "Chapter 2")
+    through(world)
+    world.kavita.pending.clear()  # Kavita has not run the scan yet
+    world.download(manga, "Chapter 3")
+    through(world)
+    assert len(scans(world)) == 1 and not world.kavita.pending, "back-to-back scans do not work"
+    assert world.rows("SELECT status, attempts FROM chapter ORDER BY id") == [("waiting", 0), ("waiting", 0)]
+    assert world.rows("SELECT scan_due FROM series") == [(1,)], "the new file waits for the next request"
+
+
+@budget(load="db", seconds=2)
+def test_a_publish_soon_after_an_indexed_scan_waits_for_the_next_request(world, solo):
+    _, manga = solo
+    world.download(manga, "Chapter 2")
+    through(world)
+    world.kavita.run_scans()
+    world.download(manga, "Chapter 3")
+    through(world)
+    assert world.rows("SELECT status FROM chapter ORDER BY id") == [("done",), ("waiting",)]
+    assert len(scans(world)) == 1, "the new chapter waits on kavita_scan, so the young request is still awaited"
+
+
+@budget(load="db", seconds=2)
+def test_chapters_not_indexed_an_hour_after_the_scan_get_1_library_scan_and_1_attempt(world, solo):
     _, manga = solo
     world.download(manga, "Chapter 2")
     through(world)
     world.kavita.pending.clear()  # Kavita never runs the scan
     world.run(export)
     assert not world.kavita.pending and world.rows("SELECT attempts FROM chapter") == [(0,)], "not yet due"
-    with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
-        conn.execute("UPDATE series SET scan_requested_at = '2000-01-01T00:00:00+00:00'")
+    an_hour_passes(world)
+    world.download(manga, "Chapter 3")
+    through(world)
+    assert world.kavita.pending == [world.cfg["kavita"]["library_id"]], "1 new library scan"
+    assert world.rows("SELECT status, attempts FROM chapter ORDER BY id") == [("waiting", 1), ("waiting", 0)], (
+        "only the chapter already waiting at the earlier request is charged"
+    )
     world.run(export)
-    assert len(world.kavita.pending) == 1, "the scan is requested again"
-    assert world.rows("SELECT status, attempts FROM chapter") == [("waiting", 1)]
+    assert len(scans(world)) == 2, "the new request is awaited"
+
+
+@budget(load="db", seconds=2)
+def test_a_chapter_never_indexed_needs_a_human_at_the_attempt_limit(world, solo):
+    _, manga = solo
+    world.download(manga, "Chapter 2")
+    through(world)
+    for _ in range(world.cfg["workflow"]["attempt_limit"]):
+        world.kavita.pending.clear()
+        an_hour_passes(world)
+        world.run(export)
+    assert world.rows("SELECT status FROM chapter") == [("needs_human",)]
 
 
 @budget(load="db", seconds=2)
@@ -266,10 +332,33 @@ def test_a_failed_scan_request_is_logged_left_due_and_charges_nothing(world, sol
     world.download(manga, "Chapter 2")
     through(world, intake, process)
 
-    def refuse(library_id, series_id):
-        raise http.HttpError(500, "http://kavita/api/Series/scan", b"")
+    def refuse(library_id):
+        raise http.HttpError(500, "http://kavita/api/Library/scan", b"")
 
-    monkeypatch.setattr(world.kavita, "scan_series", refuse)
+    monkeypatch.setattr(world.kavita, "scan_library", refuse)
     world.run(export)
     assert world.rows("SELECT scan_due FROM series") == [(1,)], "the next run requests it"
+    assert world.rows("SELECT value FROM meta WHERE key = ?", export.REQUESTED_AT) == [], "no request on record"
     assert world.rows("SELECT stage, status, attempts FROM chapter") == [("confirm", "waiting", 0)]
+    monkeypatch.undo()
+    world.run(export)
+    assert world.kavita.pending == [world.cfg["kavita"]["library_id"]] and world.rows(
+        "SELECT scan_due FROM series"
+    ) == [(0,)]
+
+
+@budget(load="db", seconds=2)
+def test_a_failed_repeat_request_keeps_the_earlier_request_and_charges_nothing(world, solo, monkeypatch):
+    _, manga = solo
+    world.download(manga, "Chapter 2")
+    through(world)
+    world.kavita.pending.clear()
+    an_hour_passes(world)
+
+    def refuse(library_id):
+        raise http.HttpError(500, "http://kavita/api/Library/scan", b"")
+
+    monkeypatch.setattr(world.kavita, "scan_library", refuse)
+    world.run(export)
+    assert world.rows("SELECT value FROM meta WHERE key = ?", export.REQUESTED_AT) == [("2000-01-01T00:00:01+00:00",)]
+    assert world.rows("SELECT status, attempts FROM chapter") == [("waiting", 0)], "a charge needs a request"

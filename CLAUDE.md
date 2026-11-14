@@ -59,7 +59,7 @@ python -m manga_pipeline.cli --help
 | `manga_pipeline/errors.py` | `Unreachable(service, reason)`: raised by the clients and the share, handled by `workflow` (which re-exports it) |
 | `manga_pipeline/clients/http.py` | `Service(name, min_gap)`: 1 per client per run; `request` retries, throttles, raises `Unreachable` (and remembers it), `HttpError` or `Timeout`; `redact_url`; no module state |
 | `manga_pipeline/clients/suwayomi.py` | `Suwayomi` GraphQL client (`from_config`): paged library, manga, chapters, queue, sources, `enqueue`, `delete_downloaded`, `start_downloader`, the 2 source calls (`SourceUnavailable`); `GraphQLError`; download names `source_folder`, `manga_folder`, `chapter_file` |
-| `manga_pipeline/clients/kavita.py` | `Kavita` client (`from_config`): token and the 401 rule, `libraries`, `series_in_library`, `series`, `volumes`, `series_files`, `series_folder` (`FolderError`), `local_path`, `scan_series`, `scan_library` |
+| `manga_pipeline/clients/kavita.py` | `Kavita` client (`from_config`): token and the 401 rule, `libraries`, `series_in_library`, `series`, `volumes`, `series_files`, `series_folder` (`FolderError`), `local_path`, `scan_library` |
 | `manga_pipeline/clients/kavita_match.py` | Kavita's name `normalize`, `series_names`, `off_names`, `match_folders` (copied from the bulk converter) |
 | `manga_pipeline/smoke.py` | `smoke`: read-only check of both services; `Failed` = exit 1 |
 | `manga_pipeline/intake.py`, `process.py`, `export.py` | the 3 part loops: `run(cfg)`; their order of work (SPEC "Parts") |

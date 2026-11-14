@@ -1,6 +1,6 @@
 """Stage publish (SPEC "Chapter stages", "Publishing"): renames the staged CBZ into the series folder, never over a
 library file, and records the published file, the handled chapter and the series' due scan with the rename's
-outcome. The scan itself is requested by `export` after the series' publishes.
+outcome. The scan itself is `export`'s 1 library scan, after all its publishes.
 """
 
 import json
