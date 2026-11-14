@@ -2,8 +2,7 @@
 series, then does what needs Kavita: ends kavita_scan waits, confirms, and requests at most 1 library scan."""
 
 import logging
-from contextlib import closing
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from manga_pipeline import db, retention, workflow
 from manga_pipeline.clients import http
@@ -14,9 +13,9 @@ log = logging.getLogger(__name__)
 REQUESTED_AT = "export.kavita_scan_requested_at"  # meta: when the last library scan request succeeded
 
 
-def run(cfg):
-    with closing(db.connect(cfg)) as conn:
-        workflow.run_part(workflow.Context(cfg, conn, "export"), work)
+def run(cfg, conn):
+    """conn: the command's connection, holding its run lock (cli.main)."""
+    workflow.run_part(workflow.Context(cfg, conn, "export"), work)
 
 
 def work(ctx):
@@ -45,7 +44,7 @@ def request_scan(ctx):
         WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {workflow.SCOPE}""",
         workflow.scope_params(ctx.cfg),
     ).fetchone()[0]
-    cutoff = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat(timespec="seconds")
+    cutoff = workflow.after(workflow.now(ctx.conn), -timedelta(minutes=minutes))
     if waiting and previous is not None and previous > cutoff:
         log.info("%s: library scan requested at %s still awaited (%d chapter(s) wait)", ctx.part, previous, waiting)
         return
@@ -57,7 +56,7 @@ def request_scan(ctx):
     except http.HttpError as e:
         log.error("%s: library scan request failed: %s", ctx.part, e)
         return
-    requested = workflow.now()  # 1 stamp: a charged chapter must not count as waiting since after the request
+    requested = workflow.now(ctx.conn)  # 1 stamp: a charged chapter must not count as waiting since after the request
     with db.transaction(ctx.conn):
         ctx.conn.execute("UPDATE series SET scan_due = 0 WHERE scan_due = 1")
         workflow.set_meta(ctx.conn, REQUESTED_AT, requested)

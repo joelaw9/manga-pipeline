@@ -11,7 +11,7 @@ from contextlib import closing
 import numpy as np
 from PIL import Image
 
-from manga_pipeline import archive, config, db, workflow
+from manga_pipeline import archive, config, db, lock, workflow
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.junk import review
 
@@ -147,9 +147,11 @@ class World:
         return workflow.Context(self.cfg, conn, part, suwayomi=self.suwayomi, kavita=self.kavita)
 
     def run(self, part_module):
-        """Run a part (intake, process or export module) as its run() does, with the world's fakes."""
-        with closing(db.connect(self.cfg)) as conn:
-            workflow.run_part(self.context(conn, part_module.__name__.rsplit(".", 1)[1]), part_module.work)
+        """Run a part (intake, process or export module) as cli.main and its run() do: under its run lock and the
+        shared idle lock, with the world's fakes."""
+        part = part_module.__name__.rsplit(".", 1)[1]
+        with closing(db.connect(self.cfg)) as conn, lock.held(conn, self.cfg, [workflow.owner(part)], lock.SHARED):
+            workflow.run_part(self.context(conn, part), part_module.work)
 
     def kavita_series(
         self,
@@ -233,5 +235,5 @@ def decide_junk(cfg, verdict="keep"):
     with closing(db.connect(cfg)) as conn:
         rows = review.listing(conn, cfg, everything=True)
         for r in rows:
-            review.decide(conn, r["id"], verdict, "human", workflow.now())
+            review.decide(conn, r["id"], verdict, "human", workflow.now(conn))
     return len(rows)

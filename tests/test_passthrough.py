@@ -6,7 +6,6 @@ import os
 import time
 import zipfile
 from contextlib import closing
-from pathlib import Path
 
 import pytest
 
@@ -75,12 +74,12 @@ def test_a_download_lands_in_its_series_indexed_and_its_original_retained(world,
     assert target in [f["path"] for f in world.kavita.series_files(kavita_id)]
     assert not path.exists() and retained(world, path).exists(), "the original goes to the retention folder"
     assert world.suwayomi.chapter_rows[chapter_id]["isDownloaded"], "Suwayomi still shows it downloaded"
-    assert world.rows("SELECT state, origin FROM published_file WHERE library_path = %s", str(target)) == [
-        ("confirmed", "pipeline")
-    ]
+    assert world.rows(
+        "SELECT state, origin FROM published_file WHERE library_path = %s", config.to_stored(world.cfg, target)
+    ) == [("confirmed", "pipeline")]
     assert world.rows(
         "SELECT pages_in, median_page_width, strip_length, page_phashes FROM published_file WHERE library_path = %s",
-        str(target),
+        config.to_stored(world.cfg, target),
     ) == [(3, 16, 4500, "[]")], (
         "the download's own measurements are stored for later copies: 3 pages of 16 x 24, no pHash for a flat page"
     )
@@ -148,11 +147,13 @@ def test_a_target_of_another_size_with_the_staged_file_gone_needs_a_human_at_onc
     with closing(db.connect(world.cfg)) as conn:
         workflow.drain(world.context(conn, "export"), {"comicinfo": comicinfo_stage.run})
         row = conn.execute("SELECT * FROM chapter").fetchone()
-    os.unlink(row["staged_path"])
-    Path(row["library_path"]).write_bytes(b"another file")
+    os.unlink(config.to_local(world.cfg, row["staged_path"]))
+    config.to_local(world.cfg, row["library_path"]).write_bytes(b"another file")
     world.run(export)
     assert world.rows("SELECT stage, status, attempts FROM chapter") == [("publish", "needs_human", 0)]
-    assert Path(row["library_path"]).read_bytes() == b"another file", "a library file is never overwritten"
+    assert config.to_local(world.cfg, row["library_path"]).read_bytes() == b"another file", (
+        "a library file is never overwritten"
+    )
 
 
 @budget(load="db", seconds=2)
@@ -164,7 +165,9 @@ def test_a_rename_done_before_a_crash_is_carried_on(world, solo):
         ctx = world.context(conn, "export")
         workflow.drain(ctx, {"comicinfo": comicinfo_stage.run})
         row = conn.execute("SELECT * FROM chapter").fetchone()
-    os.replace(row["staged_path"], row["library_path"])  # the crash: renamed, outcome never recorded
+    os.replace(
+        config.to_local(world.cfg, row["staged_path"]), config.to_local(world.cfg, row["library_path"])
+    )  # the crash: renamed, outcome never recorded
     world.run(export)
     assert world.rows("SELECT stage, status FROM chapter") == [("confirm", "waiting")]
 

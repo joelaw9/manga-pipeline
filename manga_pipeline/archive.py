@@ -14,6 +14,8 @@ import zipfile
 import zlib
 from pathlib import Path, PurePosixPath
 
+from manga_pipeline import errors
+
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".avif", ".jxl"}
 JUNK_NAMES = {".ds_store", "thumbs.db", "desktop.ini"}
 JUNK_DIRS = {"__macosx"}
@@ -93,7 +95,9 @@ def digest_or_none(cbz):
     """pages_digest, or None for an archive that cannot be read or is gone."""
     try:
         return pages_digest(cbz)
-    except (*UNREADABLE, FileNotFoundError):
+    except (*UNREADABLE, FileNotFoundError) as e:
+        if errors.dropped_share(e):
+            raise
         return None
 
 

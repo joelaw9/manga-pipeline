@@ -7,7 +7,6 @@ logging:
 
 lock:
   enabled: true
-  dir: "$TMP/locks"
 
 preflight:
   min_free_mb: 0

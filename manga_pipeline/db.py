@@ -7,7 +7,6 @@ branches are both applied whatever order they merge in.
 
 import os
 from contextlib import closing, contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 
 import psycopg
@@ -137,17 +136,26 @@ def connect(cfg):
     """Open database.name, creating it if absent, and apply the schema steps it lacks. The connection is in
     autocommit mode (every write goes in an explicit transaction()) and returns Row rows. Raises SchemaError for a
     database holding a step this program does not have."""
+    create_missing(cfg)
+    conn = open_existing(cfg)
     try:
-        conn = _open(cfg)
-    except NoDatabase:
-        _create(cfg)
-        conn = _open(cfg)
-    try:
-        _apply_steps(conn)
+        apply_steps(conn)
     except BaseException:
         conn.close()
         raise
     return conn
+
+
+def open_existing(cfg):
+    """Open database.name as connect does, but create and apply nothing: NoDatabase when it does not exist (a run
+    lock is taken on this connection before preflight, SPEC "Run lock")."""
+    return _open(cfg)
+
+
+def create_missing(cfg):
+    """Create database.name when the server has none (the commands that build a database)."""
+    if not _exists(cfg, cfg["database"]["name"]):
+        _create(cfg)
 
 
 def read_only(cfg):
@@ -236,7 +244,17 @@ def _has_record(conn):
     return conn.execute("SELECT to_regclass('schema_step') IS NOT NULL").fetchone()[0]
 
 
-def _apply_steps(conn):
+def now(conn):
+    """The server's clock as the program stores a time: ISO 8601 in UTC to the second ('2026-11-14T17:00:00+00:00'),
+    so times written from several machines compare (SPEC "State")."""
+    return conn.execute(
+        """SELECT to_char(date_trunc('second', clock_timestamp()) AT TIME ZONE 'UTC',
+            'YYYY-MM-DD"T"HH24:MI:SS"+00:00"')"""
+    ).fetchone()[0]
+
+
+def apply_steps(conn):
+    """Apply the schema steps the database lacks; SchemaError for a step this program does not have."""
     steps = {p.stem: p for p in SCHEMA.glob("*.sql")}
     # Under the write lock from reading the record to the last step: 2 runs opening the database at once apply each
     # step once.
@@ -248,9 +266,8 @@ def _apply_steps(conn):
                 f"database {conn.info.dbname}: holds schema step(s) this program does not have: {', '.join(unknown)}"
             )
         for name in sorted(steps.keys() - applied):
-            conn.execute(steps[name].read_text(encoding="utf-8"))
-            conn.execute("INSERT INTO schema_step (name, applied_at) VALUES (%s, %s)", (name, _now()))
-
-
-def _now():
-    return datetime.now(UTC).isoformat(timespec="seconds")
+            try:
+                conn.execute(steps[name].read_text(encoding="utf-8"))
+            except psycopg.errors.RaiseException as e:  # a step that refuses the database names why
+                raise SchemaError(f"database {conn.info.dbname}: step {name}: {e.diag.message_primary}") from None
+            conn.execute("INSERT INTO schema_step (name, applied_at) VALUES (%s, %s)", (name, now(conn)))

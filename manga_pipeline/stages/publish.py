@@ -5,21 +5,20 @@ outcome. The scan itself is `export`'s 1 library scan, after all its publishes.
 
 import json
 import os
-from pathlib import Path
 
-from manga_pipeline import measures, page_store, workflow
+from manga_pipeline import config, measures, page_store, workflow
 
 
 def run(ctx, chapter):
-    staged, target = Path(chapter["staged_path"]), Path(chapter["library_path"])
-    if not target.parent.is_dir():
+    staged, target = (config.to_local(ctx.cfg, chapter[k]) for k in ("staged_path", "library_path"))
+    if not workflow.exists(target.parent):
         raise FileNotFoundError(f"series folder {target.parent} does not exist")
-    if staged.exists():
-        if target.exists():
+    if workflow.exists(staged):
+        if workflow.exists(target):
             return workflow.NeedsHuman(f"{target} is already in the library; a library file is never overwritten")
         # ponytail: check-then-replace; only another writer in the same folder in between could lose a file.
         os.replace(staged, target)
-    elif not target.exists():
+    elif not workflow.exists(target):
         raise FileNotFoundError(f"neither the staged {staged} nor the published {target} exists")
     elif target.stat().st_size != chapter["staged_size"]:
         return workflow.NeedsHuman(f"{target} is already in the library at another size; the staged file is gone")
@@ -45,7 +44,7 @@ def run(ctx, chapter):
                 comicinfo_title = excluded.comicinfo_title, comicinfo_date = excluded.comicinfo_date,
                 origin = excluded.origin""",
             (
-                str(target),
+                chapter["library_path"],
                 chapter["series_id"],
                 chapter["identity"],
                 chapter["source"],
@@ -64,7 +63,7 @@ def run(ctx, chapter):
         conn.execute(
             """INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at)
             VALUES (%s, %s, 'published', %s, %s)""",
-            (chapter["series_id"], chapter["identity"], chapter["content_digest"], workflow.now()),
+            (chapter["series_id"], chapter["identity"], chapter["content_digest"], workflow.now(conn)),
         )
         conn.execute("UPDATE series SET scan_due = 1 WHERE id = %s", (chapter["series_id"],))
 

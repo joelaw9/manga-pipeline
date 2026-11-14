@@ -11,17 +11,17 @@ Suwayomi to Kavita manga pipeline: junk removal, metadata, bad-download repair, 
 - Takes what Suwayomi downloads (new chapters of existing series, and whole new series of any size) and lands it in the Kavita library: validated, junk removed, images converted, `ComicInfo.xml` written.
 - Keeps series metadata current: a full retrieval for a new series, a refresh of the fields that go stale for an existing one, and a rewrite of what is already published when a refresh changes it.
 - Never waits on Suwayomi, Kavita or a junk decision. A chapter that depends on one of them is recorded as waiting and picked up by a later run.
-- Runs unattended on a Debian LXC with an NVIDIA GPU. Real runs also work on Windows.
+- Runs unattended on a Debian LXC with an NVIDIA GPU. `process` (junk and convert) also runs on Windows machines with NVIDIA GPUs against the same database, each chapter worked once, with the same output whichever machine works it.
 - Suwayomi downloads CBZ files. The downloads folder and the library are on the same NFS export.
 - Series written by the bulk converter carry its series record, `.optimizer.json`, in the series folder. A chapter of a library series that the pipeline did not create and that has no record waits (`bulk_conversion`), once it has passed validation, until the record exists. The pipeline reads the record and never writes it.
 
 ## Parts
 
-3 commands (`intake`, `process`, `export`) share the work by chapter stage; the database is the only hand-off, and each runs from its own 10-minute timer. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#parts)
+3 commands (`intake`, `process`, `export`) share the work by chapter stage; the database is the only hand-off, and each runs from its own 10-minute timer; `process` runs on several machines, never 2 in 1 series at once. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#parts)
 
 ## State
 
-1 PostgreSQL 17 database on a server holds workflow state, knowledge and sync records; its write transactions run 1 at a time; `state reset` clears only the workflow state. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#state)
+1 PostgreSQL 17 database on a server holds workflow state, knowledge and sync records; its write transactions run 1 at a time; a claim names its owner and count and is freed when its owner's session ends; paths are stored relative to their share root and times from the server's clock; `state reset` clears only the workflow state. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#state)
 
 ## Chapter stages
 
@@ -81,7 +81,7 @@ A finished CBZ is staged on the share and renamed into its series folder under t
 
 ## Config
 
-`config.yaml.example` is the schema; each key comes from the file, a `MANGA_PIPELINE_` variable or `--set`, in rising priority. Rules and key table: [docs/spec/runtime.md](docs/spec/runtime.md#config)
+`config.yaml.example` is the schema; each key comes from the file, a `MANGA_PIPELINE_` variable or `--set`, in rising priority; each key is machine-local or shared, and shared keys must match across machines. Rules and key table: [docs/spec/runtime.md](docs/spec/runtime.md#config)
 
 ## Logging
 
@@ -89,7 +89,7 @@ Console, plus 1 daily-rotated log file per command that runs under its own lock.
 
 ## Run lock
 
-Each command names the lock it runs under, or none; a command that finds its lock held exits 3 at once. Rules: [docs/spec/runtime.md](docs/spec/runtime.md#run-lock)
+Each command names the locks it runs under, or none; the locks are database session locks, held across machines; a command that finds its lock held exits 3 at once. Rules: [docs/spec/runtime.md](docs/spec/runtime.md#run-lock)
 
 ## Preflight
 

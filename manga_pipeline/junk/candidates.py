@@ -2,17 +2,20 @@
 the candidates' images, which candidates are open, and the cleanup of closed ones.
 
 A candidate is open while a chapter at the junk stage that is not done waits on it (its id is in the chapter's
-junk_scan.candidates) and no decision covers it. Its folder in paths.candidates is named by its series key, kind and
-key, so images written before the outcome is recorded belong to it.
+junk_scan.candidates) and no decision covers it. Its folder in paths.candidates (on the share) is named by its series
+key, kind and key and by the chapter claim that wrote it, and its row stores that name, so no 2 rows share a folder.
+junk review cleans up (SPEC "Junk decisions"): candidates closed for an hour go, with their folders.
 """
 
 import hashlib
 import json
 import logging
 import shutil
+import time
+from datetime import datetime, timedelta
 from decimal import Decimal
 
-from manga_pipeline import config, db, images, names
+from manga_pipeline import config, db, images, names, workflow
 from manga_pipeline.junk import ocr, store
 
 log = logging.getLogger(__name__)
@@ -21,10 +24,19 @@ RECUR_CHAPTERS = 3  # D5.2 (c): a unit matching units of this many chapters of t
 FIRST_CHAPTERS = 3  # D5.2 (d): the first chapters of a series offer every unmatched edge block
 UNIT_WIDTH = 1000  # px: the unit image's largest width
 CONTEXT_PX = 300  # px of strip above and below the unit in its context image
+CLOSED_KEEP = timedelta(hours=1)  # a candidate closed this long is deleted with its folder
+ORPHAN_KEEP_S = 24 * 3600  # a folder no row names is removed once this old (another machine may be recording it)
 
 
-def folder_name(series_key, kind, key):
-    return hashlib.sha1(f"{series_key}|{kind}|{key}".encode()).hexdigest()[:16]
+class Gone(RuntimeError):
+    """A candidate the chapter meant to join was deleted meanwhile: the chapter fails, and its retry writes the
+    images anew."""
+
+
+def folder_name(series_key, kind, key, chapter):
+    """The folder of a new candidate: its unit (hashed) and the chapter claim that writes it (workflow.claim_name)."""
+    unit = hashlib.sha1(f"{series_key}|{kind}|{key}".encode()).hexdigest()[:16]
+    return f"{unit}-{workflow.claim_name(chapter)}"
 
 
 def folder(cfg, name):
@@ -160,16 +172,20 @@ def find(conn, decisions, kind, key):
 
 
 def join(conn, series_key, picks, at):
-    """Inside the caller's transaction: each pick joins its matching candidate or opens one. Returns the ids."""
+    """Inside the caller's transaction: each pick joins its matching candidate or opens one in the folder its images
+    were written to (p["folder"]). Gone for a pick that found a candidate when its images were not written and now
+    finds none. Returns the ids."""
     ids = []
     decisions = store.Decisions(conn, series_key)
     for p in picks:
         row = find(conn, decisions, p["kind"], p["key"])
         if row is None:
+            if "folder" not in p:
+                raise Gone(f"junk candidate for {p['kind']} {p['key'][:40]} was cleaned up meanwhile")
             new = conn.execute(
                 """INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
-                (series_key, p["kind"], p["key"], p["reason"], folder_name(series_key, p["kind"], p["key"]), at),
+                (series_key, p["kind"], p["key"], p["reason"], p["folder"], at),
             )
             ids.append(new.fetchone()[0])
         else:
@@ -202,22 +218,39 @@ def open_rows(conn):
 
 
 def cleanup(cfg, conn):
-    """Delete candidate rows that are not open (but those listed by a review not yet ended) and every candidate
-    folder no remaining candidate owns."""
-    with db.transaction(conn):  # 1 transaction: a review cannot list a candidate between the check and the delete
+    """junk review's clean-up (SPEC "Junk decisions"), in 1 transaction: a candidate found not open is stamped closed
+    (closed_at, when not stamped yet), one found open again loses its stamp, and one stamped CLOSED_KEEP ago or more
+    is deleted; a candidate listed by a review not yet ended is left alone. Then the deleted rows' folders are
+    removed, and a folder no row names once it is ORPHAN_KEEP_S old (a machine may have written it and not yet
+    recorded its row). Returns how many candidates were deleted."""
+    with db.transaction(conn):
+        now = db.now(conn)
+        cutoff = (datetime.fromisoformat(now) - CLOSED_KEEP).isoformat(timespec="seconds")
         decisions = store.by_series(conn)
-        closed = [
-            (row["id"],)
-            for row in conn.execute("SELECT * FROM junk_candidate").fetchall()
-            if not row["review_open"] and not is_open(conn, row, decisions)
-        ]
-        db.executemany(conn, "DELETE FROM junk_candidate WHERE id = %s", closed)
-        keep = {r[0] for r in conn.execute("SELECT folder FROM junk_candidate")}
+        stamp, unstamp, gone = [], [], []
+        for row in conn.execute("SELECT * FROM junk_candidate").fetchall():
+            if row["review_open"]:
+                continue
+            if is_open(conn, row, decisions):
+                if row["closed_at"] is not None:
+                    unstamp.append((row["id"],))
+            elif row["closed_at"] is None:
+                stamp.append((now, row["id"]))
+            elif row["closed_at"] <= cutoff:
+                gone.append(row)
+        db.executemany(conn, "UPDATE junk_candidate SET closed_at = %s WHERE id = %s", stamp)
+        db.executemany(conn, "UPDATE junk_candidate SET closed_at = NULL WHERE id = %s", unstamp)
+        db.executemany(conn, "DELETE FROM junk_candidate WHERE id = %s", [(row["id"],) for row in gone])
+        named = {r[0] for r in conn.execute("SELECT folder FROM junk_candidate")}
     root = config.abs_path(cfg["paths"]["candidates"])
+    for row in gone:
+        shutil.rmtree(root / row["folder"], ignore_errors=True)
     if root.is_dir():
+        old = time.time() - ORPHAN_KEEP_S
         for entry in root.iterdir():
-            if entry.is_dir() and entry.name not in keep:
+            if entry.is_dir() and entry.name not in named and entry.stat().st_mtime < old:
                 shutil.rmtree(entry)
+    return len(gone)
 
 
 # ---------------------------------------------------------------- images

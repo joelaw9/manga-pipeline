@@ -6,8 +6,7 @@ logging:
   keep_days: 14       # rotated daily log files kept, per command
 
 lock:
-  enabled: true           # each command takes its own lock; false lets runs overlap
-  dir: "state/locks"      # folder of the lock files (<command>.lock); relative = project root
+  enabled: true           # each command takes its run locks (database session locks); false lets runs overlap; shared: the same on every machine
 
 preflight:
   min_free_mb: 500   # warn when logging.dir's drive has less free space (MiB); 0 skips the check
@@ -25,8 +24,8 @@ paths:
   staging: "/mnt/share/staging"       # finished chapters wait here (on the share, outside every library root)
   retention: "/mnt/share/retention"   # removed downloads, kept export.retention_days (share, same filesystem as downloads)
   scratch: "state/scratch"            # the chapter in hand (local disk); relative = project root
-  covers: "state/covers"              # fetched cover images (local disk); relative = project root
-  candidates: "state/candidates"      # open junk candidates' images (local disk); relative = project root
+  covers: "/mnt/share/covers"         # fetched cover images (on the share: every machine reads them)
+  candidates: "/mnt/share/candidates" # open junk candidates' images (on the share: every machine writes them)
   naming_overrides: "rules/naming"    # per-series volume overrides, <series folder>.yaml (gitignored work folder); relative = project root
   kavita_path_map: {}                 # Kavita path prefix -> local path prefix, e.g. {"/manga": "/mnt/share"}; not empty ({} = any keys)
 

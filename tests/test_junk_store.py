@@ -633,15 +633,21 @@ def test_a_band_on_page_2_recurs_with_page_1_bands_of_other_chapters(conn):
 @budget(load="db")
 def test_a_candidate_id_and_folder_follow_its_key_not_the_order_it_is_offered_in(conn):
     a, other = sig((flip(T, 1),)), sig((~T & (2**64 - 1),))
-    pick = {"kind": "block", "key": a, "reason": "r"}
+    pick = {"kind": "block", "key": a, "reason": "r", "folder": "f-1"}
     with db.transaction(conn):
         (first,) = candidates.join(conn, "S", [pick], "2026-11-01T00:00:00+00:00")
         both = candidates.join(
-            conn, "S", [{**pick, "key": other}, {**pick, "key": sig((flip(T, 2),))}], "2026-11-02T00:00:00+00:00"
+            conn,
+            "S",
+            [{**pick, "key": other, "folder": "f-2"}, {**pick, "key": sig((flip(T, 2),)), "folder": "f-3"}],
+            "2026-11-02T00:00:00+00:00",
         )
     assert first in both and len(both) == 2, "a matching key joins its candidate, wherever it is listed"
     row = conn.execute("SELECT folder FROM junk_candidate WHERE id = %s", (first,)).fetchone()
-    assert row[0] == candidates.folder_name("S", "block", a), "the folder is named by the key"
+    assert row[0] == "f-1", "the row names the folder its images were written to"
+    assert candidates.folder_name("S", "block", a, {"id": 7, "claim_count": 2}).endswith("-7-2"), (
+        "a folder name carries the claim that wrote it"
+    )
 
 
 @budget(3.0, load="db")
@@ -727,12 +733,12 @@ def test_a_unit_matching_a_decided_candidate_but_no_decision_gets_its_own_candid
     away on the other (12 from the decision). Joining the closed candidate would end the chapter's wait at once and
     start it again, for ever."""
     unit = sig((T ^ (0b111111 << 6),))
-    pick = {"kind": "block", "key": sig(), "reason": "r"}
+    pick = {"kind": "block", "key": sig(), "reason": "r", "folder": "f-old"}
     with db.transaction(conn):
         (old,) = candidates.join(conn, "S", [pick], "2026-11-01T00:00:00+00:00")
     put(conn, decision("S", "block", sig((flip(T, 6),)), "keep"))
     with db.transaction(conn):
-        (new,) = candidates.join(conn, "S", [{**pick, "key": unit}], "2026-11-02T00:00:00+00:00")
+        (new,) = candidates.join(conn, "S", [{**pick, "key": unit, "folder": "f-new"}], "2026-11-02T00:00:00+00:00")
     assert new != old, "the covered candidate is closed; the undecided unit opens its own"
 
 

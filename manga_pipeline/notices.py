@@ -9,7 +9,7 @@ import json
 import statistics
 from pathlib import Path
 
-from manga_pipeline import archive, comicinfo, db, handled, names, page_store, retention, validation, workflow
+from manga_pipeline import archive, comicinfo, config, db, handled, names, page_store, retention, validation, workflow
 
 KEPT = "a numbered notice title kept as a chapter"
 
@@ -58,7 +58,7 @@ def judge(ctx, chapter):
     notes = json.loads(chapter["notes"] or "[]")
     if any(n.startswith(KEPT) for n in notes):
         return None
-    download = Path(chapter["download_path"])
+    download = config.to_local(ctx.cfg, chapter["download_path"])
     item = title(ctx.cfg, download, comicinfo.download_number(download))
     if item.kind != names.NON_CHAPTER:
         return None
@@ -70,6 +70,7 @@ def judge(ctx, chapter):
         return drop(ctx, chapter, download)
     note = f"{KEPT} (title {item.title!r}, number {item.number}): {why}"
     with db.transaction(ctx.conn):
+        workflow.holds_claim(ctx, chapter)
         ctx.conn.execute("UPDATE chapter SET notes = %s WHERE id = %s", (json.dumps([*notes, note]), chapter["id"]))
     return None
 
@@ -77,6 +78,7 @@ def judge(ctx, chapter):
 def drop(ctx, chapter, download):
     """A notice: its download removed the retention way, and recorded as a dropped handled chapter."""
     digest = archive.digest_or_none(download)
+    workflow.holds_claim(ctx, chapter)
     retention.put(ctx.cfg, download)
 
     def record(conn):

@@ -50,8 +50,9 @@ def test_claim_order_is_kavita_series_first_then_oldest_then_id(ctx):
     order = []
     while row := workflow.claim(ctx, ("junk",)):
         order.append(row["id"])
+        assert chapter(ctx.conn, row["id"])["claimed_by"] == workflow.owner("process"), "a claim names its owner"
+        workflow.work(ctx, row, returns(workflow.Waiting("junk_decision")))  # 1 claim per series at a time
     assert order == [c, d, b, a], "a series Kavita knows comes first, then the oldest discovery, then id"
-    assert {chapter(ctx.conn, i)["claimed_by"] for i in order} == {"process"}
 
 
 @budget(load="db")
@@ -210,7 +211,9 @@ def test_attempt_limit_makes_the_chapter_needs_human(ctx, caplog):
     for _ in range(ctx.cfg["workflow"]["attempt_limit"] - 1):
         workflow.work(ctx, row, returns(Failed("bad page")))
         assert workflow.claim(ctx, ("junk",)) is None, "a chapter that failed is tried again by a later run"
-        ctx = workflow.Context(ctx.cfg, ctx.conn, ctx.part)  # the next run
+        ctx = workflow.Context(ctx.cfg, ctx.conn, ctx.part)  # the next run, once the retry pause is over
+        with db.transaction(ctx.conn):
+            ctx.conn.execute("UPDATE chapter SET retry_after = %s", (workflow.now(ctx.conn),))
         row = workflow.claim(ctx, ("junk",))
     workflow.work(ctx, row, returns(Failed("bad page")))
     after = chapter(ctx.conn, row["id"])
@@ -334,7 +337,9 @@ def test_needs_human_series(ctx, caplog):
 
 
 def meta(ctx):
-    return {r["key"]: r["value"] for r in ctx.conn.execute("SELECT * FROM meta WHERE key LIKE 'process.%'")}
+    """The run records of ctx's owner (process@<host>), named by part ("process.last_start") for the assertions."""
+    rows = ctx.conn.execute("SELECT * FROM meta WHERE key LIKE %s", (f"{ctx.owner}.%",))
+    return {r["key"].replace(ctx.owner, ctx.part, 1): r["value"] for r in rows}
 
 
 @budget(load="db")
@@ -407,8 +412,8 @@ def test_crash_after_an_unreachable_stage_records_error_and_raises(ctx):
 
     with pytest.raises(KeyError):
         workflow.run_part(ctx, body)
-    got = dict(ctx.conn.execute("SELECT key, value FROM meta WHERE key = 'process.last_result'").fetchall())
-    assert got == {"process.last_result": "error"}, "a crash is an error, whatever the run met before"
+    got = meta(ctx)
+    assert got["process.last_result"] == "error", "a crash is an error, whatever the run met before"
 
 
 @budget(load="db")

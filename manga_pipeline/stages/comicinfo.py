@@ -7,8 +7,6 @@ LocalizedSeries are the series'; Title and Volume are the bulk converter's (name
 file name.
 """
 
-from pathlib import Path
-
 from manga_pipeline import archive, comicinfo, config, names, volumes, workflow
 
 
@@ -16,7 +14,7 @@ def run(ctx, chapter):
     series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
     if not series["comicinfo_series"]:
         raise ValueError(f"series {series['id']} has no ComicInfo Series name (no baseline)")
-    fields, item = comicinfo.read_download(chapter["download_path"])
+    fields, item = comicinfo.read_download(config.to_local(ctx.cfg, chapter["download_path"]))
     fields.setdefault("Number", names.fmt_num(item.number))
     try:
         overrides = config.abs_path(ctx.cfg["paths"]["naming_overrides"])
@@ -32,8 +30,10 @@ def run(ctx, chapter):
     fields.pop("LocalizedSeries", None)
     if series["localized_name"]:
         fields["LocalizedSeries"] = series["localized_name"]
-    size = archive.replace_member(Path(chapter["staged_path"]), archive.COMICINFO, comicinfo.build(fields))
-    target = Path(series["folder"]) / names.file_name(item, title, volume)
+    size = archive.replace_member(
+        config.to_local(ctx.cfg, chapter["staged_path"]), archive.COMICINFO, comicinfo.build(fields)
+    )
+    target = config.to_local(ctx.cfg, series["folder"]) / names.file_name(item, title, volume)
 
     def record(conn):
         conn.execute(
@@ -42,7 +42,7 @@ def run(ctx, chapter):
             WHERE id = %s""",
             (
                 size,
-                str(target),
+                config.to_stored(ctx.cfg, target),
                 fields["Series"],
                 fields.get("Volume"),
                 fields["Number"],

@@ -24,7 +24,7 @@ def scan(ctx):
     listed, unlistable = _list(root)
     folders = {}
     for key, files in listed.items():
-        files = [n for n in files if str(root / key[0] / key[1] / n) not in held]
+        files = [n for n in files if config.to_stored(ctx.cfg, root / key[0] / key[1] / n) not in held]
         if files:
             folders[key] = files
     unmatched, found = list(unlistable), []
@@ -78,7 +78,9 @@ def _list(root):
             folder = Path(root, source, title)
             try:
                 entries = _entries(folder, dirs=False)
-            except FileNotFoundError:  # removed since its source was listed (a confirm's delete): nothing to take
+            except FileNotFoundError as e:  # removed since its source was listed (a confirm's delete): nothing to take
+                if workflow.dropped_share(e):
+                    raise
                 continue
             except OSError as e:
                 if e.errno in workflow.SHARE_ERRNOS:
@@ -119,13 +121,15 @@ def _manga_downloads(ctx, manga, paths, kavita_series):
             unmatched.append((path, why))
         elif hits[0]["isDownloaded"]:  # not flagged: Suwayomi is still writing it
             identity = names.identity(names.parse(path.stem))
-            found.append((series["id"], identity, str(path), hits[0]["id"], manga["source"]["displayName"]))
+            found.append(
+                (series["id"], identity, config.to_stored(ctx.cfg, path), hits[0]["id"], manga["source"]["displayName"])
+            )
     return unmatched, found
 
 
 def _record(ctx, found, unmatched):
     """Add the chapters not yet open at their path, and replace unmatched_download (first seen kept)."""
-    stamp = workflow.now()
+    stamp = workflow.now(ctx.conn)
     with db.transaction(ctx.conn):
         added = 0
         for series_id, identity, path, chapter_id, source in found:
@@ -134,7 +138,7 @@ def _record(ctx, found, unmatched):
             ).fetchone()
             # Checked after the row: confirm moves a download away before its chapter is done, so a file still here
             # once its chapter reads done is a new download, not one an export confirmed since the listing.
-            if not open_ and os.path.exists(path):
+            if not open_ and workflow.exists(config.to_local(ctx.cfg, path)):
                 workflow.add_chapter(ctx.conn, series_id, identity, path, chapter_id, source)
                 added += 1
         seen = dict(ctx.conn.execute("SELECT path, first_seen FROM unmatched_download").fetchall())
@@ -142,7 +146,7 @@ def _record(ctx, found, unmatched):
         db.executemany(
             ctx.conn,
             "INSERT INTO unmatched_download (path, reason, first_seen) VALUES (%s, %s, %s)",
-            [(str(p), why, seen.get(str(p), stamp)) for p, why in unmatched],
+            [(s, why, seen.get(s, stamp)) for p, why in unmatched for s in [config.to_stored(ctx.cfg, p)]],
         )
     if added:
         log.info("%s: discovered %d new download(s)", ctx.part, added)

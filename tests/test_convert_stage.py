@@ -14,7 +14,7 @@ from manga_pipeline import archive, config, db, page_store, workflow
 from manga_pipeline.convert import calibrate, check
 from manga_pipeline.stages import convert
 
-from tests.builders import add_chapter, add_series, adopted, chapter, download
+from tests.builders import add_chapter, add_series, adopted, chapter, claimed, download
 from tests.convert_pages import NO_EDIT, colour, gray, jpeg, png, webp
 from tests.fakes import convert as fake
 from tests.timing import budget
@@ -48,7 +48,11 @@ class Site:
         path = download(self.cfg, "S", f"Ch {self.n}")
         archive.write(path, members)
         chapter_id = add_chapter(
-            self.conn, series_id, f'["", null, "", "{self.n}", ""]', stage="convert", download_path=str(path)
+            self.conn,
+            series_id,
+            f'["", null, "", "{self.n}", ""]',
+            stage="convert",
+            download_path=config.to_stored(self.cfg, path),
         )
         if edit is not None:
             with db.transaction(self.conn):
@@ -59,14 +63,16 @@ class Site:
         return chapter_id
 
     def run(self, chapter_id):
-        return convert.run(self.ctx, chapter(self.conn, chapter_id))
+        """The convert stage on the chapter, claimed as workflow.claim claims it."""
+        return convert.run(self.ctx, claimed(self.conn, self.ctx, chapter_id))
 
     def record(self, outcome):
         with db.transaction(self.conn):
             outcome.record(self.conn)
 
     def scratch(self, chapter_id):
-        return config.abs_path(self.cfg["paths"]["scratch"]) / str(chapter_id)
+        """The scratch folder of the chapter's last claim."""
+        return config.abs_path(self.cfg["paths"]["scratch"]) / workflow.claim_name(chapter(self.conn, chapter_id))
 
 
 def pages(n, seed=0, page=colour):
@@ -87,8 +93,10 @@ def test_a_converted_chapter_is_staged_and_recorded_and_its_scratch_is_gone(site
     assert isinstance(outcome, workflow.Done)
     site.record(outcome)
     row = chapter(site.conn, chapter_id)
-    staged = config.abs_path(site.cfg["paths"]["staging"]) / f"{db.database_id(site.conn)[:8]}-{chapter_id}.cbz"
-    assert row["staged_path"] == str(staged) and row["staged_size"] == staged.stat().st_size
+    name = f"{db.database_id(site.conn)[:8]}-{workflow.claim_name(chapter(site.conn, chapter_id))}.cbz"
+    staged = config.abs_path(site.cfg["paths"]["staging"]) / name
+    assert name.endswith(f"-{chapter_id}-1.cbz"), "the staged name carries the chapter id and its claim count"
+    assert row["staged_path"] == config.to_stored(site.cfg, staged) and row["staged_size"] == staged.stat().st_size
     with zipfile.ZipFile(staged) as z:
         assert [i.filename for i in z.infolist()] == ["001.avif", "002.avif"]
         assert all(i.compress_type == zipfile.ZIP_STORED for i in z.infolist()), "store mode"
@@ -160,7 +168,7 @@ def test_a_stale_stored_measurement_fails_the_chapter(site):
     chapter_id = site.chapter(site.series(), pages(1))
     from manga_pipeline import images
 
-    stale = images.measure_pages(chapter(site.conn, chapter_id)["download_path"])
+    stale = images.measure_pages(config.to_local(site.cfg, chapter(site.conn, chapter_id)["download_path"]))
     stale[0]["sha1"] = "0" * 40
     with db.transaction(site.conn):
         page_store.save(site.conn, chapter_id, stale)
@@ -540,18 +548,47 @@ def test_1_scorer_serves_every_chapter_of_the_process(site):
 
 
 @budget(load="pool")
-def test_a_leftover_scratch_folder_that_cannot_be_removed_fails_the_stage(site, monkeypatch):
-    import shutil
+def test_a_process_start_removes_chapter_scratch_folders_and_nothing_else(site):
+    from manga_pipeline import process
 
+    root = config.abs_path(site.cfg["paths"]["scratch"])
+    for name in ("7-1", "7-2", "junk-review", "notes"):
+        (root / name).mkdir(parents=True)
+    process.clean_scratch({**site.cfg, "lock": {"enabled": False}})
+    assert sorted(p.name for p in root.iterdir()) == ["7-1", "7-2", "junk-review", "notes"], (
+        "with locks off another run may be using them: nothing is removed"
+    )
+    process.clean_scratch(site.cfg)
+    assert sorted(p.name for p in root.iterdir()) == ["junk-review", "notes"], (
+        "chapter folders (<id>-<count>) go; junk review's folder and anything else stay"
+    )
+
+
+@budget(load="db")
+def test_a_process_start_deletes_day_old_staged_files_no_chapter_names(site):
+    import os
+
+    from manga_pipeline import process
+
+    root = config.abs_path(site.cfg["paths"]["staging"])
     chapter_id = site.chapter(site.series(), pages(1))
-    site.scratch(chapter_id).mkdir(parents=True)
-
-    def locked(path, *a, **k):
-        raise PermissionError(13, "in use", str(path))
-
-    monkeypatch.setattr(shutil, "rmtree", locked)
-    with pytest.raises(PermissionError):
-        site.run(chapter_id)
+    named, orphan, fresh, other = (root / n for n in ("named.cbz", "orphan.cbz", "fresh.cbz", "notes.txt"))
+    for path in (named, orphan, fresh, other):
+        path.write_bytes(b"x")
+    old = 2 * 86400
+    for path in (named, orphan, other):
+        os.utime(path, (path.stat().st_atime - old, path.stat().st_mtime - old))
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "UPDATE chapter SET staged_path = %s WHERE id = %s", (config.to_stored(site.cfg, named), chapter_id)
+        )
+    process.clean_staging(site.ctx)
+    assert sorted(p.name for p in root.iterdir() if p.name != ".pipeline-owner") == [
+        "fresh.cbz",
+        "named.cbz",
+        "notes.txt",
+    ], "only a day-old .cbz no chapter names goes; the owner file, a named file and a fresh one stay"
+    assert (root / ".pipeline-owner").exists()
 
 
 @budget(load="pool")

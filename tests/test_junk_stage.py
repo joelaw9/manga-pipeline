@@ -15,9 +15,9 @@ from manga_pipeline import cli, config, db, identify, intake, process, state, wo
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import plan
-from manga_pipeline.junk import importing, logo_units, ocr, review, store
+from manga_pipeline.junk import candidates, importing, logo_units, ocr, review, store
 
-from tests.builders import config_file
+from tests.builders import config_file, run_part
 from tests.fakes.suwayomi import page as fake_page
 from tests.timing import budget
 from tests.world import World, cbz, decide_junk, logo_cbz, logo_page
@@ -38,8 +38,8 @@ class Site:
         return self.world.download(self.mangas[series], f"Chapter {number}", data=data)[1]
 
     def parts(self):
-        intake.run(self.cfg)
-        process.run(self.cfg)
+        run_part(self.cfg, intake)
+        run_part(self.cfg, process)
 
     def rows(self, sql, *params):
         with closing(db.connect(self.cfg)) as conn:
@@ -102,7 +102,7 @@ def test_the_same_credit_page_in_20_chapters_is_1_candidate(site):
     got = open_candidates(site)
     assert len(got) == 1 and got[0]["kind"] in ("page", "frame"), "the same page in 20 chapters is 1 candidate"
     assert decide_junk(site.cfg, "junk") == 1
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     assert all(s[0] != "junk" for s in site.chapters()), "1 decision frees all 20"
 
 
@@ -129,9 +129,9 @@ def test_a_banner_in_3_ready_chapters_holds_all_3_but_in_2_none(site):
 def test_a_chapter_failing_its_scan_does_not_hold_its_series(site):
     bad = site.download("Alpha", 2, cbz(seed="bad"))
     site.download("Alpha", 3, cbz(seed="good"))
-    intake.run(site.cfg)
+    run_part(site.cfg, intake)
     bad.write_bytes(b"not a zip any more")  # the download breaks after discovery
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     got = site.chapters()
     assert got[0][:2] == ("junk", "ready"), "the broken chapter failed (ready again, 1 attempt)"
     assert got[1][0] != "junk", "its scanned sibling is decided in the same run"
@@ -143,14 +143,14 @@ def test_unsure_makes_the_chapter_needs_human_until_decided_and_retried(site):
     site.parts()
     (cand,) = open_candidates(site)
     with closing(db.connect(site.cfg)) as conn:
-        review.decide(conn, cand["id"], "unsure", "claude", workflow.now())
+        review.decide(conn, cand["id"], "unsure", "claude", workflow.now(conn))
         assert review.listing(conn, site.cfg) == [], "an unsure candidate is never listed to Claude again"
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     assert site.chapters() == [("junk", "needs_human", None)], "unsure: a person decides"
     with closing(db.connect(site.cfg)) as conn:
-        review.decide(conn, cand["id"], "keep", "human", workflow.now())
+        review.decide(conn, cand["id"], "keep", "human", workflow.now(conn))
         workflow.retry_chapter(conn, site.rows("SELECT id FROM chapter")[0][0])
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     assert site.chapters()[0][0] != "junk", "decided and retried, the chapter goes on"
 
 
@@ -160,7 +160,7 @@ def test_a_candidate_past_the_review_limit_makes_its_chapter_needs_human(site):
     site.parts()
     with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
         conn.execute("UPDATE junk_candidate SET reviews = %s", (site.cfg["junk"]["review_limit"],))
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     assert site.chapters() == [("junk", "needs_human", None)], "stuck: a person decides"
     site.download("Alpha", 3, cbz(seed="c3", credit=True))
     site.parts()
@@ -189,15 +189,21 @@ def test_an_imported_decision_closes_the_candidate_and_its_folder(site):
                     "key": cand["key"],
                     "verdict": "keep",
                     "decider": "import",
-                    "decided_at": workflow.now(),
+                    "decided_at": workflow.now(conn),
                     "source": "t",
                 }
             ],
         )
     assert open_candidates(site) == [], "a decision from any source closes the candidate"
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     assert site.chapters()[0][0] != "junk", "its chapter goes on"
-    assert not folder.exists(), "a closed candidate's folder is deleted by the next process"
+    with closing(db.connect(site.cfg)) as conn:
+        candidates.cleanup(site.cfg, conn)  # junk review's clean-up: stamps it closed
+        assert folder.exists(), "a candidate closed less than an hour ago keeps its folder"
+        with db.transaction(conn):
+            conn.execute("UPDATE junk_candidate SET closed_at = '2000-01-01T00:00:00+00:00'")
+        assert candidates.cleanup(site.cfg, conn) == 1
+    assert not folder.exists(), "a candidate closed an hour ago is deleted with its folder"
 
 
 @budget(load="db", seconds=10)
@@ -206,7 +212,8 @@ def test_state_reset_empties_candidates_and_their_folder(site):
     site.parts()
     with closing(db.connect(site.cfg)) as conn:
         conn.execute("INSERT INTO junk_watermark (series_key, key) VALUES ('Alpha', 'k')")
-    state.reset(site.cfg)
+    with closing(db.connect(site.cfg)) as conn:
+        state.reset(site.cfg, conn)
     assert site.rows("SELECT count(*) FROM junk_candidate") == [(0,)], "candidates are workflow state"
     assert site.rows("SELECT count(*) FROM junk_watermark") == [(1,)], "a series' watermarks are knowledge: kept"
     assert site.rows("SELECT count(*) FROM junk_scan") == [(0,)], "scans go with their chapters"
@@ -239,10 +246,10 @@ def test_junk_commands_list_show_decide_and_refuse(site, tmp_path, capsys, monke
 @budget(load="db", seconds=10)
 def test_a_chapter_without_a_content_digest_fails_instead_of_scanning_for_ever(site):
     site.download("Alpha", 2, cbz(seed="x"))
-    intake.run(site.cfg)
+    run_part(site.cfg, intake)
     with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
         conn.execute("UPDATE chapter SET content_digest = NULL")
-    process.run(site.cfg)  # returns: a scan that could never be current would make drain spin
+    run_part(site.cfg, process)  # returns: a scan that could never be current would make drain spin
     got = site.rows("SELECT stage, status, attempts, last_error FROM chapter")
     assert got[0][:3] == ("junk", "ready", 1) and "content digest" in got[0][3], "no digest: 1 failed attempt"
     assert site.rows("SELECT count(*) FROM junk_scan") == [(0,)], "no scan is written"
@@ -260,7 +267,7 @@ def test_a_strip_chapter_waits_on_its_candidates_and_finishes_once_they_are_kept
     got = open_candidates(site)
     assert got and {c["kind"] for c in got} <= {"block", "probe"}, got
     assert decide_junk(site.cfg, "keep") == len(got)
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     assert all(c[0] != "junk" for c in site.chapters()), "kept blocks free every chapter"
     assert open_candidates(site) == [], "no candidate is offered again"
 
@@ -270,7 +277,7 @@ def test_a_chapter_leaving_junk_has_its_chapter_edit_with_every_key(site):
     site.download("Alpha", 2, cbz(seed="e2", credit=True))
     site.parts()
     assert decide_junk(site.cfg, "junk") == 1
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     ((text,),) = site.rows("SELECT edit FROM chapter_edit")
     assert json.loads(text) == {
         "drop_pages": [3],
@@ -290,7 +297,7 @@ def decide_kinds(cfg, verdicts):
     with closing(db.connect(cfg)) as conn:
         rows = review.listing(conn, cfg, everything=True)
         for r in rows:
-            review.decide(conn, r["id"], verdicts[r["kind"]], "human", workflow.now())
+            review.decide(conn, r["id"], verdicts[r["kind"]], "human", workflow.now(conn))
     return sorted(r["kind"] for r in rows)
 
 
@@ -309,7 +316,7 @@ def test_a_badge_holds_its_chapters_on_1_candidate_and_a_junk_decision_blanks_it
     folder = config.abs_path(site.cfg["paths"]["candidates"]) / got[0]["folder"]
     assert {p.name for p in folder.iterdir()} >= {"unit.png", "context.png"}, "its 2 review images"
     assert decide_junk(site.cfg, "junk") == 1
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     assert all(c[0] != "junk" for c in site.chapters()), "1 decision frees both"
     for edit in edits(site):
         assert [b["page"] for b in edit["blank"]] == [3] and edit["drop_pages"] == [], "the badge page is blanked"
@@ -324,7 +331,7 @@ def test_a_kept_badge_gives_no_blank(site):
     site.download("Alpha", 2, logo_cbz("k2"))
     site.parts()
     assert decide_junk(site.cfg, "keep") == 1
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     assert [e["blank"] for e in edits(site)] == [[]], "a kept badge stays"
 
 
@@ -335,7 +342,7 @@ def test_a_scan_made_before_logos_is_scanned_again(site):
     with closing(db.connect(site.cfg)) as conn:
         conn.execute("UPDATE junk_scan SET scan = (scan::jsonb - 'marks')::text, candidates = '[]'")
         conn.execute("DELETE FROM junk_candidate")
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     assert site.chapters() == [("junk", "waiting", "junk_decision")], "the chapter is held again"
     (scan,) = site.rows("SELECT scan FROM junk_scan")
     assert [g["page"] for g in json.loads(scan[0])["marks"]] == [3], "its new scan holds the badge"
@@ -365,7 +372,7 @@ def test_a_badge_in_a_strip_chapter_is_offered_and_blanked_on_its_page(site, mon
     assert site.chapters() == [("junk", "waiting", "junk_decision")]
     kinds = decide_kinds(site.cfg, {"block": "keep", "probe": "keep", "piece": "keep", "logo": "junk"})
     assert kinds.count("logo") == 1, kinds
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     (edit,) = edits(site)
     assert [b["page"] for b in edit["blank"]] == [2] and edit["strip_removed"] == [], "download page 2 is blanked"
     assert plan.check_edit(json.dumps(edit)) == edit, "convert accepts a strip chapter's blank"
@@ -396,8 +403,8 @@ def test_a_badge_is_painted_over_in_the_published_chapter_only_when_junk(site, v
     site.parts()
     kinds = decide_kinds(site.cfg, {"page": "keep", "frame": "keep", "logo": verdict})
     assert kinds.count("logo") == 1, kinds
-    process.run(site.cfg)
-    export.run(site.cfg)
+    run_part(site.cfg, process)
+    run_part(site.cfg, export)
     ((path, result),) = site.rows(
         "SELECT p.library_path, c.convert_result FROM published_file p JOIN chapter c ON c.identity = p.identity"
         " WHERE p.origin = 'pipeline'"
@@ -406,7 +413,7 @@ def test_a_badge_is_painted_over_in_the_published_chapter_only_when_junk(site, v
     assert result["outcome"] == "avif" and result["blanked"] == (["003.jpg"] if verdict == "junk" else []), result
     logo = logo_units.measure(2, Image.open(io.BytesIO(logo_page(at=(100, 400)))).convert("RGB"))
     x0, y0, x1, y1 = logo["box"]
-    with zipfile.ZipFile(path) as z:
+    with zipfile.ZipFile(config.to_local(site.cfg, path)) as z:
         name = sorted(n for n in z.namelist() if n != "ComicInfo.xml")[2]
         page = np.asarray(Image.open(io.BytesIO(z.read(name))).convert("L")).astype(int)
     spread = np.ptp(page[y0:y1, x0:x1])
@@ -443,7 +450,7 @@ def test_a_band_on_a_middle_page_holds_its_chapter_and_1_decision_frees_the_next
     assert site.chapters() == [("junk", "waiting", "junk_decision")], "D5.16: an undecided band holds its chapter"
     assert [c["kind"] for c in open_candidates(site)] == ["band"], "the band, on a middle page, in 1 chapter"
     assert decide_junk(site.cfg, "junk") == 1
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     (edit,) = edits(site)
     assert [b["page"] for b in edit["bands"]] == [3], "the band is cropped off the middle page"
     site.download("Alpha", 3, band_cbz("m3", on=3))
@@ -460,8 +467,8 @@ def test_an_edge_page_decided_junk_frees_its_chapter_though_its_band_is_unsure(s
     with closing(db.connect(site.cfg)) as conn:
         for c in got:
             verdict, who = ("unsure", "claude") if c["kind"] == "band" else ("junk", "human")
-            review.decide(conn, c["id"], verdict, who, workflow.now())
-    process.run(site.cfg)
+            review.decide(conn, c["id"], verdict, who, workflow.now(conn))
+    run_part(site.cfg, process)
     assert site.chapters()[0][0] != "junk", "the page is dropped, so its band holds nothing: no person is asked"
     (edit,) = edits(site)
     assert (edit["drop_pages"], edit["bands"]) == ([0], []), "the page goes whole"
@@ -477,7 +484,7 @@ def test_a_candidate_deleted_under_a_waiting_chapter_ends_its_wait(site):
     page = next(c["id"] for c in open_candidates(site) if c["kind"] != "band")  # the edge page (or its frame)
     with closing(db.connect(site.cfg)) as conn:
         conn.execute("DELETE FROM junk_candidate WHERE id = %s", (page,))
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     ((after,),) = site.rows("SELECT candidates FROM junk_scan")
     assert page in json.loads(before) and page not in json.loads(after), "decided again: the gone one is not listed"
     assert site.chapters() == [("junk", "waiting", "junk_decision")], "it waits on the page and band offered again"
@@ -517,11 +524,11 @@ def test_a_watermark_1_chapter_shows_is_known_to_the_series_next_chapters(site, 
     source = ([{**row, "decided_at": "2026-11-01T00:00:00+00:00", "source": "test"}], {}, None)
     with closing(db.connect(site.cfg)) as conn:
         importing.run(conn, source)
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     assert site.chapters() == [("junk", "waiting", "junk_decision")], "its other blocks are still undecided"
     assert site.rows("SELECT series_key, key FROM junk_watermark") == [("Long", mark)], "remembered while it waits"
     decide_junk(site.cfg, "keep")
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     assert site.rows("SELECT series_key, key FROM junk_watermark") == [("Long", mark)], "twice at 1 tail: a watermark"
     with closing(db.connect(site.cfg)) as conn:
         importing.run(conn, source)
@@ -543,7 +550,7 @@ def test_a_renamed_series_folder_keeps_its_junk_decisions_and_sightings(site):
     site.download("Alpha", 2, cbz(seed="r2", credit=True))
     site.parts()
     assert decide_junk(site.cfg, "junk") == 1
-    process.run(site.cfg)
+    run_part(site.cfg, process)
     world = site.world
     (world.library / "Alpha").rename(world.library / "Beta")
     world.kavita.files = {path.replace("/Alpha/", "/Beta/"): f for path, f in world.kavita.files.items()}
@@ -556,3 +563,28 @@ def test_a_renamed_series_folder_keeps_its_junk_decisions_and_sightings(site):
     site.parts()
     assert site.chapters()[1][0] != "junk", "the series' decision still drops the credit page"
     assert site.rows("SELECT DISTINCT series_key FROM junk_seen") == [("Alpha",)], "new sightings join the old ones"
+
+
+@budget(load="db", seconds=10)
+def test_a_chapter_joining_a_candidate_cleaned_up_meanwhile_fails_once_then_writes_its_images(site, monkeypatch):
+    site.download("Alpha", 2, cbz(credit=True))
+    site.parts()  # chapter 2 opens the credit page's candidate and waits on it
+    site.download("Alpha", 3, cbz(credit=True))
+    real = candidates.join
+
+    def cleaned_up_first(conn, series_key, picks, at):  # junk review's clean-up lands between decide and record
+        conn.execute("DELETE FROM junk_candidate")
+        return real(conn, series_key, picks, at)
+
+    monkeypatch.setattr(candidates, "join", cleaned_up_first)
+    site.parts()
+    (third,) = site.rows("SELECT attempts, last_error FROM chapter WHERE identity LIKE '%%\"3\"%%'")
+    assert third[0] == 1 and "cleaned up meanwhile" in third[1], "the chapter fails once"
+    monkeypatch.setattr(candidates, "join", real)
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE chapter SET retry_after = NULL")  # the retry pause is over
+    site.parts()
+    assert [c[1:] for c in site.chapters()] == [("waiting", "junk_decision")] * 2, "both wait on the candidate again"
+    (cand,) = open_candidates(site)
+    images = config.abs_path(site.cfg["paths"]["candidates"]) / cand["folder"]
+    assert (images / "unit.png").is_file(), "the retry wrote the candidate's images anew"

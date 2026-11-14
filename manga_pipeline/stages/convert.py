@@ -11,7 +11,6 @@ import functools
 import json
 import logging
 import shutil
-from pathlib import Path
 
 from manga_pipeline import archive, config, db, images, page_store, workflow
 from manga_pipeline.convert import calibrate, check, covers, image, pages, plan, tools, vship
@@ -26,8 +25,9 @@ def _scorer(kind, path):
     return kind(path)
 
 
-def staged_name(conn, chapter_id):
-    return f"{db.database_id(conn)[:8]}-{chapter_id}.cbz"
+def staged_name(conn, chapter):
+    """<database id, 8 characters>-<chapter id>-<claim count>.cbz: 2 claims of 1 chapter never write 1 name."""
+    return f"{db.database_id(conn)[:8]}-{workflow.claim_name(chapter)}.cbz"
 
 
 def _edit(conn, chapter_id):
@@ -81,7 +81,9 @@ def _calibrate(ctx, chapter, chapter_plan, x_dir, rendered, work, pool, scorer, 
             }
             for u in picked
         ]
-        stored[group] = calibrate.add(ctx.conn, chapter["series_id"], group, chapter["id"], new)
+        stored[group] = calibrate.add(
+            ctx.conn, chapter["series_id"], group, chapter["id"], new, lambda conn: workflow.holds_claim(ctx, chapter)
+        )
         log.info("series %s %s calibration: %s", chapter["series_id"], group, stored[group]["why"])
     return calibrate.quality(stored)
 
@@ -114,9 +116,7 @@ def run(ctx, chapter):
     except plan.EditError as e:
         return workflow.NeedsHuman(str(e))
     layout, aspect = _layout(ctx.conn, chapter["series_id"])
-    scratch = config.abs_path(cfg["paths"]["scratch"]) / str(chapter["id"])
-    if scratch.exists():
-        shutil.rmtree(scratch)  # left by a killed run; a failure to remove it fails the stage
+    scratch = config.abs_path(cfg["paths"]["scratch"]) / workflow.claim_name(chapter)
     try:
         return _convert(ctx, chapter, edit, layout, aspect, scratch)
     finally:
@@ -130,7 +130,7 @@ def run(ctx, chapter):
 
 def _convert(ctx, chapter, edit, layout, aspect, scratch):
     cfg = ctx.cfg
-    cbz = Path(chapter["download_path"])
+    cbz = config.to_local(cfg, chapter["download_path"])
     x_dir, render_dir, out_dir, work = scratch / "x", scratch / "render", scratch / "out", scratch / "work"
     files, problems = pages.extract(cbz, x_dir)
     if problems:
@@ -180,7 +180,7 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
         rec = image.process_chapter(
             x_dir, encoded, blanked, cover, out_dir, work / "encode", workers, scorer, chapter_plan, tool_paths
         )
-    staged = config.abs_path(cfg["paths"]["staging"]) / staged_name(ctx.conn, chapter["id"])
+    staged = config.abs_path(cfg["paths"]["staging"]) / staged_name(ctx.conn, chapter)
     try:
         size = archive.write(staged, [(p["name"], (out_dir / p["name"]).read_bytes()) for p in rec["output"]])
         fails = check.check(staged, rec, x_dir, chapter_plan.kept())
@@ -217,7 +217,7 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
         conn.execute(
             "UPDATE chapter SET staged_path = %s, staged_size = %s, convert_result = %s,"
             " output_pages = %s WHERE id = %s",
-            (str(staged), size, json.dumps(result), json.dumps(output_pages), chapter["id"]),
+            (config.to_stored(cfg, staged), size, json.dumps(result), json.dumps(output_pages), chapter["id"]),
         )
 
     log.info(

@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from manga_pipeline import cli, config, db, intake, process
+from manga_pipeline import cli, config, db, fleet, intake, process
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.junk import review, review_run
 
-from tests.builders import config_file
+from tests.builders import config_file, run_part
 from tests.timing import budget
 from tests.world import World, cbz
 
@@ -57,8 +57,8 @@ def world(tmp_path, monkeypatch):
     w.kavita_series("Alpha")
     manga = w.manga("Alpha")
     w.download(manga, "Chapter 2", data=cbz(credit=True))
-    intake.run(w.cfg)
-    process.run(w.cfg)
+    run_part(w.cfg, intake)
+    run_part(w.cfg, process)
     return w
 
 
@@ -192,6 +192,8 @@ def test_the_review_child_sees_the_reviews_set_values(world, tmp_path):
     exe = fake_claude(tmp_path / "claude", world.cfg, ["list"])
     cfg = {**world.cfg, "junk": {**world.cfg["junk"], "claude_path": str(exe)}}
     path = config_file(tmp_path, cfg)
+    with closing(db.connect(cfg)) as conn, db.transaction(conn):  # review_batch is shared: the fleet's version has 7
+        fleet.store(conn, {**cfg, "junk": {**cfg["junk"], "review_batch": 7}})
     assert cli.main(["--config", str(path), "--set", "junk.review_batch=7", "junk", "review"]) == 0
     (child,) = [yaml.safe_load(p.read_bytes()) for p in sorted((tmp_path / "claude" / "dump").glob("config-*.yaml"))]
     assert child["junk"]["review_batch"] == 7, "Claude's junk commands run with the review's --set values"

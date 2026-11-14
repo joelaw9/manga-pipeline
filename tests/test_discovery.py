@@ -42,10 +42,18 @@ def test_a_complete_download_of_a_kavita_series_becomes_a_chapter_of_it(world):
         "SELECT name, kavita_series_id, kavita_library_id, folder, origin, status, localized_name FROM series"
     )
     assert series == [
-        ("Solo Leveling", kavita_id, 4, str(world.library / "Solo Leveling"), "kavita", "ok", "Na Honjaman Level Up")
+        (
+            "Solo Leveling",
+            kavita_id,
+            4,
+            config.to_stored(world.cfg, world.library / "Solo Leveling"),
+            "kavita",
+            "ok",
+            "Na Honjaman Level Up",
+        )
     ], "a strict name hit stores the Kavita series with its folder (the folder of its files)"
     assert world.rows("SELECT download_path, suwayomi_chapter_id, stage, status FROM chapter") == [
-        (str(path), chapter_id, "discover", "ready")
+        (config.to_stored(world.cfg, path), chapter_id, "discover", "ready")
     ]
     assert world.rows("SELECT manga_id FROM suwayomi_manga") == [(manga,)], "the match is stored"
 
@@ -88,7 +96,7 @@ def test_a_title_no_kavita_series_matches_is_a_new_series_listed_and_not_taken(w
     scan(world)
     assert world.rows("SELECT count(*) FROM series") == [(0,)], "a new series is not processed yet"
     ((listed, reason),) = world.rows("SELECT path, reason FROM unmatched_download")
-    assert listed == str(path) and reason.startswith("new series")
+    assert listed == config.to_stored(world.cfg, path) and reason.startswith("new series")
 
 
 def _unlistable(monkeypatch, *folders, error=(22, "An unexpected network error occurred"), root=None):
@@ -118,9 +126,13 @@ def test_a_manga_folder_that_cannot_be_listed_is_listed_and_the_rest_is_taken(wo
     _, bad = world.download(world.manga("Omniscient Reader"), "Chapter 5")
     _unlistable(monkeypatch, bad.parent)
     scan(world)
-    assert world.rows("SELECT download_path FROM chapter") == [(str(good),)], "the other downloads are still taken"
+    assert world.rows("SELECT download_path FROM chapter") == [(config.to_stored(world.cfg, good),)], (
+        "the other downloads are still taken"
+    )
     ((listed, reason),) = world.rows("SELECT path, reason FROM unmatched_download")
-    assert listed == str(bad.parent) and reason.startswith("its folder cannot be listed"), "the folder is listed"
+    assert listed == config.to_stored(world.cfg, bad.parent) and reason.startswith("its folder cannot be listed"), (
+        "the folder is listed"
+    )
 
 
 @budget(load="db")
@@ -165,8 +177,8 @@ def test_files_that_cannot_be_matched_are_listed_with_their_first_sighting_kept(
     scan(world)
     first = dict(world.rows("SELECT path, first_seen FROM unmatched_download"))
     reasons = dict(world.rows("SELECT path, reason FROM unmatched_download"))
-    assert "rebuilds to this file name" in reasons[str(stray)]
-    assert reasons[str(orphan)] == "no library manga maps to its folder"
+    assert "rebuilds to this file name" in reasons[config.to_stored(world.cfg, stray)]
+    assert reasons[config.to_stored(world.cfg, orphan)] == "no library manga maps to its folder"
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute("UPDATE unmatched_download SET first_seen = '2000-01-01'")
     scan(world)
@@ -176,7 +188,9 @@ def test_files_that_cannot_be_matched_are_listed_with_their_first_sighting_kept(
     assert set(first) == set(reasons)
     orphan.unlink()
     scan(world)
-    assert str(orphan) not in dict(world.rows("SELECT path, reason FROM unmatched_download")), "a gone file leaves"
+    assert config.to_stored(world.cfg, orphan) not in dict(world.rows("SELECT path, reason FROM unmatched_download")), (
+        "a gone file leaves"
+    )
 
 
 @budget(load="db")
@@ -255,11 +269,13 @@ def test_paths_open_chapters_hold_or_expect_are_neither_new_chapters_nor_not_tak
         conn.execute(
             "UPDATE chapter SET redownload = jsonb_build_object('expected',"
             " jsonb_build_object('path', %s::text))::text",
-            (str(expected),),
+            (config.to_stored(world.cfg, expected),),
         )
     scan(world)
-    assert world.rows("SELECT download_path FROM chapter") == [(str(held),)], "no new chapter for either path"
-    assert world.rows("SELECT path FROM unmatched_download") == [(str(stray),)], (
+    assert world.rows("SELECT download_path FROM chapter") == [(config.to_stored(world.cfg, held),)], (
+        "no new chapter for either path"
+    )
+    assert world.rows("SELECT path FROM unmatched_download") == [(config.to_stored(world.cfg, stray),)], (
         "the expected re-download is not listed as not taken; another file of that folder is"
     )
 

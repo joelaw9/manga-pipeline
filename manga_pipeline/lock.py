@@ -1,18 +1,16 @@
-"""Run locks: 1 per command name, <lock.dir>/<name>.lock (SPEC "Run lock")."""
+"""Run locks (SPEC "Run lock"): session advisory locks of the database, taken on the command's 1 connection, so
+they hold across machines and the server frees them when the connection ends.
 
-import os
-from contextlib import ExitStack, contextmanager
+A lock's key is 2 integers: NAMESPACE and the server's hashtext of the lock's name, so every machine computes the
+same key and none collides with the write lock (db.WRITE_LOCK, 1 integer). IDLE is the "nothing else is running"
+lock: parts and junk review hold it shared, the state commands exclusive.
+"""
 
-from manga_pipeline import config
+from contextlib import contextmanager
 
-if os.name == "nt":
-    import msvcrt
-
-    HELD = PermissionError  # msvcrt's lock violation; any other OSError is a real fault
-else:
-    import fcntl
-
-    HELD = BlockingIOError
+NAMESPACE = 0x6D70  # "mp"
+IDLE = "nothing-else-running"
+SHARED, EXCLUSIVE = "shared", "exclusive"
 
 
 class LockHeld(RuntimeError):
@@ -20,45 +18,34 @@ class LockHeld(RuntimeError):
 
 
 @contextmanager
-def held(cfg, *names):
-    """Holds the named locks for the block when lock.enabled (no names: none). All or nothing: when another run holds
-    one, the ones already taken are freed and LockHeld names the held one, at once. Each is an OS lock on its file, so
-    the OS frees it when the process ends, crash included; a leftover file blocks nothing."""
+def held(conn, cfg, names, idle=None):
+    """Hold the named locks, and IDLE in mode idle (SHARED, EXCLUSIVE or None), for the block when lock.enabled.
+    All or nothing: when another session holds one, the ones already taken are freed and LockHeld names the held
+    one, at once."""
+    if idle not in (None, SHARED, EXCLUSIVE):
+        raise ValueError(f"idle must be {SHARED!r}, {EXCLUSIVE!r} or None, got {idle!r}")
     if not cfg["lock"]["enabled"]:
         yield
         return
-    folder = config.abs_path(cfg["lock"]["dir"])
-    folder.mkdir(parents=True, exist_ok=True)
-    with ExitStack() as stack:
-        for name in names:
-            stack.enter_context(_held_one(folder / f"{name}.lock"))
+    wanted = [(name, False) for name in names] + ([(IDLE, idle == SHARED)] if idle else [])
+    taken = []
+    try:
+        for name, shared in wanted:
+            fn = "pg_try_advisory_lock_shared" if shared else "pg_try_advisory_lock"
+            if not conn.execute(f"SELECT {fn}(%s, hashtext(%s))", (NAMESPACE, name)).fetchone()[0]:
+                what = "a running command holds" if name == IDLE else "another run holds"
+                raise LockHeld(f"{what} the lock {name!r}")
+            taken.append((name, shared))
         yield
+    finally:
+        for name, shared in reversed(taken):
+            if not conn.closed:
+                fn = "pg_advisory_unlock_shared" if shared else "pg_advisory_unlock"
+                conn.execute(f"SELECT {fn}(%s, hashtext(%s))", (NAMESPACE, name))
 
 
-@contextmanager
-def _held_one(path):
-    with open(path, "a+b") as f:
-        try:
-            _lock(f)
-        except HELD as e:
-            raise LockHeld(f"another run holds {path}") from e
-        try:
-            yield
-        finally:
-            _unlock(f)
-
-
-def _lock(f):
-    f.seek(0)
-    if os.name == "nt":
-        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-    else:
-        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-
-def _unlock(f):
-    f.seek(0)
-    if os.name == "nt":
-        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-    else:
-        fcntl.flock(f, fcntl.LOCK_UN)
+# The sessions holding lock `name` exclusive in this database, in SQL: 1 parameter, the name.
+HELD_SQL = f"""EXISTS (SELECT 1 FROM pg_locks l
+    WHERE l.locktype = 'advisory' AND l.granted AND l.mode = 'ExclusiveLock' AND l.objsubid = 2
+        AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+        AND l.classid = {NAMESPACE} AND l.objid::bigint = (hashtext({{name}})::bigint & 4294967295))"""

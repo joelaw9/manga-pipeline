@@ -3,6 +3,7 @@ Read-only: it never creates, migrates or writes the database."""
 
 import json
 from contextlib import closing
+from datetime import datetime
 
 from manga_pipeline import db, workflow
 
@@ -48,6 +49,28 @@ def _report(conn):
     rows = conn.execute("SELECT stage, status, count(*) AS n FROM chapter GROUP BY stage, status").fetchall()
     rows.sort(key=lambda r: (workflow.STAGES.index(r["stage"]), r["status"]))
     lines += [f"  {r['stage']:<10} {r['status']:<12} {r['n']}" for r in rows] or ["  none"]
+
+    lines.append("Runs (per part and machine; last start, end, result):")
+    runs = {}
+    for key, value in conn.execute("SELECT key, value FROM meta WHERE key LIKE '%%.last_%%' ORDER BY key"):
+        who, what = key.rsplit(".", 1)
+        runs.setdefault(who, {})[what] = value
+    lines += [
+        f"  {who:<24} {r.get('last_start', '-')}  {r.get('last_end', '-')}  {r.get('last_result', '-')}"
+        for who, r in sorted(runs.items())
+    ] or ["  none"]
+
+    lines.append("Claims (by owner, oldest first, with their age):")
+    now = datetime.fromisoformat(db.now(conn))
+    rows = conn.execute(
+        """SELECT c.id, c.claimed_by, c.stage, c.updated_at, s.name FROM chapter c JOIN series s ON s.id = c.series_id
+        WHERE c.status = 'claimed' ORDER BY c.claimed_by, c.updated_at"""
+    ).fetchall()
+    lines += [
+        f"  {r['claimed_by']}: chapter {r['id']} ({r['name']}, at {r['stage']}) for "
+        f"{(now - datetime.fromisoformat(r['updated_at'])).total_seconds() // 60:.0f} min"
+        for r in rows
+    ] or ["  none"]
 
     lines.append("Waits:")
     rows = conn.execute(

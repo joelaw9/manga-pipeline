@@ -1,7 +1,8 @@
 """Command-line entry point (SPEC "CLI", "Run lock", "Logging", "Preflight"): python -m manga_pipeline.cli
 
 COMMANDS is the command table: each command's locks, log file, preflight checks and handler. Every command runs in
-the same order: config, its locks, logging, its checks, its handler.
+the same order: config, its connection and locks (a command with locks), logging, its checks, the schema steps (a
+command with locks), its handler.
 """
 
 import argparse
@@ -10,9 +11,8 @@ import logging
 import os
 import sys
 from collections.abc import Callable
-from contextlib import closing
+from contextlib import closing, nullcontext
 from dataclasses import dataclass
-from pathlib import Path
 
 from manga_pipeline import (
     archive,
@@ -38,7 +38,6 @@ from manga_pipeline.junk import candidates, importing, review, review_run
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
 log = logging.getLogger("manga_pipeline.cli")
 DESCRIPTION = "Suwayomi to Kavita manga pipeline: junk removal, metadata, bad-download repair, AVIF conversion"
-PART_LOCKS = ("intake", "process", "export", "junk-review")
 # Every command that takes a lock runs these.
 LOCKED_CHECKS = (
     preflight.PYTHON_VERSION,
@@ -46,7 +45,7 @@ LOCKED_CHECKS = (
     preflight.FOLDER_LAYOUT,
     preflight.SHARE_FOLDERS_PRESENT,
 )
-PART_CHECKS = (*LOCKED_CHECKS, preflight.WORKFLOW_SETTINGS, preflight.SHARE_OWNERSHIP)
+PART_CHECKS = (*LOCKED_CHECKS, preflight.WORKFLOW_SETTINGS, preflight.SHARE_OWNERSHIP, preflight.FLEET_VERSION)
 # process runs OCR and the image tools and scorer; it reaches no service.
 PROCESS_CHECKS = (
     *PART_CHECKS,
@@ -56,19 +55,22 @@ PROCESS_CHECKS = (
     preflight.SCORER,
     preflight.SCRATCH_SPACE,
 )
-# intake and export reach Suwayomi and Kavita.
-SERVICE_PART_CHECKS = (*PART_CHECKS, preflight.SERVICE_SETTINGS)
+# intake and export reach Suwayomi and Kavita; export writes the naming overrides' volumes.
+INTAKE_CHECKS = (*PART_CHECKS, preflight.SERVICE_SETTINGS)
+EXPORT_CHECKS = (*PART_CHECKS, preflight.SERVICE_SETTINGS, preflight.NAMING_OVERRIDES)
 RESET_CHECKS = (*LOCKED_CHECKS, preflight.SHARE_OWNERSHIP)
 # state adopt writes the owner file, so it cannot require one; it needs the folder the file goes in.
 ADOPT_CHECKS = (*LOCKED_CHECKS, preflight.STAGING_FOLDER)
-# junk review touches local disk only and starts Claude.
+# junk review reads the candidates on the share and starts Claude.
 REVIEW_CHECKS = (
-    preflight.PYTHON_VERSION,
-    preflight.FREE_SPACE,
-    preflight.FOLDER_LAYOUT,
+    *LOCKED_CHECKS,
     preflight.WORKFLOW_SETTINGS,
+    preflight.SHARE_OWNERSHIP,
+    preflight.FLEET_VERSION,
     preflight.CLAUDE_SETTINGS,
 )
+# state version digests the program, the shared settings, the packages and the tools of this machine.
+VERSION_CHECKS = (preflight.PYTHON_VERSION, preflight.FREE_SPACE, preflight.IMAGE_TOOLS, preflight.SCORER)
 # smoke takes no lock and touches no folder: it needs only what the clients and scope read.
 SMOKE_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SERVICE_SETTINGS)
 # series link reads both services and writes 1 series' link: what the clients and scope read.
@@ -77,10 +79,17 @@ LINK_CHECKS = SMOKE_CHECKS
 
 @dataclass(frozen=True)
 class Command:
-    locks: tuple[str, ...]  # lock names taken for the run; empty = none
+    locks: tuple[str, ...]  # run locks taken for the run (a part's name stands for workflow.owner of it); empty = none
+    idle: str | None  # how the run holds lock.IDLE: lock.SHARED, lock.EXCLUSIVE or None
     log: str | None  # log file name (<log>.log); None = console only
     checks: tuple[preflight.Check, ...]
-    handler: Callable[[dict, argparse.Namespace], None]
+    # handler(cfg, args, conn): conn is the command's connection holding its locks, None for a command without any
+    handler: Callable[[dict, argparse.Namespace, object], None]
+    builds: bool = False  # creates the database when the server has none (SPEC "State")
+
+    @property
+    def locked(self):
+        return bool(self.locks or self.idle)
 
 
 def retry(cfg, args):
@@ -113,8 +122,8 @@ def chapter_drop(cfg, args):
         row = workflow.droppable(conn, args.chapter)
         digest = row["content_digest"]
         if row["download_path"]:
-            download = Path(row["download_path"])
-            if digest is None and download.exists():  # held at discover, before its digest was settled
+            download = config.to_local(cfg, row["download_path"])
+            if digest is None and workflow.exists(download):  # held at discover, before its digest was settled
                 digest = archive.digest_or_none(download)
             retention.put(cfg, download)
         workflow.drop_chapter(
@@ -188,29 +197,38 @@ def junk_decide(cfg, args):
     decider = "claude" if os.environ.get(review.REVIEW_ID_VARIABLE) else "human"
     with _junk_db(cfg) as conn:
         try:
-            review.decide(conn, args.id, args.verdict, decider, workflow.now())
+            review.decide(conn, args.id, args.verdict, decider, workflow.now(conn))
         except review.Refused as e:
             raise workflow.Refused(str(e)) from None
     log.info("junk candidate %s decided %s by %s", args.id, args.verdict, decider)
 
 
+def _unlocked(handler):
+    """A command without locks: its handler opens what it needs itself."""
+    return lambda cfg, args, conn: handler(cfg, args)
+
+
+S, X = lock.SHARED, lock.EXCLUSIVE
 COMMANDS = {
-    "intake": Command(("intake",), "intake", SERVICE_PART_CHECKS, lambda cfg, args: intake.run(cfg)),
-    "process": Command(("process",), "process", PROCESS_CHECKS, lambda cfg, args: process.run(cfg)),
-    "export": Command(("export",), "export", SERVICE_PART_CHECKS, lambda cfg, args: export.run(cfg)),
-    "status": Command((), None, (), lambda cfg, args: status.run(cfg)),
-    "retry": Command((), None, (), retry),
-    "chapter use": Command((), None, (), chapter_use),
-    "chapter drop": Command((), None, (), chapter_drop),
-    "smoke": Command((), None, SMOKE_CHECKS, lambda cfg, args: smoke.run(cfg)),
-    "series link": Command((), None, LINK_CHECKS, series_link),
-    "junk import": Command((), None, (), junk_import),
-    "junk list": Command((), None, (), junk_list),
-    "junk show": Command((), None, (), junk_show),
-    "junk decide": Command((), None, (), junk_decide),
-    "junk review": Command(("junk-review",), "junk-review", REVIEW_CHECKS, lambda cfg, args: review_run.run(cfg)),
-    "state reset": Command(PART_LOCKS, None, RESET_CHECKS, lambda cfg, args: state.reset(cfg)),
-    "state adopt": Command(PART_LOCKS, None, ADOPT_CHECKS, lambda cfg, args: state.adopt(cfg)),
+    "intake": Command(("intake",), S, "intake", INTAKE_CHECKS, lambda cfg, args, conn: intake.run(cfg, conn)),
+    "process": Command(("process",), S, "process", PROCESS_CHECKS, lambda cfg, args, conn: process.run(cfg, conn)),
+    "export": Command(("export",), S, "export", EXPORT_CHECKS, lambda cfg, args, conn: export.run(cfg, conn)),
+    "status": Command((), None, None, (), _unlocked(lambda cfg, args: status.run(cfg))),
+    "retry": Command((), None, None, (), _unlocked(retry)),
+    "chapter use": Command((), None, None, (), _unlocked(chapter_use)),
+    "chapter drop": Command((), None, None, (), _unlocked(chapter_drop)),
+    "smoke": Command((), None, None, SMOKE_CHECKS, _unlocked(lambda cfg, args: smoke.run(cfg))),
+    "series link": Command((), None, None, LINK_CHECKS, _unlocked(series_link)),
+    "junk import": Command((), None, None, (), _unlocked(junk_import)),
+    "junk list": Command((), None, None, (), _unlocked(junk_list)),
+    "junk show": Command((), None, None, (), _unlocked(junk_show)),
+    "junk decide": Command((), None, None, (), _unlocked(junk_decide)),
+    "junk review": Command(
+        ("junk-review",), S, "junk-review", REVIEW_CHECKS, lambda cfg, args, conn: review_run.run(cfg, conn), True
+    ),
+    "state reset": Command((), X, None, RESET_CHECKS, lambda cfg, args, conn: state.reset(cfg, conn)),
+    "state adopt": Command((), X, None, ADOPT_CHECKS, lambda cfg, args, conn: state.adopt(cfg, conn), True),
+    "state version": Command((), X, None, VERSION_CHECKS, lambda cfg, args, conn: state.version(cfg, conn)),
 }
 
 
@@ -279,7 +297,8 @@ def parser():
     )
     reset = state.add_parser("reset", help="clear the workflow state and the staging and scratch folders")
     adopt_ = state.add_parser("adopt", help="make this database the owner of the share")
-    for sub, name in ((reset, "state reset"), (adopt_, "state adopt")):
+    version = state.add_parser("version", help="make this machine's program, settings, packages and tools the fleet's")
+    for sub, name in ((reset, "state reset"), (adopt_, "state adopt"), (version, "state version")):
         sub.add_argument("--yes", action="store_true", required=True, help="confirm")
         sub.set_defaults(command=name)
     return p
@@ -296,15 +315,28 @@ def main(argv=None):
         cfg = config.init(args.config, args.set)
     except config.ConfigError as e:
         p.error(str(e))
+    conn = None
     try:
-        with lock.held(cfg, *command.locks):
+        if command.locked:
+            try:
+                conn = _open(cfg, command)
+            except (db.CannotConnect, db.NoDatabase) as e:
+                # Not logged: the log file is opened only under the run's locks.
+                print(f"error: {e}", file=sys.stderr)
+                return 4
+            except config.ConfigError as e:
+                p.error(str(e))
+        names = tuple(workflow.owner(name) for name in command.locks)
+        with lock.held(conn, cfg, names, command.idle) if command.locked else nullcontext():
             try:
                 logs.setup(cfg, command.log)
             except config.ConfigError as e:
                 p.error(str(e))
             try:
                 preflight.run(cfg, command.checks)
-                command.handler(cfg, args)
+                if conn is not None:
+                    db.apply_steps(conn)
+                command.handler(cfg, args, conn)
             except preflight.PreflightFailed as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 4
@@ -327,7 +359,18 @@ def main(argv=None):
         # Not logged: a refused run must not open the log file while the holder writes it.
         print(f"error: {e}", file=sys.stderr)
         return 3
+    finally:
+        if conn is not None:
+            conn.close()
     return 0
+
+
+def _open(cfg, command):
+    """The command's 1 connection, opened before its locks (SPEC "Run lock"): never creates the database but for a
+    command that builds one."""
+    if command.builds:
+        db.create_missing(cfg)
+    return db.open_existing(cfg)
 
 
 if __name__ == "__main__":

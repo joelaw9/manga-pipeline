@@ -17,13 +17,12 @@ import shutil
 import subprocess
 import sys
 import uuid
-from contextlib import closing
 from pathlib import Path, PurePath
 
 import yaml
 
 from manga_pipeline import config, db, workflow
-from manga_pipeline.junk import review
+from manga_pipeline.junk import candidates, review
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ TIMEOUT_S = 15 * 60  # the Claude process is killed after this
 PROMPT = Path(__file__).with_name("review_prompt.md")
 OS_VARIABLES = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE")
 WINDOWS_VARIABLES = ("USERPROFILE", "SYSTEMROOT", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA", "COMSPEC", "PATHEXT")
-PATH_KEYS = (("logging", "dir"), ("lock", "dir"))
+PATH_KEYS = (("logging", "dir"),)
 
 
 class ReviewFailed(RuntimeError):
@@ -109,41 +108,49 @@ def _meta(conn, values):
         )
 
 
-def run(cfg):
+def run(cfg, conn):
     """Run 1 review. Raises ReviewFailed when Claude's run failed; the reviews are counted either way."""
-    with closing(db.connect(cfg)) as conn:
-        _meta(conn, [("last_start", workflow.now())])
+    _meta(conn, [("last_start", workflow.now(conn))])
+    with db.transaction(conn):
+        conn.execute("UPDATE junk_candidate SET review_open = 0 WHERE review_open = 1")  # left by a killed review
+    try:
+        with workflow.share_errors():
+            gone = candidates.cleanup(cfg, conn)
+    except workflow.Unreachable as e:  # as a part: recorded, exit 0, the next timer run tries again
+        log.warning("junk review: unreachable (%s), review ended", e)
+        _meta(conn, [("last_end", workflow.now(conn)), ("last_result", f"unreachable: {e.service}")])
+        return
+    if gone:
+        log.info("junk review: %d closed candidate(s) cleaned up", gone)
+    folder = config.abs_path(cfg["paths"]["scratch"]) / "junk-review"
+    shutil.rmtree(folder, ignore_errors=True)
+    if not review.listable(conn, cfg):
+        log.info("junk review: no candidate to review")
+        end = workflow.now(conn)
+        _meta(conn, [("last_end", end), ("last_result", "ok: nothing to review"), ("last_success", end)])
+        return
+    review_id = uuid.uuid4().hex
+    result = "error: not run"
+    try:
+        folder.mkdir(parents=True)
+        child = folder / f"{review_id}.yaml"
+        child.write_bytes(yaml.safe_dump(child_config(cfg), sort_keys=False).encode("utf-8"))
+        prefix = join_command([sys.executable, "-m", "manga_pipeline.cli", "--config", str(child), "junk"])
+        result = _claude(cfg, prefix, review_id)
+    finally:
         with db.transaction(conn):
-            conn.execute("UPDATE junk_candidate SET review_open = 0 WHERE review_open = 1")  # left by a killed review
-        folder = config.abs_path(cfg["paths"]["scratch"]) / "junk-review"
+            counted = conn.execute(
+                """UPDATE junk_candidate SET reviews = reviews + 1, review_open = 0
+                WHERE review_id = %s AND review_open = 1""",
+                (review_id,),
+            ).rowcount
         shutil.rmtree(folder, ignore_errors=True)
-        if not review.listable(conn, cfg):
-            log.info("junk review: no candidate to review")
-            end = workflow.now()
-            _meta(conn, [("last_end", end), ("last_result", "ok: nothing to review"), ("last_success", end)])
-            return
-        review_id = uuid.uuid4().hex
-        result = "error: not run"
-        try:
-            folder.mkdir(parents=True)
-            child = folder / f"{review_id}.yaml"
-            child.write_bytes(yaml.safe_dump(child_config(cfg), sort_keys=False).encode("utf-8"))
-            prefix = join_command([sys.executable, "-m", "manga_pipeline.cli", "--config", str(child), "junk"])
-            result = _claude(cfg, prefix, review_id)
-        finally:
-            with db.transaction(conn):
-                counted = conn.execute(
-                    """UPDATE junk_candidate SET reviews = reviews + 1, review_open = 0
-                    WHERE review_id = %s AND review_open = 1""",
-                    (review_id,),
-                ).rowcount
-            shutil.rmtree(folder, ignore_errors=True)
-            end = workflow.now()
-            ok = result.startswith("ok")
-            _meta(conn, [("last_end", end), ("last_result", result)] + ([("last_success", end)] if ok else []))
-            log.info("junk review %s: %s; %d candidate(s) reviewed", review_id, result, counted)
-        if not ok:
-            raise ReviewFailed(result)
+        end = workflow.now(conn)
+        ok = result.startswith("ok")
+        _meta(conn, [("last_end", end), ("last_result", result)] + ([("last_success", end)] if ok else []))
+        log.info("junk review %s: %s; %d candidate(s) reviewed", review_id, result, counted)
+    if not ok:
+        raise ReviewFailed(result)
 
 
 def _claude(cfg, prefix, review_id):

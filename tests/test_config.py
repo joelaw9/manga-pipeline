@@ -63,7 +63,7 @@ def test_default_config_is_the_test_copy():
     cfg = config.cached()
     folders = {k: v for k, v in cfg["paths"].items() if k != "kavita_path_map"}
     local_prefixes = cfg["paths"]["kavita_path_map"].values()
-    paths = [cfg["logging"]["dir"], cfg["lock"]["dir"], *folders.values(), *local_prefixes]
+    paths = [cfg["logging"]["dir"], *folders.values(), *local_prefixes]
     outside = [p for p in paths if not config.abs_path(p).is_relative_to(TMP)]
     assert not outside, "tests must get tests/test_config.yaml, every path in its $TMP dir"
 

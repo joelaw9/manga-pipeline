@@ -67,7 +67,9 @@ def test_a_bad_download_is_removed_and_downloaded_again_from_the_same_chapter_fi
     ], "an unreadable archive has no digest"
     world.suwayomi.finish_downloads(cbz(seed="good"))
     world.run(intake)
-    assert chapter(world) == ("junk", "ready", None, str(path), chapter_id, "Src (EN)"), "the replacement passes"
+    assert chapter(world) == ("junk", "ready", None, config.to_stored(world.cfg, path), chapter_id, "Src (EN)"), (
+        "the replacement passes"
+    )
     assert state(world) is None, "the re-download state is cleared"
     assert world.rows("SELECT count(*) FROM page") == [(3,)], "the replacement's pages are measured and stored"
 
@@ -85,7 +87,14 @@ def test_a_second_bad_copy_goes_to_the_next_source_and_the_chapter_keeps_its_ide
     world.suwayomi.finish_downloads(cbz(seed="other"))
     world.run(intake)
     other_path = world.suwayomi.path(world.other_chapters[12])
-    assert chapter(world) == ("junk", "ready", None, str(other_path), world.other_chapters[12], OTHER)
+    assert chapter(world) == (
+        "junk",
+        "ready",
+        None,
+        config.to_stored(world.cfg, other_path),
+        world.other_chapters[12],
+        OTHER,
+    )
     assert world.rows("SELECT identity FROM chapter") == [(identity,)], "the identity never changes"
     assert world.rows("SELECT count(*) FROM handled_chapter WHERE outcome = 'rejected'") == [(2,)]
 
@@ -170,7 +179,7 @@ def test_a_replacement_of_an_unknown_format_becomes_the_chapters_download_and_ne
     world.suwayomi.finish_downloads(_cbz_with(b"\x00\x01 unknown"))
     world.run(intake)
     ((status, download, redownload),) = world.rows("SELECT status, download_path, redownload FROM chapter")
-    assert (status, download, redownload) == ("needs_human", str(path), None)
+    assert (status, download, redownload) == ("needs_human", config.to_stored(world.cfg, path), None)
 
 
 def exhausted(world):
@@ -309,7 +318,9 @@ def test_a_chosen_download_numbered_otherwise_needs_a_human(world):
     world.run(intake)
     ((status, error, download),) = world.rows("SELECT status, last_error, download_path FROM chapter")
     assert status == "needs_human" and "numbered" in error, "never published under the chapter's number"
-    assert download == str(world.suwayomi.path(other_number)), "it is the chapter's download now: drop removes it"
+    assert download == config.to_stored(world.cfg, world.suwayomi.path(other_number)), (
+        "it is the chapter's download now: drop removes it"
+    )
 
 
 @budget(load="db")
@@ -469,7 +480,7 @@ def test_the_path_rebuilt_for_a_download_is_where_suwayomi_wrote_it(world):
     found = _target(world, chapter_id)
     # Observed on the real Suwayomi 2026-11-13: a non-library download landed exactly here.
     real = "Manga Ball (EN)/A Martial Master Wakes Up as a Concubine/Articuno_Chapter 141.cbz"
-    assert found["path"] == str(world.mangas / real) and found["source"] == "Manga Ball (EN)"
+    assert found["path"] == config.to_stored(world.cfg, world.mangas / real) and found["source"] == "Manga Ball (EN)"
 
 
 def _target(world, chapter_id):

@@ -66,12 +66,12 @@ def current_scan(conn, chapter):
 
 
 def _scratch(ctx, chapter):
-    return config.abs_path(ctx.cfg["paths"]["scratch"]) / str(chapter["id"]) / "junk"
+    return config.abs_path(ctx.cfg["paths"]["scratch"]) / workflow.claim_name(chapter) / "junk"
 
 
 def extract(ctx, chapter, work):
     """The download's pages written to `work` in archive order: (paths, names, sizes, measurements)."""
-    cbz = Path(chapter["download_path"])
+    cbz = config.to_local(ctx.cfg, chapter["download_path"])
     measured = images.measure_pages(cbz, page_store.load(ctx.conn, chapter["id"]))
     if work.exists():
         shutil.rmtree(work)
@@ -121,8 +121,8 @@ def scan(ctx, chapter, series, key):
             sc = page_units.scan(paths, names, sizes, uniform, _aspects(ctx, series, sizes))
             units = _page_units(sc)
     finally:
-        shutil.rmtree(work, ignore_errors=True)
-    at = workflow.now()
+        shutil.rmtree(work.parent, ignore_errors=True)  # the claim's folder: nothing of it is kept
+    at = workflow.now(ctx.conn)
     seen = candidates.seen_rows(key, chapter["identity"], units, at)
 
     def record(conn):
@@ -240,7 +240,7 @@ def decide(ctx, chapter, key, row):
     new = [p for p, r in zip(picks, rows, strict=True) if r is None]
     if new:
         write_images(ctx, chapter, key, sc, new)
-    at = workflow.now()
+    at = workflow.now(ctx.conn)
 
     def wait(conn):
         remember(conn)
@@ -286,7 +286,7 @@ def junk_decision_over(ctx, chapter):
 def bulk_conversion_over(ctx, chapter):
     """The bulk_conversion wait ends once the series has a baseline or its record parses."""
     series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
-    return not baseline.needed(series) or baseline.record_problem(series) is None
+    return not baseline.needed(series) or baseline.record_problem(ctx.cfg, series) is None
 
 
 # ---------------------------------------------------------------- candidate images
@@ -313,10 +313,12 @@ def write_images(ctx, chapter, key, sc, picks):
                 "text": p["unit"].get("text", ""),
                 "chapters": candidates.chapters_showing(ctx.conn, key, seen_kind(p["kind"]), p["key"]),
             }
-            name = candidates.folder_name(key, p["kind"], p["key"])
+            name = candidates.folder_name(key, p["kind"], p["key"], chapter)
+            workflow.holds_claim(ctx, chapter)  # after rendering, immediately before the folder is written
             candidates.write_images(ctx.cfg, name, unit_im, context_im, info)
+            p["folder"] = name  # the row join opens names it
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(work.parent, ignore_errors=True)
 
 
 def seen_kind(kind):
