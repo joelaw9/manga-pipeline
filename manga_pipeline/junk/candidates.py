@@ -97,23 +97,30 @@ def select(conn, series_key, identity, undecided, words):
     when it is near, has a keyword, recurs, is the rest of a block whose edge piece is junk, or its chapter is among the
     first of the series. Tail
     pieces always. Pages, frames and bands: their per-chapter reasons, or recurrence. Logos always; a logo variant
-    offers the first of its representatives' keys that an existing candidate matches, else its first."""
+    offers the first of its representatives' keys that an existing candidate matches, else its first. Never a unit
+    with an unsignable key (no decision could be written on it), a block's probe included."""
     first = first_identities(conn, series_key)
+    decisions = store.Decisions(conn, series_key)
     out = []
     for u in undecided:
         kind = u["kind"]
         key = u.get("key") or u.get("sig")
         reasons = []
+        if kind != "block" and store.unsignable(kind, key):
+            continue
         if kind == "piece":
             reasons = ["tail piece after a credit band"]
         elif kind == "block":
+            probes = [p for p in u["probes"] if not store.unsignable("probe", p["sig"])]
             flagged = next(
-                ((p, why) for p in u["probes"] for why in [strip_reasons(conn, series_key, p, words)] if why), None
+                ((p, why) for p in probes for why in [strip_reasons(conn, series_key, p, words)] if why), None
             )
             if flagged is not None:
                 probe, why = flagged
                 unit = {**probe, "where": u["where"]}
                 out.append({"kind": "probe", "key": probe["sig"], "unit": unit, "reason": "; ".join(why)})
+                continue
+            if store.unsignable(kind, key):
                 continue
             reasons = strip_reasons(conn, series_key, u, words)
             if u.get("rest"):
@@ -121,7 +128,7 @@ def select(conn, series_key, identity, undecided, words):
             if identity in first:
                 reasons.append("a first chapter of the series")
         elif kind == "logo":
-            key = next((k for k in u["keys"] if find(conn, series_key, kind, k) is not None), u["keys"][0])
+            key = next((k for k in u["keys"] if find(conn, decisions, kind, k) is not None), u["keys"][0])
             out.append({"kind": kind, "key": key, "unit": u, "reason": "; ".join(u["reasons"])})
             continue
         else:
@@ -138,13 +145,16 @@ def select(conn, series_key, identity, undecided, words):
 # ---------------------------------------------------------------- candidate rows
 
 
-def find(conn, series_key, kind, key):
-    """The candidate row of the series and kind whose key matches `key`, or None."""
+def find(conn, decisions, kind, key):
+    """The candidate row of the series (decisions: its store.Decisions) and kind whose key matches `key` and that no
+    decision covers, or None. A covered candidate is closed: matching is not transitive, so a unit it matches may
+    still be undecided, and that unit gets a candidate of its own."""
     parsed = store.parse_key(kind, key)
     for row in conn.execute(
-        "SELECT * FROM junk_candidate WHERE series_key = %s AND kind = %s ORDER BY id", (series_key, kind)
+        "SELECT * FROM junk_candidate WHERE series_key = %s AND kind = %s ORDER BY id", (decisions.series_key, kind)
     ):
-        if store.matches(kind, store.parse_key(kind, row["key"]), parsed):
+        stored = store.parse_key(kind, row["key"])
+        if store.matches(kind, stored, parsed) and decisions.decide(kind, stored) is None:
             return row
     return None
 
@@ -152,8 +162,9 @@ def find(conn, series_key, kind, key):
 def join(conn, series_key, picks, at):
     """Inside the caller's transaction: each pick joins its matching candidate or opens one. Returns the ids."""
     ids = []
+    decisions = store.Decisions(conn, series_key)
     for p in picks:
-        row = find(conn, series_key, p["kind"], p["key"])
+        row = find(conn, decisions, p["kind"], p["key"])
         if row is None:
             new = conn.execute(
                 """INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at)

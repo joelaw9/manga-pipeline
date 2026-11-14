@@ -1,11 +1,13 @@
 """The junk decision store (SPEC "Junk decisions", decisions): lookup of the decisions that apply to a series, the
 near rule, and the 1 upsert every writer uses (import, the baseline's record rows, `junk decide`).
 
-A series key is the series folder's name; GLOBAL ('') marks a decision of every series. A key is a unit's signature
-text (images.sig_to_str), for a frame frames.key_text, for a logo marks.Template.key_text.
-"""
+A series key is the series' rules key (series.rules_key: the name of the first folder it had); GLOBAL ('') marks a
+decision of every series. A key is a unit's signature text (images.sig_to_str), for a frame frames.key_text, for a logo
+marks.Template.key_text.
 
-from pathlib import Path
+An unsignable key (a signature whose every tile is a uniform image's) would match any blank or flat rows: a unit
+with one matches no decision, and no decision is written on one.
+"""
 
 from manga_pipeline import db, images
 from manga_pipeline.junk import frames, marks
@@ -22,15 +24,21 @@ DECIDING = {
     "frame": ("frame",),
     "logo": ("logo",),
 }
+SIGNATURE_KINDS = ("block", "probe", "piece", "page", "band")  # keyed by an image signature
 NEAR_KINDS = ("block", "band", "probe")  # the approved decisions the near rule compares against
 DECIDERS = ("import", "claude", "human")
 
 
-def series_key(folder):
-    """The series key of a series folder (its last path part)."""
-    if not folder:
-        raise ValueError("a series without a folder has no series key")
-    return Path(folder).name
+def series_key(series):
+    """The series key of a series row: its rules key, which a later folder does not change."""
+    if not series["rules_key"]:
+        raise ValueError(f"series {series['id']} has no folder yet: it has no series key")
+    return series["rules_key"]
+
+
+def unsignable(kind, text):
+    """Whether the key text of a unit of `kind` is an unsignable signature."""
+    return kind in SIGNATURE_KINDS and images.unsignable(images.sig_from_str(text))
 
 
 def parse_key(kind, text):
@@ -93,6 +101,8 @@ class Decisions:
 
     def decide(self, kind, key):
         """The deciding row for a unit of `kind` with parsed key `key`, or None (undecided)."""
+        if kind in SIGNATURE_KINDS and images.unsignable(key):
+            return None
         kinds = DECIDING[kind]
         for row, stored in self._rows:
             if row["kind"] in kinds and matches(row["kind"], stored, key):
@@ -104,8 +114,11 @@ def near(conn, series_key_, sig, threshold=images.NEAR_THRESHOLD, aspect_tol=ima
     """(row, distance, aspect difference) of the approved decision of NEAR_KINDS (any series, or global) nearest to
     signature `sig`: same tile count, every tile within `threshold`, aspect difference within `aspect_tol`; smallest
     distance, then aspect difference, then the oldest. None when none is that near, or when such a decision that
-    applies to the series (its own or global) matches `sig` at the live rule (it decides; near is for the undecided)."""
+    applies to the series (its own or global) matches `sig` at the live rule (it decides; near is for the undecided),
+    or when `sig` is unsignable."""
     tiles, aspect = sig
+    if images.unsignable(sig):
+        return None
     best = None
     rows = conn.execute(
         f"""SELECT * FROM junk_decision WHERE verdict = 'junk' AND kind IN ({", ".join(["%s"] * len(NEAR_KINDS))})
@@ -130,14 +143,16 @@ def near(conn, series_key_, sig, threshold=images.NEAR_THRESHOLD, aspect_tol=ima
 def upsert(conn, rows):
     """Write decisions (dicts: series_key, kind, key, verdict, decider, decided_at, source) inside the caller's
     transaction. A new key is inserted. An existing row is replaced only when its decider is 'import' and the new one
-    is a pipeline decision or at least as new; a pipeline-made row ('claude', 'human') is never touched. Returns
-    {"inserted", "updated", "unchanged"} counts."""
+    is a pipeline decision or at least as new; a pipeline-made row ('claude', 'human') is never touched. ValueError for
+    a row that is no junk decision, or on an unsignable key. Returns {"inserted", "updated", "unchanged"} counts."""
     if not db.in_transaction(conn):
         raise RuntimeError("upsert runs inside the caller's transaction")
     counts = {"inserted": 0, "updated": 0, "unchanged": 0}
     for r in rows:
         if r["kind"] not in KINDS or r["verdict"] not in ("junk", "keep") or r["decider"] not in DECIDERS:
             raise ValueError(f"not a junk decision: {r}")
+        if unsignable(r["kind"], r["key"]):
+            raise ValueError(f"a decision on an unsignable key (it would match any blank or flat rows): {r}")
         old = conn.execute(
             "SELECT * FROM junk_decision WHERE series_key = %s AND kind = %s AND key = %s",
             (r["series_key"], r["kind"], r["key"]),

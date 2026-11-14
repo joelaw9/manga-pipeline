@@ -361,13 +361,24 @@ def decide(sc, decide_unit):
         i = int(key)
         if i in drops or i in framed:
             continue
+        # An unsignable band is no band (no decision could be written on it): the page is judged as a page.
+        found = [b for b in found if not store.unsignable("band", b["sig"])]
+        if not found:
+            continue
         banded.add(i)
         hits = []
         for b in found:
             row = decide_unit("band", b["sig"])
             if row is None:
                 band_units.append(
-                    {"kind": "band", "key": b["sig"], "page": i, "where": b["where"], "box": b["box"], "reasons": []}
+                    {
+                        "kind": "band",
+                        "key": b["sig"],
+                        "page": i,
+                        "where": b["where"],
+                        "box": b["box"],
+                        "reasons": ["band"],  # D5.16: an undecided band is a candidate at 1 chapter
+                    }
                 )
             elif row["verdict"] == "junk":
                 hits.append(b)

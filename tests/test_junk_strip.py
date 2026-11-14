@@ -266,7 +266,7 @@ def test_a_keep_decision_removes_nothing_and_leaves_nothing_undecided():
     """A keep on the cover block: nothing removed, and the decided block is no undecided unit."""
     cover = sig_of(Image.open(BANNER).convert("RGB"))
     got = su.decide(su.scan(strip_of([BANNER])), store(("block", cover, "keep", 2)))
-    assert got == {"removed": [], "undecided": [], "kept_problem": None}, got
+    assert got == {"removed": [], "undecided": [], "kept_problem": None, "watermarks": []}, got
 
 
 # ---------------------------------------------------------------- the real strip head (fixtures_junk)
@@ -729,3 +729,32 @@ def test_the_kept_check_spares_a_chapter_already_shorter_than_min_page():
 def test_uniform_and_unsignable_images_have_no_signature():
     assert su.signable(Image.new("RGB", (100, 100), (90, 90, 90))) is None, "uniform: no signature"
     assert su.signable(fx.blob(1, (200, 150))) == sig_of(fx.blob(1, (200, 150)))
+
+
+# ---------------------------------------------------------------- watermarks the series knows
+
+
+@budget(load="pure")
+def test_a_key_the_series_knows_as_a_watermark_is_one_here_too():
+    """W2 across chapters (the bulk converter holds it for the whole series): band 855 sits once at this chapter's
+    tail and nowhere in its middle, but an earlier chapter showed it to be a watermark."""
+    known = [images.sig_from_str(tsig(855))]
+    assert su.watermarks([removed_band(855), removed_band(1)], [], known) == {855}
+
+
+@budget(load="pure")
+def test_an_unsignable_middle_block_makes_no_watermark():
+    flat, near_flat = images.sig_to_str(((0,), 1.0)), images.sig_to_str(((7,), 1.0))
+    band = {"where": "tail", "decision": 9, "key": near_flat}
+    assert su.watermarks([band], [flat]) == set(), "a flat middle block matches nothing"
+
+
+@budget(load="pure")
+def test_a_remembered_watermark_starts_no_credit_block_and_decide_names_the_watermark_keys():
+    """The chapter of test_without_the_watermark_rule_the_story_before_is_reviewed, in a series that knows 855."""
+    sc, decide_unit = tail_chapter([(1000, 1100, 855), (1500, 1800, 1)], [piece(1100, 1500), piece(1800, 1900)])
+    got = su.decide(sc, decide_unit, [images.sig_from_str(tsig(855))])
+    reviewed = [(u["start"], u["end"]) for u in got["undecided"] if u["kind"] == "piece"]
+    assert reviewed == [(1800, 1900)], "the story after the watermark is no tail piece"
+    assert got["watermarks"] == [tsig(855)], "decide names the key for the series to remember"
+    assert su.decide(sc, decide_unit)["watermarks"] == [], "without the series' memory 855 is a credit here"

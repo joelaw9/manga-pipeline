@@ -41,7 +41,7 @@ One PostgreSQL 17 database on a server (on the LXC), reached with the settings o
 | Kind | What |
 |---|---|
 | workflow state | every chapter with its stage, what it waits on, its attempts and its last error; each series' status |
-| knowledge | the junk decisions; each series' source IDs and conversion calibration |
+| knowledge | the junk decisions and each series' watermarks; each series' source IDs and conversion calibration |
 | sync records | what was fetched for each series, from which source and when (written only by `intake`, with a version that rises on every change); what was written for each series and each published chapter (written only by `export`, with the version it was written from) |
 
 It is the single record of what is pending. `state reset` clears the workflow state only; knowledge and sync records are kept, and the next `intake` rediscovers the downloads (what becomes of a re-download in progress: SPEC "Bad downloads"). Every series becomes ok again, except one held for want of a Kavita series or a folder: only `series link` settles that. It needs `--yes`, runs only while no part and no junk review is running, and also empties the staging, scratch and candidates folders. It never touches the downloads, the library or the retention folder.

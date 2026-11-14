@@ -42,7 +42,7 @@ def chapter_volume(series, item, ci_volume, overrides):
     if basis == SIDE_DEFAULT:
         return 1
     if basis == OVERRIDE:
-        return override_volume(override_volumes(overrides, Path(series["folder"]).name), item.num)
+        return override_volume(override_volumes(overrides, series["rules_key"]), item.num)
     return None
 
 

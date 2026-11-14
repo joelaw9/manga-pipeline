@@ -11,11 +11,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import cli, config, db, intake, process, state, workflow
+from manga_pipeline import cli, config, db, identify, intake, process, state, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import plan
-from manga_pipeline.junk import logo_units, ocr, review, store
+from manga_pipeline.junk import importing, logo_units, ocr, review, store
 
 from tests.builders import config_file
 from tests.fakes.suwayomi import page as fake_page
@@ -204,8 +204,11 @@ def test_an_imported_decision_closes_the_candidate_and_its_folder(site):
 def test_state_reset_empties_candidates_and_their_folder(site):
     site.download("Alpha", 2, cbz(credit=True))
     site.parts()
+    with closing(db.connect(site.cfg)) as conn:
+        conn.execute("INSERT INTO junk_watermark (series_key, key) VALUES ('Alpha', 'k')")
     state.reset(site.cfg)
     assert site.rows("SELECT count(*) FROM junk_candidate") == [(0,)], "candidates are workflow state"
+    assert site.rows("SELECT count(*) FROM junk_watermark") == [(1,)], "a series' watermarks are knowledge: kept"
     assert site.rows("SELECT count(*) FROM junk_scan") == [(0,)], "scans go with their chapters"
     assert list(config.abs_path(site.cfg["paths"]["candidates"]).iterdir()) == [], "the folder is emptied"
 
@@ -376,7 +379,7 @@ def jpeg_logo_cbz(seed):
     with zipfile.ZipFile(data, "w") as z:
         for n in range(6):
             im = (
-                Image.open(io.BytesIO(logo_page()))
+                Image.open(io.BytesIO(logo_page(at=(100, 400))))  # at the top it would also be a band
                 if n == 2
                 else gray((1200, 1800), seed=zlib.crc32(f"{seed}{n}".encode()))
             )
@@ -401,7 +404,7 @@ def test_a_badge_is_painted_over_in_the_published_chapter_only_when_junk(site, v
     )
     result = json.loads(result)
     assert result["outcome"] == "avif" and result["blanked"] == (["003.jpg"] if verdict == "junk" else []), result
-    logo = logo_units.measure(2, Image.open(io.BytesIO(logo_page())).convert("RGB"))
+    logo = logo_units.measure(2, Image.open(io.BytesIO(logo_page(at=(100, 400)))).convert("RGB"))
     x0, y0, x1, y1 = logo["box"]
     with zipfile.ZipFile(path) as z:
         name = sorted(n for n in z.namelist() if n != "ComicInfo.xml")[2]
@@ -411,3 +414,145 @@ def test_a_badge_is_painted_over_in_the_published_chapter_only_when_junk(site, v
         assert spread <= 12, "the published page's badge box is 1 flat colour: the badge is painted over"
     else:
         assert spread > 100, "a kept badge is still on the published page"
+
+
+# ---------------------------------------------------------------- bands at 1 chapter (D5.16)
+
+
+def band_cbz(seed, on, pages=8):
+    """A page-format chapter of 600 x 852 art pages; page `on` (a download index) has the same WARNING band stacked
+    over it behind a gutter in every chapter (as tests/test_junk_page.banded_chapter). 8 pages: 3 middle pages, so the
+    edge pages have middle pages of their size beside them."""
+    from tests import pages as fx
+
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        for n in range(pages):
+            page_seed = zlib.crc32(f"{seed}{n}".encode())
+            im = fx.manga_page((600, 852), seed=page_seed, noise=3)
+            if n == on:
+                im = fx.stack(fx.warning_banner(), (40, 600), fx.manga_page((600, 840), seed=page_seed, noise=3))
+            z.writestr(f"{n + 1:03}.png", fx.png(im))
+    return data.getvalue()
+
+
+@budget(load="pool", seconds=60)
+def test_a_band_on_a_middle_page_holds_its_chapter_and_1_decision_frees_the_next(site):
+    site.download("Alpha", 2, band_cbz("m2", on=3))
+    site.parts()
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "D5.16: an undecided band holds its chapter"
+    assert [c["kind"] for c in open_candidates(site)] == ["band"], "the band, on a middle page, in 1 chapter"
+    assert decide_junk(site.cfg, "junk") == 1
+    process.run(site.cfg)
+    (edit,) = edits(site)
+    assert [b["page"] for b in edit["bands"]] == [3], "the band is cropped off the middle page"
+    site.download("Alpha", 3, band_cbz("m3", on=3))
+    site.parts()
+    assert all(c[0] != "junk" for c in site.chapters()), "the next chapter's band is decided: it does not wait"
+
+
+@budget(load="pool", seconds=60)
+def test_an_edge_page_decided_junk_frees_its_chapter_though_its_band_is_unsure(site):
+    site.download("Alpha", 2, band_cbz("e2", on=0))
+    site.parts()
+    got = open_candidates(site)
+    assert sorted(c["kind"] == "band" for c in got) == [False, True], "the edge page and its band are both offered"
+    with closing(db.connect(site.cfg)) as conn:
+        for c in got:
+            verdict, who = ("unsure", "claude") if c["kind"] == "band" else ("junk", "human")
+            review.decide(conn, c["id"], verdict, who, workflow.now())
+    process.run(site.cfg)
+    assert site.chapters()[0][0] != "junk", "the page is dropped, so its band holds nothing: no person is asked"
+    (edit,) = edits(site)
+    assert (edit["drop_pages"], edit["bands"]) == ([0], []), "the page goes whole"
+
+
+@budget(load="pool", seconds=60)
+def test_a_candidate_deleted_under_a_waiting_chapter_ends_its_wait(site):
+    """Schema step 0042 deletes candidates on unsignable keys: a chapter waiting on one and on another, still
+    undecided, is decided again at once, and waits on what is undecided then."""
+    site.download("Alpha", 2, band_cbz("g2", on=0))
+    site.parts()
+    ((before,),) = site.rows("SELECT candidates FROM junk_scan")
+    page = next(c["id"] for c in open_candidates(site) if c["kind"] != "band")  # the edge page (or its frame)
+    with closing(db.connect(site.cfg)) as conn:
+        conn.execute("DELETE FROM junk_candidate WHERE id = %s", (page,))
+    process.run(site.cfg)
+    ((after,),) = site.rows("SELECT candidates FROM junk_scan")
+    assert page in json.loads(before) and page not in json.loads(after), "decided again: the gone one is not listed"
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "it waits on the page and band offered again"
+
+
+# ---------------------------------------------------------------- series-wide watermarks
+
+
+def panels_cbz(panels):
+    """3 tall white pages of a long strip with 2 noisy panels each; `panels` names the 6 panels' noise in reading
+    order (the same name is the same panel)."""
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        for n in range(3):
+            im = Image.new("RGB", (300, 1200), "white")
+            for k, top in enumerate((100, 700)):
+                im.paste(Image.open(io.BytesIO(noise(panels[2 * n + k], (260, 400)))), (20, top))
+            out = io.BytesIO()
+            im.save(out, "PNG")
+            z.writestr(f"{n + 1:03}.png", out.getvalue())
+    return data.getvalue()
+
+
+@budget(load="pool", seconds=60)
+def test_a_watermark_1_chapter_shows_is_known_to_the_series_next_chapters(site, monkeypatch):
+    """Chapter 2 ends with the band twice: a watermark. Chapter 3 has it once at its tail, before a story panel: known
+    as a watermark it starts no credit block, so the panel after it is no tail piece. The memory is by key: an
+    import that rebuilds the decision under a new id changes nothing. Without the memory the panel is a tail piece."""
+    monkeypatch.setattr(ocr, "text", lambda im, device: "")
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    site.download("Long", 2, panels_cbz(["a2", "b2", "c2", "d2", "mark", "mark"]))
+    site.parts()
+    ((scan,),) = site.rows("SELECT scan FROM junk_scan")
+    mark = json.loads(scan)["blocks"][-1]["sig"]
+    row = {"series_key": "Long", "kind": "block", "key": mark, "verdict": "junk", "decider": "import"}
+    source = ([{**row, "decided_at": "2026-11-01T00:00:00+00:00", "source": "test"}], {}, None)
+    with closing(db.connect(site.cfg)) as conn:
+        importing.run(conn, source)
+    process.run(site.cfg)
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "its other blocks are still undecided"
+    assert site.rows("SELECT series_key, key FROM junk_watermark") == [("Long", mark)], "remembered while it waits"
+    decide_junk(site.cfg, "keep")
+    process.run(site.cfg)
+    assert site.rows("SELECT series_key, key FROM junk_watermark") == [("Long", mark)], "twice at 1 tail: a watermark"
+    with closing(db.connect(site.cfg)) as conn:
+        importing.run(conn, source)
+    site.download("Long", 3, panels_cbz(["a3", "b3", "c3", "d3", "mark", "f3"]))
+    site.parts()
+    assert "piece" not in {c["kind"] for c in open_candidates(site)}, "a known watermark starts no credit block"
+    with closing(db.connect(site.cfg)) as conn:
+        conn.execute("DELETE FROM junk_watermark")
+    site.download("Long", 4, panels_cbz(["a4", "b4", "c4", "d4", "mark", "f4"]))
+    site.parts()
+    assert "piece" in {c["kind"] for c in open_candidates(site)}, "unknown, the band starts the credit block"
+
+
+# ---------------------------------------------------------------- the series key
+
+
+@budget(load="db", seconds=10)
+def test_a_renamed_series_folder_keeps_its_junk_decisions_and_sightings(site):
+    site.download("Alpha", 2, cbz(seed="r2", credit=True))
+    site.parts()
+    assert decide_junk(site.cfg, "junk") == 1
+    process.run(site.cfg)
+    world = site.world
+    (world.library / "Alpha").rename(world.library / "Beta")
+    world.kavita.files = {path.replace("/Alpha/", "/Beta/"): f for path, f in world.kavita.files.items()}
+    ((kavita_id,),) = site.rows("SELECT kavita_series_id FROM series")
+    with closing(db.connect(site.cfg)) as conn:
+        identify.link(site.cfg, conn, world.suwayomi, world.kavita, site.mangas["Alpha"], kavita_id)
+    ((folder, key),) = site.rows("SELECT folder, rules_key FROM series")
+    assert folder.endswith("Beta") and key == "Alpha", "the folder follows Kavita; the rules key stays"
+    site.download("Alpha", 3, cbz(seed="r3", credit=True))
+    site.parts()
+    assert site.chapters()[1][0] != "junk", "the series' decision still drops the credit page"
+    assert site.rows("SELECT DISTINCT series_key FROM junk_seen") == [("Alpha",)], "new sightings join the old ones"

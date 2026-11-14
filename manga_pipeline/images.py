@@ -2,6 +2,7 @@
 page classes. Copied from the bulk converter's optimizer/formats.py (its archive half is archive.py); reads no config.
 """
 
+import functools
 import io
 import struct
 
@@ -350,6 +351,17 @@ def matches(a, b, threshold=PHASH_THRESHOLD, aspect_tol=ASPECT_TOLERANCE):
 def is_uniform(im, tolerance=UNIFORM_TOLERANCE):
     lo_hi = im.convert("RGB").getextrema()
     return all(hi - lo <= tolerance for lo, hi in lo_hi)
+
+
+@functools.cache
+def uniform_tiles():
+    """The tile hashes of uniform images (the pHash of every gray level)."""
+    return frozenset(signature(Image.new("L", (64, 64), v))[0][0] for v in range(256))
+
+
+def unsignable(sig):
+    """A signature whose every tile is a uniform image's: it would match any blank or flat rows."""
+    return set(sig[0]) <= uniform_tiles()
 
 
 def _tiles_str(tiles):

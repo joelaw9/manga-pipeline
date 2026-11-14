@@ -6,19 +6,19 @@ of its planner (plan_scan.strip_chapter, plan_review.tail_review / finish_strip)
   spans, every edge block with its hard-join pieces and their remainders (signature, OCR text when given), the
   measurements of every content block of the tail region and every remainder (the tail pieces are cut from them),
   and the signatures of the middle blocks (the watermark rule).
-- `decide(scan, decide_unit)` applies decisions with no decode: what is removed (edge blocks, pieces, remainders,
-  tail pieces, join-rule blank rows) and what is left undecided (edge blocks with their probes, tail pieces).
+- `decide(scan, decide_unit, known)` applies decisions with no decode: what is removed (edge blocks, pieces,
+  remainders, tail pieces, join-rule blank rows), what is left undecided (edge blocks with their probes, tail
+  pieces), and the keys of the decisions that acted as watermarks (the series remembers them: `known`).
 
 Not ported (SPEC "Junk decisions", D5.1): chains, cut rows and card holes; the rest-of-card bundles (each tail piece
-is its own unit). The watermark rule reads this chapter only (the old one read every chapter of the series).
+is its own unit). The watermark rule reads this chapter and the watermark keys the series' earlier chapters showed
+(the old one read every chapter of the series at once).
 Constants are the bulk converter's, frozen: the stored decisions were made with them.
 """
 
-import functools
 from collections import Counter
 
 import numpy as np
-from PIL import Image
 
 from manga_pipeline import images, strip
 
@@ -30,18 +30,12 @@ WEDGE_PX = 130  # W3: a piece (with gutters) shorter than this between 2 credit 
 MIN_PAGE = strip.RESTITCH["min_page"]  # kept check: a strip at least this long is never cut below it
 
 
-@functools.cache
-def uniform_tiles():
-    """The tile hashes of uniform images (the pHash of every gray level): a unit hashing only to these is unsignable."""
-    return frozenset(images.signature(Image.new("L", (64, 64), v))[0][0] for v in range(256))
-
-
 def signable(im):
     """The signature text of an image, or None when it is uniform or unsignable."""
     if images.is_uniform(im):
         return None
     sig = images.signature(im)
-    return None if set(sig[0]) <= uniform_tiles() else images.sig_to_str(sig)
+    return None if images.unsignable(sig) else images.sig_to_str(sig)
 
 
 def measure_piece(im):
@@ -50,7 +44,7 @@ def measure_piece(im):
     g = np.asarray(im.convert("L"), np.int16)
     uniform = images.is_uniform(im)
     sig = None if uniform else images.signature(im)
-    unsignable = sig is not None and set(sig[0]) <= uniform_tiles()
+    unsignable = sig is not None and images.unsignable(sig)
     return {
         "std": float(g.std()),
         "ink": int(np.abs(g - np.median(g)).max()),
@@ -207,12 +201,14 @@ def match_blocks(blocks, approve):
     return removed, left
 
 
-def watermarks(removed, middle):
+def watermarks(removed, middle, known=()):
     """The decision ids of this chapter's removed tail bands that are watermarks, not credits: removed as >= 2 tail
-    bands, or whose key matches a middle block of the chapter. removed: [{"where", "decision" (id), "key"}]."""
+    bands, or whose key matches a middle block of the chapter (an unsignable one matches nothing) or one of `known`,
+    the keys (parsed) the series' earlier chapters showed to be watermarks. removed: [{"where", "decision" (id),
+    "key"}]."""
     bands = [r for r in removed if r["where"] == "tail"]
     marks = {d for d, n in Counter(r["decision"] for r in bands).items() if n >= 2}
-    sigs = [images.sig_from_str(s) for s in middle]
+    sigs = [s for s in map(images.sig_from_str, middle) if not images.unsignable(s)] + list(known)
     for r in bands:
         if r["decision"] not in marks and any(images.matches(images.sig_from_str(r["key"]), s) for s in sigs):
             marks.add(r["decision"])
@@ -364,10 +360,11 @@ def kept_problem(layout, removed):
     return None
 
 
-def decide(sc, decide_unit):
+def decide(sc, decide_unit, known=()):
     """Apply decisions to a strip scan. decide_unit(kind, sig text) -> the deciding row (dict-like with "id",
-    "verdict", "key") or None. Returns {"removed": final ranges (after the join rule), "undecided": [{"kind",
-    "start", "end", "where", "sig", "text"?, "probes"?}], "kept_problem": text or None}."""
+    "verdict", "key") or None; known: the series' watermark keys (parsed). Returns {"removed": final ranges (after
+    the join rule), "undecided": [{"kind", "start", "end", "where", "sig", "text"?, "probes"?}], "kept_problem":
+    text or None, "watermarks": the keys of the decisions that removed a watermark here}."""
     layout = Layout(sc)
 
     def approve(kind, sig):
@@ -376,7 +373,7 @@ def decide(sc, decide_unit):
 
     found, left = match_blocks(sc["blocks"], approve)
     removed = [{**r, "decision": r["decision"]["id"], "key": r["decision"]["key"]} for r in found]
-    marks = watermarks(removed, sc["middle"])
+    marks = watermarks(removed, sc["middle"], known)
     bands = [r for r in removed if r["where"] == "tail" and r["decision"] not in marks]
     drops, review = [], []
     pieces = []
@@ -420,4 +417,5 @@ def decide(sc, decide_unit):
         "removed": [{"start": r["start"], "end": r["end"], "why": r["why"]} for r in final],
         "undecided": sorted(undecided, key=lambda u: u["start"]),
         "kept_problem": kept_problem(layout, final) if final else None,
+        "watermarks": sorted({r["key"] for r in removed if r["decision"] in marks}),
     }

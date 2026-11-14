@@ -11,8 +11,8 @@ from tests.world import World, cbz
 from tests.world import comicinfo as ci
 
 
-def series(basis, folder="/lib/Solo Leveling"):
-    return {"naming_basis": basis, "folder": folder}
+def series(basis, name="Solo Leveling"):
+    return {"naming_basis": basis, "rules_key": name}
 
 
 def write_override(folder, name, text):
@@ -137,3 +137,11 @@ def test_without_a_volume_the_downloads_volume_is_dropped_and_the_title_falls_ba
     assert world.rows("SELECT comicinfo_volume, comicinfo_title FROM published_file WHERE origin = 'pipeline'") == [
         (None, "Chapter 2")
     ], "name and ComicInfo agree: no volume; an untitled chapter is titled Chapter <n>"
+
+
+@budget(load="fs")
+def test_the_override_file_is_named_by_the_rules_key_not_the_folder(tmp_path):
+    """A renamed folder keeps its override file: the file is named by the series' first folder (its rules key)."""
+    write_override(tmp_path, "Solo Leveling", 'volumes: {2: "66-"}\n')
+    renamed = {"naming_basis": "override", "rules_key": "Solo Leveling", "folder": "/lib/I Level Up Alone"}
+    assert volumes.chapter_volume(renamed, names.parse("Chapter 70"), None, tmp_path) == 2

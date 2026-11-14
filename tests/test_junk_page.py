@@ -672,3 +672,23 @@ def test_a_frame_decision_on_a_real_end_page_drops_it_in_later_chapters(tmp_path
 
     out = page_units.decide(sc, decide_unit)
     assert out["edit"]["drop_pages"] == [8], out["edit"]
+
+
+@budget(3.0, load="fs")
+def test_an_undecided_band_on_a_middle_page_is_a_candidate_at_1_chapter(tmp_path):
+    """D5.16: a band on middle page 2 that no decision covers is a unit with the per-chapter reason 'band'."""
+    sc = banded_chapter(tmp_path, 2)
+    (band,) = [u for u in page_units.decide(sc, decider({}))["undecided"] if u["kind"] == "band"]
+    assert (band["page"], band["reasons"]) == (2, ["band"]), "offered by its own chapter, on any page"
+
+
+@budget(3.0, load="fs")
+def test_an_unsignable_band_is_no_band_and_its_edge_page_is_judged_as_a_page(tmp_path):
+    """A band whose ink signs as a flat image: no decision could be written on it, so it is no unit, and its page is
+    no band page: the edge-page size rule still offers the page."""
+    sc = banded_chapter(tmp_path, 0)
+    sc["bands"]["0"][0]["sig"] = images.sig_to_str(((0,), 2.5))
+    out = page_units.decide(sc, decider({}))
+    assert [u for u in out["undecided"] if u["kind"] == "band"] == [], "an unsignable band is no unit"
+    (page,) = [u for u in out["undecided"] if u["page"] == 0]
+    assert page["reasons"] == ["tall"], "its page is judged as a page"
