@@ -48,7 +48,7 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `convert.min_scratch_free_mb` | free space (MiB) on `paths.scratch`'s drive below which `process` does not run |
 | `sources.ranking` | Suwayomi source display names (`"<name> (<LANG>)"`) a bad download is re-downloaded from, best first (SPEC "Bad downloads") |
 | `sources.download_timeout_hours` | hours a queued re-download may take before the next source is tried |
-| `validate.non_chapter_names` | chapter names (without scanlator and number) of notice or hiatus pages, dropped at discover; empty = none |
+| `validate.non_chapter_names` | chapter names (without scanlator and number) of notice or hiatus pages: dropped at discover when unnumbered, judged at junk when numbered (SPEC "Validation"); empty = none |
 | `junk.claude_token` | the token `junk review` gives `claude -p` (from `claude setup-token`; secret: null in the example) |
 | `junk.claude_path` | the `claude` executable: a path, or a name found on `PATH` |
 | `junk.review_limit` | reviews that list a candidate before it is stuck (SPEC "Junk decisions") |

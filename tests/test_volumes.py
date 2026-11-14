@@ -145,3 +145,23 @@ def test_the_override_file_is_named_by_the_rules_key_not_the_folder(tmp_path):
     write_override(tmp_path, "Solo Leveling", 'volumes: {2: "66-"}\n')
     renamed = {"naming_basis": "override", "rules_key": "Solo Leveling", "folder": "/lib/I Level Up Alone"}
     assert volumes.chapter_volume(renamed, names.parse("Chapter 70"), None, tmp_path) == 2
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    "basis, kind, ours, theirs, same",
+    [
+        ("filename", names.MAIN, 2, 1, False),
+        ("filename", names.MAIN, 1, 1, True),
+        ("filename", names.MAIN, None, 1, True),
+        ("filename", names.MAIN, 2, None, True),
+        ("filename", names.SIDE, 2, 1, True),
+        ("override", names.MAIN, 2, 1, True),
+    ],
+)
+def test_a_published_file_of_the_key_is_another_chapter_only_under_another_file_name_volume(
+    basis, kind, ours, theirs, same
+):
+    """The bulk converter's rule: in a `filename` series a main chapter's volumes must not differ where both have
+    one; a side story's volume is assigned, and another basis assigns every volume, so there the key decides."""
+    assert volumes.same_chapter(basis, kind, ours, theirs) is same

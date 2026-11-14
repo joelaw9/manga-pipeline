@@ -90,10 +90,10 @@ CALIBRATION = {
 
 
 def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none"):
-    """A valid finished .optimizer.json: chapters = [(output, source file, number, source bytes)]; basis: its
-    series.naming.basis (where a new chapter's volume comes from)."""
+    """A valid finished .optimizer.json: chapters = [(output, source file, number, source bytes[, volume])]; basis:
+    its series.naming.basis (where a new chapter's volume comes from)."""
     sources, rows = [], []
-    for output, file, number, data in chapters:
+    for output, file, number, data, *volume in chapters:
         digest = hashlib.sha256("\n".join(archive.sha1(b) for _, b in _pages_of(data)).encode()).hexdigest()
         sources.append(
             {
@@ -109,7 +109,7 @@ def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none"):
                 "output": output,
                 "file": file,
                 "sources": [file],
-                "volume": None,
+                "volume": volume[0] if volume else None,
                 "number": number,
                 "title": "",
                 "pages_out": len(_pages_of(data)),
@@ -162,15 +162,15 @@ class World:
         **names,
     ):
         """A series Kavita holds in <library>/<folder or name> with bulk-converted chapters [(output, source file
-        stem, number)] and, with record, its .optimizer.json. Returns the Kavita series id."""
+        stem, number[, volume])] and, with record, its .optimizer.json. Returns the Kavita series id."""
         folder = folder or name
         path = self.library / folder
         path.mkdir(parents=True, exist_ok=True)
         chapters = []
-        for output, stem, number in bulk:
+        for output, stem, number, *volume in bulk:
             data = cbz(seed=stem)
             (path / output).write_bytes(data)
-            chapters.append((output, f"{stem}.cbz", number, data))
+            chapters.append((output, f"{stem}.cbz", number, data, *volume))
         series_id = self.kavita.add_series(name, folder, LIBRARY_ID, **names)
         self.kavita_specs.append((series_id, name, folder, names))
         if record:

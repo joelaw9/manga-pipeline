@@ -27,9 +27,10 @@ class Verdict:
     notes: list = field(default_factory=list)
 
 
-def check(cbz, key, published):
+def check(cbz, key, published, same=lambda p: True):
     """The verdict on a download. key: its (season, side label, number); published: the series' published files as
-    [{key, page_phashes (list or None), strip_length (int or None)}]."""
+    [{key, page_phashes (list or None), strip_length (int or None), ...}]; same(p): whether a published file of the
+    download's key is the same chapter (volumes.same_chapter), asked only once the pages have passed."""
     try:
         members = archive.pages(cbz)
     except archive.UNREADABLE as e:
@@ -52,7 +53,7 @@ def check(cbz, key, published):
         orientation = images.exif_orientation(data)
         if orientation in ROTATED:
             return Verdict("human", f"page {name} has EXIF orientation {orientation} (not upright)")
-    mislabel = _mislabelled(pages, key, published)
+    mislabel = _mislabelled(pages, key, published, same)
     if mislabel:
         return Verdict("human", mislabel)
     return Verdict("ok", pages=pages, notes=_duplicates(pages) + _short(pages, published))
@@ -62,13 +63,13 @@ def _hamming(a, b):
     return (int(a, 16) ^ int(b, 16)).bit_count()
 
 
-def _mislabelled(pages, key, published):
+def _mislabelled(pages, key, published, same):
     """Why the pages look like another chapter's, or None."""
     measured = [p for p in published if p["page_phashes"] is not None]
     if len(measured) < MIN_PUBLISHED:
         return None
     # ponytail: compares every pair of pages, O(pages x series pages); a band index (old _HammingIndex) if it gets slow
-    others = [h for p in measured if p["key"] != key for h in p["page_phashes"]]
+    others = [h for p in measured if not (p["key"] == key and same(p)) for h in p["page_phashes"]]
     ours = measures.summary(pages)["page_phashes"]
     if not ours or not others:
         return None

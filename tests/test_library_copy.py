@@ -10,8 +10,10 @@ from contextlib import closing
 import pytest
 from PIL import Image
 
-from manga_pipeline import config, db, images, intake, process
+from manga_pipeline import config, db, export, images, intake, measures, process
 
+from tests import pages as fx
+from tests.fakes.suwayomi import page as fake_page
 from tests.timing import budget
 from tests.world import World, cbz
 
@@ -148,3 +150,91 @@ def test_a_source_recorded_by_its_id_ranks_with_the_unranked_sources(world):
     through_junk(world, copies=[{"source": "2327480808438768017"}])
     stage, status, error = outcome(world)
     assert status == "needs_human" and "a better copy" in error, "Src (EN) is ranked; a bare source id is not"
+
+
+# ---------------------------------------------------------------- volumes in a `filename` series
+
+
+@pytest.fixture
+def by_filename(tmp_path):
+    """A series whose volume basis is `filename`, holding the bulk converter's Vol.1 Ch.3."""
+    w = World(tmp_path, sources={"ranking": [BEST, "Src (EN)"], "download_timeout_hours": 24})
+    w.kavita_series("Solo Leveling", bulk=(("Vol.1 Ch.3.cbz", "Grp_Vol.1 Chapter 3", "3", 1),), basis="filename")
+    w.manga_id = w.manga("Solo Leveling")
+    return w
+
+
+@budget(load="db", seconds=3)
+def test_another_file_name_volume_is_another_chapter_and_is_published(by_filename):
+    """Vol.2 Ch.3 beside the published Vol.1 Ch.3 is no copy of it; it is also the chapter that takes the baseline."""
+    by_filename.download(by_filename.manga_id, "Vol.2 Chapter 3")
+    for part in (intake, process, export):
+        by_filename.run(part)
+    assert (by_filename.library / "Solo Leveling" / "Vol.2 Ch.3.cbz").is_file(), "published beside Vol.1 Ch.3"
+    assert by_filename.rows("SELECT comicinfo_volume FROM published_file WHERE origin = 'pipeline'") == [("2",)]
+
+
+@budget(load="db")
+@pytest.mark.parametrize("name", ["Vol.01 Chapter 3", "Chapter 3"])
+def test_the_same_volume_or_none_is_the_same_chapter(by_filename, name):
+    by_filename.download(by_filename.manga_id, name)
+    by_filename.run(intake)
+    by_filename.run(process)
+    stage, status, error = outcome(by_filename)
+    assert status == "needs_human" and "a better copy than the published" in error, "judged against Vol.1 Ch.3"
+
+
+def pages_cbz(path, seed):
+    """3 distinct manga pages (other seed = other pages) as CBZ bytes, written to path too."""
+    members = {f"{i:03}.jpg": fx.jpeg(fx.manga_page(size=(300, 420), seed=seed + i)) for i in range(1, 4)}
+    return fx.cbz(path, members).read_bytes()
+
+
+@budget(load="db", seconds=5)
+def test_a_download_under_another_volume_with_that_chapters_pages_is_mislabelled(by_filename, tmp_path):
+    world = by_filename
+    world.download(world.manga_id, "Chapter 10")
+    world.run(intake)
+    world.run(process)  # takes the baseline: the series' volume basis is known at the next validate
+    phashes = {}
+    for seed in (200, 300, 400):
+        path = tmp_path / f"p{seed}.cbz"
+        pages_cbz(path, seed)
+        phashes[seed] = json.dumps(measures.summary(images.measure_pages(path))["page_phashes"])
+    with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE published_file SET page_phashes = %s", (phashes[200],))  # the bulk Vol.1 Ch.3
+        for number, seed in (("1", 300), ("2", 400)):
+            conn.execute(
+                """INSERT INTO published_file (library_path, series_id, identity, state, page_phashes, origin)
+                VALUES (%s, 1, %s, 'confirmed', %s, 'pipeline')""",
+                (f"/lib/Ch.{number}.cbz", json.dumps(["grp", None, "", number, ""]), phashes[seed]),
+            )
+    world.download(world.manga_id, "Vol.2 Chapter 3", data=pages_cbz(tmp_path / "d.cbz", 200))
+    world.run(intake)
+    (status, error) = world.rows("SELECT status, last_error FROM chapter ORDER BY id")[1]
+    assert status == "needs_human" and error.startswith("mislabelled"), "Vol.2 Ch.3 holding Vol.1 Ch.3's pages"
+
+
+@budget(load="db")
+def test_a_volume_that_is_not_whole_needs_a_human_at_the_copy_check(by_filename):
+    by_filename.download(by_filename.manga_id, "Vol.2.5 Chapter 3")
+    by_filename.run(intake)
+    by_filename.run(process)
+    stage, status, error = outcome(by_filename)
+    assert (stage, status) == ("junk", "needs_human") and "not a whole number" in error, "a person, not an error"
+
+
+@budget(load="db")
+def test_a_duplicate_dropped_at_junk_is_no_chapter_status_lists(world):
+    """Validate notes the download's repeated page; dropped as a duplicate, its notes go with it."""
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        for n, page in enumerate((1, 2, 1), 1):
+            z.writestr(f"{n:03}.png", fake_page(page, "new"))
+    world.download(world.manga_id, "Chapter 5", data=data.getvalue())
+    world.run(intake)
+    assert world.rows("SELECT notes FROM chapter") != [(None,)], "validate notes the repeated page"
+    published_copy(world)
+    world.run(process)
+    assert outcome(world)[2].startswith("dropped: a duplicate"), outcome(world)
+    assert world.rows("SELECT notes FROM chapter") == [(None,)], "a dropped chapter carries no notes"

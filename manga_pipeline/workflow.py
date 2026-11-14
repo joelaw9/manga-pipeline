@@ -457,7 +457,7 @@ def drop_chapter(conn, chapter_id, record):
         _refuse_unless_human(conn, chapter_id, DROPPABLE)
         conn.execute(
             """UPDATE chapter SET status = 'done', last_error = 'dropped by a person', redownload = NULL,
-                updated_at = %s WHERE id = %s""",
+                notes = NULL, updated_at = %s WHERE id = %s""",
             (now(), chapter_id),
         )
         record(conn)
@@ -540,7 +540,7 @@ def _outcome_columns(chapter, outcome, limit):
         attempts = chapter["attempts"] + 1
         return "status = 'ready', attempts = %s, last_error = %s", (attempts, outcome.error), attempts >= limit
     if isinstance(outcome, Dropped):
-        return "status = 'done', last_error = %s", (f"dropped: {outcome.reason}",), False
+        return "status = 'done', last_error = %s, notes = NULL", (f"dropped: {outcome.reason}",), False  # not listed
     return "status = 'ready'", (), False  # Unreachable: no attempt; NeedsHuman: needs_human sets the status
 
 
