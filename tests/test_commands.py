@@ -346,7 +346,8 @@ def test_status_sections_come_from_1_snapshot(tmp_path):
 
         with closing(db.read_only(cfg)) as conn:
             lines = status.report(WritesAfterFirstRead(conn))
-    assert lines[1] == "  none" and lines[-1] == "  none", "a chapter written mid-report shows nowhere or everywhere"
+    entries = [line for line in lines if line.startswith("  ")]
+    assert entries and all(line == "  none" for line in entries), "a chapter written mid-report shows in no section"
 
 
 class _Rows(list):

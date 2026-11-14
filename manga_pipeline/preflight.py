@@ -160,6 +160,8 @@ def workflow_settings(cfg):
         section, name = key.split(".")
         if cfg[section][name] < low:
             problems.append(f"{key} must be at least {low}, got {cfg[section][name]}")
+    if not all(isinstance(name, str) for name in cfg["series"]["only"]):  # scope compares names as text
+        problems.append(f"series.only must list series names as text, got {cfg['series']['only']!r}")
     return "; ".join(problems) or None
 
 

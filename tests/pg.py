@@ -155,16 +155,18 @@ class Process:
         connection open; a database whose reset fails is retired (held, unused) and its slot takes another."""
         used, unbuilt = sorted(set(self.used.values())), self.unbuilt
         self.used, self.unbuilt = {}, set()
-        leaks = []
-        for n in used:
+        leaks, failed = [], None
+        for n in used:  # every database is reset, whichever fails
             name = self.slots[n]
             try:
                 leaks += self._end_leaks(name)
                 self._reset(name, rebuild=name in unbuilt)
-            except Exception:
+            except Exception as e:
                 _set_print(self.owner, name, "")
                 self.slots[n] = self._take()
-                raise
+                failed = failed or e
+        if failed:
+            raise failed
         if leaks:
             raise LeakedConnection(f"the test left database connections open (ended now): {', '.join(leaks)}")
 

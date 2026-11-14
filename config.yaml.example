@@ -15,7 +15,7 @@ preflight:
 database:
   host: "/var/run/postgresql"   # PostgreSQL server: host name or address, or its local socket folder (a path from /)
   port: 5432                    # the server's port
-  name: "manga_pipeline"        # the pipeline's database; created on the server by the first part's run
+  name: "manga_pipeline"        # the pipeline's database; created on the server by state adopt
   user: "root"                  # the role to log in as; over the local socket, the machine user that runs the pipeline
   password: null                # secret, when the server asks for one: set MANGA_PIPELINE_DATABASE_PASSWORD
 

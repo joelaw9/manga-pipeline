@@ -266,6 +266,12 @@ def test_workflow_settings_refuse_an_attempt_limit_below_1():
 
 
 @budget(load="pure")
+def test_workflow_settings_refuse_a_series_named_by_a_number():
+    cfg = {**config.cached(), "series": {"only": ["Alpha", 86]}}  # YAML reads an unquoted 86 as a number
+    assert preflight.workflow_settings(cfg) == "series.only must list series names as text, got ['Alpha', 86]"
+
+
+@budget(load="pure")
 def test_workflow_settings_refuse_a_kavita_library_id_below_1():
     cfg = {**config.cached(), "kavita": {**config.cached()["kavita"], "library_id": 0}}
     assert preflight.workflow_settings(cfg) == "kavita.library_id must be at least 1, got 0", "scope reads it"

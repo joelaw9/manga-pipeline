@@ -118,7 +118,7 @@ def in_scope(cfg, series_name, kavita_library_id):
 
 
 def scope_params(cfg):
-    """The parameters SCOPE names."""
+    """The parameters SCOPE names (series.only holds text: preflight's workflow settings check)."""
     return {"scope_library": cfg["kavita"]["library_id"], "scope_only": list(cfg["series"]["only"])}
 
 

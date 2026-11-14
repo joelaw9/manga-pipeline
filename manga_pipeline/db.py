@@ -98,7 +98,8 @@ def _login(cfg):
 
 
 def _open(cfg, dbname=None):
-    """A connection from the database settings only: no PG* variable, service file or password file has a say."""
+    """A connection whose host, port, database, user and password are the database settings; no password file is read
+    (a PG* variable can set only what these do not, SPEC "Config")."""
     login = _login(cfg)
     dbname = dbname or login["name"]
     try:
@@ -227,8 +228,8 @@ def _create(cfg):
                     sql.Identifier(name)
                 )
             )
-        except psycopg.errors.DuplicateDatabase:
-            pass
+        except (psycopg.errors.DuplicateDatabase, psycopg.errors.UniqueViolation):
+            pass  # 2 creates racing: the loser gets either error (PostgreSQL's createdb checks the name racily)
 
 
 def _has_record(conn):

@@ -530,3 +530,22 @@ def test_a_bad_database_setting_exits_2_and_a_refused_login_exits_4(tmp_path, ca
 def test_a_lock_wait_is_bounded_as_sqlites_busy_timeout_was(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
         assert conn.execute("SHOW lock_timeout").fetchone()[0] == db.LOCK_TIMEOUT
+
+
+@budget(load="db")
+def test_a_failed_reset_still_resets_the_tests_other_databases(tmp_path, monkeypatch):
+    first, second = db_cfg(tmp_path / "a"), db_cfg(tmp_path / "b")
+    _fill(second)
+    real = pg.Process._reset
+
+    def failing(self, name, rebuild):
+        if name == first["database"]["name"]:
+            raise RuntimeError("this reset fails")
+        return real(self, name, rebuild)
+
+    monkeypatch.setattr(pg.Process, "_reset", failing)
+    with pytest.raises(RuntimeError, match="this reset fails"):
+        pg.process.end_test()
+    monkeypatch.undo()
+    with closing(db.connect(second)) as conn:
+        assert conn.execute("SELECT count(*) FROM series").fetchone()[0] == 0, "the other database is emptied too"

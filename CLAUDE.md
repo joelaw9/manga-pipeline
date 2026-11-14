@@ -80,8 +80,9 @@ python -m manga_pipeline.cli --help
 | `manga_pipeline/lock.py` | `held(cfg, *names)`: `<lock.dir>/<name>.lock` per name, all or nothing, an OS file lock (`msvcrt` on Windows, `fcntl` elsewhere); `LockHeld` |
 | `manga_pipeline/preflight.py` | `run(cfg, checks)` (`Check(name, HARD or SOFT, fn)`): soft problems warn, hard ones raise `PreflightFailed` (exit 4); ships `PYTHON_VERSION`, `FOLDER_LAYOUT`, `SHARE_FOLDERS_PRESENT`, `WORKFLOW_SETTINGS`, `SERVICE_SETTINGS`, `SHARE_OWNERSHIP`, `STAGING_FOLDER`, `OCR_DEVICE`, `JUNK_WORD_LISTS`, `IMAGE_TOOLS`, `SCORER`, `SCRATCH_SPACE`, `CLAUDE_SETTINGS` (hard), `FREE_SPACE` (soft); `owner_file(cfg)` |
 | `tests/__init__.py` | points `config.load` at `tests/test_config.yaml`; refuses the live config |
-| `tests/conftest.py` | no-network guard, per-test timing report |
-| `tests/builders.py` | fixture builders: `site_cfg(tmp_path)`, series and chapter rows, fake downloads |
+| `tests/conftest.py` | no-network guard, per-test timing report; takes the process's pool databases (`tests/pg.py`) at start and empties those a test used in its teardown; fails a run that built `mp_test_unassigned` |
+| `tests/pg.py` | test databases (SPEC "Tests"): the pool `mp_test_pool_<n>` kept on the test server, taken per process under advisory locks, made right on take (step-file fingerprint), emptied after every test; a leaked connection fails its test |
+| `tests/builders.py` | fixture builders: `site_cfg(tmp_path, built=True)` (with its pool database), series and chapter rows, fake downloads |
 | `tests/fakes/` | `http.py` (`Clock`, `Urlopen`, `CannedService`, `NoNetwork`), `suwayomi.py` (`FakeSuwayomi`, `cbz`), `kavita.py` (`FakeKavita`: a scan is queued until `run_scans()`, then indexes a temp library with Kavita's name rule); they import the clients, never a part, a stage or `workflow` |
 | `tests/fixtures_api/` | Suwayomi replies recorded from the real server by reads only |
 | `tests/timing.py` | `@budget` per-test time budgets (copied from the unit-tests skill; project code now) |
