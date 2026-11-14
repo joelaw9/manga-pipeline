@@ -64,7 +64,7 @@ One setup call, from the entry point. Records go to the console and, for a comma
 
 Each command names the lock it runs under, or none: `intake`, `process`, `export` and `junk review` each have their own (`<lock.dir>/<command>.lock`); `status`, `retry`, `chapter use`, `chapter drop`, `series link`, `smoke`, `junk list`, `junk show`, `junk decide` and `junk import` take none, so they work while a part is active; `state reset` and `state adopt` take all 4, so they run only while nothing else does. With `lock.enabled`, a command's lock is taken after config is loaded and before logging is set up, and freed when the command ends. A command that finds its lock held prints an error naming the lock file to stderr and exits 3 at once, without opening the log file; it never waits.
 
-A lock file left by a run that died does not block the next run. Where the lock is a file holding the holder's pid (no OS file lock), 2 runs starting in the same instant against a dead holder's file can both take it.
+Each lock is an OS file lock on its file, which the OS frees when the process ends, a crash included: a lock file left by a run that died does not block the next run, and 2 runs starting in the same instant never both take it.
 
 ## Preflight
 
