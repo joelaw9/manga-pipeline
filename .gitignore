@@ -28,3 +28,6 @@ __pycache__/
 *.py[cod]
 .ruff_cache/
 .testmondata*
+
+# code-review-graph local settings
+.code-review-graphignore
