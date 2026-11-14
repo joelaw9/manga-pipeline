@@ -29,7 +29,7 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `paths.library` | root of the Kavita library the pipeline publishes into (on the share) |
 | `paths.staging` | staging folder for finished chapters (on the share, outside every library root) |
 | `paths.retention` | where removed downloads are kept for `export.retention_days` (on the share, same filesystem as downloads, outside downloads and every library root) |
-| `paths.naming_overrides` | the work folder of per-series volume overrides, `<series folder name>.yaml`; default `rules/naming` in the project, which the repository keeps empty (its files are the instance's, gitignored) |
+| `paths.naming_overrides` | the work folder of per-series volume overrides, `<series rules key>.yaml` (SPEC "Series identification"); default `rules/naming` in the project, which the repository keeps empty (its files are the instance's, gitignored) |
 | `paths.scratch` | scratch folder for the chapter in hand (local disk) |
 | `paths.covers` | folder of fetched cover images (local disk); a volume cover's path is relative to it (SPEC "Conversion") |
 | `paths.candidates` | folder of the open junk candidates' images (local disk; SPEC "Junk decisions") |

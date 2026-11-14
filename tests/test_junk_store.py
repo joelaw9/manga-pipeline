@@ -232,7 +232,7 @@ def test_bulk_store_import_maps_verdicts_scope_and_kinds_and_reads_the_wal(conn,
         (r["series_key"], r["kind"]): r
         for r in conn.execute("SELECT * FROM junk_decision WHERE key != %s", (chained_key,))
     }
-    assert counts["added"] == 8 and counts["skipped"] == {"cut": 1, "chain": 1}, counts
+    assert counts["added"] == 8 and counts["skipped"] == {"cut": 1, "chain": 1, "unsignable": 0}, counts
     chained = conn.execute("SELECT verdict FROM junk_decision WHERE key = %s", (chained_key,)).fetchone()
     assert chained["verdict"] == "junk", "a chained block approve comes over as a plain decision, its chain dropped"
     assert rows[("S", "block")]["verdict"] == "junk", "approve -> junk"
@@ -674,4 +674,125 @@ def test_step_0021_keeps_decisions_and_candidate_ids_and_allows_logos(tmp_path, 
     ids = [r[0] for r in conn.execute("SELECT id FROM junk_candidate ORDER BY id")]
     assert ids == [1, 2, 4], "a candidate id is never reused across the step"
     assert conn.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'junk_decision_scope'").fetchone(), "index kept"
+    conn.close()
+
+
+# ---------------------------------------------------------------- unsignable keys
+
+FLAT = 0  # the pHash tile of a uniform image (images.uniform_tiles)
+
+
+@budget(load="db")
+def test_a_unit_with_an_unsignable_key_matches_no_decision_and_is_near_none(conn):
+    """A junk decision within the match tolerance of a flat image decides a signable unit as near, never a flat
+    one: that key would stand for any blank or flat rows."""
+    put(conn, decision("S", "block", sig((flip(FLAT, 3),)), "junk"))
+    decisions = store.Decisions(conn, "S")
+    assert decisions.decide("block", ((flip(FLAT, 4),), 1.0)) is not None, "a signable unit within reach is decided"
+    assert decisions.decide("block", ((FLAT,), 1.0)) is None, "a flat unit matches nothing"
+    assert store.near(conn, "T", ((flip(FLAT, 4),), 1.0)) is not None, "a signable unit of another series is near"
+    assert store.near(conn, "T", ((FLAT,), 1.0)) is None, "a flat unit is near nothing"
+
+
+@budget(load="db")
+def test_a_decision_on_an_unsignable_key_is_refused(conn):
+    with pytest.raises(ValueError, match="unsignable"):
+        put(conn, decision("S", "band", sig((FLAT, 0x8000000000000000)), "junk", decider="human"))
+    assert conn.execute("SELECT count(*) FROM junk_decision").fetchone()[0] == 0, "nothing is written"
+
+
+@budget(load="db")
+def test_an_import_leaves_out_a_decision_on_an_unsignable_key_and_counts_it(conn):
+    rows = [decision("S", "block", sig((FLAT,)), "junk"), decision("S", "block", sig(), "junk")]
+    counts = importing.run(conn, (rows, {}, None))
+    assert counts["added"] == 1 and counts["skipped"] == {"unsignable": 1}, counts
+    assert [r[0] for r in conn.execute("SELECT key FROM junk_decision")] == [sig()], "only the signable one is stored"
+
+
+@budget(load="db")
+def test_an_unsignable_unit_is_never_offered_nor_a_blocks_unsignable_probe(conn):
+    words = {"keywords": ["scans"], "weak": [], "paired": [], "suppress": []}
+    band = {"kind": "band", "key": sig((FLAT,), 3.2), "page": 3, "where": "top", "reasons": ["band"]}
+    assert candidates.select(conn, "S", chapter(2), [band], words) == [], "no decision could be written on it"
+    flat = {"sig": sig((FLAT,), 0.2), "start": 0, "end": 60, "text": "read at scans"}
+    banner = {"sig": sig((flip(T, 9),), 0.2), "start": 60, "end": 120, "text": "more scans"}
+    block = {"kind": "block", "sig": sig((flip(T, 60),)), "start": 0, "end": 300, "where": "head"}
+    (pick,) = candidates.select(conn, "S", chapter(2), [{**block, "probes": [flat, banner]}], words)
+    assert (pick["kind"], pick["key"]) == ("probe", banner["sig"]), "the unsignable probe is passed over for the next"
+
+
+@budget(load="db")
+def test_a_unit_matching_a_decided_candidate_but_no_decision_gets_its_own_candidate(conn):
+    """Matching is not transitive: candidate T is covered by a decision 6 bits away on one side, the unit is 6 bits
+    away on the other (12 from the decision). Joining the closed candidate would end the chapter's wait at once and
+    start it again, for ever."""
+    unit = sig((T ^ (0b111111 << 6),))
+    pick = {"kind": "block", "key": sig(), "reason": "r"}
+    with db.transaction(conn):
+        (old,) = candidates.join(conn, "S", [pick], "2026-11-01T00:00:00+00:00")
+    put(conn, decision("S", "block", sig((flip(T, 6),)), "keep"))
+    with db.transaction(conn):
+        (new,) = candidates.join(conn, "S", [{**pick, "key": unit}], "2026-11-02T00:00:00+00:00")
+    assert new != old, "the covered candidate is closed; the undecided unit opens its own"
+
+
+def schema_without(tmp_path, monkeypatch, step):
+    """db.SCHEMA replaced by a copy without `step` (monkeypatch.undo() brings the program's back)."""
+    import shutil
+
+    before = tmp_path / "schema"
+    shutil.copytree(db.SCHEMA, before)
+    (before / step).unlink()
+    monkeypatch.setattr(db, "SCHEMA", before)
+
+
+@budget(3.0, load="db")
+def test_step_0042_deletes_decisions_and_candidates_on_unsignable_keys(tmp_path, monkeypatch):
+    cfg = site_cfg(tmp_path, built=False)
+    schema_without(tmp_path, monkeypatch, "0042_unsignable_keys.sql")
+    old = db.connect(cfg)
+    flat, mixed = sig((FLAT, 0x8000000000000000), 2.0), sig((FLAT, T), 2.0)
+    for kind, key in (("block", flat), ("band", mixed), ("frame", "f")):
+        old.execute(
+            "INSERT INTO junk_decision (series_key, kind, key, verdict, decider, decided_at)"
+            " VALUES ('S', %s, %s, 'junk', 'human', 't')",
+            (kind, key),
+        )
+        old.execute(
+            "INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at)"
+            " VALUES ('S', %s, %s, 'r', 'f', 't')",
+            (kind, key),
+        )
+    old.close()
+    monkeypatch.undo()
+    conn = db.connect(cfg)
+    for table in ("junk_decision", "junk_candidate"):
+        left = sorted(tuple(r) for r in conn.execute(f"SELECT kind, key FROM {table}"))
+        assert left == [("band", mixed), ("frame", "f")], f"{table}: only the signature of uniform tiles alone goes"
+    conn.close()
+    step = (db.SCHEMA / "0042_unsignable_keys.sql").read_text(encoding="utf-8")
+    tiles = images.uniform_tiles()
+    assert len(tiles) == 2 and all(f"{t:016x}" in step for t in tiles), "the step names the computed uniform tiles"
+
+
+@budget(3.0, load="db")
+def test_step_0040_names_each_series_by_its_first_folder_and_a_later_folder_leaves_it(tmp_path, monkeypatch):
+    cfg = site_cfg(tmp_path, built=False)
+    schema_without(tmp_path, monkeypatch, "0040_series_rules_key.sql")
+    old = db.connect(cfg)
+    for name, folder in (("win", r"C:\lib\Solo Leveling"), ("posix", "/lib/Top/Omniscient Reader/"), ("held", None)):
+        old.execute("INSERT INTO series (name, origin, folder) VALUES (%s, 'new', %s)", (name, folder))
+    old.close()
+    monkeypatch.undo()
+    conn = db.connect(cfg)
+
+    def keys():
+        return dict(tuple(r) for r in conn.execute("SELECT name, rules_key FROM series"))
+
+    assert keys() == {"win": "Solo Leveling", "posix": "Omniscient Reader", "held": None}, "the folder's last part"
+    conn.execute("UPDATE series SET folder = '/lib/Renamed' WHERE name = 'posix'")
+    conn.execute("UPDATE series SET folder = '/lib/First' WHERE name = 'held'")
+    conn.execute("INSERT INTO series (name, origin, folder) VALUES ('fresh', 'new', '/lib/Fresh')")
+    want = {"win": "Solo Leveling", "posix": "Omniscient Reader", "held": "First", "fresh": "Fresh"}
+    assert keys() == want, "set with the first folder a series gets, never changed by a later one"
     conn.close()

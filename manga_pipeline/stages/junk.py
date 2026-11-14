@@ -35,7 +35,7 @@ def run(ctx, chapter):
         return outcome
     if not chapter["content_digest"]:
         raise ValueError(f"chapter {chapter['id']} has no content digest: discovery sets it before junk")
-    key = store.series_key(series["folder"])
+    key = store.series_key(series)
     row = current_scan(ctx.conn, chapter)
     if row is None:
         return scan(ctx, chapter, series, key)
@@ -177,11 +177,14 @@ def decide(ctx, chapter, key, row):
         return decisions.decide(kind, store.parse_key(kind, text))
 
     edit = {"drop_pages": [], "bands": [], "join": [], "split": False, "strip_removed": [], "blank": []}
+    watermarks = []
     if sc["layout"] == "strip":
-        got = strip_units.decide(sc, decide_unit)
+        known = ctx.conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
+        got = strip_units.decide(sc, decide_unit, [images.sig_from_str(r["key"]) for r in known])
         if got["kept_problem"]:
             return workflow.NeedsHuman(got["kept_problem"])
         edit["strip_removed"] = got["removed"]
+        watermarks = [(key, k) for k in got["watermarks"]]
         survives = logo_units.strip_survives(edit["strip_removed"])
     else:
         got = page_units.decide(sc, decide_unit)
@@ -192,9 +195,16 @@ def decide(ctx, chapter, key, row):
     words = {w: ctx.cfg["junk"][w] for w in WORDS}
     undecided = got["undecided"] + logos["undecided"]
     picks = candidates.select(ctx.conn, key, chapter["identity"], undecided, words)
+
+    def remember(conn):  # with the outcome: the series' later chapters know these bands as watermarks
+        db.executemany(
+            conn, "INSERT INTO junk_watermark (series_key, key) VALUES (%s, %s) ON CONFLICT DO NOTHING", watermarks
+        )
+
     if not picks:
 
         def done(conn):
+            remember(conn)
             values = (chapter["id"], json.dumps(edit))
             conn.execute(
                 "INSERT INTO chapter_edit (chapter_id, edit) VALUES (%s, %s) ON CONFLICT"
@@ -205,11 +215,12 @@ def decide(ctx, chapter, key, row):
 
         return workflow.Done(record=done)
     limit = ctx.cfg["junk"]["review_limit"]
-    rows = [candidates.find(ctx.conn, key, p["kind"], p["key"]) for p in picks]
+    rows = [candidates.find(ctx.conn, decisions, p["kind"], p["key"]) for p in picks]
     held = [r for r in rows if r is not None and (r["verdict"] == "unsure" or candidates.stuck(r, limit))]
     if held:
 
         def hold(conn):  # the chapter keeps the candidates it waits on open, so junk decide can name them
+            remember(conn)
             ids = sorted(r["id"] for r in rows if r is not None)
             conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
 
@@ -220,6 +231,7 @@ def decide(ctx, chapter, key, row):
     at = workflow.now()
 
     def wait(conn):
+        remember(conn)
         ids = candidates.join(conn, key, picks, at)
         conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
 
@@ -236,28 +248,27 @@ def held_reason(rows, limit):
 
 
 def junk_decision_over(ctx, chapter):
-    """The junk_decision wait (SPEC "Junk decisions"): over (True) when the chapter's scan is stale (it rescans) or
-    every candidate it waits on is covered by a decision; NeedsHuman when one is unsure or stuck; else False."""
+    """The junk_decision wait (SPEC "Junk decisions"): over (True) when the chapter's scan is stale (it rescans) or a
+    candidate it waits on is covered by a decision or gone: the chapter is decided again and waits on what is still
+    undecided then (a decision can make another candidate moot: a dropped page's band). Else NeedsHuman when one is
+    unsure or stuck; else False."""
     row = ctx.conn.execute("SELECT * FROM junk_scan WHERE chapter_id = %s", (chapter["id"],)).fetchone()
     if row is None or current_scan(ctx.conn, chapter) is None:
         return True
     limit = ctx.cfg["junk"]["review_limit"]
-    waiting, held = False, []
+    ids, held = json.loads(row["candidates"]), []
     decisions = store.by_series(ctx.conn)
-    for cid in json.loads(row["candidates"]):
+    for cid in ids:
         c = ctx.conn.execute("SELECT * FROM junk_candidate WHERE id = %s", (cid,)).fetchone()
         if c is None:
-            continue  # cleaned up: it was closed
-        decided = decisions(c["series_key"]).decide(c["kind"], store.parse_key(c["kind"], c["key"]))
-        if decided is not None:
-            continue
+            return True  # cleaned up: it was closed
+        if decisions(c["series_key"]).decide(c["kind"], store.parse_key(c["kind"], c["key"])) is not None:
+            return True
         if c["verdict"] == "unsure" or candidates.stuck(c, limit):
             held.append(c)
-        else:
-            waiting = True
     if held:
         return workflow.NeedsHuman(held_reason(held, limit))
-    return not waiting
+    return not ids
 
 
 def bulk_conversion_over(ctx, chapter):

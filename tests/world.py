@@ -59,12 +59,12 @@ def logo_page(badge="marks_scans_plain.png", size=(1200, 1800), at=(100, 100)):
 
 
 def logo_cbz(seed="", badge="marks_scans_plain.png", pages=8, at=3):
-    """A page-format CBZ of `pages` fake pages whose download page `at` is a logo_page: a middle page, so the badge is
-    the chapter's only junk unit."""
+    """A page-format CBZ of `pages` fake pages whose download page `at` is a logo_page: a middle page, its badge away
+    from the page's top and bottom (there it would also be a band), so the badge is the chapter's only junk unit."""
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
         for n in range(pages):
-            z.writestr(f"{n + 1:03}.png", logo_page(badge) if n == at else fake_page(n + 1, seed))
+            z.writestr(f"{n + 1:03}.png", logo_page(badge, at=(100, 400)) if n == at else fake_page(n + 1, seed))
     return data.getvalue()
 
 

@@ -123,7 +123,10 @@ def _write(conn, series, record, name, layout):
             " %s, 1, 'record', %s)",
             (series["id"], group, q, why),
         )
-    store.upsert(conn, importing.winners(importing.record_rows(record)))  # the junk decisions it carries
+    rows, unsignable = importing.signable(importing.winners(importing.record_rows(record)))
+    if unsignable:
+        log.info("series %s: %s record decision(s) on an unsignable key not imported", series["id"], unsignable)
+    store.upsert(conn, rows)  # the junk decisions it carries
     conn.execute(
         "UPDATE series SET baseline_at = %s, comicinfo_series = %s, naming_basis = %s WHERE id = %s",
         (stamp, name, record["series"]["naming"].get("basis"), series["id"]),

@@ -6,7 +6,8 @@ read; the other database is opened through db.read_only.
 An import rebuilds the imported rows: in 1 transaction every decision whose decider is 'import' (and, from a
 bulk-converter store, every imported sighting) is deleted and the source's rows are loaded fresh, so a decision the
 bulk converter deleted or changed is followed exactly. The pipeline's own decisions and sightings are never touched;
-a source row on a key the pipeline decided is left out. No other row refers to a decision's id.
+a source row on a key the pipeline decided is left out, and so is one on an unsignable key (counted). No other row
+refers to a decision's id.
 """
 
 import base64
@@ -58,6 +59,12 @@ def winners(rows):
         if k not in best or rank >= best[k][0]:
             best[k] = (rank, r)
     return [r for _, r in best.values()]
+
+
+def signable(rows):
+    """(the rows a decision may be written from, how many were left out: on an unsignable key)."""
+    kept = [r for r in rows if not store.unsignable(r["kind"], r["key"])]
+    return kept, len(rows) - len(kept)
 
 
 def bulk_rows(src, name):
@@ -217,9 +224,10 @@ def run(conn, source):
     """Rebuild the imported rows from source, (rows, skipped, seen) of read_store or read_database (module docstring).
     Returns {"added", "removed", "changed", "unchanged" (decisions, compared by key with the rows before),
     "pipeline_kept" (source rows left out because the pipeline decided their key), "seen" (imported sightings now),
-    "skipped": {what: count}}."""
+    "skipped": {what: count, "unsignable": rows on an unsignable key}}."""
     rows, skipped, seen = source
-    rows = winners(rows)
+    rows, unsignable = signable(winners(rows))
+    skipped = {**skipped, "unsignable": unsignable}
     with db.transaction(conn):
         before = {_ident(r): _value(r) for r in conn.execute("SELECT * FROM junk_decision WHERE decider = 'import'")}
         conn.execute("DELETE FROM junk_decision WHERE decider = 'import'")
