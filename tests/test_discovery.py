@@ -1,6 +1,7 @@
 """Discovery, series identification and the discover stage (SPEC "Suwayomi", "Series identification", "Bad
 downloads")."""
 
+import errno
 from contextlib import closing
 
 import pytest
@@ -88,6 +89,54 @@ def test_a_title_no_kavita_series_matches_is_a_new_series_listed_and_not_taken(w
     assert world.rows("SELECT count(*) FROM series") == [(0,)], "a new series is not processed yet"
     ((listed, reason),) = world.rows("SELECT path, reason FROM unmatched_download")
     assert listed == str(path) and reason.startswith("new series")
+
+
+def _unlistable(monkeypatch, *folders, error=(22, "An unexpected network error occurred"), root=None):
+    """os.scandir fails on these folders as Windows fails on a Samba name it cannot show (WinError 59, errno 22);
+    root, if given, lists once and then fails (the share gone while discovery lists it)."""
+    real = discovery.os.scandir
+    bad = {str(f) for f in folders}
+    root_calls = []
+
+    def scandir(path):
+        if str(path) in bad:
+            raise OSError(*error, str(path))
+        if root is not None and str(path) == str(root):
+            root_calls.append(path)
+            if len(root_calls) > 1:
+                raise OSError(22, "The network name cannot be found", str(path))
+        return real(path)
+
+    monkeypatch.setattr(discovery.os, "scandir", scandir)
+
+
+@budget(load="db")
+def test_a_manga_folder_that_cannot_be_listed_is_listed_and_the_rest_is_taken(world, monkeypatch):
+    world.kavita_series("Solo Leveling")
+    world.kavita_series("Omniscient Reader")
+    _, good = world.download(world.manga("Solo Leveling"), "Chapter 2")
+    _, bad = world.download(world.manga("Omniscient Reader"), "Chapter 5")
+    _unlistable(monkeypatch, bad.parent)
+    scan(world)
+    assert world.rows("SELECT download_path FROM chapter") == [(str(good),)], "the other downloads are still taken"
+    ((listed, reason),) = world.rows("SELECT path, reason FROM unmatched_download")
+    assert listed == str(bad.parent) and reason.startswith("its folder cannot be listed"), "the folder is listed"
+
+
+@budget(load="db")
+@pytest.mark.parametrize(
+    "error, root_fails",
+    [((22, "An unexpected network error occurred"), True), ((errno.EIO, "Input/output error"), False)],
+    ids=["root-gone-after-listing", "share-errno"],
+)
+def test_a_manga_folder_error_ends_the_scan_when_the_share_is_failing(world, monkeypatch, error, root_fails):
+    world.kavita_series("Solo Leveling")
+    _, path = world.download(world.manga("Solo Leveling"), "Chapter 2")
+    root = path.parent.parent.parent
+    _unlistable(monkeypatch, path.parent, error=error, root=root if root_fails else None)
+    with pytest.raises(OSError):
+        scan(world)
+    assert world.rows("SELECT count(*) FROM unmatched_download") == [(0,)], "a failing share lists nothing"
 
 
 @budget(load="db")
