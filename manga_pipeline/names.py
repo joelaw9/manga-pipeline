@@ -109,6 +109,21 @@ def number_key(number):
     return int(base), frac if frac.strip("0") else ""
 
 
+def two_readings(number):
+    """Why a chapter number has no single reading, or None: its decimal part ends in 0 without being all zeros
+    ("26.10": 26.1, or part 10 of chapter 26). fmt_num, a file name and Kavita read such a number as the shorter
+    decimal, so a download numbered so is held for a person (SPEC "Bad downloads")."""
+    if number is None:
+        return None
+    whole, part = number_key(number)
+    if not part.endswith("0"):
+        return None
+    return (
+        f"number {whole}.{part} has no single reading: {whole}.{part.rstrip('0')}, or part {int(part)} of chapter "
+        f"{whole}"
+    )
+
+
 def fmt_num(n):
     """Chapter / volume number as text, every digit kept: 1.0 / "01" -> "1", 17.5 -> "17.5"; None -> None."""
     if n is None:
@@ -322,9 +337,11 @@ def key(text):
 
 def identity(item):
     """A chapter's identity (SPEC "Bad downloads"): JSON text of [scanlator key, season, side label, number, title
-    key]; numbers as fmt_num gives them, so "01" and "1" agree."""
+    key]; numbers as fmt_num gives them, so "01" and "1" agree. A number with 2 readings (two_readings) stays as
+    written ("26.10"), so it is never the identity of the chapter fmt_num would make of it (26.1)."""
     season = fmt_num(item.season) if item.season is not None else None
-    return json.dumps([key(item.group), season, side_label(item), fmt_num(item.number), key(item.title)])
+    number = "{}.{}".format(*number_key(item.number)) if two_readings(item.number) else fmt_num(item.number)
+    return json.dumps([key(item.group), season, side_label(item), number, key(item.title)])
 
 
 # --- the bulk converter's naming of a published file (its optimizer/naming.py), copied: SPEC "Publishing"
