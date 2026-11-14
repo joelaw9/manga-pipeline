@@ -1,0 +1,2 @@
+# worktrees hold copies of the repo on other branches
+.claude/worktrees/
