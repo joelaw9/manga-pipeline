@@ -146,7 +146,8 @@ def outcome_lines(text, outcome):
     return found
 
 
-@budget(load="subprocess", seconds=30)
+# 2 process runs over 40 chapters: every statement is a round trip to the server (23 s on SQLite, 33-40 s here).
+@budget(load="subprocess", seconds=45)
 def test_2_unlocked_runs_of_a_part_never_work_a_chapter_twice(world, tmp_path):
     cfg = world.cfg
     downloads(world, 4, 10)
