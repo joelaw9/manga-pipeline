@@ -13,7 +13,7 @@ from manga_pipeline import archive, comicinfo, config, names, volumes, workflow
 
 
 def run(ctx, chapter):
-    series = ctx.conn.execute("SELECT * FROM series WHERE id = ?", (chapter["series_id"],)).fetchone()
+    series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
     if not series["comicinfo_series"]:
         raise ValueError(f"series {series['id']} has no ComicInfo Series name (no baseline)")
     download = Path(chapter["download_path"])
@@ -40,9 +40,9 @@ def run(ctx, chapter):
 
     def record(conn):
         conn.execute(
-            """UPDATE chapter SET staged_size = ?, library_path = ?, comicinfo_series = ?, comicinfo_volume = ?,
-                comicinfo_number = ?, comicinfo_title = ?, comicinfo_date = ?
-            WHERE id = ?""",
+            """UPDATE chapter SET staged_size = %s, library_path = %s, comicinfo_series = %s, comicinfo_volume = %s,
+                comicinfo_number = %s, comicinfo_title = %s, comicinfo_date = %s
+            WHERE id = %s""",
             (
                 size,
                 str(target),

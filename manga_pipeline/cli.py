@@ -43,7 +43,6 @@ PART_LOCKS = ("intake", "process", "export", "junk-review")
 LOCKED_CHECKS = (
     preflight.PYTHON_VERSION,
     preflight.FREE_SPACE,
-    preflight.DATABASE_LOCATION,
     preflight.FOLDER_LAYOUT,
     preflight.SHARE_FOLDERS_PRESENT,
 )
@@ -66,7 +65,6 @@ ADOPT_CHECKS = (*LOCKED_CHECKS, preflight.STAGING_FOLDER)
 REVIEW_CHECKS = (
     preflight.PYTHON_VERSION,
     preflight.FREE_SPACE,
-    preflight.DATABASE_LOCATION,
     preflight.FOLDER_LAYOUT,
     preflight.WORKFLOW_SETTINGS,
     preflight.CLAUDE_SETTINGS,
@@ -86,10 +84,7 @@ class Command:
 
 
 def retry(cfg, args):
-    path = config.abs_path(cfg["database"]["path"])
-    if not path.is_file():
-        raise workflow.Refused(f"no database at {path}: nothing to retry")
-    with closing(db.connect(cfg)) as conn:
+    with _database(cfg, "retry") as conn:
         if args.series is None:
             workflow.retry_chapter(conn, args.chapter)
             log.info("chapter %s is ready again", args.chapter)
@@ -99,9 +94,9 @@ def retry(cfg, args):
 
 
 def _database(cfg, what):
-    path = config.abs_path(cfg["database"]["path"])
-    if not path.is_file():
-        raise workflow.Refused(f"no database at {path}: nothing to {what}")
+    """The built database, for a command that never builds one (SPEC "State")."""
+    if not db.built(cfg):
+        raise workflow.Refused(f"no database {cfg['database']['name']} built yet: nothing to {what}")
     return closing(db.connect(cfg))
 
 
@@ -129,21 +124,19 @@ def chapter_drop(cfg, args):
 
 
 def series_link(cfg, args):
-    path = config.abs_path(cfg["database"]["path"])
-    if not path.is_file():
-        raise workflow.Refused(f"no database at {path}: nothing to link")
-    with closing(db.connect(cfg)) as conn:
+    with _database(cfg, "link") as conn:
         identify.link(
             cfg, conn, suwayomi.from_config(cfg), kavita.from_config(cfg), args.manga_id, args.kavita_series_id
         )
 
 
 def junk_import(cfg, args):
+    try:
+        source = importing.read_store(args.path) if args.path else importing.read_database(cfg, args.database)
+    except importing.SourceError as e:
+        raise workflow.Refused(str(e)) from None
     with closing(db.connect(cfg)) as conn:
-        try:
-            counts = importing.run(conn, args.path, config.abs_path(cfg["database"]["path"]))
-        except importing.SourceError as e:
-            raise workflow.Refused(str(e)) from None
+        counts = importing.run(conn, source)
     skipped = ", ".join(f"{what} {n}" for what, n in counts["skipped"].items()) or "none"
     print(
         f"imported decisions: added {counts['added']}, removed {counts['removed']}, changed {counts['changed']}, "
@@ -154,10 +147,7 @@ def junk_import(cfg, args):
 
 
 def _junk_db(cfg):
-    path = config.abs_path(cfg["database"]["path"])
-    if not path.is_file():
-        raise workflow.Refused(f"no database at {path}")
-    return closing(db.connect(cfg))
+    return _database(cfg, "list, show or decide")
 
 
 def _folder(cfg, row):
@@ -257,7 +247,9 @@ def parser():
         dest="junk_command", required=True, metavar="ACTION"
     )
     import_ = junk.add_parser("import", help="import decisions from a bulk-converter junk store or a pipeline database")
-    import_.add_argument("path", help="the database file (only read)")
+    source = import_.add_mutually_exclusive_group(required=True)
+    source.add_argument("path", nargs="?", help="the bulk converter's junk.sqlite3 (only read)")
+    source.add_argument("--database", help="another pipeline database on the same server (only read)")
     import_.set_defaults(command="junk import")
     list_ = junk.add_parser("list", help="the open junk candidates to decide")
     list_.add_argument("--all", action="store_true", help="every open candidate, stuck and unsure ones included")
@@ -296,7 +288,7 @@ def parser():
 def main(argv=None):
     """Exit code: 0 done, 1 an unexpected error (logged with its traceback), a failed smoke check or a failed junk
     review, 2 usage or config error or a refused command, 3 another run holds a lock the command takes, 4 a hard
-    preflight check failed or the database is not one this version can use."""
+    preflight check failed, the database server cannot be used, or the database is not one this version can use."""
     p = parser()
     args = p.parse_args(argv)
     command = COMMANDS[args.command]
@@ -319,9 +311,11 @@ def main(argv=None):
             except workflow.Refused as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 2
-            except db.SchemaError as e:
+            except (db.SchemaError, db.CannotConnect) as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 4
+            except config.ConfigError as e:  # a database setting, checked where the database is opened
+                p.error(str(e))
             except (smoke.Failed, review_run.ReviewFailed) as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 1

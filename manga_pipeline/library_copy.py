@@ -19,7 +19,7 @@ def judge(ctx, chapter):
     key = validation.chapter_key(chapter["identity"])
     rows = [
         r
-        for r in ctx.conn.execute("SELECT * FROM published_file WHERE series_id = ?", (chapter["series_id"],))
+        for r in ctx.conn.execute("SELECT * FROM published_file WHERE series_id = %s", (chapter["series_id"],))
         # A published file gone from the library is no copy: publishing replaces its record (SPEC "Publishing").
         if validation.chapter_key(r["identity"]) == key and Path(r["library_path"]).exists()
     ]
@@ -36,7 +36,7 @@ def judge(ctx, chapter):
     ours = measures.summary(pages)
     theirs = _original(published)
     row = ctx.conn.execute(
-        "SELECT layout FROM series_conversion WHERE series_id = ?", (chapter["series_id"],)
+        "SELECT layout FROM series_conversion WHERE series_id = %s", (chapter["series_id"],)
     ).fetchone()
     if row is None:
         raise ValueError(

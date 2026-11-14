@@ -75,11 +75,11 @@ def test_a_download_lands_in_its_series_indexed_and_its_original_retained(world,
     assert target in [f["path"] for f in world.kavita.series_files(kavita_id)]
     assert not path.exists() and retained(world, path).exists(), "the original goes to the retention folder"
     assert world.suwayomi.chapter_rows[chapter_id]["isDownloaded"], "Suwayomi still shows it downloaded"
-    assert world.rows("SELECT state, origin FROM published_file WHERE library_path = ?", str(target)) == [
+    assert world.rows("SELECT state, origin FROM published_file WHERE library_path = %s", str(target)) == [
         ("confirmed", "pipeline")
     ]
     assert world.rows(
-        "SELECT pages_in, median_page_width, strip_length, page_phashes FROM published_file WHERE library_path = ?",
+        "SELECT pages_in, median_page_width, strip_length, page_phashes FROM published_file WHERE library_path = %s",
         str(target),
     ) == [(3, 16, 4500, "[]")], (
         "the download's own measurements are stored for later copies: 3 pages of 16 x 24, no pHash for a flat page"
@@ -177,7 +177,7 @@ def an_hour_passes(world):
     """The last scan request and every wait so far are older than kavita.rescan_after_minutes."""
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute("UPDATE chapter SET updated_at = '2000-01-01T00:00:00+00:00' WHERE status = 'waiting'")
-        conn.execute("UPDATE meta SET value = '2000-01-01T00:00:01+00:00' WHERE key = ?", (export.REQUESTED_AT,))
+        conn.execute("UPDATE meta SET value = '2000-01-01T00:00:01+00:00' WHERE key = %s", (export.REQUESTED_AT,))
 
 
 @budget(load="db", seconds=4)
@@ -338,7 +338,7 @@ def test_a_failed_scan_request_is_logged_left_due_and_charges_nothing(world, sol
     monkeypatch.setattr(world.kavita, "scan_library", refuse)
     world.run(export)
     assert world.rows("SELECT scan_due FROM series") == [(1,)], "the next run requests it"
-    assert world.rows("SELECT value FROM meta WHERE key = ?", export.REQUESTED_AT) == [], "no request on record"
+    assert world.rows("SELECT value FROM meta WHERE key = %s", export.REQUESTED_AT) == [], "no request on record"
     assert world.rows("SELECT stage, status, attempts FROM chapter") == [("confirm", "waiting", 0)]
     monkeypatch.undo()
     world.run(export)
@@ -360,5 +360,5 @@ def test_a_failed_repeat_request_keeps_the_earlier_request_and_charges_nothing(w
 
     monkeypatch.setattr(world.kavita, "scan_library", refuse)
     world.run(export)
-    assert world.rows("SELECT value FROM meta WHERE key = ?", export.REQUESTED_AT) == [("2000-01-01T00:00:01+00:00",)]
+    assert world.rows("SELECT value FROM meta WHERE key = %s", export.REQUESTED_AT) == [("2000-01-01T00:00:01+00:00",)]
     assert world.rows("SELECT status, attempts FROM chapter") == [("waiting", 0)], "a charge needs a request"

@@ -105,7 +105,11 @@ def test_a_download_older_than_the_timeout_is_given_up(world):
     bad_download(world)
     with world_conn(world) as conn:
         old = "2000-01-01T00:00:00+00:00"
-        conn.execute("UPDATE chapter SET redownload = json_set(redownload, '$.expected.enqueued_at', ?)", (old,))
+        conn.execute(
+            "UPDATE chapter SET redownload = jsonb_set(redownload::jsonb, '{expected,enqueued_at}',"
+            " to_jsonb(%s::text))::text",
+            (old,),
+        )
     world.run(intake)
     assert state(world)["expected"]["source"] == OTHER, "still queued, but too old: the next source"
 
@@ -214,7 +218,7 @@ def test_chapter_use_and_drop_refuse_a_chapter_that_is_not_needs_human(world, st
     world.download(world.manga_id, "Chapter 12")
     world.run(intake)
     with world_conn(world) as conn:
-        conn.execute("UPDATE chapter SET status = ?", (status,))
+        conn.execute("UPDATE chapter SET status = %s", (status,))
     with pytest.raises(workflow.Refused, match="not needs_human"):
         command(cli.chapter_use, world, chapter=1, suwayomi_chapter=5)
     with pytest.raises(workflow.Refused, match="not needs_human"):
@@ -268,7 +272,11 @@ def test_a_download_finished_after_the_timeout_is_still_taken(world):
     world.suwayomi.finish_downloads(cbz(seed="late"))
     with world_conn(world) as conn:
         old = "2000-01-01T00:00:00+00:00"
-        conn.execute("UPDATE chapter SET redownload = json_set(redownload, '$.expected.enqueued_at', ?)", (old,))
+        conn.execute(
+            "UPDATE chapter SET redownload = jsonb_set(redownload::jsonb, '{expected,enqueued_at}',"
+            " to_jsonb(%s::text))::text",
+            (old,),
+        )
     world.run(intake)
     assert chapter(world)[:2] == ("junk", "ready"), "a finished download is judged, however late intake looks at it"
 
@@ -347,7 +355,8 @@ def test_chapter_drop_is_refused_while_re_download_work_is_outstanding(world):
     exhausted(world)
     with world_conn(world) as conn:
         conn.execute(
-            "UPDATE chapter SET redownload = json_set(redownload, '$.remove', json_array(json_object('path', 'x.cbz')))"
+            "UPDATE chapter SET redownload = jsonb_set(redownload::jsonb, '{remove}',"
+            " jsonb_build_array(jsonb_build_object('path', 'x.cbz')))::text"
         )
     with pytest.raises(workflow.Refused, match="outstanding"):
         command(cli.chapter_drop, world, chapter=1)
@@ -374,7 +383,7 @@ def test_a_suwayomi_chapter_another_open_chapter_holds_is_never_picked(world):
     world.run(intake)
     world.suwayomi.fail_download(chapter_id)
     world.run(intake)
-    ((status, error),) = world.rows("SELECT status, last_error FROM chapter WHERE suwayomi_chapter_id = ?", chapter_id)
+    ((status, error),) = world.rows("SELECT status, last_error FROM chapter WHERE suwayomi_chapter_id = %s", chapter_id)
     assert status == "needs_human" and "Other (EN)" in error, "Other's Ch. 12 belongs to the other chapter"
     assert held.exists(), "the other chapter's download is untouched"
 
@@ -411,7 +420,7 @@ def test_a_replacement_repeating_another_published_chapter_is_mislabelled(world)
         for n in (30, 31, 32):
             conn.execute(
                 """INSERT INTO published_file (library_path, series_id, identity, state, page_phashes, strip_length,
-                    origin) VALUES (?, 1, ?, 'confirmed', ?, 4500, 'pipeline')""",
+                    origin) VALUES (%s, 1, %s, 'confirmed', %s, 4500, 'pipeline')""",
                 (f"/lib/{n}.cbz", json.dumps(["", None, "", str(n), ""]), json.dumps(phashes)),
             )
     world.suwayomi.finish_downloads(copy)

@@ -4,6 +4,6 @@
 -- {defect, original: {source, manga_id, chapter_id}, rejected: [{source, chapter_id, digest, why}], tried: [source],
 --  same_source_done, expected: {source, manga_id, chapter_id, path, enqueued_at} | null, chosen: chapter id | null,
 --  remove: [{path, chapter_id, dequeue}]} (redownload.py)
-ALTER TABLE chapter ADD COLUMN redownload TEXT CHECK (redownload IS NULL OR json_valid(redownload));
+ALTER TABLE chapter ADD COLUMN redownload TEXT CHECK (redownload IS NULL OR redownload IS JSON);
 -- JSON list of short notes (duplicate pages, short chapter), shown by status
-ALTER TABLE chapter ADD COLUMN notes TEXT CHECK (notes IS NULL OR json_valid(notes));
+ALTER TABLE chapter ADD COLUMN notes TEXT CHECK (notes IS NULL OR notes IS JSON);

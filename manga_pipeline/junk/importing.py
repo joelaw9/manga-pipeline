@@ -1,6 +1,7 @@
-"""`junk import` (SPEC "Junk decisions", import): decisions from the bulk converter's junk.sqlite3 or from another
-pipeline database, and from a bulk-converter series record's decision rows. The source is never written: it is opened
-read-only (its WAL included) and copied into memory before it is read.
+"""`junk import` (SPEC "Junk decisions", import): decisions from the bulk converter's junk.sqlite3 (read_store) or
+from another pipeline database on the same server (read_database), and from a bulk-converter series record's decision
+rows. A source is never written: the store is opened read-only (its WAL included) and copied into memory before it is
+read; the other database is opened through db.read_only.
 
 An import rebuilds the imported rows: in 1 transaction every decision whose decider is 'import' (and, from a
 bulk-converter store, every imported sighting) is deleted and the source's rows are loaded fresh, so a decision the
@@ -17,6 +18,7 @@ from manga_pipeline import db, images, names
 from manga_pipeline.convert import record_reader
 from manga_pipeline.junk import frames, marks, store
 
+SOURCE_TIMEOUT_S = 30  # how long the store's SQLite file may stay locked by its writer
 VERDICT = {"approve": "junk", "keep": "keep"}  # the bulk converter's decision -> ours
 UNIT_ORIGINS = ("block", "probe", "piece", "page", "band")  # the bulk converter's origins imported (not cut)
 
@@ -32,7 +34,7 @@ def snapshot(path):
         raise SourceError(f"no database at {path}")
     mem = sqlite3.connect(":memory:")
     try:
-        with closing(sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=db.BUSY_TIMEOUT_S)) as src:
+        with closing(sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=SOURCE_TIMEOUT_S)) as src:
             src.backup(mem)
     except sqlite3.DatabaseError as e:
         mem.close()
@@ -151,12 +153,19 @@ def record_rows(record):
     return out
 
 
-def pipeline_rows(src):
-    """Rows of another pipeline database, with their deciders, times and sources."""
-    return [
-        {c: r[c] for c in ("series_key", "kind", "key", "verdict", "decider", "decided_at", "source")}
-        for r in src.execute("SELECT * FROM junk_decision ORDER BY id")
-    ]
+def read_database(cfg, name):
+    """(rows, skipped, seen) of another pipeline database on the server: its decisions with their deciders, times and
+    sources; its sightings are not read (seen None)."""
+    if name == cfg["database"]["name"]:
+        raise SourceError(f"{name} is this pipeline's own database")
+    try:
+        with closing(db.read_only({**cfg, "database": {**cfg["database"], "name": name}})) as src:
+            rows = [{c: r[c] for c in DECISION_COLUMNS} for r in src.execute("SELECT * FROM junk_decision ORDER BY id")]
+    except db.NoDatabase as e:
+        raise SourceError(str(e)) from None
+    except db.SchemaError as e:
+        raise SourceError(f"{name} is not a pipeline database of this version: {e}") from None
+    return rows, {}, None
 
 
 SEEN_KINDS = ("block", "page", "band")  # the bulk converter's sightings counted for recurrence (its kinds = ours)
@@ -187,44 +196,47 @@ def tables(src):
 
 
 DECISION_COLUMNS = ("series_key", "kind", "key", "verdict", "decider", "decided_at", "source")
-PLACES = ", ".join("?" * len(DECISION_COLUMNS))
+PLACES = ", ".join(["%s"] * len(DECISION_COLUMNS))
 
 
-def run(conn, path, own_database):
-    """Rebuild the imported rows from the database at `path` (module docstring). Returns {"added", "removed",
-    "changed", "unchanged" (decisions, compared by key with the rows before), "pipeline_kept" (source rows left out
-    because the pipeline decided their key), "seen" (imported sightings now), "skipped": {what: count}}.
-    own_database: this program's database file, refused as a source."""
+def read_store(path):
+    """(rows, skipped, seen) of the bulk converter's junk store at `path`: its decisions, the rows not imported by
+    what, and its sightings."""
     path = Path(path).resolve()
-    if path == Path(own_database).resolve():
-        raise SourceError(f"{path} is this pipeline's own database")
     with closing(snapshot(path)) as src:
-        found = tables(src)
+        if not {"junk", "frames", "marks", "junk_seen"} <= tables(src):
+            raise SourceError(f"{path} is not a bulk-converter junk store")
         try:
-            if {"junk", "frames", "marks", "junk_seen"} <= found:
-                (rows, skipped), seen = bulk_rows(src, path.name), bulk_seen(src)
-            elif {"junk_decision", "schema_step"} <= found:
-                rows, skipped, seen = pipeline_rows(src), {}, None
-            else:
-                raise SourceError(f"{path} is neither a bulk-converter junk store nor a pipeline database")
+            (rows, skipped), seen = bulk_rows(src, path.name), bulk_seen(src)
         except sqlite3.Error as e:
             raise SourceError(f"{path}: its tables are not the expected ones: {e}") from e
+    return rows, skipped, seen
+
+
+def run(conn, source):
+    """Rebuild the imported rows from source, (rows, skipped, seen) of read_store or read_database (module docstring).
+    Returns {"added", "removed", "changed", "unchanged" (decisions, compared by key with the rows before),
+    "pipeline_kept" (source rows left out because the pipeline decided their key), "seen" (imported sightings now),
+    "skipped": {what: count}}."""
+    rows, skipped, seen = source
     rows = winners(rows)
     with db.transaction(conn):
         before = {_ident(r): _value(r) for r in conn.execute("SELECT * FROM junk_decision WHERE decider = 'import'")}
         conn.execute("DELETE FROM junk_decision WHERE decider = 'import'")
         own = {_ident(r) for r in conn.execute("SELECT * FROM junk_decision")}
         kept = [r for r in rows if _ident(r) not in own]
-        conn.executemany(
+        db.executemany(
+            conn,
             f"INSERT INTO junk_decision ({', '.join(DECISION_COLUMNS)}) VALUES ({PLACES})",
             [tuple(r[c] for c in DECISION_COLUMNS) for r in kept],
         )
         after = {_ident(r): _value(r) for r in kept if r["decider"] == "import"}
         if seen is not None:
             conn.execute("DELETE FROM junk_seen WHERE origin = 'import'")
-            conn.executemany(
+            db.executemany(
+                conn,
                 """INSERT INTO junk_seen (series_key, kind, key, identity, first_seen, origin)
-                VALUES (?, ?, ?, ?, ?, ?)""",
+                VALUES (%s, %s, %s, %s, %s, %s)""",
                 seen,
             )
         seen_now = conn.execute("SELECT count(*) FROM junk_seen WHERE origin = 'import'").fetchone()[0]

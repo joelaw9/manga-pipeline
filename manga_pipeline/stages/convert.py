@@ -32,7 +32,7 @@ def staged_name(conn, chapter_id):
 
 def _edit(conn, chapter_id):
     """The chapter's checked edit; raises plan.EditError when the row is missing or malformed (a program error)."""
-    row = conn.execute("SELECT edit FROM chapter_edit WHERE chapter_id = ?", (chapter_id,)).fetchone()
+    row = conn.execute("SELECT edit FROM chapter_edit WHERE chapter_id = %s", (chapter_id,)).fetchone()
     if row is None:
         raise plan.EditError("no chapter_edit row: the junk stage wrote none (a program error)")
     return plan.check_edit(row[0])
@@ -40,7 +40,9 @@ def _edit(conn, chapter_id):
 
 def _layout(conn, series_id):
     """(layout, page aspects or None) of the series (series_conversion; page_aspect is JSON text)."""
-    row = conn.execute("SELECT layout, page_aspect FROM series_conversion WHERE series_id = ?", (series_id,)).fetchone()
+    row = conn.execute(
+        "SELECT layout, page_aspect FROM series_conversion WHERE series_id = %s", (series_id,)
+    ).fetchone()
     if row is None:
         raise RuntimeError(f"series {series_id} has no layout (series_conversion)")
     aspect = None if row["page_aspect"] is None else json.loads(row["page_aspect"])
@@ -141,7 +143,7 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
         return workflow.NeedsHuman(str(e))
     if not chapter_plan.kept():
         return workflow.NeedsHuman("the chapter edit drops every page")
-    cover_row = ctx.conn.execute("SELECT * FROM volume_cover WHERE chapter_id = ?", (chapter["id"],)).fetchone()
+    cover_row = ctx.conn.execute("SELECT * FROM volume_cover WHERE chapter_id = %s", (chapter["id"],)).fetchone()
     cover = None
     if cover_row is not None:
         cover = {"data": covers.load(cfg, cover_row), "width": covers.width(chapter_plan)}
@@ -213,7 +215,8 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
 
     def record(conn):
         conn.execute(
-            "UPDATE chapter SET staged_path = ?, staged_size = ?, convert_result = ?, output_pages = ? WHERE id = ?",
+            "UPDATE chapter SET staged_path = %s, staged_size = %s, convert_result = %s,"
+            " output_pages = %s WHERE id = %s",
             (str(staged), size, json.dumps(result), json.dumps(output_pages), chapter["id"]),
         )
 

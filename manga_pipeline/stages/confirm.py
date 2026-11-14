@@ -24,7 +24,9 @@ def run(ctx, chapter):
     retention.put(ctx.cfg, Path(chapter["download_path"]))
 
     def record(conn):
-        conn.execute("UPDATE published_file SET state = 'confirmed' WHERE library_path = ?", (chapter["library_path"],))
+        conn.execute(
+            "UPDATE published_file SET state = 'confirmed' WHERE library_path = %s", (chapter["library_path"],)
+        )
 
     return workflow.Done(record)
 
@@ -36,7 +38,7 @@ def wait_over(ctx, chapter):
 
 
 def _series(ctx, chapter):
-    return ctx.conn.execute("SELECT * FROM series WHERE id = ?", (chapter["series_id"],)).fetchone()
+    return ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
 
 
 def _indexed(ctx, series, chapter):

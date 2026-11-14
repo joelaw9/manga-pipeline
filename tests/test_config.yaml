@@ -13,7 +13,13 @@ preflight:
   min_free_mb: 0
 
 database:
-  path: "$TMP/pipeline.sqlite3"
+  # The test role exists only on the developer's and CI's servers (SPEC "Tests"); its password protects nothing.
+  # site_cfg sets each test's own database name; this one is never built.
+  host: "localhost"
+  port: 5432
+  name: "mp_test_unassigned"
+  user: "mp_test"
+  password: "mp_test"
 
 paths:
   downloads: "$TMP/share/downloads"

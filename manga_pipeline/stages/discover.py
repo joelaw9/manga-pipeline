@@ -35,7 +35,7 @@ def run(ctx, chapter):
 
     def record(conn):
         conn.execute(
-            "UPDATE chapter SET identity = ?, content_digest = ? WHERE id = ?",
+            "UPDATE chapter SET identity = %s, content_digest = %s WHERE id = %s",
             (names.identity(item), digest, chapter["id"]),
         )
 

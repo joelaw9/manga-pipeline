@@ -22,7 +22,7 @@ WORDS = ("keywords", "weak", "paired", "suppress")
 
 
 def run(ctx, chapter):
-    series = ctx.conn.execute("SELECT * FROM series WHERE id = ?", (chapter["series_id"],)).fetchone()
+    series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
     if baseline.needed(series):
         why = baseline.take(ctx, series)
         if why:
@@ -46,7 +46,7 @@ def current_scan(conn, chapter):
     """The chapter's junk_scan row when it is current (same series, same content digest, holding logos: a scan made
     before logo detection holds none), else None."""
     current = workflow.SCANNED.format(c="c")
-    sql = f"SELECT s.* FROM chapter c JOIN junk_scan s ON s.chapter_id = c.id WHERE c.id = ? AND {current}"
+    sql = f"SELECT s.* FROM chapter c JOIN junk_scan s ON s.chapter_id = c.id WHERE c.id = %s AND {current}"
     return conn.execute(sql, (chapter["id"],)).fetchone()
 
 
@@ -80,14 +80,14 @@ def _layout(ctx, series, content_paths):
 
 def _aspects(ctx, series, sizes):
     """The series' page aspect candidates: stored, else computed from this chapter and stored."""
-    row = ctx.conn.execute("SELECT page_aspect FROM series_conversion WHERE series_id = ?", (series["id"],)).fetchone()
+    row = ctx.conn.execute("SELECT page_aspect FROM series_conversion WHERE series_id = %s", (series["id"],)).fetchone()
     if row["page_aspect"] is not None:
         return json.loads(row["page_aspect"])
     aspects = strip.page_aspect([sizes])
     if aspects is not None:
         with db.transaction(ctx.conn):
             ctx.conn.execute(
-                "UPDATE series_conversion SET page_aspect = coalesce(page_aspect, ?) WHERE series_id = ?",
+                "UPDATE series_conversion SET page_aspect = coalesce(page_aspect, %s) WHERE series_id = %s",
                 (json.dumps(aspects), series["id"]),
             )
     return aspects or []
@@ -115,8 +115,11 @@ def scan(ctx, chapter, series, key):
 
     def record(conn):
         conn.execute(
-            """INSERT OR REPLACE INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at)
-            VALUES (?, ?, ?, ?, ?)""",
+            """INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (chapter_id) DO UPDATE SET series_id = excluded.series_id,
+                content_digest = excluded.content_digest, scan = excluded.scan, scanned_at = excluded.scanned_at,
+                candidates = '[]'""",
             (chapter["id"], chapter["series_id"], chapter["content_digest"], json.dumps(sc), at),
         )
         candidates.write_seen(conn, seen)
@@ -193,8 +196,12 @@ def decide(ctx, chapter, key, row):
 
         def done(conn):
             values = (chapter["id"], json.dumps(edit))
-            conn.execute("INSERT OR REPLACE INTO chapter_edit (chapter_id, edit) VALUES (?, ?)", values)
-            conn.execute("DELETE FROM junk_scan WHERE chapter_id = ?", (chapter["id"],))
+            conn.execute(
+                "INSERT INTO chapter_edit (chapter_id, edit) VALUES (%s, %s) ON CONFLICT"
+                " (chapter_id) DO UPDATE SET edit = excluded.edit",
+                values,
+            )
+            conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
 
         return workflow.Done(record=done)
     limit = ctx.cfg["junk"]["review_limit"]
@@ -204,7 +211,7 @@ def decide(ctx, chapter, key, row):
 
         def hold(conn):  # the chapter keeps the candidates it waits on open, so junk decide can name them
             ids = sorted(r["id"] for r in rows if r is not None)
-            conn.execute("UPDATE junk_scan SET candidates = ? WHERE chapter_id = ?", (json.dumps(ids), chapter["id"]))
+            conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
 
         return workflow.NeedsHuman(held_reason(held, limit), record=hold)
     new = [p for p, r in zip(picks, rows, strict=True) if r is None]
@@ -214,7 +221,7 @@ def decide(ctx, chapter, key, row):
 
     def wait(conn):
         ids = candidates.join(conn, key, picks, at)
-        conn.execute("UPDATE junk_scan SET candidates = ? WHERE chapter_id = ?", (json.dumps(ids), chapter["id"]))
+        conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
 
     return workflow.Waiting("junk_decision", {"candidates": len(picks)}, record=wait)
 
@@ -231,14 +238,14 @@ def held_reason(rows, limit):
 def junk_decision_over(ctx, chapter):
     """The junk_decision wait (SPEC "Junk decisions"): over (True) when the chapter's scan is stale (it rescans) or
     every candidate it waits on is covered by a decision; NeedsHuman when one is unsure or stuck; else False."""
-    row = ctx.conn.execute("SELECT * FROM junk_scan WHERE chapter_id = ?", (chapter["id"],)).fetchone()
+    row = ctx.conn.execute("SELECT * FROM junk_scan WHERE chapter_id = %s", (chapter["id"],)).fetchone()
     if row is None or current_scan(ctx.conn, chapter) is None:
         return True
     limit = ctx.cfg["junk"]["review_limit"]
     waiting, held = False, []
     decisions = store.by_series(ctx.conn)
     for cid in json.loads(row["candidates"]):
-        c = ctx.conn.execute("SELECT * FROM junk_candidate WHERE id = ?", (cid,)).fetchone()
+        c = ctx.conn.execute("SELECT * FROM junk_candidate WHERE id = %s", (cid,)).fetchone()
         if c is None:
             continue  # cleaned up: it was closed
         decided = decisions(c["series_key"]).decide(c["kind"], store.parse_key(c["kind"], c["key"]))
@@ -255,7 +262,7 @@ def junk_decision_over(ctx, chapter):
 
 def bulk_conversion_over(ctx, chapter):
     """The bulk_conversion wait ends once the series has a baseline or its record parses."""
-    series = ctx.conn.execute("SELECT * FROM series WHERE id = ?", (chapter["series_id"],)).fetchone()
+    series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
     return not baseline.needed(series) or baseline.record_problem(series) is None
 
 

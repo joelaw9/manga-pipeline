@@ -14,6 +14,12 @@ Setup (system Python 3.13+, no packaging; pip 25.1+ for `--group`):
 python -m pip install --group dev
 ```
 
+The tests need a local PostgreSQL 17 server on `localhost:5432` with `max_connections = 300` (as its superuser: `ALTER SYSTEM SET max_connections = 300`, then restart the service), `pg_hba.conf` letting the test role in from this machine without a password (`host all mp_test 127.0.0.1/32 trust` and `host all mp_test ::1/128 trust`, above the other lines; then `SELECT pg_reload_conf()`), and the test role, which must never exist on the pipeline's own server:
+
+```bash
+psql -h localhost -U postgres -d postgres -c "CREATE ROLE mp_test LOGIN CREATEDB PASSWORD 'mp_test'"
+```
+
 Tests (pytest, in parallel with pytest-xdist; each run ends with a per-test timing report and writes `state/test-timings.json`; a serial `python -m pytest -q` also checks the per-test budgets; parallel runs, the merge hook's and CI's included, skip that check):
 
 ```bash
@@ -52,7 +58,7 @@ python -m manga_pipeline.cli --help
 |---|---|
 | `manga_pipeline/cli.py` | entry point: argparse subcommands (global `--config`, `--set`); `COMMANDS`, the command table: each command's locks, log file, preflight checks and handler; runs config (`config.init`), locks, logging, preflight, handler |
 | `manga_pipeline/config.py` | `load` (file, then `ENV_PREFIX` variables, then `--set`; validated against `config.yaml.example`), `init`, `cached`, `reset`, `abs_path` |
-| `manga_pipeline/db.py` | `connect(cfg)` (WAL, 30 s busy timeout, foreign keys, autocommit, `sqlite3.Row` rows; applies missing schema steps, refuses an unknown one: `SchemaError`), `read_only(cfg)` (opens an existing database without writing; `SchemaError` unless its steps are exactly the program's), `peek_id(cfg)` (the id, read without checking or applying anything), `transaction(conn)`, `database_id(conn)`, `WORKFLOW_TABLES` |
+| `manga_pipeline/db.py` | the only opener of the PostgreSQL database (psycopg 3): `connect(cfg)` (autocommit, rows that read as `sqlite3.Row` does; creates a missing database, applies missing schema steps under the write lock, refuses an unknown one: `SchemaError`), `read_only(cfg)` (a read-only repeatable-read session: 1 snapshot; `SchemaError` unless its steps are exactly the program's), `built(cfg)`, `peek_id(cfg)` (the id, read without checking or applying anything), `transaction(conn)` (takes the database-wide advisory lock: write transactions never overlap), `in_transaction(conn)`, `executemany(conn, sql, rows)`, `database_id(conn)`, `WORKFLOW_TABLES`; `CannotConnect` (exit 4 in `cli.main`); the login uses only the `database` keys |
 | `manga_pipeline/schema/` | schema steps `NNNN_name.sql`, applied in name order and recorded in `schema_step` |
 | `manga_pipeline/page_store.py` | `save(conn, chapter_id, pages)` (a complete `images.measure_pages` result as the chapter's `page` rows, in the caller's transaction), `load(conn, chapter_id)` (the rows as `measure_pages(known=...)` takes them); the only writer of `page` rows, which hold the download's pages only |
 | `manga_pipeline/workflow.py` | the only writer of chapter stage/status/waits/attempts/claims and `series.status`: `claim` (priority, scope, junk before convert), `work` (stage outcome `Done` / `Waiting` / `Failed`, `Unreachable` skips the stage for the run; 1 log line per outcome), `drain`, `end_waits`, `release_own_claims`, `needs_human`, `retry_chapter` / `retry_series` (`Refused`: exit 2), `reset`, `run_part` (run records in `meta`), `share_errors`, `in_scope(cfg, name, kavita_library_id)`; `Context` holds the run's 1 `suwayomi` and 1 `kavita` client |
@@ -72,10 +78,11 @@ python -m manga_pipeline.cli --help
 | `manga_pipeline/stages/` | 1 module per stage, `run(ctx, chapter)` returns an outcome; Phase 1 stubs (junk's `.wait` marker is a test hook) |
 | `manga_pipeline/logs.py` | `setup(cfg, command)`: console plus daily-rotated `<command>.log`, or console only for `None` |
 | `manga_pipeline/lock.py` | `held(cfg, *names)`: `<lock.dir>/<name>.lock` per name, all or nothing, an OS file lock (`msvcrt` on Windows, `fcntl` elsewhere); `LockHeld` |
-| `manga_pipeline/preflight.py` | `run(cfg, checks)` (`Check(name, HARD or SOFT, fn)`): soft problems warn, hard ones raise `PreflightFailed` (exit 4); ships `PYTHON_VERSION`, `DATABASE_LOCATION`, `FOLDER_LAYOUT`, `SHARE_FOLDERS_PRESENT`, `WORKFLOW_SETTINGS`, `SERVICE_SETTINGS`, `SHARE_OWNERSHIP`, `STAGING_FOLDER`, `OCR_DEVICE`, `JUNK_WORD_LISTS`, `IMAGE_TOOLS`, `SCORER`, `SCRATCH_SPACE`, `CLAUDE_SETTINGS` (hard), `FREE_SPACE` (soft); `owner_file(cfg)` |
+| `manga_pipeline/preflight.py` | `run(cfg, checks)` (`Check(name, HARD or SOFT, fn)`): soft problems warn, hard ones raise `PreflightFailed` (exit 4); ships `PYTHON_VERSION`, `FOLDER_LAYOUT`, `SHARE_FOLDERS_PRESENT`, `WORKFLOW_SETTINGS`, `SERVICE_SETTINGS`, `SHARE_OWNERSHIP`, `STAGING_FOLDER`, `OCR_DEVICE`, `JUNK_WORD_LISTS`, `IMAGE_TOOLS`, `SCORER`, `SCRATCH_SPACE`, `CLAUDE_SETTINGS` (hard), `FREE_SPACE` (soft); `owner_file(cfg)` |
 | `tests/__init__.py` | points `config.load` at `tests/test_config.yaml`; refuses the live config |
-| `tests/conftest.py` | no-network guard, per-test timing report |
-| `tests/builders.py` | fixture builders: `site_cfg(tmp_path)`, series and chapter rows, fake downloads |
+| `tests/conftest.py` | no-network guard, per-test timing report; takes the process's pool databases (`tests/pg.py`) at start and empties those a test used in its teardown; fails a run that built `mp_test_unassigned` |
+| `tests/pg.py` | test databases (SPEC "Tests"): the pool `mp_test_pool_<n>` kept on the test server, taken per process under advisory locks, made right on take (step-file fingerprint), emptied after every test; a leaked connection fails its test |
+| `tests/builders.py` | fixture builders: `site_cfg(tmp_path, built=True)` (with its pool database), series and chapter rows, fake downloads |
 | `tests/fakes/` | `http.py` (`Clock`, `Urlopen`, `CannedService`, `NoNetwork`), `suwayomi.py` (`FakeSuwayomi`, `cbz`), `kavita.py` (`FakeKavita`: a scan is queued until `run_scans()`, then indexes a temp library with Kavita's name rule); they import the clients, never a part, a stage or `workflow` |
 | `tests/fixtures_api/` | Suwayomi replies recorded from the real server by reads only |
 | `tests/timing.py` | `@budget` per-test time budgets (copied from the unit-tests skill; project code now) |
@@ -109,4 +116,5 @@ python -m manga_pipeline.cli --help
 
 - `config.yaml` is gitignored and may hold secrets: never print, log, copy or commit it. A new key goes in `config.yaml.example`, `tests/test_config.yaml` and `config.yaml`; loading refuses a mismatch. A secret may instead come from its environment variable.
 - `.gitattributes` forces LF line endings; keep every file LF.
-- `state/` is local runtime output (logs, locks, scratch, test timings, and by default the database) and is gitignored: nothing there but the database is a source of truth.
+- `state/` is local runtime output (logs, locks, scratch, test timings) and is gitignored: nothing there is a source of truth; the database is on the PostgreSQL server.
+- The only SQLite left is the bulk converter's `junk.sqlite3`, read by `junk import PATH`.

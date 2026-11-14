@@ -4,9 +4,9 @@
 -- through the cascade from chapter. edit is a JSON object; its keys are the junk stage's to define (SPEC "Junk
 -- decisions"), and convert checks them when it reads the edit.
 CREATE TABLE chapter_edit (
-    chapter_id INTEGER PRIMARY KEY REFERENCES chapter (id) ON DELETE CASCADE,
-    edit TEXT NOT NULL CHECK (json_valid(edit) AND json_type(edit) = 'object')
-) STRICT;
+    chapter_id BIGINT PRIMARY KEY REFERENCES chapter (id) ON DELETE CASCADE,
+    edit TEXT NOT NULL CHECK (edit IS JSON OBJECT)
+);
 
 -- page.chroma holds images.chroma's text ("444", "420", "400", ...), not a number. No row held a value before this
 -- step (nothing wrote page rows).

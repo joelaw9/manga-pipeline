@@ -1,6 +1,7 @@
 """Junk decision store and import (SPEC "Junk decisions": decisions, import)."""
 
 import base64
+import secrets
 import sqlite3
 
 import numpy as np
@@ -223,16 +224,16 @@ def test_bulk_store_import_maps_verdicts_scope_and_kinds_and_reads_the_wal(conn,
     src = bulk_store(tmp_path / "junk.sqlite3")
     try:
         assert (tmp_path / "junk.sqlite3-wal").stat().st_size > 0, "the fixture's rows sit in the WAL"
-        counts = importing.run(conn, tmp_path / "junk.sqlite3", cfg["database"]["path"])
+        counts = importing.run(conn, importing.read_store(tmp_path / "junk.sqlite3"))
     finally:
         src.close()
     chained_key = sig((flip(T, 50),))
     rows = {
         (r["series_key"], r["kind"]): r
-        for r in conn.execute("SELECT * FROM junk_decision WHERE key != ?", (chained_key,))
+        for r in conn.execute("SELECT * FROM junk_decision WHERE key != %s", (chained_key,))
     }
     assert counts["added"] == 8 and counts["skipped"] == {"cut": 1, "chain": 1}, counts
-    chained = conn.execute("SELECT verdict FROM junk_decision WHERE key = ?", (chained_key,)).fetchone()
+    chained = conn.execute("SELECT verdict FROM junk_decision WHERE key = %s", (chained_key,)).fetchone()
     assert chained["verdict"] == "junk", "a chained block approve comes over as a plain decision, its chain dropped"
     assert rows[("S", "block")]["verdict"] == "junk", "approve -> junk"
     assert rows[("", "probe")]["series_key"] == "", "a global row stays global ('')"
@@ -250,17 +251,17 @@ def test_bulk_store_import_maps_verdicts_scope_and_kinds_and_reads_the_wal(conn,
 @budget(load="db")
 def test_a_second_import_changes_nothing_and_leaves_pipeline_decisions(conn, cfg, tmp_path):
     bulk_store(tmp_path / "junk.sqlite3").close()
-    importing.run(conn, tmp_path / "junk.sqlite3", cfg["database"]["path"])
+    importing.run(conn, importing.read_store(tmp_path / "junk.sqlite3"))
     with db.transaction(conn):
-        conn.execute("UPDATE junk_decision SET decider = 'claude', verdict = 'keep' WHERE key = ?", (sig(),))
-        conn.execute("INSERT INTO junk_seen VALUES (?, ?, ?, ?, ?, ?)", PIPELINE_SIGHTING)
+        conn.execute("UPDATE junk_decision SET decider = 'claude', verdict = 'keep' WHERE key = %s", (sig(),))
+        conn.execute("INSERT INTO junk_seen VALUES (%s, %s, %s, %s, %s, %s)", PIPELINE_SIGHTING)
 
     def content():
         rows = conn.execute("SELECT series_key, kind, key, verdict, decider, decided_at, source FROM junk_decision")
         return sorted(map(tuple, rows)), sorted(map(tuple, conn.execute("SELECT * FROM junk_seen")))
 
     before = content()
-    counts = importing.run(conn, tmp_path / "junk.sqlite3", cfg["database"]["path"])
+    counts = importing.run(conn, importing.read_store(tmp_path / "junk.sqlite3"))
     assert content() == before, "re-running the import changes no decision or sighting"
     assert (counts["added"], counts["removed"], counts["changed"]) == (0, 0, 0), counts
     assert counts["pipeline_kept"] == 1, "the source row on Claude's key is left out"
@@ -276,18 +277,18 @@ def change_store(path, sql, *params):
 def test_a_decision_the_bulk_converter_deleted_or_changed_is_followed(conn, cfg, tmp_path):
     store_path = tmp_path / "junk.sqlite3"
     bulk_store(store_path).close()
-    importing.run(conn, store_path, cfg["database"]["path"])
+    importing.run(conn, importing.read_store(store_path))
     change_store(store_path, "UPDATE junk SET superseded = 1 WHERE origin = 'probe'")  # deleted there
     change_store(
         store_path,
         "UPDATE junk SET decision = 'keep', added = '2026-11-08 00:00:00' WHERE origin = 'block' AND chain IS NULL",
     )
     with db.transaction(conn):
-        conn.execute("INSERT INTO junk_seen VALUES (?, ?, ?, ?, ?, ?)", PIPELINE_SIGHTING)
-    counts = importing.run(conn, store_path, cfg["database"]["path"])
+        conn.execute("INSERT INTO junk_seen VALUES (%s, %s, %s, %s, %s, %s)", PIPELINE_SIGHTING)
+    counts = importing.run(conn, importing.read_store(store_path))
     rows = {
         (r["series_key"], r["kind"]): r["verdict"]
-        for r in conn.execute("SELECT * FROM junk_decision WHERE key != ?", (sig((flip(T, 50),)),))
+        for r in conn.execute("SELECT * FROM junk_decision WHERE key != %s", (sig((flip(T, 50),)),))
     }
     assert ("", "probe") not in rows and counts["removed"] == 1, "a decision the bulk converter dropped disappears"
     assert rows[("S", "block")] == "keep" and counts["changed"] == 1, "a changed one changes"
@@ -301,12 +302,12 @@ def test_the_logo_import_is_rebuilt_and_leaves_pipeline_logo_decisions(conn, cfg
     store mark's key survives every rebuild (the source row is left out)."""
     store_path = tmp_path / "junk.sqlite3"
     bulk_store(store_path).close()
-    importing.run(conn, store_path, cfg["database"]["path"])
+    importing.run(conn, importing.read_store(store_path))
     global_key = logo().key_text()
     put(conn, decision("S", "logo", global_key, "keep", decider="claude", at="2026-11-10T00:00:00+00:00"))
     change_store(store_path, "UPDATE marks SET superseded = 1 WHERE series IS NULL")  # deleted there
     change_store(store_path, "UPDATE marks SET decision = 'approve', added = '2026-11-08 00:00:00' WHERE series = 'S'")
-    counts = importing.run(conn, store_path, cfg["database"]["path"])
+    counts = importing.run(conn, importing.read_store(store_path))
     rows = {
         (r["series_key"], r["key"]): (r["verdict"], r["decider"])
         for r in conn.execute("SELECT * FROM junk_decision WHERE kind = 'logo'")
@@ -323,25 +324,34 @@ def test_the_logo_import_is_rebuilt_and_leaves_pipeline_logo_decisions(conn, cfg
         " '2026-11-09 00:00:00')",
         logo().to_png(),
     )
-    counts = importing.run(conn, store_path, cfg["database"]["path"])
-    row = conn.execute("SELECT * FROM junk_decision WHERE series_key = 'S' AND key = ?", (global_key,)).fetchone()
+    counts = importing.run(conn, importing.read_store(store_path))
+    row = conn.execute("SELECT * FROM junk_decision WHERE series_key = 'S' AND key = %s", (global_key,)).fetchone()
     assert row["decider"] == "claude" and counts["pipeline_kept"] == 1, "a source row on the pipeline's key stays out"
 
 
 @budget(load="db")
 def test_a_pipeline_source_brings_its_deciders_and_a_later_store_import_leaves_them(tmp_path):
-    lxc = db.connect(site_cfg(tmp_path / "lxc"))
+    lxc_cfg = site_cfg(tmp_path / "lxc")
+    lxc = db.connect(lxc_cfg)
     win_cfg = site_cfg(tmp_path / "win")
     win = db.connect(win_cfg)
     bulk_store(tmp_path / "junk.sqlite3").close()
-    importing.run(lxc, tmp_path / "junk.sqlite3", "unused")
+    importing.run(lxc, importing.read_store(tmp_path / "junk.sqlite3"))
     put(win, decision("S", "block", sig(), "keep", decider="claude", at="2026-11-10T00:00:00+00:00", source="r1"))
+    before = [tuple(r) for r in win.execute("SELECT * FROM junk_decision ORDER BY id")]
+    importing.run(lxc, importing.read_database(lxc_cfg, win_cfg["database"]["name"]))
+    assert [tuple(r) for r in win.execute("SELECT * FROM junk_decision ORDER BY id")] == before, (
+        "the source is only read"
+    )
     win.close()
-    importing.run(lxc, win_cfg["database"]["path"], "unused")
-    row = lxc.execute("SELECT * FROM junk_decision WHERE series_key = 'S' AND kind = 'block'").fetchone()
+    row = lxc.execute(
+        "SELECT * FROM junk_decision WHERE series_key = 'S' AND kind = 'block' AND key = %s", (sig(),)
+    ).fetchone()
     assert (row["verdict"], row["decider"], row["source"]) == ("keep", "claude", "r1"), "claude's row replaces import"
-    importing.run(lxc, tmp_path / "junk.sqlite3", "unused")
-    row = lxc.execute("SELECT * FROM junk_decision WHERE series_key = 'S' AND kind = 'block'").fetchone()
+    importing.run(lxc, importing.read_store(tmp_path / "junk.sqlite3"))
+    row = lxc.execute(
+        "SELECT * FROM junk_decision WHERE series_key = 'S' AND kind = 'block' AND key = %s", (sig(),)
+    ).fetchone()
     assert row["decider"] == "claude", "a later store import leaves the pipeline-made row"
     lxc.close()
 
@@ -349,23 +359,28 @@ def test_a_pipeline_source_brings_its_deciders_and_a_later_store_import_leaves_t
 @budget(load="db")
 def test_import_refuses_its_own_database_and_a_foreign_one(conn, cfg, tmp_path):
     with pytest.raises(importing.SourceError, match="own database"):
-        importing.run(conn, cfg["database"]["path"], cfg["database"]["path"])
+        importing.read_database(cfg, cfg["database"]["name"])
+    with pytest.raises(importing.SourceError, match="no database"):
+        importing.read_database(cfg, f"mp_test_missing_{secrets.token_hex(4)}")
+    empty = site_cfg(tmp_path / "empty", built=False)["database"]["name"]
+    with pytest.raises(importing.SourceError, match="not a pipeline database"):
+        importing.read_database(cfg, empty)
     other = sqlite3.connect(tmp_path / "other.sqlite3")
     other.execute("CREATE TABLE x (a)")
     other.close()
-    with pytest.raises(importing.SourceError, match="neither"):
-        importing.run(conn, tmp_path / "other.sqlite3", cfg["database"]["path"])
+    with pytest.raises(importing.SourceError, match="not a bulk-converter junk store"):
+        importing.read_store(tmp_path / "other.sqlite3")
     with pytest.raises(importing.SourceError, match="no database"):
-        importing.run(conn, tmp_path / "missing.sqlite3", cfg["database"]["path"])
+        importing.read_store(tmp_path / "missing.sqlite3")
     (tmp_path / "notes.txt").write_bytes(b"not a database, just text " * 40)
     with pytest.raises(importing.SourceError, match="not a readable SQLite database"):
-        importing.run(conn, tmp_path / "notes.txt", cfg["database"]["path"])
+        importing.read_store(tmp_path / "notes.txt")
     odd = sqlite3.connect(tmp_path / "odd.sqlite3")
     odd.execute("CREATE TABLE junk_decision (a)")
     odd.execute("CREATE TABLE schema_step (a)")
     odd.close()
-    with pytest.raises(importing.SourceError, match="not the expected ones"):
-        importing.run(conn, tmp_path / "odd.sqlite3", cfg["database"]["path"])
+    with pytest.raises(importing.SourceError, match="not a bulk-converter junk store"):
+        importing.read_store(tmp_path / "odd.sqlite3")
 
 
 @budget(load="db")
@@ -375,6 +390,10 @@ def test_junk_import_command_prints_counts_and_refuses_with_exit_2(cfg, tmp_path
     assert cli.main(["--config", str(path), "junk", "import", str(tmp_path / "junk.sqlite3")]) == 0
     assert "added 8" in capsys.readouterr().out, "the command reports what it imported"
     assert cli.main(["--config", str(path), "junk", "import", str(tmp_path / "missing.sqlite3")]) == 2
+    other = site_cfg(tmp_path / "other")["database"]["name"]
+    assert cli.main(["--config", str(path), "junk", "import", "--database", other]) == 0, "another pipeline database"
+    own = cfg["database"]["name"]
+    assert cli.main(["--config", str(path), "junk", "import", "--database", own]) == 2, "its own database is refused"
 
 
 # ---------------------------------------------------------------- decision rows of a series record (baseline)
@@ -510,7 +529,7 @@ def test_a_store_marks_row_that_is_no_template_is_refused(conn, cfg, tmp_path):
     bulk_store(tmp_path / "junk.sqlite3").close()
     change_store(tmp_path / "junk.sqlite3", "UPDATE marks SET template = x'00' WHERE series IS NULL")
     with pytest.raises(importing.SourceError, match="marks row 1: template is not a logo template"):
-        importing.run(conn, tmp_path / "junk.sqlite3", cfg["database"]["path"])
+        importing.run(conn, importing.read_store(tmp_path / "junk.sqlite3"))
 
 
 @budget(load="db")
@@ -535,7 +554,7 @@ def test_the_stores_sightings_count_toward_recurrence_and_import_once(conn, cfg,
     from manga_pipeline.junk import candidates
 
     bulk_store(tmp_path / "junk.sqlite3").close()
-    counts = importing.run(conn, tmp_path / "junk.sqlite3", cfg["database"]["path"])
+    counts = importing.run(conn, importing.read_store(tmp_path / "junk.sqlite3"))
     assert counts["seen"] == 2, "edge blocks, pages and bands come over; spans do not"
     assert candidates.chapters_showing(conn, "S", "block", sig()) == 2, "each chapter counts once for recurrence"
     got = {r[0] for r in conn.execute("SELECT identity FROM junk_seen")}
@@ -543,7 +562,7 @@ def test_the_stores_sightings_count_toward_recurrence_and_import_once(conn, cfg,
         "a sighting's chapter is the identity of its archive name"
     )
     first = sorted(map(tuple, conn.execute("SELECT * FROM junk_seen")))
-    again = importing.run(conn, tmp_path / "junk.sqlite3", cfg["database"]["path"])
+    again = importing.run(conn, importing.read_store(tmp_path / "junk.sqlite3"))
     assert again["seen"] == 2 and sorted(map(tuple, conn.execute("SELECT * FROM junk_seen"))) == first, (
         "a second import rebuilds the same sightings, first seen before any pipeline scan"
     )
@@ -621,15 +640,15 @@ def test_a_candidate_id_and_folder_follow_its_key_not_the_order_it_is_offered_in
             conn, "S", [{**pick, "key": other}, {**pick, "key": sig((flip(T, 2),))}], "2026-11-02T00:00:00+00:00"
         )
     assert first in both and len(both) == 2, "a matching key joins its candidate, wherever it is listed"
-    row = conn.execute("SELECT folder FROM junk_candidate WHERE id = ?", (first,)).fetchone()
+    row = conn.execute("SELECT folder FROM junk_candidate WHERE id = %s", (first,)).fetchone()
     assert row[0] == candidates.folder_name("S", "block", a), "the folder is named by the key"
 
 
-@budget(load="db")
+@budget(3.0, load="db")
 def test_step_0021_keeps_decisions_and_candidate_ids_and_allows_logos(tmp_path, monkeypatch):
     import shutil
 
-    cfg = site_cfg(tmp_path)
+    cfg = site_cfg(tmp_path, built=False)
     before = tmp_path / "schema"
     shutil.copytree(db.SCHEMA, before)
     (before / "0021_logo.sql").unlink()
@@ -639,7 +658,7 @@ def test_step_0021_keeps_decisions_and_candidate_ids_and_allows_logos(tmp_path, 
     for key in ("a", "b", "c"):
         old.execute(
             "INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at)"
-            " VALUES ('S', 'page', ?, 'r', 'f', 't')",
+            " VALUES ('S', 'page', %s, 'r', 'f', 't')",
             (key,),
         )
     old.execute("DELETE FROM junk_candidate WHERE key = 'c'")
@@ -653,6 +672,6 @@ def test_step_0021_keeps_decisions_and_candidate_ids_and_allows_logos(tmp_path, 
         " VALUES ('S', 'logo', 'd', 'r', 'f', 't')"
     )
     ids = [r[0] for r in conn.execute("SELECT id FROM junk_candidate ORDER BY id")]
-    assert ids == [1, 2, 4], "a candidate id is never reused across the rebuild"
-    assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'junk_decision_scope'").fetchone(), "index kept"
+    assert ids == [1, 2, 4], "a candidate id is never reused across the step"
+    assert conn.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'junk_decision_scope'").fetchone(), "index kept"
     conn.close()

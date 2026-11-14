@@ -96,7 +96,8 @@ def test_claude_gets_no_pipeline_variable_and_no_api_key_and_its_commands_work(w
 def test_the_child_config_holds_no_secret_and_absolute_paths(world):
     child = review_run.child_config(world.cfg)
     assert child["kavita"]["api_key"] is None and child["junk"]["claude_token"] is None, "secrets are null"
-    assert Path(child["database"]["path"]).is_absolute() and Path(child["paths"]["candidates"]).is_absolute()
+    assert child["database"]["password"] is None, "the database password is a secret too"
+    assert Path(child["logging"]["dir"]).is_absolute() and Path(child["paths"]["candidates"]).is_absolute()
 
 
 @budget(load="subprocess", seconds=20)

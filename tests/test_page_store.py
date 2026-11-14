@@ -2,8 +2,8 @@
 hand-off between parts)."""
 
 import shutil
-import sqlite3
 
+import psycopg
 import pytest
 from PIL import Image
 
@@ -79,7 +79,7 @@ def test_save_refuses_a_page_missing_a_field_and_keeps_the_stored_rows(conn, tmp
     assert list(page_store.load(conn, chapter_id).values()) == measured, "a refused save changes no stored row"
 
 
-@budget(load="db")
+@budget(3.0, load="db")
 def test_step_0003_upgrades_a_database_with_page_rows(tmp_path, monkeypatch):
     """A database built before 0003 keeps its page rows; chroma becomes a text column."""
     older = tmp_path / "schema"
@@ -87,18 +87,20 @@ def test_step_0003_upgrades_a_database_with_page_rows(tmp_path, monkeypatch):
     for step in db.SCHEMA.glob("*.sql"):
         if step.stem < "0003":
             shutil.copy(step, older)
-    cfg = site_cfg(tmp_path)
+    cfg = site_cfg(tmp_path, built=False)
     monkeypatch.setattr(db, "SCHEMA", older)
     conn = db.connect(cfg)
     chapter_id = new_chapter(conn)
     with db.transaction(conn):
-        conn.execute("INSERT INTO page (chapter_id, page_index, name) VALUES (?, 0, '1.jpg')", (chapter_id,))
+        conn.execute("INSERT INTO page (chapter_id, page_index, name) VALUES (%s, 0, '1.jpg')", (chapter_id,))
     conn.close()
     monkeypatch.undo()
     conn = db.connect(cfg)
-    assert conn.execute("SELECT name FROM page WHERE chapter_id = ?", (chapter_id,)).fetchone()[0] == "1.jpg"
-    types = {row["name"]: row["type"] for row in conn.execute("PRAGMA table_info(page)")}
-    assert types["chroma"] == "TEXT", "chroma holds images.chroma's text"
+    assert conn.execute("SELECT name FROM page WHERE chapter_id = %s", (chapter_id,)).fetchone()[0] == "1.jpg"
+    chroma = conn.execute(
+        "SELECT data_type FROM information_schema.columns WHERE table_name = 'page' AND column_name = 'chroma'"
+    ).fetchone()[0]
+    assert chroma == "text", "chroma holds images.chroma's text"
     conn.close()
 
 
@@ -106,15 +108,15 @@ def test_step_0003_upgrades_a_database_with_page_rows(tmp_path, monkeypatch):
 @pytest.mark.parametrize("edit", ["null", "[]", "3", '"x"', "not json"])
 def test_chapter_edit_holds_only_a_json_object(conn, edit):
     chapter_id = new_chapter(conn)
-    with pytest.raises(sqlite3.IntegrityError), db.transaction(conn):
-        conn.execute("INSERT INTO chapter_edit (chapter_id, edit) VALUES (?, ?)", (chapter_id, edit))
+    with pytest.raises(psycopg.errors.CheckViolation), db.transaction(conn):
+        conn.execute("INSERT INTO chapter_edit (chapter_id, edit) VALUES (%s, %s)", (chapter_id, edit))
 
 
 @budget(load="db", seconds=2.0)
 def test_state_reset_empties_chapter_edit_and_page_rows(conn, tmp_path):
     chapter_id = new_chapter(conn)
     with db.transaction(conn):
-        conn.execute("INSERT INTO chapter_edit (chapter_id, edit) VALUES (?, ?)", (chapter_id, '{"drop_pages": [1]}'))
+        conn.execute("INSERT INTO chapter_edit (chapter_id, edit) VALUES (%s, %s)", (chapter_id, '{"drop_pages": [1]}'))
         page_store.save(conn, chapter_id, images.measure_pages(chapter_cbz(tmp_path / "c.cbz", n=1, blank=False)))
     workflow.reset(conn)
     assert conn.execute("SELECT count(*) FROM chapter_edit").fetchone()[0] == 0, "reset clears the junk edits"

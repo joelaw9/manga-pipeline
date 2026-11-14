@@ -31,7 +31,7 @@ TIMEOUT_S = 15 * 60  # the Claude process is killed after this
 PROMPT = Path(__file__).with_name("review_prompt.md")
 OS_VARIABLES = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE")
 WINDOWS_VARIABLES = ("USERPROFILE", "SYSTEMROOT", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA", "COMSPEC", "PATHEXT")
-PATH_KEYS = (("database", "path"), ("logging", "dir"), ("lock", "dir"))
+PATH_KEYS = (("logging", "dir"), ("lock", "dir"))
 
 
 class ReviewFailed(RuntimeError):
@@ -102,8 +102,10 @@ def command(cfg, prefix):
 
 def _meta(conn, values):
     with db.transaction(conn):
-        conn.executemany(
-            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", [(f"junk-review.{k}", v) for k, v in values]
+        db.executemany(
+            conn,
+            "INSERT INTO meta (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            [(f"junk-review.{k}", v) for k, v in values],
         )
 
 
@@ -132,7 +134,7 @@ def run(cfg):
             with db.transaction(conn):
                 counted = conn.execute(
                     """UPDATE junk_candidate SET reviews = reviews + 1, review_open = 0
-                    WHERE review_id = ? AND review_open = 1""",
+                    WHERE review_id = %s AND review_open = 1""",
                     (review_id,),
                 ).rowcount
             shutil.rmtree(folder, ignore_errors=True)

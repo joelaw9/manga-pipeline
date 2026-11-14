@@ -204,7 +204,9 @@ def test_paths_open_chapters_hold_or_expect_are_neither_new_chapters_nor_not_tak
     _, stray = world.download(other, "Chapter 3")
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute(
-            "UPDATE chapter SET redownload = json_object('expected', json_object('path', ?))", (str(expected),)
+            "UPDATE chapter SET redownload = jsonb_build_object('expected',"
+            " jsonb_build_object('path', %s::text))::text",
+            (str(expected),),
         )
     scan(world)
     assert world.rows("SELECT download_path FROM chapter") == [(str(held),)], "no new chapter for either path"
@@ -278,7 +280,7 @@ def test_a_number_with_2_readings_whose_pages_were_handled_is_put_aside_not_held
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute(
             """INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at)
-            VALUES (1, 'other', 'dropped', ?, 'now')""",
+            VALUES (1, 'other', 'dropped', %s, 'now')""",
             (archive.pages_digest(path),),
         )
     assert isinstance(run_stage(world, chapter_id), workflow.Dropped), "the same pages again are never a person's work"
@@ -302,7 +304,7 @@ def test_the_same_pages_as_a_handled_chapter_are_put_aside(world):
         with db.transaction(conn):
             conn.execute(
                 """INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at)
-                VALUES (1, 'other', 'duplicate', ?, 'now')""",
+                VALUES (1, 'other', 'duplicate', %s, 'now')""",
                 (digest,),
             )
     outcome = run_stage(world, chapter_id)

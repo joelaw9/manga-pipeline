@@ -18,7 +18,7 @@ if sys.version_info < (3, 12):
     raise RuntimeError("timing.py needs Python 3.12+ (unittest.TestResult.addDuration)")
 
 # Default budget in seconds per load: the costliest resource a test touches. "sleep" has no default.
-LOADS = {"pure": 0.1, "fs": 0.5, "db": 0.5, "network": 2.0, "subprocess": 5.0, "pool": 5.0, "sleep": None}
+LOADS = {"pure": 0.1, "fs": 0.5, "db": 1.0, "network": 2.0, "subprocess": 5.0, "pool": 5.0, "sleep": None}
 ATTR = "_test_budget"
 SLOWEST = 10
 NO_TESTS_EXIT = 5    # unittest's exit code when nothing ran

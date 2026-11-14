@@ -159,7 +159,7 @@ def test_a_candidate_past_the_review_limit_makes_its_chapter_needs_human(site):
     site.download("Alpha", 2, cbz(credit=True))
     site.parts()
     with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
-        conn.execute("UPDATE junk_candidate SET reviews = ?", (site.cfg["junk"]["review_limit"],))
+        conn.execute("UPDATE junk_candidate SET reviews = %s", (site.cfg["junk"]["review_limit"],))
     process.run(site.cfg)
     assert site.chapters() == [("junk", "needs_human", None)], "stuck: a person decides"
     site.download("Alpha", 3, cbz(seed="c3", credit=True))
@@ -330,7 +330,7 @@ def test_a_scan_made_before_logos_is_scanned_again(site):
     site.download("Alpha", 2, logo_cbz("o2"))
     site.parts()
     with closing(db.connect(site.cfg)) as conn:
-        conn.execute("UPDATE junk_scan SET scan = json_remove(scan, '$.marks'), candidates = '[]'")
+        conn.execute("UPDATE junk_scan SET scan = (scan::jsonb - 'marks')::text, candidates = '[]'")
         conn.execute("DELETE FROM junk_candidate")
     process.run(site.cfg)
     assert site.chapters() == [("junk", "waiting", "junk_decision")], "the chapter is held again"

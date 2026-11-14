@@ -10,6 +10,14 @@ Python 3.13+ (system install) and pip 25.1+. Installs the runtime and dev depend
 python -m pip install --group dev
 ```
 
+The pipeline's database is a PostgreSQL 17 server (`database.*` in the config). The tests need one on this machine at `localhost:5432`, set up once as its superuser (`postgres`):
+
+- `ALTER SYSTEM SET max_connections = 300`, then restart the service: a parallel run holds about 100 connections.
+- In `pg_hba.conf`, above the other lines, then `SELECT pg_reload_conf()`: `host all mp_test 127.0.0.1/32 trust` and `host all mp_test ::1/128 trust`.
+- `CREATE ROLE mp_test LOGIN CREATEDB PASSWORD 'mp_test'`. The role must never exist on the pipeline's own server.
+
+The tests keep a pool of databases `mp_test_pool_<n>` on that server between runs (about 7.5 MB each); drop them with no run going to get the space back.
+
 ## Usage
 
 ```bash

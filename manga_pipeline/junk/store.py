@@ -7,7 +7,7 @@ text (images.sig_to_str), for a frame frames.key_text, for a logo marks.Template
 
 from pathlib import Path
 
-from manga_pipeline import images
+from manga_pipeline import db, images
 from manga_pipeline.junk import frames, marks
 
 GLOBAL = ""
@@ -85,7 +85,7 @@ class Decisions:
     def __init__(self, conn, key):
         rows = in_lookup_order(
             conn.execute(
-                "SELECT * FROM junk_decision WHERE series_key IN (?, ?) ORDER BY id DESC", (key, GLOBAL)
+                "SELECT * FROM junk_decision WHERE series_key IN (%s, %s) ORDER BY id DESC", (key, GLOBAL)
             ).fetchall()
         )
         self.series_key = key
@@ -108,7 +108,7 @@ def near(conn, series_key_, sig, threshold=images.NEAR_THRESHOLD, aspect_tol=ima
     tiles, aspect = sig
     best = None
     rows = conn.execute(
-        f"""SELECT * FROM junk_decision WHERE verdict = 'junk' AND kind IN ({", ".join("?" * len(NEAR_KINDS))})
+        f"""SELECT * FROM junk_decision WHERE verdict = 'junk' AND kind IN ({", ".join(["%s"] * len(NEAR_KINDS))})
         ORDER BY decided_at, id""",
         NEAR_KINDS,
     )
@@ -132,20 +132,20 @@ def upsert(conn, rows):
     transaction. A new key is inserted. An existing row is replaced only when its decider is 'import' and the new one
     is a pipeline decision or at least as new; a pipeline-made row ('claude', 'human') is never touched. Returns
     {"inserted", "updated", "unchanged"} counts."""
-    if not conn.in_transaction:
+    if not db.in_transaction(conn):
         raise RuntimeError("upsert runs inside the caller's transaction")
     counts = {"inserted": 0, "updated": 0, "unchanged": 0}
     for r in rows:
         if r["kind"] not in KINDS or r["verdict"] not in ("junk", "keep") or r["decider"] not in DECIDERS:
             raise ValueError(f"not a junk decision: {r}")
         old = conn.execute(
-            "SELECT * FROM junk_decision WHERE series_key = ? AND kind = ? AND key = ?",
+            "SELECT * FROM junk_decision WHERE series_key = %s AND kind = %s AND key = %s",
             (r["series_key"], r["kind"], r["key"]),
         ).fetchone()
         if old is None:
             conn.execute(
                 """INSERT INTO junk_decision (series_key, kind, key, verdict, decider, decided_at, source)
-                VALUES (:series_key, :kind, :key, :verdict, :decider, :decided_at, :source)""",
+                VALUES (%(series_key)s, %(kind)s, %(key)s, %(verdict)s, %(decider)s, %(decided_at)s, %(source)s)""",
                 r,
             )
             counts["inserted"] += 1
@@ -153,8 +153,8 @@ def upsert(conn, rows):
             same = all(old[c] == r[c] for c in ("verdict", "decider", "decided_at", "source"))
             if not same:
                 conn.execute(
-                    """UPDATE junk_decision SET verdict = :verdict, decider = :decider, decided_at = :decided_at,
-                        source = :source WHERE id = :id""",
+                    """UPDATE junk_decision SET verdict = %(verdict)s, decider = %(decider)s,
+                        decided_at = %(decided_at)s, source = %(source)s WHERE id = %(id)s""",
                     {**r, "id": old["id"]},
                 )
             counts["unchanged" if same else "updated"] += 1

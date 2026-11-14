@@ -12,8 +12,9 @@ from contextlib import closing
 import pytest
 import yaml
 
-from manga_pipeline import cli, config, db, discovery, lock, preflight
+from manga_pipeline import cli, config, db, discovery, lock, preflight, status
 
+from tests import pg
 from tests.timing import budget
 
 log = logging.getLogger("manga_pipeline.cli")
@@ -31,7 +32,7 @@ ARGV = {
     "state adopt": ["state", "adopt", "--yes"],
 }
 PARTS = ("intake", "process", "export", "junk-review")
-LOCKED = ["runtime version", "free disk space", "database location", "folder layout", "share folders"]
+LOCKED = ["runtime version", "free disk space", "folder layout", "share folders"]
 PART_CHECKS = [*LOCKED, "workflow settings", "share ownership"]
 # SPEC "Run lock", "Logging", "Preflight": (locks held, log file, checks run) per command.
 SPEC = {
@@ -73,7 +74,7 @@ def site(tmp_path):
     return [
         f"logging.dir={tmp_path / 'logs'}",
         f"lock.dir={tmp_path / 'locks'}",
-        f"database.path={tmp_path / 'pipeline.sqlite3'}",
+        f"database.name={pg.process.database(tmp_path.resolve(), built=True)}",
         *(f"paths.{key}={tmp_path / 'share' / key}" for key in preflight.SHARE_FOLDERS),
         f"paths.scratch={tmp_path / 'scratch'}",
         f"paths.naming_overrides={tmp_path / 'overrides'}",
@@ -230,11 +231,14 @@ def test_crash_inside_a_part_exits_1_with_1_traceback_in_its_log(site, monkeypat
 
 
 @budget(load="fs")
-def test_unexpected_error_of_a_command_without_a_log_file_exits_1_with_its_traceback(site, capsys):
-    config.abs_path(site_cfg(site)["database"]["path"]).write_bytes(b"not a database")
+def test_unexpected_error_of_a_command_without_a_log_file_exits_1_with_its_traceback(site, capsys, monkeypatch):
+    def broken(conn):
+        raise RuntimeError("an unexpected fault")
+
+    monkeypatch.setattr(status, "report", broken)
     assert run(site, "status") == 1
     err = capsys.readouterr().err
-    assert "status: failed" in err and "Traceback" in err and "DatabaseError" in err
+    assert "status: failed" in err and "Traceback" in err and "an unexpected fault" in err
     assert log_files(site) == []
 
 

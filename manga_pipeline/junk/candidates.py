@@ -41,9 +41,10 @@ def seen_rows(series_key, identity, units, at, origin="pipeline"):
 
 def write_seen(conn, rows):
     """Record seen units inside the caller's transaction; a unit seen again keeps its first time."""
-    conn.executemany(
-        """INSERT OR IGNORE INTO junk_seen (series_key, kind, key, identity, first_seen, origin)
-        VALUES (?, ?, ?, ?, ?, ?)""",
+    db.executemany(
+        conn,
+        """INSERT INTO junk_seen (series_key, kind, key, identity, first_seen, origin)
+        VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING""",
         rows,
     )
 
@@ -64,7 +65,7 @@ def first_identities(conn, series_key, n=FIRST_CHAPTERS):
     """The first n distinct chapter identities of a series by first sighting, chapter order on a tie (every sighting
     imported from the bulk converter has the same time)."""
     rows = conn.execute(
-        "SELECT identity, min(first_seen) FROM junk_seen WHERE series_key = ? GROUP BY identity", (series_key,)
+        "SELECT identity, min(first_seen) FROM junk_seen WHERE series_key = %s GROUP BY identity", (series_key,)
     ).fetchall()
     return {r[0] for r in sorted(rows, key=lambda r: (r[1], chapter_order(r[0])))[:n]}
 
@@ -72,7 +73,7 @@ def first_identities(conn, series_key, n=FIRST_CHAPTERS):
 def chapters_showing(conn, series_key, kind, key):
     """How many chapter identities of the series show a unit matching (kind, key)."""
     parsed = store.parse_key(kind, key)
-    rows = conn.execute("SELECT key, identity FROM junk_seen WHERE series_key = ? AND kind = ?", (series_key, kind))
+    rows = conn.execute("SELECT key, identity FROM junk_seen WHERE series_key = %s AND kind = %s", (series_key, kind))
     return len({ident for k, ident in rows if store.matches(kind, store.parse_key(kind, k), parsed)})
 
 
@@ -141,7 +142,7 @@ def find(conn, series_key, kind, key):
     """The candidate row of the series and kind whose key matches `key`, or None."""
     parsed = store.parse_key(kind, key)
     for row in conn.execute(
-        "SELECT * FROM junk_candidate WHERE series_key = ? AND kind = ? ORDER BY id", (series_key, kind)
+        "SELECT * FROM junk_candidate WHERE series_key = %s AND kind = %s ORDER BY id", (series_key, kind)
     ):
         if store.matches(kind, store.parse_key(kind, row["key"]), parsed):
             return row
@@ -154,12 +155,12 @@ def join(conn, series_key, picks, at):
     for p in picks:
         row = find(conn, series_key, p["kind"], p["key"])
         if row is None:
-            cur = conn.execute(
+            new = conn.execute(
                 """INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)""",
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
                 (series_key, p["kind"], p["key"], p["reason"], folder_name(series_key, p["kind"], p["key"]), at),
             )
-            ids.append(cur.lastrowid)
+            ids.append(new.fetchone()[0])
         else:
             ids.append(row["id"])
     return sorted(set(ids))
@@ -174,7 +175,7 @@ def is_open(conn, row, decisions=None):
     decisions: a store.by_series lookup to share across calls."""
     waiting = conn.execute(
         """SELECT 1 FROM junk_scan js JOIN chapter c ON c.id = js.chapter_id
-        WHERE c.stage = 'junk' AND c.status != 'done' AND ? IN (SELECT value FROM json_each(js.candidates)) LIMIT 1""",
+        WHERE c.stage = 'junk' AND c.status != 'done' AND js.candidates::jsonb @> to_jsonb(%s::bigint) LIMIT 1""",
         (row["id"],),
     ).fetchone()
     if waiting is None:
@@ -199,7 +200,7 @@ def cleanup(cfg, conn):
             for row in conn.execute("SELECT * FROM junk_candidate").fetchall()
             if not row["review_open"] and not is_open(conn, row, decisions)
         ]
-        conn.executemany("DELETE FROM junk_candidate WHERE id = ?", closed)
+        db.executemany(conn, "DELETE FROM junk_candidate WHERE id = %s", closed)
         keep = {r[0] for r in conn.execute("SELECT folder FROM junk_candidate")}
     root = config.abs_path(cfg["paths"]["candidates"])
     if root.is_dir():

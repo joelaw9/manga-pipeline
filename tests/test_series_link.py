@@ -126,7 +126,7 @@ def test_status_lists_downloads_not_taken_and_published_files_never_confirmed(wo
         with db.transaction(conn):
             conn.execute(
                 """INSERT INTO published_file (library_path, series_id, identity, state, origin)
-                VALUES ('/lib/Ch.9.cbz', ?, 'x', 'unconfirmed', 'pipeline')""",
+                VALUES ('/lib/Ch.9.cbz', %s, 'x', 'unconfirmed', 'pipeline')""",
                 (series_id,),
             )
     with closing(db.read_only(world.cfg)) as conn:
