@@ -72,7 +72,7 @@ python -m manga_pipeline.cli --help
 | `manga_pipeline/stages/` | 1 module per stage, `run(ctx, chapter)` returns an outcome; Phase 1 stubs (junk's `.wait` marker is a test hook) |
 | `manga_pipeline/logs.py` | `setup(cfg, command)`: console plus daily-rotated `<command>.log`, or console only for `None` |
 | `manga_pipeline/lock.py` | `held(cfg, *names)`: `<lock.dir>/<name>.lock` per name, all or nothing, an OS file lock (`msvcrt` on Windows, `fcntl` elsewhere); `LockHeld` |
-| `manga_pipeline/preflight.py` | `run(cfg, checks)` (`Check(name, HARD or SOFT, fn)`): soft problems warn, hard ones raise `PreflightFailed` (exit 4); ships `PYTHON_VERSION`, `DATABASE_LOCATION`, `FOLDER_LAYOUT`, `SHARE_FOLDERS_PRESENT`, `WORKFLOW_SETTINGS`, `SERVICE_SETTINGS`, `SHARE_OWNERSHIP`, `STAGING_FOLDER` (hard), `FREE_SPACE` (soft); `owner_file(cfg)` |
+| `manga_pipeline/preflight.py` | `run(cfg, checks)` (`Check(name, HARD or SOFT, fn)`): soft problems warn, hard ones raise `PreflightFailed` (exit 4); ships `PYTHON_VERSION`, `DATABASE_LOCATION`, `FOLDER_LAYOUT`, `SHARE_FOLDERS_PRESENT`, `WORKFLOW_SETTINGS`, `SERVICE_SETTINGS`, `SHARE_OWNERSHIP`, `STAGING_FOLDER`, `OCR_DEVICE`, `JUNK_WORD_LISTS`, `IMAGE_TOOLS`, `SCORER`, `SCRATCH_SPACE`, `CLAUDE_SETTINGS` (hard), `FREE_SPACE` (soft); `owner_file(cfg)` |
 | `tests/__init__.py` | points `config.load` at `tests/test_config.yaml`; refuses the live config |
 | `tests/conftest.py` | no-network guard, per-test timing report |
 | `tests/builders.py` | fixture builders: `site_cfg(tmp_path)`, series and chapter rows, fake downloads |
