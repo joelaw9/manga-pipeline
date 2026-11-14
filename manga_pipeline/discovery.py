@@ -15,17 +15,19 @@ log = logging.getLogger(__name__)
 
 
 def scan(ctx):
-    """Record each new complete download as a chapter. A folder that cannot be read raises its OSError (the caller
+    """Record each new complete download as a chapter. A manga folder that cannot be listed is not taken (`_list`);
+    any other folder that cannot be read raises its OSError (the caller
     decides whether the share is unreachable); an unreachable service raises Unreachable before anything is written
     but the series rows identification settled."""
     root = config.abs_path(ctx.cfg["paths"]["downloads"]) / suwayomi.MANGAS_FOLDER
     held = _held(ctx)
+    listed, unlistable = _list(root)
     folders = {}
-    for key, files in _list(root).items():
+    for key, files in listed.items():
         files = [n for n in files if str(root / key[0] / key[1] / n) not in held]
         if files:
             folders[key] = files
-    unmatched, found = [], []
+    unmatched, found = list(unlistable), []
     if folders:
         by_folder = {}
         for manga in ctx.suwayomi.library_manga():
@@ -65,15 +67,31 @@ def _held(ctx):
 
 
 def _list(root):
-    """{(source folder, manga folder): [CBZ file names]} under <downloads>/mangas. Never Path.glob: it swallows the
-    OSError of a folder it cannot read."""
-    folders = {}
+    """({(source folder, manga folder): [CBZ file names]}, [(manga folder path, reason)]) under <downloads>/mangas.
+    A manga folder that cannot be listed (a name Samba cannot show Windows, e.g. one holding "?") is not taken, and the
+    rest is listed; a manga folder gone since its source was listed is skipped. Any other folder that cannot be read
+    raises, as does a manga folder's share error (SHARE_ERRNOS) or any error once the root itself cannot be read.
+    Never Path.glob: it swallows the OSError of a folder it cannot read."""
+    folders, unlistable = {}, []
     for source in _entries(root, dirs=True):
         for title in _entries(Path(root, source), dirs=True):
-            files = sorted(n for n in _entries(Path(root, source, title), dirs=False) if n.lower().endswith(".cbz"))
+            folder = Path(root, source, title)
+            try:
+                entries = _entries(folder, dirs=False)
+            except FileNotFoundError:  # removed since its source was listed (a confirm's delete): nothing to take
+                continue
+            except OSError as e:
+                if e.errno in workflow.SHARE_ERRNOS:
+                    raise
+                # ponytail: Windows may list the root from its SMB cache while the share fails, and WinError 59 maps
+                # to errno 22, not a SHARE_ERRNOS one; such a failure is listed, not ended on, until the next run
+                _entries(root, dirs=True)
+                unlistable.append((folder, f"its folder cannot be listed: {e.strerror or e}"))
+                continue
+            files = sorted(n for n in entries if n.lower().endswith(".cbz"))
             if files:
                 folders[(source, title)] = files
-    return folders
+    return folders, unlistable
 
 
 def _entries(folder, dirs):
