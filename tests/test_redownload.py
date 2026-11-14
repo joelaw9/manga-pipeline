@@ -313,6 +313,25 @@ def test_a_chosen_download_numbered_otherwise_needs_a_human(world):
 
 
 @budget(load="db")
+def test_a_chosen_download_numbered_12_10_is_never_taken_for_chapter_12_1(world):
+    chapter_id, _ = world.download(world.manga_id, "Chapter 12.1", data=BAD)
+    world.run(intake)
+    world.suwayomi.fail_download(chapter_id)
+    world.run(intake)
+    assert world.rows("SELECT status FROM chapter") == [("needs_human",)], "the other source lists no chapter 12.1"
+    chosen = world.suwayomi.add_chapter(world.other, "Chapter 12.10")
+    command(cli.chapter_use, world, chapter=1, suwayomi_chapter=chosen)
+    world.run(intake)
+    world.suwayomi.finish_downloads(cbz(seed="12.10"))
+    world.run(intake)
+    ((status, error, identity),) = world.rows("SELECT status, last_error, identity FROM chapter")
+    assert status == "needs_human" and "'12.10'" in error and "'12.1')" in error, (
+        "a number with 2 readings is numbered otherwise than chapter 12.1: never published as it"
+    )
+    assert json.loads(identity)[3] == "12.1", "the chapter keeps its own identity"
+
+
+@budget(load="db")
 def test_a_retried_chapter_numbered_otherwise_is_held_again(world):
     test_a_chosen_download_numbered_otherwise_needs_a_human(world)
     command(cli.retry, world, chapter=1, series=None)

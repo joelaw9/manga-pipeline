@@ -251,6 +251,52 @@ def test_a_chapter_with_no_number_needs_a_human_at_once(world):
 
 
 @budget(load="db")
+@pytest.mark.parametrize("name", ["Chapter 26.10", "Chapter 26-10", "Chapter 17.50"])
+def test_a_number_whose_decimal_part_ends_in_0_needs_a_human_at_once(world, name):
+    chapter_id, _ = discovered(world, name)
+    run_stage(world, chapter_id)
+    ((status, stage, attempts, error),) = world.rows("SELECT status, stage, attempts, last_error FROM chapter")
+    assert (status, stage, attempts) == ("needs_human", "discover", 0), "held at discover, at once"
+    number = name.split()[1].replace("-", ".")
+    whole, part = number.split(".")
+    assert error.endswith(
+        f"number {number} has no single reading: {number.rstrip('0')}, or part {part} of chapter {whole}"
+    )
+    ((identity,),) = world.rows("SELECT identity FROM chapter")
+    assert f'"{number}"' in identity, "the identity discovery stored is not chapter 26.1's either"
+
+
+@budget(load="db")
+def test_a_number_with_2_readings_from_comicinfo_alone_needs_a_human(world):
+    chapter_id, _ = discovered(world, "Oneshot", data=cbz(comicinfo=comicinfo(Number="26.10")))
+    run_stage(world, chapter_id)
+    ((status, error),) = world.rows("SELECT status, last_error FROM chapter")
+    assert status == "needs_human" and "number 26.10 has no single reading" in error
+
+
+@budget(load="db")
+def test_a_number_with_2_readings_whose_pages_were_handled_is_put_aside_not_held(world):
+    chapter_id, path = discovered(world, "Chapter 26.10", data=cbz(seed="x"))
+    with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
+        conn.execute(
+            """INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at)
+            VALUES (1, 'other', 'dropped', %s, 'now')""",
+            (archive.pages_digest(path),),
+        )
+    assert isinstance(run_stage(world, chapter_id), workflow.Dropped), "the same pages again are never a person's work"
+    assert world.rows("SELECT count(*) FROM handled_chapter") == [(1,)], "and no second handled chapter is recorded"
+
+
+@budget(load="db")
+@pytest.mark.parametrize("name, number", [("Chapter 26.1", "26.1"), ("Chapter 26.5", "26.5"), ("Chapter 30", "30")])
+def test_other_decimal_and_whole_numbers_pass_discover(world, name, number):
+    chapter_id, _ = discovered(world, name)
+    assert isinstance(run_stage(world, chapter_id), workflow.Done)
+    ((identity,),) = world.rows("SELECT identity FROM chapter")
+    assert f'"{number}"' in identity, "a decimal part that does not end in 0 has 1 reading"
+
+
+@budget(load="db")
 def test_the_same_pages_as_a_handled_chapter_are_put_aside(world):
     chapter_id, path = discovered(world, "Chapter 2", data=cbz(seed="x"))
     with closing(db.connect(world.cfg)) as conn:

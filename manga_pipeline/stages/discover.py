@@ -1,6 +1,7 @@
 """Stage discover (SPEC "Chapter stages", "Bad downloads"): the first look inside a download. It settles the chapter's
 identity (the ComicInfo Number numbers a chapter whose name has none) and content digest, drops a notice or hiatus
-page and a download a handled chapter already had, and makes a chapter with no number needs_human. An archive it
+page and a download a handled chapter already had, and makes a chapter with no number, or a number with 2 readings
+(names.two_readings), needs_human. An archive it
 cannot read gets no digest and goes on to validate, which judges it. Finding the downloads is discovery.py's.
 """
 
@@ -28,6 +29,9 @@ def run(ctx, chapter):
     why = digest and handled.put_aside(ctx, chapter, digest)
     if why:
         return workflow.Dropped(why)
+    unclear = names.two_readings(item.number)
+    if unclear:
+        return workflow.NeedsHuman(f"{download.name}: {unclear}")
 
     def record(conn):
         conn.execute(
