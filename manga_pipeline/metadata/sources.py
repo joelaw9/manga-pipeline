@@ -16,6 +16,7 @@ MANGABAKA = "https://api.mangabaka.org/v1"
 MANGAUPDATES = "https://api.mangaupdates.com/v1"
 MANGADEX = "https://api.mangadex.org"
 MANGADEX_UPLOADS = "https://uploads.mangadex.org"
+MANGADEX_USER_AGENT = "manga-pipeline"  # MangaDex answers a browser User-Agent with a bot check
 ANILIST = "https://graphql.anilist.co"
 TAPAS = "https://tapas.io"
 TAPAS_PAGE = 20  # the largest page of episodes Tapas serves
@@ -99,7 +100,7 @@ class MangaUpdates:
 
 class MangaDex:
     def __init__(self):
-        self._service = http.Service("mangadex", 0.25)
+        self._service = http.Service("mangadex", 0.25, MANGADEX_USER_AGENT)
 
     def manga(self, md_id):
         query = urllib.parse.urlencode([("includes[]", "cover_art")])

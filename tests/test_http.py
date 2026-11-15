@@ -7,6 +7,7 @@ import pytest
 
 from manga_pipeline.clients import http
 from manga_pipeline.errors import Unreachable
+from manga_pipeline.metadata import sources
 
 from tests.fakes.http import Clock, Reply, Urlopen, http_error
 from tests.timing import budget
@@ -37,6 +38,37 @@ def test_reply_is_returned_with_status_headers_and_body(monkeypatch, clock):
     assert sent.get_header("Content-type") == "application/json" and sent.get_header("X-extra") == "1"
     assert urlopen.timeouts == [7], "the caller's timeout reaches the transport"
     assert clock.sleeps == [], "a first-time success never sleeps"
+
+
+@budget(load="pure")
+def test_a_reply_that_is_not_json_fails_naming_service_status_and_content_type(monkeypatch, clock):
+    page = b"<html><title>MangaDex - Browser verification</title></html>"
+    scripted(monkeypatch, Reply(page, header_values={"Content-Type": "text/html"}))
+    got = http.Service("svc").request("GET", URL)
+    with pytest.raises(http.NotJson, match=r"^svc: HTTP 200 reply is not JSON \(Content-Type text/html\)$") as caught:
+        got.json()
+    assert isinstance(caught.value, http.HttpError), "a reply that is not JSON is a failure of the request"
+
+
+@budget(load="pure")
+def test_a_service_sends_its_own_user_agent_else_the_browser_one(monkeypatch, clock):
+    urlopen = scripted(monkeypatch, Reply(), Reply())
+    http.Service("named", user_agent="manga-pipeline").request("GET", URL)
+    http.Service("plain").request("GET", URL)
+    sent = [r.get_header("User-agent") for r in urlopen.requests]
+    assert sent == ["manga-pipeline", http.USER_AGENT], "a Service's user_agent replaces the default"
+
+
+@budget(load="pure")
+def test_mangadex_is_asked_with_a_user_agent_naming_the_client(monkeypatch, clock):
+    urlopen = scripted(monkeypatch, Reply({"data": {}}), Reply(b"image"))
+    client = sources.MangaDex()
+    client.manga("abc")
+    client.cover_image("abc", "c.jpg")
+    sent = [(r.host, r.get_header("User-agent")) for r in urlopen.requests]
+    assert sent == [("api.mangadex.org", "manga-pipeline"), ("uploads.mangadex.org", "manga-pipeline")], (
+        "MangaDex answers a browser User-Agent with a bot check, on both hosts"
+    )
 
 
 @budget(load="pure")

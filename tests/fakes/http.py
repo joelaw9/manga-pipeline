@@ -72,11 +72,11 @@ class Urlopen:
         return item
 
 
-def reply(value, header_values=None):
-    """An http.Response carrying value: bytes as they are, anything else as JSON."""
+def reply(value, header_values=None, service="canned"):
+    """An http.Response of service carrying value: bytes as they are, anything else as JSON."""
     body = value if isinstance(value, bytes) else json.dumps(value).encode()
     content_type = "application/octet-stream" if isinstance(value, bytes) else "application/json"
-    return http.Response(200, headers({"Content-Type": content_type, **(header_values or {})}), body)
+    return http.Response(service, 200, headers({"Content-Type": content_type, **(header_values or {})}), body)
 
 
 class Each(list):
@@ -111,7 +111,7 @@ class CannedService(http.Service):
                     value = value(method, path, json)
                 if isinstance(value, BaseException):
                     raise value
-                return value if isinstance(value, http.Response) else reply(value)
+                return value if isinstance(value, http.Response) else reply(value, service=self.name)
         raise AssertionError(f"CannedService {self.name}: no answer for {method} {path}")
 
 
