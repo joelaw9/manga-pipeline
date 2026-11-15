@@ -17,6 +17,7 @@ ANILIST = "https://graphql.anilist.co"
 MANGADEX_RATINGS = [("contentRating[]", r) for r in ("safe", "suggestive", "erotica", "pornographic")]
 SEARCH_RESULTS = 10
 IMAGE_TIMEOUT = 120  # seconds
+COVER_PAGE = 100  # the largest page of covers MangaDex serves
 ANILIST_MEDIA = """query ($id: Int) { Media(id: $id, type: MANGA) {
   id idMal format status title { romaji english native } synonyms description genres
   tags { name rank isMediaSpoiler } coverImage { extraLarge } startDate { year month day }
@@ -90,9 +91,17 @@ class MangaDex:
         return _unless_gone(lambda: self._get(f"/manga/{md_id}/aggregate"))
 
     def covers(self, md_id):
-        """Every cover's attributes (volume, locale, fileName), up to 100."""
-        query = urllib.parse.urlencode([("manga[]", md_id), ("limit", 100)])
-        return [c["attributes"] for c in self._get(f"/cover?{query}")["data"]]
+        """Every cover's attributes (volume, locale, fileName), in volume order, page by page."""
+        out, offset = [], 0
+        while True:
+            query = urllib.parse.urlencode(
+                [("manga[]", md_id), ("order[volume]", "asc"), ("limit", COVER_PAGE), ("offset", offset)]
+            )
+            page = self._get(f"/cover?{query}")
+            out += [c["attributes"] for c in page["data"]]
+            offset += len(page["data"])
+            if not page["data"] or offset >= page["total"]:
+                return out
 
     def latest_chapter_date(self, md_id):
         """The publish time (ISO text) of the manga's newest chapter in any language, or None."""

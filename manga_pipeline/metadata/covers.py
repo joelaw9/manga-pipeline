@@ -1,5 +1,7 @@
 """A series' cover (SPEC "Metadata checks", Covers): picked at each check by the old metadata tool's rule
-(`mangadex-en-vol1-v1`), stored content-addressed under `<paths.covers>/series/`, recorded in `series_cover`.
+(`mangadex-en-vol1-v1`), stored content-addressed under `<paths.covers>/series/`, recorded in `series_cover`. A covered
+volume's cover (SPEC "Metadata", Volume covers): MangaDex's cover of exactly that volume (the bulk converter's
+`volume_covers`), stored under `<paths.covers>/volume/`, recorded in `series_volume_cover`.
 """
 
 import hashlib
@@ -10,12 +12,14 @@ from dataclasses import dataclass
 
 from PIL import Image, UnidentifiedImageError
 
-from manga_pipeline import config, errors
+from manga_pipeline import config, db, errors, names
 from manga_pipeline.clients import http
+from manga_pipeline.metadata import sources
 
 log = logging.getLogger(__name__)
 WIDE_ENOUGH = 1500  # px: a Suwayomi thumbnail this wide is the cover
-FOLDER = "series"  # below paths.covers (volume covers live beside it)
+FOLDER = "series"  # below paths.covers
+VOLUME_FOLDER = "volume"  # below paths.covers: covered volumes' covers
 UNNAMED_KEEP_S = 24 * 3600
 
 
@@ -112,11 +116,7 @@ def _write(cfg, source_url, data, size):
     ext = size[1]
     sha256 = hashlib.sha256(data).hexdigest()
     path = config.abs_path(cfg["paths"]["covers"]) / FOLDER / f"{sha256}.{ext}"
-    if not path.exists():
-        path.parent.mkdir(exist_ok=True)
-        part = path.with_name(path.name + ".part")
-        part.write_bytes(data)
-        part.replace(path)
+    _put(path, data)
     return Cover(source_url, config.to_stored(cfg, path), sha256)
 
 
@@ -130,13 +130,97 @@ def store(conn, series_id, cover):
     )
 
 
+def volume_cover(ctx, series_id, volume):
+    """(path relative to paths.covers, sha256) of the series' cover of `volume`, fetched and stored the first time
+    (and again when its file is missing or holds other bytes); None when MangaDex has no cover of that volume or the
+    series has no MangaDex record."""
+    row = ctx.conn.execute(
+        "SELECT path, sha256 FROM series_volume_cover WHERE series_id = %s AND volume = %s", (series_id, volume)
+    ).fetchone()
+    root = config.abs_path(ctx.cfg["paths"]["covers"])
+    if row is not None and _holds(root / row["path"], row["sha256"]):
+        return row["path"], row["sha256"]
+    records = {
+        r["kind"]: r["payload"]
+        for r in ctx.conn.execute(
+            "SELECT kind, payload FROM fetched WHERE series_id = %s AND source = 'mangadex'", (series_id,)
+        )
+    }
+    manga = records.get("manga")
+    file_name = volume_choice(manga, records.get("covers") or [], volume) if manga else None
+    if file_name is None:
+        return None
+    url = f"{sources.MANGADEX_UPLOADS}/covers/{manga['id']}/{file_name}"
+    data = _gone_is_none(ctx.sources.mangadex.cover_image, manga["id"], file_name)
+    if data is None:  # MangaDex no longer serves the file: no cover
+        return None
+    image = _image(url, data)
+    if image is None:  # an error page served as the image: fails the attempt, a later run tries again
+        raise ValueError(f"the volume {volume} cover from {url} is not an image")
+    _, data, (_, ext) = image
+    sha256 = hashlib.sha256(data).hexdigest()
+    rel = f"{VOLUME_FOLDER}/{sha256}.{ext}"
+    _put(root / rel, data, sha256)
+    with db.transaction(ctx.conn):
+        ctx.conn.execute(
+            """INSERT INTO series_volume_cover (series_id, volume, source_url, path, sha256)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (series_id, volume) DO UPDATE SET source_url = excluded.source_url, path = excluded.path,
+                sha256 = excluded.sha256""",
+            (series_id, volume, url, rel, sha256),
+        )
+    return rel, sha256
+
+
+def volume_choice(manga, covers, volume):
+    """The MangaDex cover file name of exactly `volume`: English, else the manga's original language, else any
+    locale (the first listed wins a tie); None when MangaDex has none of that volume."""
+    original = (manga.get("attributes") or {}).get("originalLanguage")
+    best = None
+    for c in covers:
+        if names.to_volume(c.get("volume")) != volume or not c.get("fileName"):
+            continue
+        rank = 0 if c.get("locale") == "en" else 1 if c.get("locale") == original else 2
+        if best is None or rank < best[0]:
+            best = (rank, c["fileName"])
+    return best and best[1]
+
+
+def _holds(path, sha256):
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest() == sha256
+    except FileNotFoundError as e:
+        if errors.dropped_share(e):
+            raise
+        return False
+
+
+def _put(path, data, sha256=None):
+    """Write the content-addressed file unless it is there; with sha256, also when it holds other bytes."""
+    if not path.exists() or (sha256 is not None and not _holds(path, sha256)):
+        path.parent.mkdir(exist_ok=True)
+        part = path.with_name(path.name + ".part")
+        part.write_bytes(data)
+        part.replace(path)
+
+
 def clean(ctx):
-    """Delete a cover file under paths.covers/series that no series names, once it is a day old (a check that did
-    not complete may have left one)."""
-    root = config.abs_path(ctx.cfg["paths"]["covers"]) / FOLDER
+    """Delete a cover file under paths.covers/series that no series names, and under paths.covers/volume that no
+    series volume cover nor chapter names, once it is a day old (a check or validate that did not complete, a dropped
+    chapter or a state reset may have left one)."""
+    covers = config.abs_path(ctx.cfg["paths"]["covers"])
+    series = {row[0] for row in ctx.conn.execute("SELECT path FROM series_cover")}
+    volume = {
+        config.to_stored(ctx.cfg, covers / row[0])
+        for row in ctx.conn.execute("SELECT path FROM series_volume_cover UNION SELECT path FROM volume_cover")
+    }
+    for folder, named in ((FOLDER, series), (VOLUME_FOLDER, volume)):
+        _clean(ctx, covers / folder, named)
+
+
+def _clean(ctx, root, named):
     if not root.is_dir():
         return
-    named = {row[0] for row in ctx.conn.execute("SELECT path FROM series_cover")}
     cutoff = time.time() - UNNAMED_KEEP_S
     for entry in root.iterdir():
         if config.to_stored(ctx.cfg, entry) in named:

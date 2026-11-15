@@ -28,7 +28,7 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `paths.library` | root of the Kavita library the pipeline publishes into (on the share) |
 | `paths.staging` | staging folder for finished chapters (on the share, outside every library root) |
 | `paths.retention` | where removed downloads are kept for `export.retention_days` (on the share, same filesystem as downloads, outside downloads and every library root) |
-| `paths.naming_overrides` | the work folder of per-series volume overrides, `<series rules key>.yaml` (SPEC "Series identification"); default `rules/naming` in the project, which the repository keeps empty (its files are the instance's, gitignored) |
+| `paths.naming_overrides` | the folder of per-series naming overrides, `<series rules key>.yaml` (SPEC "Series identification"), on the share: every part on every machine reads the same files; never written by the pipeline, and never emptied by `state reset` |
 | `paths.scratch` | scratch folder for the chapter in hand (local disk) |
 | `paths.covers` | folder of fetched cover images (on the share); a volume cover's path is relative to it (SPEC "Conversion") |
 | `paths.candidates` | folder of the open junk candidates' images (on the share; SPEC "Junk decisions") |
@@ -83,9 +83,9 @@ After config, the run lock and logging, and before the work, the run checks its 
 | runtime version | hard | parts, reset, adopt, review, version | Python older than 3.13 |
 | share ownership | hard | parts, reset, review | the owner file in `paths.staging` is missing, or holds another database's id (SPEC "State"), or the database's id cannot be read (the server cannot be reached) |
 | staging folder | hard | adopt | `paths.staging` is not an existing folder |
-| folder layout | hard | parts, reset, adopt, review | `paths.staging`, `paths.scratch` or `paths.candidates` (the folders `state reset` empties) equals or contains `paths.downloads`, `paths.library`, `paths.retention`, `paths.covers`, `logging.dir`, the project root or another of the 3, or lies inside `paths.downloads` or `paths.library`; `paths.retention` lies inside `paths.downloads` or `paths.library`, or contains either |
+| folder layout | hard | parts, reset, adopt, review | `paths.staging`, `paths.scratch` or `paths.candidates` (the folders `state reset` empties) equals or contains `paths.downloads`, `paths.library`, `paths.retention`, `paths.covers`, `paths.naming_overrides`, `logging.dir`, the project root or another of the 3, or lies inside `paths.downloads` or `paths.library`; `paths.retention` lies inside `paths.downloads` or `paths.library`, or contains either |
 | share folders | hard | parts, reset, adopt, review | `paths.downloads`, its `mangas` folder, `paths.library`, `paths.retention`, `paths.candidates` or `paths.covers` is not an existing folder, or `paths.retention` is not on the filesystem of `paths.downloads` |
-| naming overrides | hard | `export` | `paths.naming_overrides` is not an existing folder |
+| naming overrides | hard | `intake`, `process`, `export` | `paths.naming_overrides` is not an existing folder |
 | fleet version | hard | parts, review | the database holds no fleet digest (`state version --yes` was never run), or this machine's differs from it; the problem names which differs: the program, a shared setting, a runtime dependency's version, or a tool's |
 | workflow settings | hard | parts, review, smoke, `series link`, `metadata import`, `metadata audit` | `workflow.attempt_limit`, `kavita.library_id`, `kavita.rescan_after_minutes`, `junk.review_limit`, `junk.review_batch`, `convert.workers`, `intake.settle_minutes` or a `metadata` key is below 1, `metadata.complete_months` is not above `metadata.recent_months`, `export.retention_days` below 0, or `series.only` holds a name that is not text |
 | OCR device | hard | `process` | `junk.ocr_device` is not `cpu`, `dml` or `cuda`, or its onnxruntime execution provider does not load (a session's first provider is checked, not the listing) |

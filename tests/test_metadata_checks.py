@@ -233,20 +233,23 @@ def test_a_series_linked_by_the_sweep_gets_its_folder_with_its_first_download(wo
 
 
 @budget(load="db")
-def test_a_check_that_fails_on_a_bad_reply_never_stops_chapter_work(world, monkeypatch):
+def test_a_check_that_fails_on_a_bad_reply_holds_the_chapter_until_it_completes(world, monkeypatch):
     world.kavita_series("Solo Leveling")
     manga = world.manga("Solo Leveling")
     world.suwayomi.thumbnails[manga] = b"<html>challenge</html>"
     world.download(manga, "Chapter 2")
     monkeypatch.setattr(world.sources.mangaupdates, "search", lambda name: [{"unexpected": "shape"}])
     world.run(intake)
-    assert world.rows("SELECT stage FROM chapter") == [("junk",)], "the chapter is validated all the same"
+    assert world.rows("SELECT stage, waiting_on, attempts FROM chapter") == [("validate", "metadata_check", 0)], (
+        "a series never checked holds its chapter at validate, at no attempt: its name and covers need the data"
+    )
     assert world.rows("SELECT value FROM meta WHERE key LIKE %s", "%intake%last_result")[0][0].startswith("ok")
     assert world.rows("SELECT count(*) FROM series_check WHERE data_version > 0") == [(0,)], "the check stays due"
     monkeypatch.undo()
     world.run(intake)
     assert world.rows("SELECT count(*) FROM series_cover") == [(0,)], "an error page is never a cover"
     assert world.rows("SELECT data_version FROM series_check") == [(1,)]
+    assert world.rows("SELECT stage FROM chapter") == [("junk",)], "the completed check ends the wait in that run"
 
 
 @budget(load="db")

@@ -1,0 +1,101 @@
+{
+ "series": "Godspeed",
+ "basis": "mangadex",
+ "overrides": null,
+ "covered_volumes": [
+  1,
+  2
+ ],
+ "chapters": [
+  {
+   "file": "Chapter 1 _ Beyond the Wall.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "mangadex",
+   "number": "1",
+   "title": "Beyond the Wall",
+   "open": false
+  },
+  {
+   "file": "Chapter 2 v2 _ Graduation.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "mangadex",
+   "number": "2",
+   "title": "v2: Graduation",
+   "open": false
+  },
+  {
+   "file": "Chapter 3 v2 _ Successor.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "mangadex",
+   "number": "3",
+   "title": "v2: Successor",
+   "open": false
+  },
+  {
+   "file": "Chapter 4 _ Not Even the Tears Streaming Down My Cheeks.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "mangadex",
+   "number": "4",
+   "title": "Not Even the Tears Streaming Down My Cheeks",
+   "open": false
+  },
+  {
+   "file": "Chapter 5 _ Hope.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "mangadex",
+   "number": "5",
+   "title": "Hope",
+   "open": false
+  },
+  {
+   "file": "Chapter 6 _ Gravity.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "mangadex",
+   "number": "6",
+   "title": "Gravity",
+   "open": false
+  },
+  {
+   "file": "Chapter 7 _ Journey.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "mangadex",
+   "number": "7",
+   "title": "Journey",
+   "open": false
+  },
+  {
+   "file": "Chapter 8 _ Aqua, Angel of Water.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "mangadex",
+   "number": "8",
+   "title": "Aqua, Angel of Water",
+   "open": false
+  },
+  {
+   "file": "Chapter 9 _ Final Battle.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "mangadex",
+   "number": "9",
+   "title": "Final Battle",
+   "open": true
+  },
+  {
+   "file": "Chapter 10 _ Eyes Set on Freedom [END].cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "mangadex",
+   "number": "10",
+   "title": "Eyes Set on Freedom",
+   "open": true
+  }
+ ]
+}

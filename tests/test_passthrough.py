@@ -290,9 +290,9 @@ def test_a_record_without_a_known_layout_keeps_the_chapter_waiting(world, layout
     record["series"]["layout"] = layout
     (world.library / "Solo Leveling" / ".optimizer.json").write_text(json.dumps(record), encoding="utf-8")
     world.download(world.manga("Solo Leveling"), "Chapter 2")
-    through(world, intake, process, process)
+    through(world, intake, intake)
     assert world.rows("SELECT stage, status, waiting_on, attempts FROM chapter") == [
-        ("junk", "waiting", "bulk_conversion", 0)
+        ("validate", "waiting", "bulk_conversion", 0)
     ], "a record the baseline cannot use is a record that does not parse yet"
 
 
@@ -301,9 +301,9 @@ def test_a_record_naming_another_series_keeps_the_chapter_waiting(world):
     kavita_id = world.kavita_series("Solo Leveling", record=False)
     world.write_record("Other Name", kavita_id, "Solo Leveling", [])
     world.download(world.manga("Solo Leveling"), "Chapter 2")
-    through(world, intake, process, process)
+    through(world, intake, intake)
     assert world.rows("SELECT status FROM series") == [("needs_human",)]
-    assert world.rows("SELECT stage, status, waiting_on FROM chapter") == [("junk", "waiting", "bulk_conversion")]
+    assert world.rows("SELECT stage, status, waiting_on FROM chapter") == [("validate", "waiting", "bulk_conversion")]
 
 
 @budget(load="db", seconds=2)

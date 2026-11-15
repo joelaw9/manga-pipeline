@@ -1,0 +1,728 @@
+{
+ "series": "Adeline's Darkest Night",
+ "basis": "side stories need volumes: main story = Vol 1",
+ "overrides": null,
+ "covered_volumes": [],
+ "chapters": [
+  {
+   "file": "Unknown_Chapter 1.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "1",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 2.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "2",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 3.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "3",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 4.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "4",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 5.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "5",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 6.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "6",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 7.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "7",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 8.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "8",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 9.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "9",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 10.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "10",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 11.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "11",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 12.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "12",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 13.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "13",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 14.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "14",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 15.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "15",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 16.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "16",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 17.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "17",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 18.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "18",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 19.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "19",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 20.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "20",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 21.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "21",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 22.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "22",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 23.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "23",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 24.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "24",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 25.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "25",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 26.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "26",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 27.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "27",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 28.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "28",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 29.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "29",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 30.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "30",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 31.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "31",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 32.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "32",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 33.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "33",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 34.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "34",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 35.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "35",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 36.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "36",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 37.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "37",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 38.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "38",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 39.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "39",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 40.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "40",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 41.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "41",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 42.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "42",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 43.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "43",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 44.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "44",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 45.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "45",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 46.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "46",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 47.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "47",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 48.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "48",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 49.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "49",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 50.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "50",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 51.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "51",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 52.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "52",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 53.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "53",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 54.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "54",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 55.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "55",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 56.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "56",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 57.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "57",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 58.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "58",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 59.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "59",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 60.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "60",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 61.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "61",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 62.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "62",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 63.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "63",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 64.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "64",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 65.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "65",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 66.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "66",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 67.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "67",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 68.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "68",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 69.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "69",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 70.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "70",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 71.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "71",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 72.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "72",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 73.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "73",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 74.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "74",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 75.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "75",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 76.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "76",
+   "title": "",
+   "open": true
+  },
+  {
+   "file": "mei_Chapter 77 [End of Main Story].cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "default",
+   "number": "77",
+   "title": "",
+   "open": true
+  },
+  {
+   "file": "mei_Bonus Episode 1.cbz",
+   "kind": "side",
+   "volume": 2,
+   "volume_source": "side",
+   "number": "1",
+   "title": "Side Story 1",
+   "open": false
+  },
+  {
+   "file": "mei_Bonus Episode 2.cbz",
+   "kind": "side",
+   "volume": 2,
+   "volume_source": "side",
+   "number": "2",
+   "title": "Side Story 2",
+   "open": true
+  },
+  {
+   "file": "mei_Bonus Episode 3 [END].cbz",
+   "kind": "side",
+   "volume": 2,
+   "volume_source": "side",
+   "number": "3",
+   "title": "Side Story 3",
+   "open": true
+  }
+ ]
+}

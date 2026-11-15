@@ -4,15 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from manga_pipeline import config, export, intake, names, process, volumes
+from manga_pipeline import chapter_names, config, export, intake, process, volumes
 
 from tests.timing import budget
 from tests.world import World, cbz
 from tests.world import comicinfo as ci
-
-
-def series(basis, name="Solo Leveling"):
-    return {"naming_basis": basis, "rules_key": name}
 
 
 def write_override(folder, name, text):
@@ -24,39 +20,6 @@ def world_overrides(world):
     return config.abs_path(world.cfg["paths"]["naming_overrides"])
 
 
-@budget(load="pure")
-@pytest.mark.parametrize(
-    "basis, stem, ci_volume, want",
-    [
-        ("filename", "Vol.3 Ch.20", None, 3),
-        ("filename", "Chapter 20", "02", 2),
-        ("filename", "Chapter 20", None, None),
-        ("season tags", "S2 - Chapter 5", None, 2),
-        ("season tags", "Chapter 5", None, None),
-        ("side stories need volumes: main story = Vol 1", "Chapter 5", None, 1),
-        ("mangadex", "Vol.3 Ch.20", "3", None),
-        ("none", "Vol.3 Ch.20", None, None),
-        (None, "Vol.3 Ch.20", None, None),
-        ("filename", "Side Story 1", "4", None),
-    ],
-    ids=[
-        "filename-name",
-        "filename-comicinfo",
-        "filename-none",
-        "season",
-        "season-none",
-        "side-default",
-        "network-basis",
-        "basis-none",
-        "no-basis",
-        "side-story",
-    ],
-)
-def test_volume_by_basis(basis, stem, ci_volume, want, tmp_path):
-    got = volumes.chapter_volume(series(basis), names.parse(stem), ci_volume, tmp_path)
-    assert got == want, "only the bases Phase 3 can know give a volume, and only to a main chapter"
-
-
 @budget(load="fs")
 @pytest.mark.parametrize(
     "number, want",
@@ -65,15 +28,14 @@ def test_volume_by_basis(basis, stem, ci_volume, want, tmp_path):
 )
 def test_override_ranges_as_the_bulk_converter_reads_them(tmp_path, number, want):
     write_override(tmp_path, "Solo Leveling", 'layout: strip\nvolumes: {0: "-3", 3: "4", 1: "6-65", 2: "66-"}\n')
-    got = volumes.chapter_volume(series("override"), names.parse(f"Chapter {number}"), None, tmp_path)
-    assert got == want
+    ranges = volumes.override_file(tmp_path, "Solo Leveling")["volumes"]
+    assert volumes.override_volume(ranges, float(number)) == want
 
 
 @budget(load="fs")
 @pytest.mark.parametrize(
     "text",
     [
-        None,
         "volumes: [1, 2]\n",
         'volumes: {x: "1-5"}\n',
         'volumes: {1: "9-2"}\n',
@@ -81,13 +43,17 @@ def test_override_ranges_as_the_bulk_converter_reads_them(tmp_path, number, want
         "- a\n",
         "volumes: {1: [\n",
     ],
-    ids=["missing", "not-a-mapping", "bad-volume", "backwards", "bad-range", "file-not-a-mapping", "bad-yaml"],
+    ids=["not-a-mapping", "bad-volume", "backwards", "bad-range", "file-not-a-mapping", "bad-yaml"],
 )
-def test_a_missing_or_malformed_override_is_an_override_error(tmp_path, text):
-    if text is not None:
-        write_override(tmp_path, "Solo Leveling", text)
+def test_a_malformed_override_is_an_override_error(tmp_path, text):
+    write_override(tmp_path, "Solo Leveling", text)
     with pytest.raises(volumes.OverrideError, match="Solo Leveling"):
-        volumes.chapter_volume(series("override"), names.parse("Chapter 3"), None, tmp_path)
+        volumes.override_file(tmp_path, "Solo Leveling")
+
+
+@budget(load="fs")
+def test_a_series_without_an_override_file_has_none(tmp_path):
+    assert volumes.override_file(tmp_path, "Solo Leveling") is None, "only an override basis needs the file"
 
 
 @budget(load="db", seconds=2)
@@ -110,20 +76,16 @@ def test_a_chapter_of_an_override_series_is_published_with_the_bulk_converters_n
 
 
 @budget(load="db", seconds=2)
-def test_an_override_series_without_its_file_needs_a_human_at_comicinfo(tmp_path):
+def test_an_override_series_without_its_file_needs_a_human_at_validate(tmp_path):
     world = World(tmp_path / "world")
     world.kavita_series("Solo Leveling", basis="override")
     world.download(world.manga("Solo Leveling"), "Chapter 2")
     for part in (intake, process, export):
         world.run(part)
-    assert world.rows("SELECT stage, status, attempts FROM chapter") == [("comicinfo", "needs_human", 0)]
+    assert world.rows("SELECT stage, status, attempts FROM chapter") == [("validate", "needs_human", 0)], (
+        "the first stage that names the chapter holds it"
+    )
     assert not list(Path(world.library / "Solo Leveling").glob("Ch.2*")), "nothing published"
-
-
-@budget(load="pure")
-def test_a_file_name_volume_that_is_not_whole_is_a_volume_error():
-    with pytest.raises(volumes.VolumeError, match="volume 2.5 is not a whole number"):
-        volumes.chapter_volume(series("filename"), names.parse("Vol.2.5 Ch.10"), None, "unused")
 
 
 @budget(load="db", seconds=2)
@@ -139,32 +101,23 @@ def test_without_a_volume_the_downloads_volume_is_dropped_and_the_title_falls_ba
     ], "name and ComicInfo agree: no volume; an untitled chapter is recorded with no title, as the baseline does"
 
 
-@budget(load="fs")
-def test_the_override_file_is_named_by_the_rules_key_not_the_folder(tmp_path):
-    """A renamed folder keeps its override file: the file is named by the series' first folder (its rules key)."""
-    write_override(tmp_path, "Solo Leveling", 'volumes: {2: "66-"}\n')
-    renamed = {"naming_basis": "override", "rules_key": "Solo Leveling", "folder": "/lib/I Level Up Alone"}
-    assert volumes.chapter_volume(renamed, names.parse("Chapter 70"), None, tmp_path) == 2
-
-
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "basis, kind, ours, theirs, same",
+    "ours, theirs, source, same",
     [
-        ("filename", names.MAIN, 2, 1, False),
-        ("filename", names.MAIN, 1, 1, True),
-        ("filename", names.MAIN, None, 1, True),
-        ("filename", names.MAIN, 2, None, True),
-        ("filename", names.SIDE, 2, 1, True),
-        ("override", names.MAIN, 2, 1, True),
+        (2, "1", "filename", False),
+        (1, "1", "filename", True),
+        (None, "1", "filename", True),
+        (2, None, "filename", True),
+        (2, "1", "mangadex", True),
+        (2, "1", "override", True),
+        (2, "1", None, True),
     ],
 )
-def test_a_published_file_of_the_key_is_another_chapter_only_under_another_file_name_volume(
-    basis, kind, ours, theirs, same
-):
-    """The bulk converter's rule: in a `filename` series a main chapter's volumes must not differ where both have
-    one; a side story's volume is assigned, and another basis assigns every volume, so there the key decides."""
-    assert volumes.same_chapter(basis, kind, ours, theirs) is same
+def test_2_volumes_from_the_files_tell_chapters_apart(ours, theirs, source, same):
+    """D7.21 (user 2026-11-15): a download's own volume and a published file's volume from its file name must not
+    differ; a volume a source or rule assigned never splits a chapter (MangaDex may move it later)."""
+    assert chapter_names.same_chapter(lambda: ours, theirs, source) is same
 
 
 @budget(load="fs")

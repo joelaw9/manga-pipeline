@@ -1,16 +1,13 @@
-"""A new chapter's volume (SPEC "Publishing"): the bulk converter's rule for a chapter next to recorded ones (its
-optimizer/naming.py `_basis_volumes`), from the series' recorded volume basis, for the bases known without a network
-source or the whole series: the file's own volume, its season tag, the series' override file (in
-paths.naming_overrides, the bulk converter's folder), the side-story default. Any other basis, and a side story,
-gives no volume (the metadata phase resolves those).
+"""A series' naming override file (SPEC "Publishing"): `<paths.naming_overrides>/<series rules key>.yaml`, read and
+checked as the bulk converter accepts it (`volumes` ranges, `series_group`), and the volume a range gives a chapter.
+The volume bases' names. Volumes themselves are resolved by metadata/naming.py.
 """
 
 from pathlib import Path
-from xml.etree.ElementTree import ParseError
 
 import yaml
 
-from manga_pipeline import archive, comicinfo, names
+from manga_pipeline import errors, names
 
 FILENAME, SEASON_TAGS, OVERRIDE = "filename", "season tags", "override"
 SIDE_DEFAULT = "side stories need volumes: main story = Vol 1"
@@ -24,73 +21,17 @@ class OverrideError(VolumeError):
     """The series' override file is missing or not one the bulk converter would accept: a person must fix it."""
 
 
-def chapter_volume(series, item, ci_volume, overrides):
-    """The volume of a main chapter by series["naming_basis"], or None. ci_volume: its download's ComicInfo Volume;
-    overrides: the folder of override files (paths.naming_overrides).
-    VolumeError for a file-name volume that is not a whole number; OverrideError for an override series whose file is
-    missing or malformed."""
-    if item.kind != names.MAIN:
-        return None
-    basis = series["naming_basis"]
-    if basis == FILENAME:
-        volume = names.to_volume(item.volume if item.volume is not None else ci_volume)
-        if volume is not None and volume != int(volume):
-            # the bulk converter's plan error too: ComicInfo Volume is an xs:int
-            raise VolumeError(f"{item.file!r}: volume {names.fmt_num(volume)} is not a whole number")
-        return volume
-    if basis == SEASON_TAGS:
-        return int(item.season) if item.season else None
-    if basis == SIDE_DEFAULT:
-        return 1
-    if basis == OVERRIDE:
-        return override_volume(override_volumes(overrides, series["rules_key"]), item.num)
-    return None
-
-
-def same_chapter(basis, kind, ours, theirs):
-    """Whether a published file of a download's key (season, side label, number) is the same chapter (SPEC "Library
-    copies"), the bulk converter's rule (its optimizer/structure.py `_same_scope`): in a series whose volume basis is
-    `filename`, a main chapter's volume (ours) and the file's (theirs) must not differ where both have one. A side
-    story's volume, and every volume under another basis, is assigned: there the key alone decides."""
-    return basis != FILENAME or kind != names.MAIN or ours is None or theirs is None or ours == theirs
-
-
-def same_as_published(series, download, published_volume):
-    """same_chapter for a download and a published file of its key (published_volume: its ComicInfo Volume as
-    written). The download is read only in a `filename` series, for the volume the comicinfo stage would write; a
-    ComicInfo.xml that cannot be read gives no volume of its own (the name's still counts; the comicinfo stage reports
-    it). VolumeError for a volume that is not a whole number."""
-    if series["naming_basis"] != FILENAME:
-        return True
-    try:
-        fields, item = comicinfo.read_download(download)
-    except (*archive.UNREADABLE, ParseError):
-        fields, item = {}, names.parse(Path(download).stem)
-    ours = chapter_volume(series, item, fields.get("Volume"), None)  # a `filename` series reads no override file
-    return same_chapter(FILENAME, item.kind, ours, names.to_volume(published_volume))
-
-
-def override_volumes(overrides, folder_name):
-    """The `volumes` mapping of the series' override file ({} when it has none). OverrideError when the file is
-    missing or malformed."""
-    data = _override_file(overrides, folder_name)
-    if data is None:
-        path = Path(overrides) / f"{folder_name}.yaml"
-        raise OverrideError(f"the series' volume basis is its override file, and {path} does not exist")
-    return data.get("volumes") or {}
-
-
 def series_group(overrides, folder_name):
     """ComicInfo SeriesGroup from the series' override file's `series_group` (a name, or a list joined with ", "),
     None without the file or the key. OverrideError when the file is malformed."""
-    data = _override_file(overrides, folder_name) or {}
+    data = override_file(overrides, folder_name) or {}
     return data.get("series_group") and ", ".join(_group_names(data["series_group"]))
 
 
-def _override_file(overrides, folder_name):
+def override_file(overrides, folder_name):
     """The series' override file as a checked mapping, None when it does not exist. OverrideError when malformed."""
     path = Path(overrides) / f"{folder_name}.yaml"
-    if not path.is_file():
+    if not errors.exists(path):
         return None
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}

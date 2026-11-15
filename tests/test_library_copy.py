@@ -253,12 +253,11 @@ def test_a_download_under_another_volume_with_that_chapters_pages_is_mislabelled
 
 
 @budget(load="db")
-def test_a_volume_that_is_not_whole_needs_a_human_at_the_copy_check(by_filename):
+def test_a_volume_that_is_not_whole_needs_a_human_at_validate(by_filename):
     by_filename.download(by_filename.manga_id, "Vol.2.5 Chapter 3")
     by_filename.run(intake)
-    by_filename.run(process)
     stage, status, error = outcome(by_filename)
-    assert (stage, status) == ("junk", "needs_human") and "not a whole number" in error, "a person, not an error"
+    assert (stage, status) == ("validate", "needs_human") and "not a whole number" in error, "a person, not an error"
 
 
 @budget(load="db")

@@ -80,13 +80,23 @@ def folder_layout(cfg):
     try:
         paths = {
             key: config.abs_path(cfg["paths"][key]).resolve()
-            for key in ("downloads", "library", "staging", "scratch", "candidates", "retention", "covers")
+            for key in (
+                "downloads",
+                "library",
+                "staging",
+                "scratch",
+                "candidates",
+                "retention",
+                "covers",
+                "naming_overrides",
+            )
         }
         kept = {
             "paths.downloads": paths["downloads"],
             "paths.library": paths["library"],
             "paths.retention": paths["retention"],
             "paths.covers": paths["covers"],
+            "paths.naming_overrides": paths["naming_overrides"],
             "logging.dir": config.abs_path(cfg["logging"]["dir"]).resolve(),
             "the project root": config.ROOT.resolve(),
         }

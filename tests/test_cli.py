@@ -45,11 +45,20 @@ PART_CHECKS = [*LOCKED, "workflow settings", "share ownership", "fleet version"]
 # SPEC "Run lock", "Logging", "Preflight": (locks held, log file, checks run) per command. "idle": the idle lock held
 # (shared or exclusive); "idle exclusive": held exclusive.
 SPEC = {
-    "intake": ({"intake", "idle"}, "intake.log", [*PART_CHECKS, "service settings"]),
+    "intake": ({"intake", "idle"}, "intake.log", [*PART_CHECKS, "service settings", "naming overrides"]),
     "process": (
         {"process", "idle"},
         "process.log",
-        [*PART_CHECKS, "OCR device", "junk word lists", "image tools", "scorer", "scratch space", "long paths"],
+        [
+            *PART_CHECKS,
+            "OCR device",
+            "junk word lists",
+            "image tools",
+            "scorer",
+            "scratch space",
+            "long paths",
+            "naming overrides",
+        ],
     ),
     "export": ({"export", "idle"}, "export.log", [*PART_CHECKS, "service settings", "naming overrides"]),
     "status": (set(), None, []),

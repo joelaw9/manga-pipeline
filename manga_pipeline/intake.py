@@ -14,10 +14,14 @@ def run(cfg, conn):
 
 
 def work(ctx):
+    if ctx.sources is None:  # the run's 1 client of each metadata source: the check and validate's volume covers
+        object.__setattr__(ctx, "sources", check.new_sources())
     # Before discovery, so a re-download that ended is judged by validate, not listed as a new download.
     workflow.end_waits(ctx, "suwayomi_download", redownload.wait_over)
     with workflow.share_errors():
         discovery.scan(ctx)
-        step.run(ctx, ctx.sources or check.new_sources())
+        step.run(ctx, ctx.sources)
+        workflow.end_waits(ctx, "bulk_conversion", validate.bulk_conversion_over)
+    workflow.end_waits(ctx, "metadata_check", check.completed)
     for series_id in workflow.series_with_ready(ctx, tuple(STAGES)):
         workflow.drain(ctx, STAGES, series_id)

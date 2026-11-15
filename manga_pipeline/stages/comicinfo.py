@@ -3,14 +3,14 @@ and settles the file's name in the series folder.
 
 The download's ComicInfo.xml is kept field by field where a field is valid for the schema (Suwayomi writes Day, Month
 and Year out of schema order: build orders them), except what this stage writes itself: the series' fields from its
-stored records, the chapter's source, Manga, SeriesGroup and the pages. Number comes from the chapter's name where it
-has none; Series and LocalizedSeries are the series'; Title and Volume are the bulk converter's (names.chapter_title,
-volumes), as is the file name. A chapter whose series has never completed a metadata check waits on metadata_check.
+stored records, the chapter's source, Manga, SeriesGroup and the pages. Series and LocalizedSeries are the series';
+Number, Title, Volume and the file name are the bulk converter's, resolved with the series' other chapters
+(chapter_names.resolve).
 """
 
 import json
 
-from manga_pipeline import archive, comicinfo, config, names, volumes, workflow
+from manga_pipeline import archive, baseline, chapter_names, comicinfo, config, names, volumes, workflow
 from manga_pipeline.metadata import merge, tags
 
 # Elements this stage writes itself: the download's own are never kept (Count is never written: SPEC "Metadata").
@@ -37,22 +37,23 @@ def run(ctx, chapter):
     series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
     if not series["comicinfo_series"]:
         raise ValueError(f"series {series['id']} has no ComicInfo Series name (no baseline)")
-    if not checked(ctx, chapter):
-        return workflow.Waiting("metadata_check")
-    fields, item = comicinfo.read_download(config.to_local(ctx.cfg, chapter["download_path"]))
+    if baseline.needed(ctx.conn, series):  # a chapter past validate when the baseline's naming fields were added
+        why = baseline.take(ctx, series)
+        if why:
+            return workflow.Waiting("bulk_conversion", {"why": why})
+    fields, _ = comicinfo.read_download(config.to_local(ctx.cfg, chapter["download_path"]))
     fields = {k: v for k, v in fields.items() if k not in OWN}
-    fields.setdefault("Number", names.fmt_num(item.number))
     overrides = config.abs_path(ctx.cfg["paths"]["naming_overrides"])
     try:
-        volume = volumes.chapter_volume(series, item, fields.get("Volume"), overrides)
+        named = chapter_names.resolve(ctx, series)[chapter["id"]]
         group = volumes.series_group(overrides, series["rules_key"])
     except volumes.VolumeError as e:
         return workflow.NeedsHuman(str(e))
-    title = names.chapter_title(item, fields.get("Title"))
-    fields["Title"] = title or f"Chapter {names.fmt_num(item.number)}"
+    fields["Number"] = names.fmt_num(named.number)
+    fields["Title"] = named.title or f"Chapter {fields['Number']}"
     fields.pop("Volume", None)
-    if volume is not None:
-        fields["Volume"] = names.fmt_num(volume)
+    if named.volume is not None:
+        fields["Volume"] = names.fmt_num(named.volume)
     fields["Series"] = series["comicinfo_series"]
     fields.pop("LocalizedSeries", None)
     if series["localized_name"]:
@@ -65,12 +66,13 @@ def run(ctx, chapter):
     xml = comicinfo.build(fields, entries)
     workflow.holds_claim(ctx, chapter)
     size = archive.replace_member(config.to_local(ctx.cfg, chapter["staged_path"]), archive.COMICINFO, xml)
-    target = config.to_local(ctx.cfg, series["folder"]) / names.file_name(item, title, volume)
+    target = config.to_local(ctx.cfg, series["folder"]) / names.file_name(named.number, named.title, named.volume)
 
     def record(conn):
         conn.execute(
             """UPDATE chapter SET staged_size = %s, library_path = %s, comicinfo_series = %s, comicinfo_volume = %s,
-                comicinfo_number = %s, comicinfo_title = %s, comicinfo_date = %s
+                comicinfo_number = %s, comicinfo_title = %s, comicinfo_date = %s, naming_kind = %s,
+                naming_volume_source = %s
             WHERE id = %s""",
             (
                 size,
@@ -78,21 +80,15 @@ def run(ctx, chapter):
                 fields["Series"],
                 fields.get("Volume"),
                 fields["Number"],
-                title or None,  # an untitled chapter is recorded with no title, as the baseline records one
+                named.title or None,  # an untitled chapter is recorded with no title, as the baseline records one
                 names.ci_date(fields),
+                named.kind,
+                named.volume_source,
                 chapter["id"],
             ),
         )
 
     return workflow.Done(record)
-
-
-def checked(ctx, chapter):
-    """Whether the chapter's series has completed a metadata check (found or not): the end of a metadata_check wait."""
-    row = ctx.conn.execute(
-        "SELECT data_version FROM series_check WHERE series_id = %s", (chapter["series_id"],)
-    ).fetchone()
-    return row is not None and row["data_version"] > 0
 
 
 def _series_fields(ctx, series, chapter, group):

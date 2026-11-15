@@ -45,6 +45,15 @@ class Disagree(Exception):
     pass
 
 
+def completed(ctx, chapter):
+    """Whether the chapter's series has completed a metadata check (found or not): the end of a metadata_check
+    wait."""
+    row = ctx.conn.execute(
+        "SELECT data_version FROM series_check WHERE series_id = %s", (chapter["series_id"],)
+    ).fetchone()
+    return row is not None and row["data_version"] > 0
+
+
 def due(ctx):
     """Ids of the in-scope, not needs_human series whose check runs this run: every urgent or never completed one,
     then at most metadata.checks_per_run others, the longest due first."""

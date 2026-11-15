@@ -1,7 +1,6 @@
-"""Part export (SPEC "Parts", "Publishing"): empties expired retention files, ends metadata_check waits, adds
-ComicInfo.xml, publishes series by series (each Kavita series only while its files lie in its recorded folder), then
-does what needs Kavita: ends kavita_scan waits, confirms, writes series fields when no scan is awaited, and requests at
-most 1 library scan."""
+"""Part export (SPEC "Parts", "Publishing"): empties expired retention files, adds ComicInfo.xml, publishes series by
+series (each Kavita series only while its files lie in its recorded folder), then does what needs Kavita: ends
+kavita_scan waits, confirms, writes series fields when no scan is awaited, and requests at most 1 library scan."""
 
 import logging
 from datetime import timedelta
@@ -25,7 +24,6 @@ def run(cfg, conn):
 def work(ctx):
     with workflow.share_errors():
         retention.purge(ctx.cfg)
-    workflow.end_waits(ctx, "metadata_check", comicinfo.checked)
     workflow.drain(ctx, {"comicinfo": comicinfo.run})
     for series_id in workflow.series_with_ready(ctx, ("publish",)):
         if folder_moved(ctx, series_id):

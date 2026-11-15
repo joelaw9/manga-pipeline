@@ -41,7 +41,7 @@ The comicinfo stage writes every new chapter's `ComicInfo.xml`, valid for the Co
 | `PageCount`, `Pages` | the staged CBZ's pages as convert wrote them: per page its index, width, height and bytes, `FrontCover` on an inserted volume cover, and `DoublePage` on a page wider than tall in a page series |
 | `BlackAndWhite` | `Yes` when convert found every page gray, else `No` |
 
-The source and its page are those of the download the chapter goes out with: a re-download's (SPEC "Bad downloads") replace the first download's. A hand-placed chapter has no source: no chapter page in `Web`, no `Notes`. A chapter whose series has never completed a metadata check waits on `metadata_check` at no attempt; `export` ends the wait once the series' first check has completed, whatever it found.
+The source and its page are those of the download the chapter goes out with: a re-download's (SPEC "Bad downloads") replace the first download's. A hand-placed chapter has no source: no chapter page in `Web`, no `Notes`. A chapter whose series has never completed a metadata check waits on `metadata_check` at validate, at no attempt; `intake` ends the wait once the series' first check has completed, whatever it found.
 
 ## Source ids
 
@@ -111,6 +111,10 @@ When a completed series' check is due, its Suwayomi chapter list is refreshed (S
 ### Covers
 
 A series' cover is the Suwayomi thumbnail of a linked manga when it is at least 1500 px wide; else a MangaDex cover, the first of: English volume 1, the lowest-numbered English volume, volume 1 in the series' original language, volume 1 in any language, the series' main cover; else the wider of the AniList cover and the Suwayomi thumbnail. A series with no linked manga skips the Suwayomi steps; with no source either, it has no cover. An image that cannot be read (an error page served as the image), or one its host no longer has, is skipped as if the source had none. The chosen image is stored as `series/<sha256>.<ext>` under `paths.covers` and recorded with its source URL; a file there no series names is deleted once it is a day old.
+
+### Volume covers
+
+A main volume from MangaDex or an override file, or a file-name volume that an agreeing override file or MangaDex gives the same, is covered. The first chapter of a covered volume (the lowest-numbered main chapter of it, published or open) takes the volume's cover as its first page when it is new: at validate, `intake` takes MangaDex's cover of exactly that volume (English, else the original language, else any), stores it once per series and volume under `<paths.covers>/volume/` (fetched again when its file is missing or holds other bytes), and hands it to convert. MangaDex with no cover of that volume, or no longer serving its file: the chapter goes on without one. A fetch that fails, or that returns something other than an image, fails validate's attempt. A volume another open chapter of the series already took the cover of is not covered again. A chapter that has its cover keeps it; a lower-numbered chapter of that volume that arrives later takes none. A cover file no series volume or chapter names is deleted once a day old.
 
 ### Import
 

@@ -1,0 +1,1135 @@
+{
+ "series": "The Villainess Tames The Beast",
+ "basis": "override",
+ "overrides": {
+  "volumes": {
+   "1": "1-42",
+   "2": "43-77",
+   "3": "78-109",
+   "4": "110-"
+  }
+ },
+ "covered_volumes": [
+  1,
+  2,
+  3
+ ],
+ "chapters": [
+  {
+   "file": "The Hours Between_Episode 1.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "1",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 2.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "2",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 3.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "3",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 4.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "4",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 5.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "5",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 6.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "6",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 7.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "7",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 8.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "8",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 9.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "9",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 10.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "10",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 11.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "11",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 12.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "12",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 13.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "13",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 14.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "14",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 15.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "15",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 16.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "16",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 17.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "17",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 18.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "18",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 19.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "19",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 20.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "20",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 21.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "21",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 22.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "22",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 23.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "23",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 24.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "24",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 25.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "25",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 26.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "26",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 27.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "27",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 28.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "28",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 29.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "29",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 30.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "30",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 31.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "31",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 32.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "32",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 33.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "33",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 34.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "34",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 35.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "35",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 36.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "36",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 37.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "37",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 38.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "38",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 39.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "39",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 40.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "40",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 41.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "41",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 42.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "42",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 43.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "43",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 44.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "44",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 45.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "45",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 46.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "46",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 47.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "47",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 48.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "48",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 49.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "49",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 50.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "50",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 51.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "51",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 52.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "52",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 53.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "53",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 54.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "54",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 55.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "55",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 56.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "56",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 57.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "57",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 58.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "58",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 59.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "59",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 60.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "60",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 61.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "61",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 62.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "62",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 63.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "63",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 64.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "64",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 65.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "65",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 66.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "66",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 67.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "67",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 68.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "68",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 69.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "69",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 70.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "70",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 71.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "71",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 72.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "72",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 73.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "73",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 74.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "74",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 75.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "75",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 76.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "76",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 77.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "77",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 78.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "78",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 79.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "79",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 80.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "80",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 81.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "81",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 82.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "82",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 83.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "83",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 84.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "84",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 85.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "85",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 86.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "86",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 87.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "87",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 88.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "88",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 89.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "89",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 90.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "90",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 91.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "91",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 92.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "92",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 93.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "93",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 94.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "94",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 95.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "95",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 96.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "96",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 97.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "97",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 98.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "98",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 99.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "99",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 100.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "100",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 101.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "101",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 102.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "102",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 103.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "103",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 104.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "104",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 105.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "105",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 106.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "106",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 107.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "107",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Episode 108.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "108",
+   "title": "",
+   "open": true
+  },
+  {
+   "file": "The Hours Between_Episode 109 (Main Story Finale).cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "109",
+   "title": "(Main Story Finale)",
+   "open": true
+  },
+  {
+   "file": "The Hours Between_Special Episode 1.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "1",
+   "title": "Side Story 1",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 2.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "2",
+   "title": "Side Story 2",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 3.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "3",
+   "title": "Side Story 3",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 4.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "4",
+   "title": "Side Story 4",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 5.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "5",
+   "title": "Side Story 5",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 6.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "6",
+   "title": "Side Story 6",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 7.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "7",
+   "title": "Side Story 7",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 8.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "8",
+   "title": "Side Story 8",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 9.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "9",
+   "title": "Side Story 9",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 10.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "10",
+   "title": "Side Story 10",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 11.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "11",
+   "title": "Side Story 11",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 12.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "12",
+   "title": "Side Story 12",
+   "open": false
+  },
+  {
+   "file": "The Hours Between_Special Episode 13.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "13",
+   "title": "Side Story 13",
+   "open": false
+  },
+  {
+   "file": "Just A Luck_Special Episode 14.cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "14",
+   "title": "Side Story 14",
+   "open": true
+  },
+  {
+   "file": "Just A Luck_Special Episode 15 (Series Finale).cbz",
+   "kind": "side",
+   "volume": 4,
+   "volume_source": "side",
+   "number": "15",
+   "title": "Side Story 15: (Series Finale)",
+   "open": true
+  }
+ ]
+}

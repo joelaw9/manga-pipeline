@@ -21,7 +21,7 @@ TOP = {
     "chapters": list,
 }
 SERIES = ("layout", "naming", "calibration", "covers", "decisions")
-CHAPTER_KEYS = ("output", "file", "sources", "volume", "number", "title", "pages_out")
+CHAPTER_KEYS = ("output", "file", "sources", "kind", "volume", "volume_source", "number", "title", "pages_out")
 # source fates
 CHAPTER, MERGED, DUPLICATE, DELETED, REPLACED = "chapter", "merged", "duplicate", "deleted", "replaced"
 CARRIED, FAILED = "carried", "failed"

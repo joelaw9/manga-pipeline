@@ -3,10 +3,12 @@ published is a duplicate (dropped), or held for a person (a better copy, a doubt
 series' baseline has recorded what the library holds. Reads the share and the database only.
 """
 
+import functools
 import zipfile
 
 from manga_pipeline import (
     archive,
+    chapter_names,
     config,
     handled,
     images,
@@ -24,26 +26,22 @@ SAME_WIDTH = 0.95  # at least this, from a higher-ranked source: better
 
 
 def judge(ctx, chapter):
-    """None when the series has no published file of the chapter (its key, and in a `filename` series its volume:
-    volumes.same_chapter); else the outcome: Dropped (a duplicate, put aside the retention way and recorded) or
+    """None when the series has no confirmed published file of the chapter (its key, and its resolved volume:
+    chapter_names.same_chapter); else the outcome: Dropped (a duplicate, put aside the retention way and recorded) or
     NeedsHuman."""
     key = validation.chapter_key(chapter["identity"])
     rows = [
         r
-        for r in ctx.conn.execute("SELECT * FROM published_file WHERE series_id = %s", (chapter["series_id"],))
+        for r in ctx.conn.execute(
+            "SELECT * FROM published_file WHERE series_id = %s AND state = 'confirmed'", (chapter["series_id"],)
+        )
         # A published file gone from the library is no copy: publishing replaces its record (SPEC "Publishing").
         if validation.chapter_key(r["identity"]) == key and workflow.exists(config.to_local(ctx.cfg, r["library_path"]))
     ]
-    if rows:  # the series row as it is now: the baseline may just have set its volume basis
-        series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
+    if rows:
+        ours = functools.cache(lambda: chapter_names.download_volume(ctx.cfg, chapter["download_path"]))
         try:
-            rows = [
-                r
-                for r in rows
-                if volumes.same_as_published(
-                    series, config.to_local(ctx.cfg, chapter["download_path"]), r["comicinfo_volume"]
-                )
-            ]
+            rows = [r for r in rows if chapter_names.same_chapter(ours, r["comicinfo_volume"], r["volume_source"])]
         except volumes.VolumeError as e:
             return workflow.NeedsHuman(str(e))
     if not rows:
