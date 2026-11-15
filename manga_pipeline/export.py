@@ -1,11 +1,14 @@
 """Part export (SPEC "Parts", "Publishing"): empties expired retention files, adds ComicInfo.xml, publishes series by
 series (each Kavita series only while its files lie in its recorded folder), then does what needs Kavita: ends
-kavita_scan waits, confirms, writes series fields when no scan is awaited, and requests at most 1 library scan."""
+kavita_scan waits, confirms, publishes the new series that are ready, writes series fields when no scan is awaited,
+and requests at most 1 library scan."""
 
 import logging
+import os
 from datetime import timedelta
+from pathlib import PurePosixPath
 
-from manga_pipeline import config, db, identify, retention, workflow
+from manga_pipeline import config, db, kavita_link, retention, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.metadata import kavita_write
@@ -26,20 +29,95 @@ def work(ctx):
         retention.purge(ctx.cfg)
     workflow.drain(ctx, {"comicinfo": comicinfo.run})
     for series_id in workflow.series_with_ready(ctx, ("publish",)):
-        # A new series Kavita does not hold yet waits at publish (SPEC "Publishing": it lands whole)
+        # A new series Kavita does not hold yet is published by new_series (SPEC "Publishing": it lands whole)
         if not _in_kavita(ctx, series_id) or folder_moved(ctx, series_id):
             continue
         workflow.drain(ctx, {"publish": publish.run}, series_id)
     # Kavita unreachable here ends the run: what is left all needs Kavita.
     workflow.end_waits(ctx, "kavita_scan", confirm.wait_over)
-    # Confirm before the request: every chapter this run published then waits on kavita_scan, so the awaited test
-    # sees it.
+    # Confirm before the new series and the request: every chapter a run published before is then indexed or waiting
+    # on kavita_scan, so the awaited test sees it.
     workflow.drain(ctx, {"confirm": confirm.run})
+    with workflow.share_errors():
+        new_series(ctx)
     # Kavita holds series writes while its scan runs: written by a run when no scan is awaited
     if scan_awaited(ctx) is None:
         with workflow.share_errors():
             kavita_write.run(ctx)
     request_scan(ctx)
+
+
+# A stage a new series' chapter is still on its way through (SPEC "Publishing": it lands whole)
+BEFORE_PUBLISH = workflow.STAGES[: workflow.STAGES.index("publish")]
+
+
+def new_series(ctx):
+    """Publish each new series Kavita does not hold that is ready, in a run where no scan is awaited: none of its
+    chapters ready or claimed before publish, and its batch open (nothing published, or not yet followed by a scan
+    request). Every one ready lands under the run's 1 library scan."""
+    if scan_awaited(ctx) is not None:
+        return
+    for series_id in workflow.series_with_ready(ctx, ("publish",)):
+        series = ctx.conn.execute(
+            """SELECT s.*, EXISTS (SELECT 1 FROM chapter c WHERE c.series_id = s.id
+                    AND c.status IN ('ready', 'claimed') AND c.stage = ANY(%s::text[])) AS on_its_way,
+                EXISTS (SELECT 1 FROM published_file p WHERE p.series_id = s.id) AS published
+            FROM series s WHERE s.id = %s""",
+            (list(BEFORE_PUBLISH), series_id),
+        ).fetchone()
+        if series["kavita_series_id"] is not None or series["on_its_way"]:
+            continue
+        if series["published"] and not series["scan_due"]:
+            continue  # its batch's scan is requested: the rest waits for its Kavita id
+        if _folder_ready(ctx, series):
+            workflow.drain(ctx, {"publish": publish.run}, series_id)
+
+
+def _folder_ready(ctx, series):
+    """Create the series' folder, or check the one there holds only its own files: those it published and those a crash
+    left renamed in but unrecorded (a chapter at publish whose staged file is gone and whose file has its staged size);
+    anything else, or a folder that cannot be made or read, makes the series needs_human."""
+    folder = config.to_local(ctx.cfg, series["folder"])
+    try:
+        if not workflow.exists(folder):
+            folder.mkdir()
+            return True
+        names = os.listdir(folder)
+        own = _own_files(ctx, series, folder)
+    except OSError as e:
+        if e.errno in workflow.SHARE_ERRNOS or workflow.dropped_share(e):
+            raise  # the share: the run's problem (share_errors)
+        return _hold(ctx, series, f"folder {series['folder']} cannot be made or read: {e}")
+    foreign = sorted(n for n in names if n.lower().endswith(".cbz") and n not in own)
+    if not foreign:
+        return True
+    listed = ", ".join(foreign[:3])
+    return _hold(ctx, series, f"folder {series['folder']} holds files the pipeline did not publish: {listed}")
+
+
+def _own_files(ctx, series, folder):
+    """Names of the files the series published, and of those a crash left renamed in but unrecorded."""
+    own = {
+        PurePosixPath(r[0]).name
+        for r in ctx.conn.execute("SELECT library_path FROM published_file WHERE series_id = %s", (series["id"],))
+    }
+    for chapter in ctx.conn.execute(
+        """SELECT staged_path, staged_size, library_path FROM chapter
+        WHERE series_id = %s AND stage = 'publish' AND library_path IS NOT NULL""",
+        (series["id"],),
+    ):
+        target = folder / PurePosixPath(chapter["library_path"]).name
+        if not workflow.exists(config.to_local(ctx.cfg, chapter["staged_path"])) and workflow.exists(target):
+            if target.stat().st_size == chapter["staged_size"]:
+                own.add(target.name)
+    return own
+
+
+def _hold(ctx, series, reason):
+    with db.transaction(ctx.conn):
+        workflow.needs_human(ctx.conn, "series", series["id"], reason)
+    log.warning("%s: series %s (%s): %s", ctx.part, series["id"], series["name"], reason)
+    return False
 
 
 def _in_kavita(ctx, series_id):
@@ -56,7 +134,7 @@ def folder_moved(ctx, series_id):
     if kid is None or ctx.kavita.series(kid) is None:
         return False
     try:
-        found = identify.library_folder(ctx.cfg, ctx.kavita.series_folder(kid))
+        found = kavita_link.library_folder(ctx.cfg, ctx.kavita.series_folder(kid))
     except (kavita_client.FolderError, config.PathError, ValueError) as e:  # ValueError: a path under no map prefix
         reason = f"its folder is {series['folder']}, but {e}"
     else:

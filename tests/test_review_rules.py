@@ -8,7 +8,7 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import archive, config, db, discovery, identify, retention, workflow
+from manga_pipeline import archive, config, db, discovery, kavita_link, retention, workflow
 from manga_pipeline.junk import candidates, review_run
 
 from tests.builders import add_chapter, add_series, adopted, site_cfg
@@ -120,5 +120,5 @@ def test_a_series_folder_under_another_root_or_none_is_refused(tmp_path, root):
     cfg = {"paths": {r: str(tmp_path / "share" / r) for r in config.SHARE_ROOTS}}
     folder = tmp_path / "share" / root / "S" if root else tmp_path / "elsewhere" / "S"
     with pytest.raises(config.PathError):
-        identify.library_folder(cfg, folder)
-    assert identify.library_folder(cfg, tmp_path / "share" / "library" / "S") == "library/S", "the library is stored"
+        kavita_link.library_folder(cfg, folder)
+    assert kavita_link.library_folder(cfg, tmp_path / "share" / "library" / "S") == "library/S", "the library is stored"

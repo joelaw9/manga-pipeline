@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from manga_pipeline import archive, comicinfo, config, db, names, workflow
+from manga_pipeline import archive, comicinfo, config, db, kavita_link, names, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
@@ -211,6 +211,14 @@ def _by_names(ctx, subject, titles, kavita_series):
             found = strict[0]
             if not workflow.in_scope(cfg, series_names(found), found["libraryId"]):
                 return OUT_OF_SCOPE
+            # A published new series Kavita lists now is matched first (it may be this subject's second source); one
+            # it lists under a name a still unmatched new series is published as is held, not made a second series
+            if _strict_keys(found) & kavita_link.attach_all(ctx, kavita_series.rows()):
+                reason = (
+                    f"{subject.label} {title!r} matches Kavita series {found['name']} ({found['id']}), named as a"
+                    " published new series not found in Kavita yet"
+                )
+                return _store_held_series(ctx.conn, subject, reason, tried[1] if len(tried) > 1 else None)
             return _store_kavita_series(ctx, subject, found)
         near = [s for s in kavita_series.rows() if _near(title, s)]
         if held is None and (strict or near):
@@ -312,17 +320,9 @@ def _with_folder(ctx, row):
 def _folder(ctx, kavita_series_id):
     """(the series folder in stored form, None) or (None, why it has none)."""
     try:
-        return library_folder(ctx.cfg, ctx.kavita.series_folder(kavita_series_id)), None
+        return kavita_link.library_folder(ctx.cfg, ctx.kavita.series_folder(kavita_series_id)), None
     except (kavita_client.FolderError, config.PathError) as e:
         return None, str(e)
-
-
-def library_folder(cfg, folder):
-    """A Kavita series folder in stored form; PathError unless it lies under paths.library (SPEC "State")."""
-    stored = config.to_stored(cfg, folder)
-    if stored.split("/", 1)[0] != "library":
-        raise config.PathError(f"the series folder {folder} is not under paths.library")
-    return stored
 
 
 def _store_new_series(conn, subject, alt_name):
@@ -400,7 +400,7 @@ def link(cfg, conn, suwayomi, kavita, kavita_series_id, *, manga_id=None, folder
             f"{cfg['kavita']['library_id']}"
         )
     try:
-        series_dir = library_folder(cfg, kavita.series_folder(kavita_series_id))
+        series_dir = kavita_link.library_folder(cfg, kavita.series_folder(kavita_series_id))
     except (kavita_client.FolderError, config.PathError) as e:
         raise workflow.Refused(str(e)) from None
     with db.transaction(conn):

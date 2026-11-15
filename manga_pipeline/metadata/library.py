@@ -4,7 +4,7 @@ is checked whether or not anything downloads it.
 
 import logging
 
-from manga_pipeline import config, db, identify, workflow
+from manga_pipeline import config, db, kavita_link, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
 
@@ -17,9 +17,16 @@ def sync(ctx, listing):
     folder is the listed one's (Kavita recreated the series); else it is a new row, its folder fetched when first
     needed."""
     conn, cfg = ctx.conn, ctx.cfg
-    listed = {s["id"]: s for s in listing if workflow.in_scope(cfg, series_names(s), s["libraryId"])}
+    # A published new series is matched first; a listed series named as one still unmatched gets no row of its own
+    claimed = kavita_link.attach_all(ctx, listing)
+    listed = {
+        s["id"]: s
+        for s in listing
+        if workflow.in_scope(cfg, series_names(s), s["libraryId"])
+        and not claimed & {normalize(n) for n in series_names(s)}
+    }
     rows = conn.execute(
-        "SELECT id, name, localized_name, original_name, kavita_series_id, folder FROM series"
+        "SELECT id, name, localized_name, original_name, comicinfo_series, kavita_series_id, folder FROM series"
         " WHERE kavita_series_id IS NOT NULL AND kavita_library_id = %s",
         (cfg["kavita"]["library_id"],),
     ).fetchall()
@@ -57,9 +64,8 @@ def _recreated(ctx, kseries, gone):
     """A row of gone matching the listed series: by names, and by folder when the row has one; a row with no folder
     (nothing published or downloaded) matches by names alone, when exactly 1 does."""
     keys = {normalize(n) for n in series_names(kseries)}
-    named = [
-        r for r in gone if keys & {normalize(n) for n in (r["name"], r["localized_name"], r["original_name"]) if n}
-    ]
+    names = ("name", "localized_name", "original_name", "comicinfo_series")
+    named = [r for r in gone if keys & {normalize(r[n]) for n in names if r[n]}]
     folderless = [r for r in named if r["folder"] is None]
     if len(folderless) == 1 and len(named) == 1:
         return folderless[0]
@@ -67,8 +73,8 @@ def _recreated(ctx, kseries, gone):
         if row["folder"] is None:
             continue
         try:
-            folder = identify.library_folder(ctx.cfg, ctx.kavita.series_folder(kseries["id"]))
-        except (kavita_client.FolderError, config.PathError):
+            folder = kavita_link.library_folder(ctx.cfg, ctx.kavita.series_folder(kseries["id"]))
+        except (kavita_client.FolderError, config.PathError, ValueError):  # ValueError: a path under no map prefix
             return None
         if folder == row["folder"]:
             return row
