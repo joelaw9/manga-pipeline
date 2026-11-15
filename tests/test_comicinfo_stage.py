@@ -1,6 +1,7 @@
 """The comicinfo stage's ComicInfo.xml (SPEC "Metadata" ComicInfo, "Publishing"): series fields from stored records,
-the chapter's source, pages, the metadata_check wait, and the folder check before publish."""
+the chapter's source, pages, and the folder check before publish."""
 
+import io
 import xml.etree.ElementTree as ET
 import zipfile
 from contextlib import closing
@@ -9,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import xmlschema
+from PIL import Image
 
 from manga_pipeline import comicinfo, config, db, export, intake, process
 from manga_pipeline.metadata import merge, tags
@@ -105,24 +107,6 @@ def test_a_hand_placed_chapter_has_no_source_and_no_records_leave_series_element
 
 
 @budget(load="db", seconds=3)
-def test_a_series_never_checked_waits_and_the_wait_ends_once_it_is(world):
-    known_series(world)
-    world.download(world.manga("Solo Leveling"), "Chapter 2", data=cbz(comicinfo=ci(Number="2")))
-    world.run(intake)
-    world.run(process)
-    with closing(db.connect(world.cfg)) as conn:
-        conn.execute("UPDATE series_check SET data_version = 0")
-    world.run(export)
-    assert world.rows("SELECT stage, status, waiting_on, attempts FROM chapter") == [
-        ("comicinfo", "waiting", "metadata_check", 0)
-    ], "no data yet: waits at no attempt"
-    with closing(db.connect(world.cfg)) as conn:
-        conn.execute("UPDATE series_check SET data_version = 1")
-    world.run(export)
-    assert world.rows("SELECT stage, waiting_on FROM chapter") == [("confirm", "kavita_scan")], "published"
-
-
-@budget(load="db", seconds=3)
 def test_a_series_whose_files_moved_is_held_before_anything_is_published(world):
     known_series(world)
     world.download(world.manga("Solo Leveling"), "Chapter 2", data=cbz(comicinfo=ci(Number="2")))
@@ -188,3 +172,46 @@ def test_page_entries_mark_the_inserted_cover_and_spreads_in_a_page_series():
     assert got[1]["DoublePage"] == "true" and "Type" not in got[1]
     assert "DoublePage" not in stage.page_entries(pages, cover=False, spreads=False)[1], "a strip has no spreads"
     assert "Type" not in stage.page_entries(pages, cover=False, spreads=False)[0], "a source cover page is not marked"
+
+
+MD = "2bdf5af2-7d55-4c03-8a1b-8b6b1b9a2b4c"
+
+
+def png(width, height=1400):
+    out = io.BytesIO()
+    Image.new("RGB", (width, height), (200, 30, 30)).save(out, "PNG")
+    return out.getvalue()
+
+
+@budget(load="db", seconds=5)
+def test_a_mangadex_series_names_its_new_chapter_and_side_story_and_covers_the_new_volume(world):
+    """SPEC "Publishing": the volume from the recorded basis (MangaDex), a side story in the next volume after the
+    main story, numbered and titled as the bulk converter does; the first chapter of a covered volume takes MangaDex's
+    cover of that volume."""
+    bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", 1), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", 1))
+    kavita_id = world.kavita_series("Solo Leveling", bulk=bulk, basis="mangadex")
+    world.kavita.metadata_rows[kavita_id] = {"seriesId": kavita_id, "webLinks": f"https://mangadex.org/title/{MD}"}
+    md = world.sources.mangadex
+    md.records[("manga", MD)] = {"id": MD, "attributes": {"originalLanguage": "ko"}}
+    md.records[("aggregate", MD)] = {"volumes": {"2": {"volume": "2", "chapters": {"3": {"chapter": "3"}}}}}
+    md.records[("covers", MD)] = [
+        {"volume": "2", "locale": "ko", "fileName": "v2ko.png"},
+        {"volume": "2", "locale": "en", "fileName": "v2.png"},
+    ]
+    md.images[(MD, "v2.png")] = png(900)
+    manga = world.manga("Solo Leveling")
+    world.download(manga, "Chapter 3", scanlator="Grp")
+    world.download(manga, "Side Story 1", scanlator="Grp")
+    run_all(world)
+    folder = world.library / "Solo Leveling"
+    assert (folder / "Vol.2 Ch.3.cbz").is_file(), "the MangaDex volume of chapter 3"
+    assert (folder / "Vol.3 Ch.1 - Side Story 1.cbz").is_file(), "a side story: the next volume, numbered and titled"
+    with zipfile.ZipFile(folder / "Vol.2 Ch.3.cbz") as z:
+        assert any(n.startswith("000_cover.") for n in z.namelist()), "volume 2's first chapter takes its cover"
+    with zipfile.ZipFile(folder / "Vol.3 Ch.1 - Side Story 1.cbz") as z:
+        assert not any(n.startswith("000_cover.") for n in z.namelist()), "a side story opens no covered volume"
+    ((volume, url),) = world.rows("SELECT volume, source_url FROM series_volume_cover")
+    assert volume == 2 and url.endswith(f"/covers/{MD}/v2.png"), "English beats the original language"
+    assert world.rows(
+        "SELECT kind, volume_source FROM published_file WHERE origin = 'pipeline' ORDER BY comicinfo_number"
+    ) == [("side", "side"), ("main", "mangadex")]

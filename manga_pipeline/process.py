@@ -26,7 +26,6 @@ def work(ctx):
     with workflow.share_errors():
         clean_scratch(ctx.cfg)
         clean_staging(ctx)
-    workflow.end_waits(ctx, "bulk_conversion", junk.bulk_conversion_over)
     workflow.end_waits(ctx, "junk_decision", junk.junk_decision_over)
     workflow.drain(ctx, STAGES)
 

@@ -18,7 +18,8 @@ def world(tmp_path):
 
 
 def at_junk(world, record=True, name="Chapter 2", data=None, **series):
-    """A Kavita series with 2 bulk chapters (record or not) and 1 download of it taken through intake."""
+    """A Kavita series with 2 bulk chapters (record or not) and 1 download of it taken through intake (which takes the
+    baseline at validate)."""
     bulk = (("Ch.1.cbz", "Grp_Chapter 1", "1"), ("Ch.1.5 - Extra.cbz", "Grp_Chapter 1.5 - Extra", "1.5"))
     kavita_id = world.kavita_series("Solo Leveling", record=record, bulk=bulk, **series)
     _, path = world.download(world.manga("Solo Leveling"), name, scanlator="Grp", data=data)
@@ -29,15 +30,14 @@ def at_junk(world, record=True, name="Chapter 2", data=None, **series):
 @budget(load="db")
 def test_a_series_without_a_record_holds_its_chapters_until_the_record_parses(world):
     kavita_id, _ = at_junk(world, record=False)
-    world.run(process)
-    ((status, waiting_on, data),) = world.rows("SELECT status, waiting_on, wait_data FROM chapter")
-    assert (status, waiting_on) == ("waiting", "bulk_conversion"), "nothing is published into a series blind"
+    ((stage, status, waiting_on, data),) = world.rows("SELECT stage, status, waiting_on, wait_data FROM chapter")
+    assert (stage, status, waiting_on) == ("validate", "waiting", "bulk_conversion"), "nothing goes on blind"
     assert ".optimizer.json" in json.loads(data)["why"]
-    world.run(process)
+    world.run(intake)
     assert world.rows("SELECT status FROM chapter") == [("waiting",)], "the wait holds while there is no record"
     world.write_record("Solo Leveling", kavita_id, "Solo Leveling", [])
-    world.run(process)
-    assert world.rows("SELECT stage, status FROM chapter") == [("comicinfo", "ready")], "the record ends the wait"
+    world.run(intake)
+    assert world.rows("SELECT stage, status FROM chapter") == [("junk", "ready")], "the record ends the wait"
 
 
 @budget(load="db")
@@ -45,7 +45,7 @@ def test_a_partial_record_is_no_record(world):
     kavita_id, _ = at_junk(world, record=False)
     folder = world.library / "Solo Leveling"
     (folder / ".optimizer.json").write_text(json.dumps({"schema": 4, "stages": ["structure"]}), encoding="utf-8")
-    world.run(process)
+    world.run(intake)
     assert world.rows("SELECT waiting_on FROM chapter") == [("bulk_conversion",)]
 
 
@@ -83,7 +83,7 @@ def test_a_download_with_the_pages_of_a_bulk_source_is_put_aside_once_the_baseli
 def test_a_record_naming_another_series_records_nothing_and_needs_a_human(world):
     kavita_id, _ = at_junk(world, record=False)
     world.write_record("Some Other Name", kavita_id, "Solo Leveling", [])
-    world.run(process)
+    world.run(intake)
     ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
     assert status == "needs_human" and "Some Other Name" in reason
     assert world.rows("SELECT count(*) FROM published_file") == [(0,)], "nothing of the baseline is written"
@@ -94,7 +94,7 @@ def test_a_record_naming_another_series_records_nothing_and_needs_a_human(world)
 def test_the_record_name_may_be_a_localized_kavita_name(world):
     kavita_id, _ = at_junk(world, record=False, localized="Na Honjaman Level Up")
     world.write_record("na honjaman level-up", kavita_id, "Solo Leveling", [])
-    world.run(process)
+    world.run(intake)
     assert world.rows("SELECT comicinfo_series FROM series") == [("na honjaman level-up",)], (
         "the record's name is written exactly, once it normalizes to a Kavita name"
     )
@@ -102,7 +102,7 @@ def test_the_record_name_may_be_a_localized_kavita_name(world):
 
 @budget(load="db")
 def test_the_baseline_imports_the_junk_decisions_the_record_carries(world):
-    at_junk(world)
+    world.kavita_series("Solo Leveling")
     path = world.library / "Solo Leveling" / ".optimizer.json"
     record = json.loads(path.read_bytes())
     record["series"]["decisions"]["rows"]["junk"] = [
@@ -120,7 +120,8 @@ def test_the_baseline_imports_the_junk_decisions_the_record_carries(world):
         }
     ]
     path.write_bytes(json.dumps(record).encode())
-    world.run(process)
+    world.download(world.manga("Solo Leveling"), "Chapter 2", scanlator="Grp")
+    world.run(intake)
     assert world.rows("SELECT series_key, kind, verdict, decider FROM junk_decision") == [
         ("Solo Leveling", "block", "junk", "import")
     ], "a decision the bulk converter recorded for the series is known to the pipeline from the baseline on"

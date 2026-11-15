@@ -3,14 +3,19 @@ download. A sound one goes on with its page rows and notes; another defect needs
 and downloaded again (redownload.py), and the replacement is validated here, in place.
 
 The stage is a state machine over chapter.redownload; every step can run again after a crash or an unreachable
-Suwayomi, because each lands in the database before the next call.
+Suwayomi, because each lands in the database before the next call. Before any of it, a series Kavita holds gets its
+baseline (waiting on bulk_conversion until its record can be read), and a series that has never completed a
+metadata check waits on metadata_check: its chapters' names and volume covers need both.
 """
 
+import functools
 import json
 from pathlib import Path
 
 from manga_pipeline import (
     archive,
+    baseline,
+    chapter_names,
     comicinfo,
     config,
     db,
@@ -22,14 +27,22 @@ from manga_pipeline import (
     volumes,
     workflow,
 )
+from manga_pipeline.metadata import check, covers
 
 
 def run(ctx, chapter):
+    series = _series(ctx, chapter)
+    if baseline.needed(ctx.conn, series):
+        why = baseline.take(ctx, series)
+        if why:
+            return workflow.Waiting("bulk_conversion", {"why": why})
+    if not check.completed(ctx, chapter):
+        return workflow.Waiting("metadata_check")
     state = redownload.load(chapter)
     if state is None:
         verdict = _check(ctx, chapter, chapter["download_path"])
         if verdict.kind == "ok":
-            return _done(chapter, verdict)
+            return _done(ctx, chapter, verdict)
         if verdict.kind == "human":
             return workflow.NeedsHuman(verdict.reason)
         state = _reject(ctx, chapter, redownload.new_state(ctx, chapter, {}), _own(chapter), verdict.reason)
@@ -80,18 +93,20 @@ def _check(ctx, chapter, path):
             "page_phashes": None if row["page_phashes"] is None else json.loads(row["page_phashes"]),
             "strip_length": row["strip_length"],
             "volume": row["comicinfo_volume"],
+            "volume_source": row["volume_source"],
         }
         for row in ctx.conn.execute(
-            "SELECT identity, page_phashes, strip_length, comicinfo_volume FROM published_file WHERE series_id = %s",
+            """SELECT identity, page_phashes, strip_length, comicinfo_volume, volume_source FROM published_file
+            WHERE series_id = %s""",
             (chapter["series_id"],),
         )
     ]
     ours = validation.chapter_key(chapter["identity"])
-    series = _series(ctx, chapter)
     local = config.to_local(ctx.cfg, path)  # path: a stored download path
+    volume = functools.cache(lambda: chapter_names.download_volume(ctx.cfg, path))
     try:
         verdict = validation.check(
-            local, ours, published, lambda p: volumes.same_as_published(series, local, p["volume"])
+            local, ours, published, lambda p: chapter_names.same_chapter(volume, p["volume"], p["volume_source"])
         )
     except volumes.VolumeError as e:
         return validation.Verdict("human", str(e))
@@ -161,10 +176,21 @@ def _candidate(ctx, chapter, state):
         with db.transaction(ctx.conn):
             redownload.save_in(ctx, chapter, None, **adopted)
         return workflow.NeedsHuman(f"the re-download from {expected['source']}: {verdict.reason}")
-    return _done(chapter, verdict, adopted)
+    return _done(ctx, chapter, verdict, adopted)
 
 
-def _done(chapter, verdict, adopted=None):
+def _done(ctx, chapter, verdict, adopted=None):
+    """Done with the verdict's pages and notes (and the adopted re-download), and the volume cover of a chapter that
+    opens a covered volume (SPEC "Metadata", Volume covers)."""
+    download = (adopted or {}).get("download_path", chapter["download_path"])
+    try:
+        cover = _volume_cover(ctx, chapter, download)
+    except volumes.VolumeError as e:
+        if adopted:  # the replacement becomes the chapter's own download, as for a held verdict
+            with db.transaction(ctx.conn):
+                redownload.save_in(ctx, chapter, None, **adopted)
+        return workflow.NeedsHuman(str(e))
+
     def record(conn):
         columns = {**(adopted or {}), "notes": json.dumps(verdict.notes) if verdict.notes else None}
         if adopted:
@@ -174,5 +200,37 @@ def _done(chapter, verdict, adopted=None):
             (*columns.values(), chapter["id"]),
         )
         page_store.save(conn, chapter["id"], verdict.pages)
+        if cover:
+            conn.execute(
+                """INSERT INTO volume_cover (chapter_id, path, sha256, volume) VALUES (%s, %s, %s, %s)
+                ON CONFLICT (chapter_id) DO NOTHING""",
+                (chapter["id"], *cover),
+            )
 
     return workflow.Done(record)
+
+
+def bulk_conversion_over(ctx, chapter):
+    """The bulk_conversion wait ends once the series has its baseline (taken here when its record can be read, so a
+    chapter waiting past validate, left by an older version, goes on with one)."""
+    series = _series(ctx, chapter)
+    return not baseline.needed(ctx.conn, series) or baseline.take(ctx, series) is None
+
+
+def _volume_cover(ctx, chapter, download):
+    """(path, sha256, volume) of the cover the chapter takes when it opens a covered volume and MangaDex has that
+    volume's cover; else None. A chapter that already has its cover keeps it."""
+    if ctx.conn.execute("SELECT 1 FROM volume_cover WHERE chapter_id = %s", (chapter["id"],)).fetchone():
+        return None
+    named = chapter_names.resolve(ctx, _series(ctx, chapter), {chapter["id"]: download}).get(chapter["id"])
+    if named is None or not named.opens_covered_volume:
+        return None
+    taken = ctx.conn.execute(
+        """SELECT 1 FROM volume_cover v JOIN chapter c ON c.id = v.chapter_id
+        WHERE c.series_id = %s AND v.volume = %s AND c.status != 'done'""",
+        (chapter["series_id"], names.fmt_num(named.volume)),
+    ).fetchone()
+    if taken:  # an open chapter of that volume took its cover first: it keeps it
+        return None
+    found = covers.volume_cover(ctx, chapter["series_id"], named.volume)
+    return found and (*found, names.fmt_num(named.volume))

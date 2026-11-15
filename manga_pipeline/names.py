@@ -410,12 +410,12 @@ def safe_title(title, limit=MAX_TITLE):
     return t if len(t) <= limit else t[: limit - 1].rstrip(" ._-") + "…"
 
 
-def file_name(item, title, volume=None):
+def file_name(number, title, volume=None):
     """The name a published file gets (SPEC "Publishing"): "Vol.<volume> Ch.<number> - <title>.cbz", without
     "Vol.<volume> " when the volume is None and without " - <title>" when the title is empty once made safe.
-    ValueError for an item with no number."""
-    if item.number is None:
-        raise ValueError(f"{item.file!r} has no chapter number")
-    name = (f"Vol.{fmt_num(volume)} " if volume is not None else "") + f"Ch.{fmt_num(item.number)}"
+    ValueError for no number."""
+    if number is None:
+        raise ValueError("a published file needs a chapter number")
+    name = (f"Vol.{fmt_num(volume)} " if volume is not None else "") + f"Ch.{fmt_num(number)}"
     safe = safe_title(title) if title else ""
     return name + (f" - {safe}" if safe else "") + ".cbz"

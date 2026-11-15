@@ -1,6 +1,6 @@
-"""Stage junk (SPEC "Chapter stages", "State", "Bad downloads", "Junk decisions"): first the series' baseline (a series
-Kavita holds waits on bulk_conversion until its record parses), then the put-aside check that needed it, then the
-library-copy check (SPEC "Library copies"), then a numbered notice title's judgement (notices.py), then junk.
+"""Stage junk (SPEC "Chapter stages", "State", "Bad downloads", "Junk decisions"): first the put-aside check (the
+series' baseline, taken at validate, recorded what was handled), then the library-copy check (SPEC "Library
+copies"), then a numbered notice title's judgement (notices.py), then junk.
 
 A chapter with no current scan is scanned (pages extracted to its scratch folder, measured, its units keyed, OCR on
 the strip units no decision covers, every content page's logo measured) and stays ready (Ready), so every ready junk
@@ -17,7 +17,6 @@ from PIL import Image
 
 from manga_pipeline import (
     archive,
-    baseline,
     config,
     db,
     handled,
@@ -35,10 +34,6 @@ WORDS = ("keywords", "weak", "paired", "suppress")
 
 def run(ctx, chapter):
     series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
-    if baseline.needed(series):
-        why = baseline.take(ctx, series)
-        if why:
-            return workflow.Waiting("bulk_conversion", {"why": why})
     why = handled.put_aside(ctx, chapter, chapter["content_digest"])
     if why:
         return workflow.Dropped(why)
@@ -292,12 +287,6 @@ def junk_decision_over(ctx, chapter):
     if held:
         return workflow.NeedsHuman(held_reason(held, limit))
     return not ids
-
-
-def bulk_conversion_over(ctx, chapter):
-    """The bulk_conversion wait ends once the series has a baseline or its record parses."""
-    series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
-    return not baseline.needed(series) or baseline.record_problem(ctx.cfg, series) is None
 
 
 # ---------------------------------------------------------------- candidate images

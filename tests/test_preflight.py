@@ -389,8 +389,8 @@ def test_share_folders_need_the_mangas_folder_and_retention(tmp_path):
     assert "the mangas folder of paths.downloads" in text, "downloads lie under mangas (SPEC Suwayomi)"
     assert "paths.retention" in text, "removed downloads go to the retention folder"
     assert "paths.candidates" in text, "the candidates folder is on the share: every machine writes it"
-    assert "paths.naming_overrides" not in text, "only export reads the overrides: a check of its own"
-    assert "paths.naming_overrides" in preflight.naming_overrides(cfg), "export's own check"
+    assert "paths.naming_overrides" not in text, "the overrides have a check of their own"
+    assert "paths.naming_overrides" in preflight.naming_overrides(cfg), "the overrides' own check"
 
 
 @budget(load="pure")

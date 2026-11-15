@@ -1,0 +1,322 @@
+{
+ "series": "Funerals for the Damned",
+ "basis": "override",
+ "overrides": {
+  "volumes": {
+   "1": "1-33",
+   "2": "33.1-"
+  }
+ },
+ "covered_volumes": [
+  1,
+  2
+ ],
+ "chapters": [
+  {
+   "file": "Official_Chapter 1.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "1",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 2.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "2",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 3.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "3",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 4.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "4",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 5.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "5",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 6.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "6",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 7.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "7",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 8.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "8",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 9.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "9",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 10.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "10",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 11.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "11",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 12.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "12",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 13.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "13",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 14.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "14",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 15.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "15",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 16.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "16",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 17.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "17",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 18.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "18",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 19.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "19",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 20.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "20",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 21.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "21",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 22.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "22",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 23.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "23",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 24.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "24",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 25.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "25",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 26.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "26",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 27.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "27",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 28.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "28",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 29.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "29",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 30.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "30",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 31.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "31",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 32.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "32",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 33.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "override",
+   "number": "33",
+   "title": "",
+   "open": true
+  },
+  {
+   "file": "Official_Chapter 33.5.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "override",
+   "number": "33.5",
+   "title": "",
+   "open": true
+  }
+ ]
+}

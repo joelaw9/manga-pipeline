@@ -519,13 +519,14 @@ def test_identity_takes_the_comicinfo_number():
 )
 def test_file_name(stem, ci_title, volume, want):
     item = names.parse(stem)
-    assert names.file_name(item, names.chapter_title(item, ci_title), volume) == want, "the bulk converter's name"
+    got = names.file_name(item.number, names.chapter_title(item, ci_title), volume)
+    assert got == want, "the bulk converter's name"
 
 
 @budget(load="pure")
 def test_a_long_title_is_capped_at_80_characters():
     item = names.parse("Chapter 1")
-    got = names.file_name(item, "x" * 100)
+    got = names.file_name(item.number, "x" * 100)
     assert got == "Ch.1 - " + "x" * 79 + "….cbz"
 
 
@@ -539,5 +540,5 @@ def test_to_volume(value, want):
 
 @budget(load="pure")
 def test_file_name_needs_a_number():
-    with pytest.raises(ValueError, match="'rishe_Teaser' has no chapter number"):
-        names.file_name(names.parse("rishe_Teaser"), "")
+    with pytest.raises(ValueError, match="needs a chapter number"):
+        names.file_name(names.parse("rishe_Teaser").number, "")

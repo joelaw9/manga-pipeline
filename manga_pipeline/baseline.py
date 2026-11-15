@@ -1,10 +1,10 @@
 """A series' baseline (SPEC "State", "Publishing", "Calibration"): what a series Kavita already holds is taken from its
-bulk-converter record before anything is published into it. Read by `process` only; no library file is opened.
+bulk-converter record before anything is published into it. Taken at validate (`intake`); no library file is opened.
 """
 
 import json
 import logging
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from manga_pipeline import config, db, names, workflow
 from manga_pipeline.clients.kavita_match import normalize
@@ -25,9 +25,17 @@ OUTCOME = {
 LAYOUTS = ("strip", "pages")
 
 
-def needed(series):
-    """Whether the series must have a baseline before its chapters go on: a series Kavita holds that has none."""
-    return series["origin"] == "kavita" and series["baseline_at"] is None
+def needed(conn, series):
+    """Whether the series must have a baseline before its chapters go on: a series Kavita holds that has none, or
+    whose bulk rows were recorded before their source name, kind and volume source were kept (schema step 0054)."""
+    if series["origin"] != "kavita":
+        return False
+    if series["baseline_at"] is None:
+        return True
+    return conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM published_file WHERE series_id = %s AND origin = 'bulk' AND kind IS NULL)",
+        (series["id"],),
+    ).fetchone()[0]
 
 
 def record_problem(cfg, series):
@@ -56,6 +64,10 @@ def take(ctx, series):
     if problem:
         return problem
     record = _load(ctx.cfg, series)
+    if series["baseline_at"] is not None:  # taken before step 0054: only its rows' naming fields are filled
+        with db.transaction(ctx.conn):
+            _fill_naming(ctx.conn, series, record)
+        return None
     name = record["series"]["naming"]["series_name"]
     kavita_names = [series["name"], series["localized_name"], series["original_name"]]
     if normalize(name) not in {normalize(n) for n in kavita_names if n}:
@@ -79,13 +91,36 @@ def _load(cfg, series):
     return record_reader.load(config.to_local(cfg, series["folder"]))
 
 
+def _fill_naming(conn, series, record):
+    """Source name, kind and volume source of the series' bulk rows that lack them, from the record by output file
+    name (the series' folder may have moved since); a row the record no longer lists gets its kind from its
+    identity's side label and no source name or volume source."""
+    chapters = {c["output"]: c for c in record["chapters"]}
+    rows = conn.execute(
+        "SELECT id, library_path, identity FROM published_file WHERE series_id = %s AND origin = 'bulk'"
+        " AND kind IS NULL",
+        (series["id"],),
+    ).fetchall()
+    for r in rows:
+        c = chapters.get(PurePosixPath(r["library_path"]).name)
+        if c is None:
+            side = json.loads(r["identity"])[2]
+            values = (None, names.SIDE if side else names.MAIN, None)
+        else:
+            values = (Path(c["file"]).stem, c["kind"], c["volume_source"])
+        conn.execute(
+            "UPDATE published_file SET source_name = %s, kind = %s, volume_source = %s WHERE id = %s",
+            (*values, r["id"]),
+        )
+
+
 def _write(conn, series, record, name, layout):
     stamp = workflow.now(conn)
     for c in record["chapters"]:
         conn.execute(
             """INSERT INTO published_file (library_path, series_id, identity, state, pages_out, comicinfo_series,
-                comicinfo_volume, comicinfo_number, comicinfo_title, origin)
-            VALUES (%s, %s, %s, 'confirmed', %s, %s, %s, %s, %s, 'bulk')""",
+                comicinfo_volume, comicinfo_number, comicinfo_title, origin, source_name, kind, volume_source)
+            VALUES (%s, %s, %s, 'confirmed', %s, %s, %s, %s, %s, 'bulk', %s, %s, %s)""",
             (
                 f"{series['folder']}/{c['output']}",  # stored form: the folder's, then the file name
                 series["id"],
@@ -95,6 +130,9 @@ def _write(conn, series, record, name, layout):
                 None if c["volume"] is None else str(c["volume"]),
                 None if c["number"] is None else str(c["number"]),
                 c["title"] or None,
+                Path(c["file"]).stem,
+                c["kind"],
+                c["volume_source"],
             ),
         )
     for s in record["sources"]:

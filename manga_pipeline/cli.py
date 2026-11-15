@@ -56,9 +56,10 @@ PROCESS_CHECKS = (
     preflight.SCORER,
     preflight.SCRATCH_SPACE,
     preflight.LONG_PATHS,
+    preflight.NAMING_OVERRIDES,
 )
-# intake and export reach Suwayomi and Kavita; export writes the naming overrides' volumes.
-INTAKE_CHECKS = (*PART_CHECKS, preflight.SERVICE_SETTINGS)
+# intake and export reach Suwayomi and Kavita; every part reads the naming overrides.
+INTAKE_CHECKS = (*PART_CHECKS, preflight.SERVICE_SETTINGS, preflight.NAMING_OVERRIDES)
 EXPORT_CHECKS = (*PART_CHECKS, preflight.SERVICE_SETTINGS, preflight.NAMING_OVERRIDES)
 RESET_CHECKS = (*LOCKED_CHECKS, preflight.SHARE_OWNERSHIP)
 # state adopt writes the owner file, so it cannot require one; it needs the folder the file goes in.

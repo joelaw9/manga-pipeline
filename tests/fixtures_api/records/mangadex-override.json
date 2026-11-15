@@ -1,0 +1,160 @@
+{
+ "series": "Outei Denka no Okiniiri Tensei shitemo Tenteki kara Nigerarenai You desu!_",
+ "basis": "mangadex",
+ "overrides": {
+  "volumes": {
+   "3": "11-16"
+  }
+ },
+ "covered_volumes": [
+  1,
+  2,
+  3
+ ],
+ "chapters": [
+  {
+   "file": "ondine_Chapter 1.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "mangadex",
+   "number": "1",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 2.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "mangadex",
+   "number": "2",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 3.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "mangadex",
+   "number": "3",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 4.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "mangadex",
+   "number": "4",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 5.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "mangadex",
+   "number": "5",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 6.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "mangadex",
+   "number": "6",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 7.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "mangadex",
+   "number": "7",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 8.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "mangadex",
+   "number": "8",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 9.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "mangadex",
+   "number": "9",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 10.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "mangadex",
+   "number": "10",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 11.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "11",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 12.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "12",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 13.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "13",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "ondine_Chapter 14.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "14",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "MameLovers_Chapter 15.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "15",
+   "title": "",
+   "open": true
+  },
+  {
+   "file": "MameLovers_Chapter 16.cbz",
+   "kind": "main",
+   "volume": 3,
+   "volume_source": "override",
+   "number": "16",
+   "title": "",
+   "open": true
+  }
+ ]
+}

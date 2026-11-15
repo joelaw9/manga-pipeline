@@ -26,7 +26,7 @@ paths:
   scratch: "state/scratch"            # the chapter in hand (local disk); relative = project root
   covers: "/mnt/share/covers"         # fetched cover images (on the share: every machine reads them)
   candidates: "/mnt/share/candidates" # open junk candidates' images (on the share: every machine writes them)
-  naming_overrides: "rules/naming"    # per-series volume overrides, <series rules key>.yaml (gitignored work folder); relative = project root
+  naming_overrides: "/mnt/share/naming" # per-series volume overrides, <series rules key>.yaml (on the share: every part reads them)
   kavita_path_map: {}                 # Kavita path prefix -> local path prefix, e.g. {"/manga": "/mnt/share"}; not empty ({} = any keys)
 
 workflow:

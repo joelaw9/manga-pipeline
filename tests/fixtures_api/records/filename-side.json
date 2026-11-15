@@ -1,0 +1,593 @@
+{
+ "series": "A Fairytale for the Demon Lord",
+ "basis": "filename",
+ "overrides": null,
+ "covered_volumes": [],
+ "chapters": [
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.0 - [Season 1] Prologue.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "0",
+   "title": "Prologue",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.1.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "1",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.2.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "2",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.3.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "3",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.4.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "4",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.5.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "5",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.6.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "6",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.7.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "7",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.8.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "8",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.9.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "9",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.9.5.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "9.5",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.10.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "10",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.11.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "11",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.12.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "12",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.13.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "13",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.14.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "14",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.15.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "15",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.16.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "16",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.17.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "17",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.17.5.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "17.5",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.18.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "18",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.19.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "19",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.20.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "20",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.21.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "21",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.22.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "22",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.23.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "23",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.24.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "24",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.25.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "25",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.26.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "26",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.27.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "27",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.28.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "28",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.29.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "29",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.30.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "30",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.31.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "31",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.32.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "32",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.33.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "33",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.1 Ch.34.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "filename",
+   "number": "34",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.35 - [Season 2] Prologue.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "35",
+   "title": "Prologue",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.36 - [Season 2] Chapter 1.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "36",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.37 - [Season 2] Chapter 2.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "37",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.38 - [Season 2] Chapter 3.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "38",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.39 - [Season 2] Chapter 4.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "39",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.40 - [Season 2] Chapter 5.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "40",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.41 - [Season 2] Chapter 6.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "41",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.42 - [Season 2] Chapter 7.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "42",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.43 - [Season 2] Chapter 8.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "43",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.43.5 - [Season 2] Extra.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "43.5",
+   "title": "Extra",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.44 - [Season 2] Chapter 9.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "44",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.45 - [Season 2] Chapter 10.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "45",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.46 - [Season 2] Chapter 11.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "46",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.47 - [Season 2] Chapter 12.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "47",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.48 - [Season 2] Chapter 13.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "48",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.49 - [Season 2] Chapter 14.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "49",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.50 - [Season 2] Chapter 15.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "50",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.51 - [Season 2] Chapter 16.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "51",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.52 - [Season 2] Chapter 17.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "52",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.52.5 - [Season 2] Extra 2.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "52.5",
+   "title": "Extra 2",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.53 - [Season 2] Chapter 18.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "53",
+   "title": "",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.54 - [Season 2] Chapter 19.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "54",
+   "title": "",
+   "open": true
+  },
+  {
+   "file": "Easy Going Scans_Vol.2 Ch.55 - [Season 2] Chapter 20.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "filename",
+   "number": "55",
+   "title": "",
+   "open": true
+  },
+  {
+   "file": "Easy Going Scans_Vol.2.5 Ch.56 - [Side Story] Chapter 1.cbz",
+   "kind": "side",
+   "volume": 3,
+   "volume_source": "side",
+   "number": "1",
+   "title": "Side Story 1",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2.5 Ch.57 - [Side Story] Chapter 2.cbz",
+   "kind": "side",
+   "volume": 3,
+   "volume_source": "side",
+   "number": "2",
+   "title": "Side Story 2",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2.5 Ch.58 - [Side Story] Chapter 3.cbz",
+   "kind": "side",
+   "volume": 3,
+   "volume_source": "side",
+   "number": "3",
+   "title": "Side Story 3",
+   "open": false
+  },
+  {
+   "file": "Easy Going Scans_Vol.2.5 Ch.59 - [Side Story] Chapter 4.cbz",
+   "kind": "side",
+   "volume": 3,
+   "volume_source": "side",
+   "number": "4",
+   "title": "Side Story 4",
+   "open": true
+  },
+  {
+   "file": "Easy Going Scans_Vol.2.5 Ch.60 - [Side Story] Chapter 5.cbz",
+   "kind": "side",
+   "volume": 3,
+   "volume_source": "side",
+   "number": "5",
+   "title": "Side Story 5",
+   "open": true
+  }
+ ]
+}
