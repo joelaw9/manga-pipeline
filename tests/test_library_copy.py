@@ -77,6 +77,36 @@ def test_an_equal_copy_from_a_lower_ranked_source_is_a_duplicate_put_aside(world
 
 
 @budget(load="db")
+def test_a_lost_claim_puts_no_duplicate_aside(world, monkeypatch):
+    from manga_pipeline import library_copy, retention, workflow
+
+    events, real_rank, real_put = [], library_copy._rank, retention.put
+
+    def rank(ctx, *args):
+        if not events:  # another run takes the claim while this one compares the copies
+            with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
+                conn.execute(
+                    "UPDATE chapter SET claimed_by = 'process@elsewhere', claim_count = claim_count + 1"
+                    " WHERE status = 'claimed'"
+                )
+            events.append("taken")
+        return real_rank(ctx, *args)
+
+    def put(cfg, path):
+        ((holder,),) = world.rows("SELECT claimed_by FROM chapter")
+        events.append(f"put aside under {holder}'s claim")
+        return real_put(cfg, path)
+
+    monkeypatch.setattr(library_copy, "_rank", rank)
+    monkeypatch.setattr(retention, "put", put)
+    through_junk(world, copies=[{}])
+    assert events == ["taken", f"put aside under {workflow.owner('process')}'s claim"], (
+        "no duplicate is put aside under a lost claim; the chapter claimed again puts it aside"
+    )
+    assert outcome(world)[:2] == ("junk", "done")
+
+
+@budget(load="db")
 @pytest.mark.parametrize(
     "published, why",
     [

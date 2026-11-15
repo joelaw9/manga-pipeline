@@ -156,7 +156,8 @@ def route(fmts):
 def _edits(entries, edit, layout, page_aspect, x_dir):
     """The edit in page names (the bulk converter's planned-edit shape): drops and bands first, then join and split
     (page layout); a strip chapter's strip spec over its non-cover pages with the edit's removed rows taken out.
-    Raises EditError for an edit the junk stage never writes (SPEC "The chapter edit")."""
+    Raises EditError for an edit the junk stage never writes (SPEC "The chapter edit"), NeedsHuman for removed rows
+    that leave nothing of the strip."""
     by_index = {q["index"]: q for q in entries}
 
     def name(i, what):
@@ -180,6 +181,8 @@ def _edits(entries, edit, layout, page_aspect, x_dir):
         if past:
             raise EditError(f"chapter_edit strip_removed ends past the strip's {st.height} rows: {past!r}")
         cut = strip.cut_strip(st.height, strip.find_gaps(st), edit["strip_removed"])
+        if not cut["kept"]:
+            raise NeedsHuman("the chapter edit drops every page")
         pages = [{"name": q["name"], "top": p["top"], "th": p["th"]} for q, p in zip(content, st.pages, strict=True)]
         out["strip"] = {"width": st.width, "pages": pages, "kept": cut["kept"], "cuts": cut["cuts"]}
         return out
@@ -356,7 +359,8 @@ def avif_groups(plan):
 def build(name, measured, files, edit, layout, page_aspect, quality):
     """The ChapterPlan of 1 chapter. measured: images.measure_pages of the download; files: its pages' extracted files
     (pages.extract), in the same order; edit: check_edit's dict; layout: "strip" or "pages"; page_aspect: the series'
-    page aspects (a list) or None; quality: {encode group: q}. Raises NeedsHuman (an EXIF rotation) and EditError.
+    page aspects (a list) or None; quality: {encode group: q}. Raises NeedsHuman (an EXIF rotation, a strip edit that
+    removes every row) and EditError.
     Route and outcomes are set after, by routes: they depend on the volume cover's AVIF encode."""
     files = [Path(f) for f in files]
     entries = [page_entry(p, f) for p, f in zip(measured, files, strict=True)]

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from manga_pipeline import config
+from manga_pipeline import config, preflight
 
 from tests import pg, timing
 from tests.fakes import convert as fake_convert
@@ -79,6 +79,12 @@ def fake_image_tools(request, monkeypatch):
             pytest.skip("gpu test: run with --vship PATH")
         return
     fake_convert.install(monkeypatch.setattr)
+
+
+@pytest.fixture(autouse=True)
+def long_paths_enabled(monkeypatch):
+    """The machine's long-path setting reads as on, so no test depends on it; its own tests set it."""
+    monkeypatch.setattr(preflight, "long_paths_value", lambda: 1)
 
 
 @pytest.fixture

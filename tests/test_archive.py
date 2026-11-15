@@ -226,6 +226,23 @@ def test_write_leaves_no_part_file_and_replaces_dest(tmp_path):
 
 
 @budget(load="fs")
+def test_a_write_that_fails_leaves_no_part_file_and_dest_untouched(tmp_path):
+    import errno
+
+    def members():
+        yield MEMBERS[0]
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    dest = tmp_path / "a.cbz"
+    dest.write_bytes(b"old")
+    with pytest.raises(OSError) as e:
+        archive.write(dest, members())
+    assert e.value.errno == errno.ENOSPC, "the write's own error reaches the caller"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["a.cbz"], "a failed write removes its .part file"
+    assert dest.read_bytes() == b"old", "dest is left as it was"
+
+
+@budget(load="fs")
 def test_replace_member_replaces_without_case_and_stores_it_last(tmp_path):
     cbz = tmp_path / "a.cbz"
     archive.write(cbz, [("001.jpg", b"one"), ("comicinfo.XML", b"<old/>"), ("002.jpg", b"two")])

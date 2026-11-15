@@ -4,8 +4,9 @@ settings, packages and tools are the fleet's; machine-local keys may differ."""
 from contextlib import closing
 
 import pytest
+import yaml
 
-from manga_pipeline import db, fleet, preflight, workflow
+from manga_pipeline import config, db, fleet, preflight, workflow
 
 from tests.builders import adopted
 from tests.timing import budget
@@ -39,6 +40,17 @@ def test_the_machine_that_set_the_version_passes(cfg):
 )
 def test_a_machine_local_key_may_differ(cfg, section, key, value):
     assert problem({**cfg, section: {**cfg[section], key: value}}) is None, f"{section}.{key} is machine-local"
+
+
+@budget(load="pure")
+def test_a_secret_in_a_shared_section_is_left_out(tmp_path, monkeypatch):
+    example = yaml.safe_load(config.EXAMPLE.read_text(encoding="utf-8"))
+    example["sources"]["token"] = None  # a later secret: its example value is null
+    path = tmp_path / "config.yaml.example"
+    path.write_text(yaml.safe_dump(example), encoding="utf-8")
+    monkeypatch.setattr(config, "EXAMPLE", path)
+    shared = [fleet.shared_settings({"sources": {"ranking": [], "token": token}}) for token in ("a", "b")]
+    assert shared[0] == shared[1], "a secret differs between machines and never enters the fleet digest"
 
 
 @budget(load="db")

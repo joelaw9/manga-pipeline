@@ -6,12 +6,15 @@ import os
 import shutil
 from contextlib import closing
 
+import psycopg
 import pytest
+from psycopg import sql
 
-from manga_pipeline import cli, config, db, intake, preflight, status
+from manga_pipeline import cli, config, db, intake, preflight, process, status
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 
+from tests import pg
 from tests.builders import add_chapter, add_series, adopted, config_file, download, run_part, running, site_cfg
 from tests.timing import budget
 from tests.world import World, cbz
@@ -250,6 +253,101 @@ def test_retry_without_a_database_is_refused_and_creates_none(tmp_path, capsys):
     assert main(tmp_path, cfg, "retry", "1") == 2
     assert "built yet: nothing to retry" in capsys.readouterr().err
     assert not db.built(cfg), "retry builds nothing"
+
+
+@pytest.fixture
+def missing(tmp_path):
+    """site_cfg naming a database the server does not have; dropped afterwards if a command created it."""
+    cfg = site_cfg(tmp_path)
+    cfg = {**cfg, "database": {**cfg["database"], "name": f"{cfg['database']['name']}_never"}}
+    yield cfg
+    with closing(pg._connect(db.MAINTENANCE_DATABASE)) as conn:
+        conn.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(pg._owned(cfg["database"]["name"])))
+
+
+def created(cfg):
+    """Whether the server has the database cfg names, with or without a schema."""
+    try:
+        db.peek_id(cfg)
+    except db.NoDatabase:
+        return False
+    except db.Error:
+        return True  # it exists, holding no meta table
+    return True
+
+
+@budget(load="db")
+@pytest.mark.parametrize("argv", [["state", "version", "--yes"], ["state", "reset", "--yes"], ["process"]])
+def test_a_command_with_locks_on_an_empty_database_exits_4_and_builds_nothing(tmp_path, capsys, argv):
+    cfg = site_cfg(tmp_path, built=False)
+    assert main(tmp_path, cfg, *argv) == 4
+    assert f"no database {cfg['database']['name']}" in capsys.readouterr().err, "an empty database is no database"
+    assert not db.built(cfg), "only state adopt and junk import build a database"
+
+
+@budget(load="db", seconds=3)  # a build from no schema
+def test_state_adopt_builds_an_existing_empty_database(tmp_path):
+    cfg = site_cfg(tmp_path, built=False)
+    assert main(tmp_path, cfg, "state", "adopt", "--yes") == 0
+    assert db.built(cfg), "a database created by hand is adopted and built"
+
+
+@budget(load="db")
+def test_junk_review_on_a_missing_database_exits_4_and_creates_none(tmp_path, missing, capsys):
+    assert main(tmp_path, missing, "junk", "review") == 4
+    assert f"no database {missing['database']['name']}" in capsys.readouterr().err
+    assert not created(missing), "junk review builds no database"
+
+
+@budget(load="db")
+@pytest.mark.parametrize("argv", [["junk", "list"], ["junk", "show", "1"], ["junk", "decide", "1", "junk"]])
+def test_junk_commands_on_a_missing_database_are_refused_and_create_none(tmp_path, missing, capsys, argv):
+    assert main(tmp_path, missing, *argv) == 2
+    assert "built yet" in capsys.readouterr().err
+    assert not created(missing), "the junk commands build no database"
+
+
+@budget(load="db")
+def test_a_builder_whose_role_cannot_create_the_database_exits_4(tmp_path, missing, monkeypatch, capsys):
+    real = db._open
+
+    class NoCreate:
+        """The maintenance connection of a role without the right to create a database."""
+
+        def __init__(self, conn):
+            self.conn = conn
+
+        def execute(self, statement, *params):
+            if isinstance(statement, sql.Composable):
+                raise psycopg.errors.InsufficientPrivilege("permission denied to create database")
+            return self.conn.execute(statement, *params)
+
+        def close(self):
+            self.conn.close()
+
+    def opened(cfg, dbname=None):
+        conn = real(cfg, dbname)
+        return NoCreate(conn) if dbname == db.MAINTENANCE_DATABASE else conn
+
+    monkeypatch.setattr(db, "_open", opened)
+    assert main(tmp_path, missing, "state", "adopt", "--yes") == 4
+    err = capsys.readouterr().err
+    assert missing["database"]["name"] in err and "permission denied to create database" in err, "named on stderr"
+
+
+@budget(load="db", seconds=5)
+def test_a_connection_the_server_ends_mid_run_exits_1_with_its_traceback(tmp_path, monkeypatch):
+    cfg = adopted(tmp_path, logging={**config.cached()["logging"], "dir": str(tmp_path / "logs")})
+
+    def ended_mid_run(cfg, conn):
+        with closing(db.connect(cfg)) as server:
+            server.execute("SELECT pg_terminate_backend(%s, 5000)", (conn.info.backend_pid,))
+        conn.execute("SELECT 1")
+
+    monkeypatch.setattr(process, "run", ended_mid_run)
+    assert main(tmp_path, cfg, "process") == 1
+    text = (config.abs_path(cfg["logging"]["dir"]) / "process.log").read_text(encoding="utf-8")
+    assert text.count("Traceback") == 1 and "process: failed" in text, "logged with its traceback, once"
 
 
 @budget(load="db")

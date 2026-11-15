@@ -2,9 +2,9 @@
 same shared settings, Python packages and image tools. `state version --yes` stores this machine's digest of the 4
 as the fleet's; a part or junk review whose digest differs, or that finds none stored, does not run.
 
-Shared settings are every config key but the machine-local ones (MACHINE_LOCAL). Packages are the runtime dependency
-group of pyproject.toml at their installed versions (onnxruntime is per machine: SPEC "Config", junk.ocr_device).
-Tools are the version lines of the 4 image tools and the scorer library's version.
+Shared settings are every config key but the machine-local ones (MACHINE_LOCAL_*) and the secrets. Packages are the
+runtime dependency group of pyproject.toml at their installed versions (onnxruntime is per machine: SPEC "Config",
+junk.ocr_device). Tools are the version lines of the 4 image tools and the scorer library's version.
 """
 
 import ctypes
@@ -17,17 +17,16 @@ from manga_pipeline import config
 from manga_pipeline.convert import tools
 
 META_KEY = "fleet.version"
-# Whole sections, then single keys, that may differ between machines (SPEC "Config").
+# Whole sections, then single keys, that may differ between machines (SPEC "Config"); the secrets are left out too
+# (config.secret_keys).
 MACHINE_LOCAL_SECTIONS = ("logging", "preflight", "database", "paths", "tools")
 MACHINE_LOCAL_KEYS = (
     ("convert", "workers"),
     ("convert", "min_scratch_free_mb"),
     ("junk", "ocr_device"),
-    ("junk", "claude_token"),
     ("junk", "claude_path"),
     ("suwayomi", "url"),
     ("kavita", "url"),
-    ("kavita", "api_key"),
 )
 COMPILED = (".pyc", ".pyo")  # left out of the program digest: made by each machine
 PART_NAMES = ("program", "shared settings", "runtime packages", "tools")
@@ -74,11 +73,12 @@ def _parts(cfg):
 
 def shared_settings(cfg):
     """The config's shared keys and values: {section: {key: value}}."""
+    left_out = set(MACHINE_LOCAL_KEYS) | set(config.secret_keys())
     out = {}
     for section, values in cfg.items():
         if section in MACHINE_LOCAL_SECTIONS:
             continue
-        kept = {k: v for k, v in values.items() if (section, k) not in MACHINE_LOCAL_KEYS}
+        kept = {k: v for k, v in values.items() if (section, k) not in left_out}
         if kept:
             out[section] = kept
     return out

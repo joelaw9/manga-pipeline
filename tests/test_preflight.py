@@ -4,6 +4,7 @@ import logging
 import os
 import secrets
 import shutil
+import sys
 from contextlib import closing
 
 import pytest
@@ -53,6 +54,7 @@ def test_shipped_checks():
         "Claude settings": (HARD, preflight.claude_settings),
         "naming overrides": (HARD, preflight.naming_overrides),
         "fleet version": (HARD, preflight.fleet_version),
+        "long paths": (HARD, preflight.long_paths),
     }
     assert shipped == want, "SPEC 'Preflight' lists every check with its kind"
 
@@ -455,6 +457,37 @@ def test_scratch_space_measures_the_scratch_drive(tmp_path):
     assert "below convert.min_scratch_free_mb" in preflight.scratch_space(cfg(int(free * 1.02) + 1, tmp_path))
     assert preflight.scratch_space(cfg(int(free * 0.98), tmp_path / "not" / "yet")) is None, "nearest existing folder"
     assert preflight.scratch_space(cfg(-1, tmp_path)) == "convert.min_scratch_free_mb must be 0 or more, got -1"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    "value, problem",
+    [(1, None), (0, "LongPathsEnabled under HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem is 0: set it to 1")],
+)
+def test_long_paths_on_windows_need_the_registry_value_1(monkeypatch, value, problem):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(preflight, "long_paths_value", lambda: value)
+    got = preflight.long_paths(config.cached())
+    assert got == problem or got.startswith(problem), "a path of 260+ characters opens only with the value 1"
+
+
+@budget(load="pure")
+def test_long_paths_absent_is_a_problem(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(preflight, "long_paths_value", lambda: None)
+    assert "LongPathsEnabled under HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem is absent: set it to 1" in (
+        preflight.long_paths(config.cached())
+    ), "Windows' default (no value) is off"
+
+
+@budget(load="pure")
+def test_long_paths_are_no_problem_off_windows(monkeypatch):
+    def unread():
+        raise AssertionError("no registry off Windows")
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(preflight, "long_paths_value", unread)
+    assert preflight.long_paths(config.cached()) is None, "only Windows limits paths to 260 characters"
 
 
 @budget(load="pure")

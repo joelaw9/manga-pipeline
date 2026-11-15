@@ -30,6 +30,7 @@ def run(ctx, chapter):
     fields.pop("LocalizedSeries", None)
     if series["localized_name"]:
         fields["LocalizedSeries"] = series["localized_name"]
+    workflow.holds_claim(ctx, chapter)
     size = archive.replace_member(
         config.to_local(ctx.cfg, chapter["staged_path"]), archive.COMICINFO, comicinfo.build(fields)
     )

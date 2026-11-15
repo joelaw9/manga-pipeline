@@ -11,6 +11,7 @@ from PIL import Image
 from manga_pipeline import images
 from manga_pipeline.convert import image, pages, plan, tools
 
+from tests import pages as fx
 from tests.convert_pages import NO_EDIT, Chapter, colour, gray, jpeg, png, webp
 from tests.fakes import convert as fake
 from tests.timing import budget
@@ -539,6 +540,165 @@ def test_a_blanked_page_keeps_its_alpha(tmp_path):
     with Image.open(blanked["001.png"]) as out:
         assert out.mode == "RGBA" and out.getchannel("A").getextrema() == (128, 128), "alpha kept"
     assert filled(blanked["001.png"])
+
+
+@budget(load="pure")
+def test_a_luma_check_refuses_pages_that_differ_only_in_alpha():
+    import numpy as np
+
+    page = gray()
+    opaque = page.convert("LA")
+    holed = page.convert("LA")
+    a = np.full((page.height, page.width), 255, np.uint8)
+    a[:32] = 0
+    holed.putalpha(Image.fromarray(a))
+    assert pages.pixels_match(png(opaque), png(opaque), "luma")[0], "the same gray page with its alpha matches"
+    assert not pages.pixels_match(png(opaque), png(holed), "luma")[0], (
+        "a lossless page whose alpha changed is not lossless: the luma check compares alpha too"
+    )
+
+
+# ---------------------------------------------------------------- page modes: the lossless and AVIF decisions
+# The modes and their planned class, jpeg_feed and the routes they reach are the bulk converter's image matrix
+# (avif-conversion tests/test_image_matrix.py PAGES and its jpeg_feed assertion); the tool, its arguments, jpeg_gray,
+# keep_icc and the verify mode follow from its image.lossless_page / encode_page, which convert.image copies. The fakes
+# do not run the real tools: what they make of these arguments is the convert sample check's.
+
+
+def _matrix_colour():
+    return fx.webtoon_page((96, 128), seed=3)
+
+
+def _matrix_gray():
+    return fx.manga_page((96, 128), seed=2, noise=3).convert("L")
+
+
+def _gray16():
+    import numpy as np
+
+    a = np.asarray(_matrix_gray()).astype(np.uint16) * 257
+    im = Image.fromarray(a)  # uint16 gray: Pillow's I;16
+    assert im.mode == "I;16", im.mode
+    return png(im)
+
+
+def _transparent(im):
+    """im with rows 0-31 fully transparent over black and rows 32-47 half transparent (the matrix's with_alpha)."""
+    import numpy as np
+
+    a = np.full(im.size[::-1], 255, np.uint8)
+    rgb = np.asarray(im).copy()
+    a[:32], a[32:48] = 0, 128
+    rgb[:32] = 0
+    return Image.merge("LA" if im.mode == "L" else "RGBA", [*Image.fromarray(rgb).split(), Image.fromarray(a)])
+
+
+def _gray_icc():
+    return (fx.PAGE_FIX / "icc_gray_azumi.icc").read_bytes()
+
+
+# mode: (page bytes, extension, class, jpeg_feed, jpeg_gray,
+#        AVIF (--yuv, what avifenc reads: "jpeg" the page itself, "ref" our decode, "gray" its gray version),
+#        lossless (tool, its arguments before the output, the verify mode))
+MATRIX = {
+    "cmyk-jpeg-colour": (
+        lambda: fx.jpeg(_matrix_colour().convert("CMYK")),
+        ".jpg",
+        images.COLOUR,
+        False,
+        False,
+        ("444", "ref"),
+        ("jpegtran", ["-copy", "none", "-optimize", "-progressive"], "exact"),
+    ),
+    "cmyk-jpeg-gray": (
+        lambda: fx.jpeg(_matrix_gray().convert("RGB").convert("CMYK")),
+        ".jpg",
+        images.GRAY,
+        False,
+        False,
+        ("400", "gray"),
+        ("jpegtran", ["-copy", "none", "-optimize", "-progressive"], "exact"),
+    ),
+    "gray-icc-l-jpeg": (
+        lambda: fx.jpeg(_matrix_gray(), icc_profile=_gray_icc()),
+        ".jpg",
+        images.GRAY,
+        False,
+        True,
+        ("400", "gray"),
+        ("jpegtran", ["-grayscale", "-copy", "icc", "-optimize", "-progressive"], "luma"),
+    ),
+    "gray-icc-rgb-jpeg": (
+        lambda: fx.jpeg(_matrix_colour(), icc_profile=_gray_icc()),
+        ".jpg",
+        images.COLOUR,
+        False,
+        True,
+        ("420", "ref"),
+        ("jpegtran", ["-copy", "icc", "-optimize", "-progressive"], "exact"),
+    ),
+    "gray16-png": (
+        _gray16,
+        ".png",
+        images.GRAY,
+        False,
+        False,
+        ("400", "gray"),
+        ("oxipng", ["-o", "4", "--strip", "safe", "-t", "1"], "luma"),
+    ),
+    "la-transparent-png": (
+        lambda: png(_transparent(_matrix_gray())),
+        ".png",
+        images.GRAY,
+        False,
+        False,
+        ("400", "gray"),
+        ("oxipng", ["-o", "4", "--strip", "safe", "-t", "1"], "luma"),
+    ),
+    "rgba-transparent-png": (
+        lambda: png(_transparent(_matrix_colour())),
+        ".png",
+        images.COLOUR,
+        False,
+        False,
+        ("444", "ref"),
+        ("oxipng", ["-o", "4", "--strip", "safe", "-t", "1"], "exact"),
+    ),
+}
+
+
+@budget(load="pool")
+@pytest.mark.parametrize("mode", list(MATRIX))
+def test_a_page_mode_gets_the_bulk_converters_lossless_and_avif_decisions(tmp_path, monkeypatch, mode):
+    make, ext, cls, feed, can_gray, (yuv, reads), (tool, args, verify) = MATRIX[mode]
+    data, name = make(), "001" + ext
+    monkeypatch.setattr(image, "MAX_SIZE_RATIO", 100.0)  # the decisions under test, not the size gate
+    ch = Chapter(tmp_path / "avif", [(name, data)])
+    p = ch.plan()
+    [entry] = p.pages
+    assert (p.classes[name], entry["jpeg_feed"], entry["jpeg_gray"]) == (cls, feed, can_gray), (
+        f"{mode}: planned class, jpeg_feed, jpeg_gray"
+    )
+    rec = ch.run(p)
+    [enc] = calls("avifenc")
+    fed = Path(enc[-2]).name
+    assert rec["outcome"] == "avif" and enc[enc.index("--yuv") + 1] == yuv, f"{mode}: AVIF at --yuv {yuv}"
+    assert fed == {"jpeg": name, "ref": "001.ref.png", "gray": "001.gray.png"}[reads], f"{mode}: avifenc reads {reads}"
+    assert ("--ignore-exif" in enc) == (reads == "jpeg"), f"{mode}: only a fed JPEG has its EXIF ignored"
+
+    fake.CALLS.clear()
+    fake.SCORE[0] = lambda ref, dec: 50.0  # every AVIF fails: the lossless path
+    modes = []
+    real = pages.pixels_match
+    monkeypatch.setattr(pages, "pixels_match", lambda a, b, m: modes.append(m) or real(a, b, m))
+    ch = Chapter(tmp_path / "lossless", [(name, data)])
+    rec = ch.run(ch.plan())
+    [run] = calls(tool)
+    assert rec["outcome"] == "lossless" and not calls({"jpegtran": "oxipng", "oxipng": "jpegtran"}[tool])
+    out_flag = "-outfile" if tool == "jpegtran" else "--out"
+    assert run[: run.index(out_flag)] == args, f"{mode}: {tool} {' '.join(args)}"
+    assert Path(run[-1]).name == name, f"{mode}: {tool} reads the page itself (no 8-bit colour container to gray)"
+    assert modes == [verify], f"{mode}: verified {verify}"
 
 
 @budget(load="pure")

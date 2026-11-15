@@ -35,11 +35,13 @@ class SchemaError(RuntimeError):
 
 
 class CannotConnect(RuntimeError):
-    """The server cannot be reached, or refuses the login (exit 4). The message never holds the password."""
+    """The server cannot be reached, or refuses the login or the creation of the database (exit 4). The message never
+    holds the password."""
 
 
 class NoDatabase(RuntimeError):
-    """The configured database does not exist on the server."""
+    """The configured database does not exist on the server (or, for a caller that does not build it, holds no schema
+    record)."""
 
 
 class Row(tuple):
@@ -91,8 +93,8 @@ def _login(cfg):
     port = settings["port"]
     if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
         raise config.ConfigError(f"database.port must be a whole number from 1 to 65535, got {port!r}")
-    if settings["password"] is not None and not isinstance(settings["password"], str):
-        raise config.ConfigError("database.password must be a string")
+    if settings["password"] is not None and (not isinstance(settings["password"], str) or not settings["password"]):
+        raise config.ConfigError("database.password must be null or a non-empty string")
     return settings  # whether a login needs the password is the server's to say (SPEC "Config")
 
 
@@ -111,7 +113,8 @@ def _open(cfg, dbname=None):
             passfile=os.devnull,
             connect_timeout=CONNECT_TIMEOUT_S,
             application_name="manga_pipeline",
-            options=f"-c lock_timeout={LOCK_TIMEOUT}",
+            # Read committed: a write transaction's statements after the write lock see what committed before it.
+            options=f"-c lock_timeout={LOCK_TIMEOUT} -c default_transaction_isolation=read\\ committed",
             autocommit=True,
             row_factory=_rows,
         )
@@ -136,8 +139,7 @@ def connect(cfg):
     """Open database.name, creating it if absent, and apply the schema steps it lacks. The connection is in
     autocommit mode (every write goes in an explicit transaction()) and returns Row rows. Raises SchemaError for a
     database holding a step this program does not have."""
-    create_missing(cfg)
-    conn = open_existing(cfg)
+    conn = open_database(cfg, builds=True)
     try:
         apply_steps(conn)
     except BaseException:
@@ -146,16 +148,24 @@ def connect(cfg):
     return conn
 
 
-def open_existing(cfg):
-    """Open database.name as connect does, but create and apply nothing: NoDatabase when it does not exist (a run
-    lock is taken on this connection before preflight, SPEC "Run lock")."""
-    return _open(cfg)
-
-
-def create_missing(cfg):
-    """Create database.name when the server has none (the commands that build a database)."""
-    if not _exists(cfg, cfg["database"]["name"]):
+def open_database(cfg, builds):
+    """Open database.name and apply nothing (SPEC "State"). A caller that builds gets the database created when the
+    server has none; for any other caller, a database that is missing or holds no schema record is NoDatabase."""
+    try:
+        conn = _open(cfg)
+    except NoDatabase:
+        if not builds:
+            raise
         _create(cfg)
+        return _open(cfg)
+    if not builds and not _has_record(conn):
+        conn.close()
+        login = cfg["database"]
+        raise NoDatabase(
+            f"no database {login['name']} on {login['host']}:{login['port']}: it holds no schema record (empty, or "
+            "not built by this program)"
+        )
+    return conn
 
 
 def read_only(cfg):
@@ -227,8 +237,10 @@ def database_id(conn):
 
 
 def _create(cfg):
-    """Create database.name as UTF-8 with bytewise text order; another run creating it at the same time is fine."""
-    name = cfg["database"]["name"]
+    """Create database.name as UTF-8 with bytewise text order; another run creating it at the same time is fine.
+    CannotConnect naming the database when the server refuses (a role that may not create one, for one)."""
+    login = cfg["database"]
+    name = login["name"]
     with closing(_open(cfg, MAINTENANCE_DATABASE)) as conn:
         try:
             conn.execute(
@@ -238,6 +250,10 @@ def _create(cfg):
             )
         except (psycopg.errors.DuplicateDatabase, psycopg.errors.UniqueViolation):
             pass  # 2 creates racing: the loser gets either error (PostgreSQL's createdb checks the name racily)
+        except psycopg.Error as e:
+            raise CannotConnect(
+                f"cannot create the database {name} on {login['host']}:{login['port']} as {login['user']}: {e}"
+            ) from None
 
 
 def _has_record(conn):

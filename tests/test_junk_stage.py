@@ -273,6 +273,48 @@ def test_a_strip_chapter_waits_on_its_candidates_and_finishes_once_they_are_kept
 
 
 @budget(load="db", seconds=10)
+def test_a_lost_claim_writes_no_candidate_folder(site, monkeypatch):
+    site.download("Alpha", 2, cbz(credit=True))
+    events, real_name, real_write = [], candidates.folder_name, candidates.write_images
+
+    def folder_name(key, kind, unit_key, chapter):
+        if not events:  # another run takes the claim while this one renders the candidate's images
+            with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+                conn.execute(
+                    "UPDATE chapter SET claimed_by = 'process@elsewhere', claim_count = claim_count + 1 WHERE id = %s",
+                    (chapter["id"],),
+                )
+            events.append("taken")
+        return real_name(key, kind, unit_key, chapter)
+
+    def write_images(*args):
+        ((holder,),) = site.rows("SELECT claimed_by FROM chapter")
+        events.append(f"written under {holder}'s claim")
+        return real_write(*args)
+
+    monkeypatch.setattr(candidates, "folder_name", folder_name)
+    monkeypatch.setattr(candidates, "write_images", write_images)
+    site.parts()
+    assert events == ["taken", f"written under {workflow.owner('process')}'s claim"], (
+        "nothing is written under a lost claim; the chapter claimed again writes its candidate"
+    )
+    assert site.chapters() == [("junk", "waiting", "junk_decision")]
+
+
+@budget(load="db", seconds=5)
+def test_ocr_text_holding_a_nul_makes_its_chapter_needs_human_at_once(site, monkeypatch):
+    monkeypatch.setattr(ocr, "text", lambda im, device: "CREDITS\x00")  # the OCR engine read a NUL off a block
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    site.download("Long", 2, strip_cbz("n2"))
+    site.parts()
+    ((status, attempts, reason),) = site.rows("SELECT status, attempts, last_error FROM chapter")
+    assert (status, attempts) == ("needs_human", 0), "no attempt can store the text: held at once, no attempt spent"
+    assert "strip rows" in reason and "NUL" in reason, f"the reason names the unit's rows: {reason}"
+    assert site.rows("SELECT count(*) FROM junk_scan") == [(0,)], "nothing is stored"
+
+
+@budget(load="db", seconds=10)
 def test_a_chapter_leaving_junk_has_its_chapter_edit_with_every_key(site):
     site.download("Alpha", 2, cbz(seed="e2", credit=True))
     site.parts()

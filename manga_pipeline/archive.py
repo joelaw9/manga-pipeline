@@ -110,19 +110,23 @@ def read_comicinfo(cbz):
 
 def write(dest, members):
     """A store-mode CBZ of members ([(name, bytes)], stored in that order) at dest: fixed date, attributes and
-    system, so the same members give byte-identical archives. Written as dest.part, renamed over dest, then tested.
-    Returns dest's size."""
+    system, so the same members give byte-identical archives. Written as dest.part, renamed over dest, then tested;
+    a write that raises before the rename removes dest.part. Returns dest's size."""
     dest = Path(dest)
     part = dest.with_name(dest.name + ".part")
-    with zipfile.ZipFile(part, "w", zipfile.ZIP_STORED) as z:
-        for name, data in members:
-            info = zipfile.ZipInfo(name, FIXED_TIME)
-            info.compress_type = zipfile.ZIP_STORED
-            info.create_system = 0
-            info.external_attr = 0
-            z.writestr(info, data)
-    size = part.stat().st_size
-    os.replace(part, dest)
+    try:
+        with zipfile.ZipFile(part, "w", zipfile.ZIP_STORED) as z:
+            for name, data in members:
+                info = zipfile.ZipInfo(name, FIXED_TIME)
+                info.compress_type = zipfile.ZIP_STORED
+                info.create_system = 0
+                info.external_attr = 0
+                z.writestr(info, data)
+        size = part.stat().st_size
+        os.replace(part, dest)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
     test(dest, size)
     return size
 

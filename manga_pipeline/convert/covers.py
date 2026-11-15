@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from manga_pipeline import archive, config, images
+from manga_pipeline import archive, config, errors, images
 from manga_pipeline.convert import plan
 
 JPEG_QUALITY = 92
@@ -29,7 +29,8 @@ class CoverError(RuntimeError):
 
 def load(cfg, row):
     """The cover file's bytes of a volume_cover row, checked: its path relative to paths.covers and inside it, the file
-    there, its sha256 the row's. Raises CoverError naming the path."""
+    there, its sha256 the row's. Raises CoverError naming the path; a dropped share's FileNotFoundError
+    (errors.dropped_share) is raised as it is."""
     rel = Path(row["path"])
     root = config.abs_path(cfg["paths"]["covers"]).resolve()
     path = (root / rel).resolve()
@@ -38,6 +39,8 @@ def load(cfg, row):
     try:
         data = path.read_bytes()
     except FileNotFoundError as e:
+        if errors.dropped_share(e):  # the share, not the file: workflow.share_errors makes it Unreachable
+            raise
         raise CoverError(f"volume cover {path} is missing") from e
     if hashlib.sha256(data).hexdigest() != row["sha256"]:
         raise CoverError(f"volume cover {path} is not the one handed over (another sha256)")

@@ -2,6 +2,7 @@
 lock, read_only's 1 snapshot, rows that read as sqlite3.Row does (SPEC "State", "Config"); and the test harness's
 databases (SPEC "Tests")."""
 
+import os
 import secrets
 import shutil
 import sqlite3
@@ -66,6 +67,34 @@ def test_settings_are_in_effect(tmp_path):
             (conn.info.dbname,),
         ).fetchone()
         assert (encoding, collate, ctype) == ("UTF8", "C", "C"), "UTF-8 with bytewise text order"
+        isolation = conn.execute("SHOW default_transaction_isolation").fetchone()[0]
+        assert isolation == "read committed", "a write transaction sees what committed before its write lock"
+        assert "default_transaction_isolation" in conn.info.options, "set by the connection, not left to the server"
+
+
+@budget(load="db")
+def test_a_database_that_opens_at_once_needs_no_login_to_postgres(tmp_path, monkeypatch):
+    cfg = db_cfg(tmp_path)
+    real, logins = psycopg.connect, []
+
+    def spy(*args, **kwargs):
+        logins.append(kwargs["dbname"])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(psycopg, "connect", spy)
+    db.connect(cfg).close()
+    db.open_database(cfg, builds=False).close()
+    assert db.MAINTENANCE_DATABASE not in logins, f"only the configured database is logged in to: {logins}"
+
+
+@budget(load="db")
+def test_a_password_file_named_in_the_environment_is_not_read(tmp_path, monkeypatch):
+    passfile = tmp_path / "pgpass"
+    passfile.write_text("*:*:*:*:from-the-file\n", encoding="utf-8")
+    monkeypatch.setenv("PGPASSFILE", str(passfile))
+    with closing(db.connect(db_cfg(tmp_path))) as conn:
+        used = {o.keyword: o.val for o in conn.pgconn.info}[b"passfile"]
+    assert used == os.devnull.encode(), "the login's password is database.password alone"
 
 
 @budget(load="db")
@@ -247,7 +276,8 @@ def test_built_is_false_for_an_empty_database_and_true_once_connected(tmp_path):
         ({"name": None}, "database.name must be a non-empty string"),
         ({"port": 0}, "database.port must be a whole number from 1 to 65535"),
         ({"port": 65536}, "database.port must be a whole number from 1 to 65535"),
-        ({"password": 5}, "database.password must be a string"),
+        ({"password": 5}, "database.password must be null or a non-empty string"),
+        ({"password": ""}, "database.password must be null or a non-empty string"),
     ],
 )
 @budget(load="pure")
@@ -469,6 +499,64 @@ def test_a_database_built_from_other_step_files_is_rebuilt_when_taken(own_pool):
         second.close()
 
 
+@budget(POOL_BUDGET, load="db")
+def test_a_database_whose_reset_failed_is_rebuilt_by_its_next_taker(own_pool, tmp_path, monkeypatch):
+    pool, space = own_pool
+    first = pg.Process(pool, space, take=1)
+    try:
+        name = first.database(tmp_path, built=True)
+        _fill(pg.cfg_for(name))
+        real = pg.Process._reset
+
+        def failing(self, db_name, rebuild):
+            if db_name == name:
+                raise RuntimeError("this reset fails")
+            return real(self, db_name, rebuild)
+
+        monkeypatch.setattr(pg.Process, "_reset", failing)
+        with pytest.raises(RuntimeError, match="this reset fails"):
+            first.end_test()
+        monkeypatch.undo()
+        assert first.slots != [name], "the failed database is retired: its slot takes another"
+        assert not pg._print_of(first.owner, name), "its fingerprint is cleared: the next taker rebuilds it"
+    finally:
+        first.close()
+    second = pg.Process(pool, space, take=1)
+    try:
+        assert second.slots == [name], "the freed database is taken again"
+        assert pg._print_of(second.owner, name).startswith(pg.STEPS_PRINT), "rebuilt from these step files"
+        with closing(db.connect(pg.cfg_for(name))) as conn:
+            assert conn.execute("SELECT count(*) FROM series").fetchone()[0] == 0
+    finally:
+        second.close()
+
+
+@budget(POOL_BUDGET, load="db")
+def test_pool_databases_that_cannot_be_made_right_stop_the_run_after_max_failed_takes(own_pool, monkeypatch):
+    pool, space = own_pool
+    real, owners = pg._connect, []
+
+    def connect(dbname):
+        conn = real(dbname)
+        owners.append(conn)
+        return conn
+
+    def failing(self, name, rebuild):
+        raise RuntimeError("this reset fails")
+
+    monkeypatch.setattr(pg, "_connect", connect)
+    monkeypatch.setattr(pg.Process, "_reset", failing)
+    try:
+        with pytest.raises(RuntimeError, match=f"{pg.MAX_FAILED_TAKES} pool databases in a row"):
+            pg.Process(pool, space, take=1)
+    finally:
+        for conn in owners:
+            conn.close()
+    with closing(real(db.MAINTENANCE_DATABASE)) as conn:
+        made = conn.execute("SELECT count(*) FROM pg_database WHERE starts_with(datname, %s)", (pool,)).fetchone()[0]
+    assert made == pg.MAX_FAILED_TAKES, "it stops at the limit instead of trying every database"
+
+
 # The offline rule for the database is the server's (SPEC "Tests"): only the test role logs in.
 
 
@@ -527,9 +615,14 @@ def test_a_bad_database_setting_exits_2_and_a_refused_login_exits_4(tmp_path, ca
 
 
 @budget(load="db")
-def test_a_lock_wait_is_bounded_as_sqlites_busy_timeout_was(tmp_path):
-    with closing(db.connect(db_cfg(tmp_path))) as conn:
-        assert conn.execute("SHOW lock_timeout").fetchone()[0] == db.LOCK_TIMEOUT
+def test_a_wait_on_the_write_lock_longer_than_lock_timeout_raises(tmp_path, monkeypatch):
+    cfg = db_cfg(tmp_path)
+    monkeypatch.setattr(db, "LOCK_TIMEOUT", "200ms")  # the shipped 30 s, shortened for the test
+    with closing(db.connect(cfg)) as holder, closing(db.connect(cfg)) as waiter:
+        with db.transaction(holder):
+            with pytest.raises(psycopg.errors.LockNotAvailable):
+                with db.transaction(waiter):
+                    pass
 
 
 @budget(load="db")

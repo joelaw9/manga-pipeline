@@ -16,6 +16,7 @@ def run(ctx, chapter):
     if workflow.exists(staged):
         if workflow.exists(target):
             return workflow.NeedsHuman(f"{target} is already in the library; a library file is never overwritten")
+        workflow.holds_claim(ctx, chapter)
         # ponytail: check-then-replace; only another writer in the same folder in between could lose a file.
         os.replace(staged, target)
     elif not workflow.exists(target):

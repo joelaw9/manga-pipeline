@@ -43,7 +43,7 @@ SPEC = {
     "process": (
         {"process", "idle"},
         "process.log",
-        [*PART_CHECKS, "OCR device", "junk word lists", "image tools", "scorer", "scratch space"],
+        [*PART_CHECKS, "OCR device", "junk word lists", "image tools", "scorer", "scratch space", "long paths"],
     ),
     "export": ({"export", "idle"}, "export.log", [*PART_CHECKS, "service settings", "naming overrides"]),
     "status": (set(), None, []),
@@ -168,10 +168,21 @@ def test_module_run_writes_the_log(site, tmp_path):
 
 
 @budget(load="fs")
-@pytest.mark.parametrize("command", ["intake", "state reset", "state adopt"])
-def test_held_lock_exits_3_without_opening_a_log_file(site, command, capsys):
-    with running(site_cfg(site), "intake"):
-        assert run(site, command) == 3, "a run must stop at once while another holds a lock it takes"
+@pytest.mark.parametrize(
+    "command, holder",
+    [
+        (["intake"], "intake"),
+        (["export"], "export"),
+        (["junk", "review"], "junk-review"),
+        (ARGV["state reset"], "intake"),
+        (ARGV["state adopt"], "intake"),
+    ],
+)
+def test_held_lock_exits_3_without_opening_a_log_file(site, command, holder, capsys):
+    with running(site_cfg(site), holder):
+        assert cli.main([*(a for item in site for a in ("--set", item)), *command]) == 3, (
+            "a run must stop at once while another holds a lock it takes"
+        )
     err = capsys.readouterr().err
     assert "holds the lock" in err, "the error names the held lock"
     assert log_files(site) == [], "a refused run must not open the log file the holder writes"
@@ -191,6 +202,14 @@ def test_share_owned_by_another_database_exits_4(site, capsys):
     preflight.owner_file(site_cfg(site)).write_text("another-database", encoding="utf-8")
     assert run(site, "export") == 4
     assert "holds database id 'another-database'" in capsys.readouterr().err
+
+
+@budget(load="db")
+def test_junk_review_on_an_unmounted_share_exits_4(site, capsys):
+    adopt(site)
+    preflight.owner_file(site_cfg(site)).unlink()  # the share is not mounted: its owner file is not there
+    assert cli.main([*(a for item in site for a in ("--set", item)), "junk", "review"]) == 4
+    assert "share ownership" in (err := capsys.readouterr().err) and "is missing" in err, err
 
 
 @budget(load="db")
