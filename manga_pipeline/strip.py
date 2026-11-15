@@ -24,7 +24,7 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 from PIL import Image
 
-from manga_pipeline import archive, db, images
+from manga_pipeline import archive, db, images, volumes
 
 # The bulk converter's config.yaml.example `restitch:` and `slice_repair:` values (frozen: plans and tests depend on
 # them). A caller passes its own mapping to override them.
@@ -109,12 +109,8 @@ def geometry_share(chapter_pages, cfg=CONFIG):
 
 
 def override_layout(override):
-    """`layout:` from a series overrides mapping: "strip", "pages" or None."""
-    v = override.get("layout")
-    v = str(v).strip().lower() if v is not None else None
-    if v not in (None, "strip", "pages"):
-        raise ValueError(f"overrides layout must be 'strip' or 'pages', not {v!r}")
-    return v
+    """`layout:` from a series overrides mapping: "strip", "pages" or None (volumes.layout)."""
+    return volumes.layout(override)
 
 
 def _claims(kavita_genres):

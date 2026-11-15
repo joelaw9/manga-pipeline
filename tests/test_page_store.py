@@ -30,7 +30,7 @@ def chapter_cbz(path, n=2, blank=True):
 
 
 def new_chapter(conn):
-    return add_chapter(conn, add_series(conn, "S"), '["", null, null, "1", ""]')
+    return add_chapter(conn, add_series(conn, "S", "kavita"), '["", null, null, "1", ""]')  # step 0003's columns
 
 
 @budget(load="db", seconds=2.0)

@@ -156,6 +156,12 @@ def series_set_id(cfg, args):
     log.info("series %s: %s id %s set by hand", args.series_id, args.source, found)
 
 
+def series_new(cfg, args):
+    with _database(cfg, "admit a series in") as conn:
+        human.new_series(conn, args.series_id, args.name)
+    log.info("series %s: to be admitted as a new series%s", args.series_id, f" as {args.name!r}" if args.name else "")
+
+
 def metadata_import(cfg, args, conn):
     state, overrides = importer.read_state(args.state_file), importer.read_overrides(args.config_file)
     importer.run(workflow.Context(cfg, conn, "intake"), state, overrides)
@@ -248,6 +254,7 @@ COMMANDS = {
     "smoke": Command((), None, None, SMOKE_CHECKS, _unlocked(lambda cfg, args: smoke.run(cfg))),
     "series link": Command((), None, None, LINK_CHECKS, _unlocked(series_link)),
     "series set-id": Command((), None, None, (), _unlocked(series_set_id)),
+    "series new": Command((), None, None, (), _unlocked(series_new)),
     "metadata import": Command(("intake",), S, None, IMPORT_CHECKS, metadata_import),
     "metadata audit": Command((), None, None, LINK_CHECKS, _unlocked(metadata_audit)),
     "junk import": Command((), None, None, (), _unlocked(junk_import)),
@@ -292,6 +299,10 @@ def parser():
     set_id.add_argument("source", help="anilist, mangaupdates, mangadex, mangabaka or myanimelist")
     set_id.add_argument("id", help="the source's id (a MangaUpdates id may be its base-36 text)")
     set_id.set_defaults(command="series set-id")
+    new = series.add_parser("new", help="admit a held series as a new series (a near hit or a name clash)")
+    new.add_argument("series_id", type=int, help="series id (as status shows it)")
+    new.add_argument("--name", help="the name to admit it under (default: its own, SPEC 'Series identification')")
+    new.set_defaults(command="series new")
     metadata = commands.add_parser("metadata", help="series metadata").add_subparsers(
         dest="metadata_command", required=True, metavar="ACTION"
     )

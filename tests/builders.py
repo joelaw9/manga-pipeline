@@ -54,12 +54,16 @@ def adopted(tmp_path, **changes):
 
 
 def add_series(conn, name, origin="new", status="ok", kavita_library_id=None):
-    """A series row; kavita_library_id None = Kavita does not hold it."""
+    """A series row; kavita_library_id None = Kavita does not hold it. A new series is an admitted one (SPEC "Series
+    identification": only those have chapters)."""
     with db.transaction(conn):
-        return conn.execute(
+        series_id = conn.execute(
             "INSERT INTO series (name, origin, status, kavita_library_id) VALUES (%s, %s, %s, %s) RETURNING id",
             (name, origin, status, kavita_library_id),
         ).fetchone()[0]
+        if origin == "new":
+            conn.execute("UPDATE series SET admitted_at = '2026-01-01T00:00:00+00:00' WHERE id = %s", (series_id,))
+    return series_id
 
 
 def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None, download_path=None, **columns):

@@ -26,7 +26,8 @@ def work(ctx):
         retention.purge(ctx.cfg)
     workflow.drain(ctx, {"comicinfo": comicinfo.run})
     for series_id in workflow.series_with_ready(ctx, ("publish",)):
-        if folder_moved(ctx, series_id):
+        # A new series Kavita does not hold yet waits at publish (SPEC "Publishing": it lands whole)
+        if not _in_kavita(ctx, series_id) or folder_moved(ctx, series_id):
             continue
         workflow.drain(ctx, {"publish": publish.run}, series_id)
     # Kavita unreachable here ends the run: what is left all needs Kavita.
@@ -39,6 +40,11 @@ def work(ctx):
         with workflow.share_errors():
             kavita_write.run(ctx)
     request_scan(ctx)
+
+
+def _in_kavita(ctx, series_id):
+    row = ctx.conn.execute("SELECT kavita_series_id FROM series WHERE id = %s", (series_id,)).fetchone()
+    return row["kavita_series_id"] is not None
 
 
 def folder_moved(ctx, series_id):

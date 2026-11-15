@@ -42,8 +42,9 @@ def test_override_ranges_as_the_bulk_converter_reads_them(tmp_path, number, want
         'volumes: {1: "a-b"}\n',
         "- a\n",
         "volumes: {1: [\n",
+        "layout: webtoon\n",
     ],
-    ids=["not-a-mapping", "bad-volume", "backwards", "bad-range", "file-not-a-mapping", "bad-yaml"],
+    ids=["not-a-mapping", "bad-volume", "backwards", "bad-range", "file-not-a-mapping", "bad-yaml", "bad-layout"],
 )
 def test_a_malformed_override_is_an_override_error(tmp_path, text):
     write_override(tmp_path, "Solo Leveling", text)

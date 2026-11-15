@@ -98,9 +98,11 @@ def test_a_title_no_kavita_series_matches_is_a_new_series_listed_and_not_taken(w
     world.kavita_series("Solo Leveling")
     _, path = world.download(world.manga("Brand New Thing"), "Chapter 1")
     scan(world)
-    assert world.rows("SELECT count(*) FROM series") == [(0,)], "a new series is not processed yet"
+    assert world.rows("SELECT name, origin, status, admitted_at FROM series WHERE origin = 'new'") == [
+        ("Brand New Thing", "new", "ok", None)
+    ], "a pending new series: its row and link, no chapter until it is admitted"
     ((listed, reason),) = world.rows("SELECT path, reason FROM unmatched_download")
-    assert listed == config.to_stored(world.cfg, path) and reason.startswith("new series")
+    assert listed == config.to_stored(world.cfg, path) and reason == "new series, metadata not fetched yet"
 
 
 def _unlistable(monkeypatch, *folders, error=(22, "An unexpected network error occurred"), root=None):
@@ -183,7 +185,7 @@ def test_files_that_cannot_be_matched_are_listed_with_their_first_sighting_kept(
     first = dict(world.rows("SELECT path, first_seen FROM unmatched_download"))
     reasons = dict(world.rows("SELECT path, reason FROM unmatched_download"))
     assert "2 chapters of Suwayomi manga" in reasons[config.to_stored(world.cfg, stray)]
-    assert reasons[config.to_stored(world.cfg, orphan)].startswith("new series 'Ghost'"), "no Kavita series is Ghost"
+    assert reasons[config.to_stored(world.cfg, orphan)].startswith("new series"), "no Kavita series is Ghost"
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute("UPDATE unmatched_download SET first_seen = '2000-01-01'")
     scan(world)

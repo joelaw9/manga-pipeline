@@ -184,6 +184,9 @@ def _done(ctx, chapter, verdict, adopted=None):
     opens a covered volume (SPEC "Metadata", Volume covers)."""
     download = (adopted or {}).get("download_path", chapter["download_path"])
     try:
+        series = _series(ctx, chapter)
+        if series["origin"] == "new" and series["naming_basis"] is None:  # the claim waited for the whole batch
+            chapter_names.choose_basis(ctx, series, {chapter["id"]: download})
         cover = _volume_cover(ctx, chapter, download)
     except volumes.VolumeError as e:
         if adopted:  # the replacement becomes the chapter's own download, as for a held verdict

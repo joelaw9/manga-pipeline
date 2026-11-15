@@ -88,7 +88,10 @@ def test_files_that_disagree_on_their_comicinfo_series_leave_the_folder_a_new_se
     scan(world)
     assert world.rows("SELECT count(*) FROM chapter") == [(0,)]
     reasons = {why for (why,) in world.rows("SELECT reason FROM unmatched_download")}
-    assert reasons == {"new series 'SL export': no Kavita series matches (new series come in a later phase)"}
+    assert reasons == {"new series, metadata not fetched yet"}
+    assert world.rows("SELECT name, alt_name FROM series WHERE origin = 'new'") == [("SL export", None)], (
+        "files that disagree give no ComicInfo Series name"
+    )
 
 
 @budget(load="db")

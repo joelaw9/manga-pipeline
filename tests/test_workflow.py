@@ -110,7 +110,7 @@ SCOPE_CASES = [
 @pytest.mark.parametrize(("case", "only", "library", "want"), SCOPE_CASES, ids=[c[0] for c in SCOPE_CASES])
 def test_in_scope_needs_the_configured_library_and_a_name_in_series_only(case, only, library, want):
     cfg = {"kavita": {"library_id": 4}, "series": {"only": only}}
-    assert workflow.in_scope(cfg, "S", library) is want, "SPEC 'Parts': its library or new, and named"
+    assert workflow.in_scope(cfg, ["S"], library) is want, "SPEC 'Parts': its library or new, and named"
 
 
 @budget(load="db")
@@ -130,7 +130,7 @@ def test_the_sql_scope_agrees_with_in_scope_on_every_case(ctx):
             f"SELECT 1 FROM series s WHERE s.id = %(id)s AND {workflow.SCOPE}",
             {**workflow.scope_params(cfg), "id": ids[library]},
         ).fetchone()
-        assert (got is not None) is want is workflow.in_scope(cfg, "S", library), f"{case}: SQL and Python agree"
+        assert (got is not None) is want is workflow.in_scope(cfg, ["S"], library), f"{case}: SQL and Python agree"
 
 
 @budget(load="db")
@@ -522,3 +522,23 @@ def test_a_scanned_junk_chapter_waits_while_another_of_its_series_is_unscanned(c
         )
     first = other if old_scan else scanned
     assert workflow.claim(ctx, ("junk",))["id"] == first, "a chapter with a scan before logos is rescanned first"
+
+
+@budget(load="db")
+def test_a_new_series_without_a_layout_waits_at_junk_for_3_chapters_or_an_empty_intake(ctx):
+    """SPEC "State": its layout is measured over up to 3 of its chapters."""
+    series = add_series(ctx.conn, "S")
+    first = add_chapter(ctx.conn, series, "c1", "junk")
+    second = add_chapter(ctx.conn, series, "c2", "junk")
+    later = add_chapter(ctx.conn, series, "c3", "validate")
+    assert workflow.claim(ctx, ("junk",)) is None, "2 past validate and 1 still at validate: it waits"
+    with db.transaction(ctx.conn):
+        ctx.conn.execute("UPDATE chapter SET stage = 'junk' WHERE id = %s", (later,))
+    assert workflow.claim(ctx, ("junk",))["id"] == first, "3 past validate: the first is worked"
+    with db.transaction(ctx.conn):
+        ctx.conn.execute("UPDATE chapter SET status = 'ready', claimed_by = NULL WHERE id = %s", (first,))
+        ctx.conn.execute("DELETE FROM chapter WHERE id IN (%s, %s)", (later, second))
+    held = add_chapter(ctx.conn, series, "c4", "validate")
+    with db.transaction(ctx.conn):
+        ctx.conn.execute("UPDATE chapter SET status = 'needs_human' WHERE id = %s", (held,))
+    assert workflow.claim(ctx, ("junk",))["id"] == first, "nothing ready at discover or validate: it goes on"

@@ -17,7 +17,7 @@ def sync(ctx, listing):
     folder is the listed one's (Kavita recreated the series); else it is a new row, its folder fetched when first
     needed."""
     conn, cfg = ctx.conn, ctx.cfg
-    listed = {s["id"]: s for s in listing if workflow.in_scope(cfg, s["name"], s["libraryId"])}
+    listed = {s["id"]: s for s in listing if workflow.in_scope(cfg, series_names(s), s["libraryId"])}
     rows = conn.execute(
         "SELECT id, name, localized_name, original_name, kavita_series_id, folder FROM series"
         " WHERE kavita_series_id IS NOT NULL AND kavita_library_id = %s",

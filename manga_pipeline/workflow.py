@@ -32,7 +32,12 @@ PART_STAGES = {
 # The scope filter of every work-picking query, on series s: in_scope's rule in SQL, with the named parameters of
 # scope_params. tests/test_workflow.py runs both forms over 1 table of cases.
 SCOPE = """(s.kavita_library_id IS NULL OR s.kavita_library_id = %(scope_library)s::bigint)
-    AND (cardinality(%(scope_only)s::text[]) = 0 OR s.name = ANY(%(scope_only)s::text[]))"""
+    AND (cardinality(%(scope_only)s::text[]) = 0 OR s.name = ANY(%(scope_only)s::text[])
+        OR s.alt_name = ANY(%(scope_only)s::text[]) OR s.comicinfo_series = ANY(%(scope_only)s::text[])
+        OR s.localized_name = ANY(%(scope_only)s::text[]) OR s.original_name = ANY(%(scope_only)s::text[]))"""
+# A series s whose chapters may be worked: not a new series waiting to be admitted (SPEC "Series identification": a
+# held one's chapters are recorded and wait for its name and folder).
+ADMITTED = "NOT (s.origin = 'new' AND s.admitted_at IS NULL)"
 # A junk-stage chapter {c} holds a current junk scan (SPEC "Junk decisions"): same series, same content digest, and
 # made with logo detection (a scan without "marks" is not current). The one test of a current scan.
 SCANNED = """EXISTS (SELECT 1 FROM junk_scan js WHERE js.chapter_id = {c}.id AND js.series_id = {c}.series_id
@@ -138,13 +143,25 @@ OUTCOMES = Done | Waiting | Failed | Dropped | NeedsHuman | Ready
 RECORDED = Done | Dropped | Waiting | Ready | NeedsHuman  # outcomes that may carry a record
 
 
-def in_scope(cfg, series_name, kavita_library_id):
+def in_scope(cfg, series_names, kavita_library_id):
     """Whether a series is worked: Kavita holds it in the library kavita.library_id or does not hold it yet
-    (kavita_library_id None: a new series), and series.only is empty or names it. SQL's form is SCOPE."""
+    (kavita_library_id None: a new series), and series.only is empty or names it by any of series_names. SQL's form
+    is SCOPE."""
     if kavita_library_id is not None and kavita_library_id != cfg["kavita"]["library_id"]:
         return False
     only = cfg["series"]["only"]
-    return not only or series_name in only
+    return not only or any(name in only for name in series_names)
+
+
+def row_names(row):
+    """The names series.only may give a series row by (SCOPE's columns): its name, a hand-placed folder's ComicInfo
+    Series, its ComicInfo Series name and its Kavita localized and original names."""
+    names = ("name", "alt_name", "comicinfo_series", "localized_name", "original_name")
+    return [row[n] for n in names if row[n]]
+
+
+def row_in_scope(cfg, row):
+    return in_scope(cfg, row_names(row), row["kavita_library_id"])
 
 
 def scope_params(cfg):
@@ -181,11 +198,14 @@ def claim(ctx, stages, series_id=None):
     service was unreachable in this run are not picked; nor is a convert-stage chapter while its series has a ready
     junk-stage chapter (a series' junk is decided before any of it converts), nor a scanned junk-stage chapter while
     its series has a ready junk-stage chapter not yet scanned (every one is scanned before any is decided; a scan is
-    current while its series and content digest are the chapter's). Nor is a chapter of a series in which any chapter
-    is claimed at this part's stages, or of a series sharing that series' rules key (machines work different series),
-    nor one that failed less than RETRY_PAUSE ago. In the same transaction the claims of every other owner of this
-    part whose run lock is no longer held are freed first (SPEC "State"). Returns the claimed row (its claim_count
-    is this claim's), or None when nothing is ready."""
+    current while its series and content digest are the chapter's). A new series' chapter waits at validate while
+    its series has no naming basis and any of its chapters is at discover (the basis is chosen over the whole batch),
+    and at junk while its series has no layout, fewer than 3 of its chapters past validate (with a download path this
+    machine can use) and any chapter still at discover or validate (SPEC "State"). Nor is a chapter of a series in
+    which any chapter is claimed at this part's stages, or of a series sharing that series' rules key (machines work
+    different series), nor one that failed less than RETRY_PAUSE ago. In the same transaction the claims of every
+    other owner of this part whose run lock is no longer held are freed first (SPEC "State"). Returns the claimed row
+    (its claim_count is this claim's), or None when nothing is ready."""
     stages = [s for s in stages if s not in ctx.unreachable]
     with db.transaction(ctx.conn):
         _free_dead_claims(ctx)
@@ -204,7 +224,7 @@ def claim(ctx, stages, series_id=None):
             WHERE id = (
                 SELECT c.id FROM chapter c JOIN series s ON s.id = c.series_id
                 WHERE c.status = 'ready' AND c.stage = ANY(%(stages)s::text[])
-                    AND s.status = 'ok' AND {SCOPE}
+                    AND s.status = 'ok' AND {SCOPE} AND {ADMITTED}
                     AND (%(series_id)s::bigint IS NULL OR c.series_id = %(series_id)s::bigint)
                     AND c.id <> ALL(%(failed)s::bigint[]) AND {NOT_PAUSED.format(c="c")}
                     AND NOT (%(windows)s AND (coalesce(c.download_path, '') ~ %(unusable)s
@@ -222,7 +242,19 @@ def claim(ctx, stages, series_id=None):
                         WHERE u.series_id = c.series_id AND u.stage = 'junk' AND u.status = 'ready'
                             AND u.id <> ALL(%(failed)s::bigint[]) AND {NOT_PAUSED.format(c="u")}
                             AND NOT {SCANNED.format(c="u")}))
-                ORDER BY s.origin = 'new', c.discovered_at, c.id
+                AND NOT (c.stage = 'validate' AND s.origin = 'new' AND s.naming_basis IS NULL AND EXISTS (
+                    SELECT 1 FROM chapter d WHERE d.series_id = c.series_id AND d.stage = 'discover'
+                        AND d.status IN ('ready', 'claimed')))
+                AND NOT (c.stage = 'junk' AND s.origin = 'new'
+                    AND NOT EXISTS (SELECT 1 FROM series_conversion sc WHERE sc.series_id = s.id)
+                    AND (SELECT count(*) FROM chapter p
+                        WHERE p.series_id = c.series_id AND p.kind = 'download' AND p.status <> 'done'
+                            AND p.stage NOT IN ('discover', 'validate')
+                            AND NOT (%(windows)s AND coalesce(p.download_path, '') ~ %(unusable)s)) < 3
+                    AND EXISTS (
+                        SELECT 1 FROM chapter d WHERE d.series_id = c.series_id
+                            AND d.stage IN ('discover', 'validate') AND d.status IN ('ready', 'claimed')))
+                ORDER BY s.origin = 'new' AND s.kavita_series_id IS NULL, c.discovered_at, c.id
                 LIMIT 1)
             RETURNING *""",
             params,
@@ -251,9 +283,9 @@ def series_with_ready(ctx, stages):
     rows = ctx.conn.execute(
         f"""SELECT c.series_id FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status = 'ready' AND c.stage = ANY(%(stages)s::text[]) AND s.status = 'ok' AND {SCOPE}
-            AND {NOT_PAUSED.format(c="c")}
-        GROUP BY c.series_id, s.origin
-        ORDER BY s.origin = 'new', MIN(c.discovered_at), MIN(c.id)""",
+            AND {ADMITTED} AND {NOT_PAUSED.format(c="c")}
+        GROUP BY c.series_id, s.origin, s.kavita_series_id
+        ORDER BY s.origin = 'new' AND s.kavita_series_id IS NULL, MIN(c.discovered_at), MIN(c.id)""",
         _params(ctx, stages=list(stages)),
     )
     return [row[0] for row in rows]
@@ -453,11 +485,17 @@ def retry_chapter(conn, chapter_id):
 
 def retry_series(conn, series_id):
     """A series becomes ok (reason cleared), and its needs_human chapters ready again at their stages, attempts 0.
-    Refused when neither the series nor any of its chapters is needs_human."""
+    Refused when neither the series nor any of its chapters is needs_human, and for a new series not yet admitted
+    (SPEC "Series identification": `series link` or `series new` settles it)."""
     with db.transaction(conn):
-        row = conn.execute("SELECT status FROM series WHERE id = %s", (series_id,)).fetchone()
+        row = conn.execute("SELECT status, origin, admitted_at FROM series WHERE id = %s", (series_id,)).fetchone()
         if row is None:
             raise Refused(f"no series {series_id}")
+        if row["origin"] == "new" and row["admitted_at"] is None:
+            raise Refused(
+                f"series {series_id} is a new series not yet admitted: series link {series_id}'s manga or folder to a "
+                f"Kavita series, or series new {series_id} [--name NAME]"
+            )
         chapters = _ready_again(conn, "series_id = %s AND status = 'needs_human'", series_id)
         if row["status"] != "needs_human" and not chapters:
             raise Refused(f"series {series_id} is {row['status']} and has no needs_human chapter")
@@ -482,13 +520,14 @@ def move_chapters(conn, from_series, to_series):
 
 def reset(conn):
     """Empty the workflow state (SPEC "State"): every WORKFLOW_TABLES table, and every series back to ok but one held
-    for want of a Kavita series or a folder, which only `series link` settles (identification never runs again)."""
+    for want of a Kavita series or a folder, which only `series link` (or `series new` for a new series not yet
+    admitted) settles (identification never runs again)."""
     with db.transaction(conn):
         for table in db.WORKFLOW_TABLES:
             conn.execute(f"DELETE FROM {table}")
         conn.execute(
             """UPDATE series SET status = 'ok', status_reason = NULL
-            WHERE kavita_series_id IS NOT NULL AND folder IS NOT NULL"""
+            WHERE folder IS NOT NULL AND (kavita_series_id IS NOT NULL OR admitted_at IS NOT NULL)"""
         )
 
 
