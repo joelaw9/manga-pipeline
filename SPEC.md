@@ -45,11 +45,11 @@ Validation reads every page; a bad download is removed and downloaded again thro
 
 ## Suwayomi
 
-Any CBZ under the downloads folder is taken once its modified time has settled, Suwayomi's or placed by hand; a completed series is refreshed by `intake` when its check is due. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#suwayomi)
+Any CBZ under the downloads folder is taken once its modified time has settled, Suwayomi's or placed by hand; a completed series' chapter list is refreshed by `intake` when its check is due, and only chapters it adds are downloaded. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#suwayomi)
 
 ## Series identification
 
-A Suwayomi manga, or a hand-placed folder, is matched to a series by a stored link, a source id, or exactly 1 Kavita name (a folder: its name, else its files' ComicInfo Series); a near or double hit is `needs_human`, fixed with `series link`. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#series-identification)
+A Suwayomi manga, or a hand-placed folder, is matched to a series by a stored link, a source id, or exactly 1 Kavita name (a folder: its name, else its files' ComicInfo Series); a near or double hit is `needs_human`, fixed with `series link`; a library manga with no downloads is linked when it matches. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#series-identification)
 
 ## Services
 
@@ -63,13 +63,17 @@ A chapter's junk units are matched against stored decisions, per signature; Clau
 
 `ComicInfo.xml` holds everything it can except `Count`; what Kavita needs beyond the file goes through the Kavita API. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#metadata)
 
+## Source ids
+
+Every id a series holds for a source, from any origin, must agree, else the series is `needs_human`; a person's id wins; a source with no id is searched by title. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#source-ids)
+
 ## Tag rules
 
 Hand-written rule files in the repository; a change to them recomputes every series' tags from stored source data. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#tag-rules)
 
 ## Metadata checks
 
-How often a series is checked depends on the time since its last published update; no series is exempt. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#metadata-checks)
+How often a series is checked depends on the time since its last published update; no series is exempt; a check fetches every source, stores what it found and picks the cover; the old tool's ids are imported, and `metadata audit` lists disagreements before cutover. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#metadata-checks)
 
 ## Retroactive updates
 

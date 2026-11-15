@@ -159,10 +159,14 @@ def workflow_settings(cfg):
         ("convert.workers", 1),
         ("junk.review_limit", 1),
         ("junk.review_batch", 1),
+        *((f"metadata.{name}", 1) for name in cfg["metadata"]),
     ):
         section, name = key.split(".")
         if cfg[section][name] < low:
             problems.append(f"{key} must be at least {low}, got {cfg[section][name]}")
+    metadata = cfg["metadata"]
+    if metadata["complete_months"] <= metadata["recent_months"]:
+        problems.append("metadata.complete_months must be above metadata.recent_months")
     if not all(isinstance(name, str) for name in cfg["series"]["only"]):  # scope compares names as text
         problems.append(f"series.only must list series names as text, got {cfg['series']['only']!r}")
     return "; ".join(problems) or None

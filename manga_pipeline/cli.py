@@ -34,6 +34,7 @@ from manga_pipeline import (
 )
 from manga_pipeline.clients import kavita, suwayomi
 from manga_pipeline.junk import candidates, importing, review, review_run
+from manga_pipeline.metadata import audit, check, human, importer
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
 log = logging.getLogger("manga_pipeline.cli")
@@ -76,6 +77,8 @@ VERSION_CHECKS = (preflight.PYTHON_VERSION, preflight.FREE_SPACE, preflight.IMAG
 SMOKE_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SERVICE_SETTINGS)
 # series link reads both services and writes 1 series' link: what the clients and scope read.
 LINK_CHECKS = SMOKE_CHECKS
+# metadata import writes series rows and ids under intake's lock, reading both services.
+IMPORT_CHECKS = SMOKE_CHECKS
 
 
 @dataclass(frozen=True)
@@ -144,6 +147,23 @@ def series_link(cfg, args):
             manga_id=args.manga_id,
             folder=args.folder,
         )
+
+
+def series_set_id(cfg, args):
+    with _database(cfg, "set an id in") as conn:
+        found = human.set_id(conn, args.series_id, args.source, args.id)
+    log.info("series %s: %s id %s set by hand", args.series_id, args.source, found)
+
+
+def metadata_import(cfg, args, conn):
+    state, overrides = importer.read_state(args.state_file), importer.read_overrides(args.config_file)
+    importer.run(workflow.Context(cfg, conn, "intake"), state, overrides)
+
+
+def metadata_audit(cfg, args):
+    """Opens no database (SPEC "Metadata checks", Audit): it runs before cutover, with or without one."""
+    state = importer.read_state(args.state) if args.state else None
+    audit.run(workflow.Context(cfg, None, "intake"), check.new_sources(), state)
 
 
 def junk_import(cfg, args):
@@ -226,6 +246,9 @@ COMMANDS = {
     "chapter drop": Command((), None, None, (), _unlocked(chapter_drop)),
     "smoke": Command((), None, None, SMOKE_CHECKS, _unlocked(lambda cfg, args: smoke.run(cfg))),
     "series link": Command((), None, None, LINK_CHECKS, _unlocked(series_link)),
+    "series set-id": Command((), None, None, (), _unlocked(series_set_id)),
+    "metadata import": Command(("intake",), S, None, IMPORT_CHECKS, metadata_import),
+    "metadata audit": Command((), None, None, LINK_CHECKS, _unlocked(metadata_audit)),
     "junk import": Command((), None, None, (), _unlocked(junk_import)),
     "junk list": Command((), None, None, (), _unlocked(junk_list)),
     "junk show": Command((), None, None, (), _unlocked(junk_show)),
@@ -260,14 +283,28 @@ def parser():
     target = retry.add_mutually_exclusive_group(required=True)
     target.add_argument("chapter", nargs="?", type=int, help="chapter id")
     target.add_argument("--series", type=int, metavar="ID", help="a series and its chapters")
-    link = (
-        commands.add_parser("series", help="series identification")
-        .add_subparsers(dest="series_command", required=True, metavar="ACTION")
-        .add_parser(
-            "link",
-            help="link a Suwayomi manga or a hand-placed download folder to a Kavita series (or refresh that link's "
-            "names and folder)",
-        )
+    series = commands.add_parser("series", help="series identification").add_subparsers(
+        dest="series_command", required=True, metavar="ACTION"
+    )
+    set_id = series.add_parser("set-id", help="set a series' id for a metadata source by hand (wins over the rest)")
+    set_id.add_argument("series_id", type=int, help="series id (as status shows it)")
+    set_id.add_argument("source", help="anilist, mangaupdates, mangadex, mangabaka or myanimelist")
+    set_id.add_argument("id", help="the source's id (a MangaUpdates id may be its base-36 text)")
+    set_id.set_defaults(command="series set-id")
+    metadata = commands.add_parser("metadata", help="series metadata").add_subparsers(
+        dest="metadata_command", required=True, metavar="ACTION"
+    )
+    import_metadata = metadata.add_parser("import", help="import the old metadata tool's ids, covers and overrides")
+    import_metadata.add_argument("state_file", help="its .sync_state.json (only read)")
+    import_metadata.add_argument("config_file", help="its config.yaml (only read)")
+    import_metadata.set_defaults(command="metadata import")
+    audit_ = metadata.add_parser("audit", help="list every library series whose source ids disagree (read-only)")
+    audit_.add_argument("--state", metavar="PATH", help="the old metadata tool's .sync_state.json (only read)")
+    audit_.set_defaults(command="metadata audit")
+    link = series.add_parser(
+        "link",
+        help="link a Suwayomi manga or a hand-placed download folder to a Kavita series (or refresh that link's "
+        "names and folder)",
     )
     linked = link.add_mutually_exclusive_group(required=True)
     linked.add_argument("manga_id", nargs="?", type=int, help="Suwayomi manga id")

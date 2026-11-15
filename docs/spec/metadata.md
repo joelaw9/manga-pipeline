@@ -6,6 +6,25 @@ Part of the spec; the index is [`SPEC.md`](../../SPEC.md). Update this file in t
 
 Everything `ComicInfo.xml` can hold is written there, except `Count`: a completed series' publication status is set through the Kavita API and locked, so its chapters are not all rewritten when 1 more arrives. What Kavita needs beyond the file is written through the Kavita API; for a new series, once Kavita has indexed it. A CBZ that arrives without a `ComicInfo.xml` gets one.
 
+## Source ids
+
+A series' metadata comes from 4 sources: AniList, MangaUpdates, MangaDex and MangaBaka; MyAnimeList ids are kept too (Kavita's `malId`), though MyAnimeList is never fetched. Each id a series holds is stored with its origin:
+
+| Origin | Ids |
+|---|---|
+| `suwayomi` | a linked Suwayomi manga's tracker records (AniList, MangaUpdates) and the MangaDex id in its URL |
+| `kavita` | the series' Kavita web links and its `aniListId`, `malId`, `mangaBakaId` |
+| `anilist` | the MyAnimeList id of the fetched AniList record |
+| `mangabaka` | the cross-links of the fetched MangaBaka record (AniList, MangaUpdates, MyAnimeList) |
+| `mangadex` | the cross-links of the fetched MangaDex record (AniList, MangaUpdates, MyAnimeList) |
+| `search` | found by a title search |
+| `import` | the old metadata tool's state file (SPEC "Metadata checks", import) |
+| `human` | `series set-id SERIES SOURCE ID` |
+
+Ids are compared in 1 form per source: a MangaUpdates id as the number its base-36 text spells (an all-digit MangaUpdates link is a retired legacy id and is ignored), a MangaDex id as its UUID. Every id a series holds for 1 source must be the same, whatever its origin; when 2 differ, the series is `needs_human`, naming the source and each id with its origin, and its check stops there. A `human` id wins: for that source no other origin is compared. `series set-id` stores it (refused with exit 2 for a series that does not exist, a source not in the list above, or an id that is not that source's form), and `retry --series` then clears `needs_human`. 2 series holding the same id is not a disagreement: each series is judged alone, and Series identification treats that id as a double hit.
+
+A source a series has no id for is searched by the series' names: its Kavita name, localized name and original name, or, for a series Kavita does not hold, the names it was found by (the Suwayomi title; a hand-placed folder's title folder name and `ComicInfo.xml` `Series`). In this order: MangaBaka through its AniList or MangaUpdates id, and by a title search only when the series holds neither or they lead to a novel; MangaUpdates by title; MangaDex by its MangaUpdates link; AniList by title. A search hit is accepted only when exactly 1 result's title or alternative title equals a name under the lenient key (SPEC "Series identification"); for MangaBaka, also its top result for the first name when that result is close to a name (`rapidfuzz` ratio of the lenient keys at least 90, or 1 key of at least 15 characters starting the other) and no other result is; for MangaUpdates, also 1 of its top 3 results whose associated names hold a name. A novel never matches. An accepted id has origin `search`. A source whose search finds nothing is recorded as such for the check; every later check searches again.
+
 ## Tag rules
 
 The tag rules (consolidation, derived tags, promoted tags, allowlist) are files in the repository, written by hand. A change to them reaches every series: the sync records hold a fingerprint of the rule files, and when it changes, each series' tags are worked out again from the stored source data, with no source lookups. Series whose tags change are rewritten (SPEC "Retroactive updates").
@@ -22,7 +41,33 @@ How often a series is checked against its sources depends on how long ago its la
 | 6 months ago or more | monthly |
 | 12 months ago or more, and marked complete | yearly |
 
-A new chapter arriving for a series makes its check due at once. The periods and intervals are settings.
+A new chapter arriving for a series makes its check due at once. The periods and intervals are settings (`metadata.*`, SPEC "Config"). The last published update is the newest chapter upload date Suwayomi holds for a manga linked to the series; for a series with no linked manga, the publish date of its newest MangaDex chapter; with neither, it counts as 6 months ago or more. A series is marked complete when a linked manga's Suwayomi status is completed, or its MangaBaka status is. Kavita's dates and a hand-placed file's time never count.
+
+Every series of `kavita.library_id` in scope (`series.only`) is checked. `intake` lists the library each run and stores each series it does not hold, with its names; the folder of a Kavita series is fetched when first needed (its first download). A listed series is matched to a row by its Kavita id, else, for a row whose Kavita id is no longer listed, by its names, confirmed by its folder (a row with no folder yet: by its names alone, when exactly 1 such row matches) (Kavita recreated the series under a new id: the row takes the new id, and this is reported in the log); else it is a new row. A series' folder that cannot be found does not stop its check; a series Kavita no longer holds is not checked, and its next check moves by the quiet interval.
+
+`intake` runs the checks before its chapter work, and a series' due check before its new chapters are validated. Kavita or Suwayomi unreachable while the library is listed skips the checks for the run; the chapter work goes on. A check made due by a new chapter, and a series' first check, always run; of the others at most `metadata.checks_per_run` run, the longest due first. A check:
+
+1. gathers the series' ids from its linked Suwayomi manga and its Kavita record (SPEC "Source ids");
+2. fetches MangaBaka (by id, else found as Source ids says), then the other sources' records by id, searching for those with none: MangaUpdates' series record, MangaDex's series record, volume aggregate and cover list, AniList's media record with its staff; the cross-links of each record add ids, and every id is compared (SPEC "Source ids") before it is used;
+3. stores each fetched record with its hash, and "not found" for a source with no id after its search;
+4. picks the series cover (below) and fetches it;
+5. completes: the series' data version rises by 1 when any stored hash changed, and on its first completed check whatever it found; the next check is set by the table above.
+
+A service that cannot be reached, or answers with an error or a reply of an unexpected shape, ends the check storing nothing: it stays due for the next run, and it never holds the series' chapters or stops the run (a failing share does). Each check is 1 log line: the series, the sources fetched, found or not, and whether the data changed.
+
+When a completed series' check is due, its Suwayomi chapter list is refreshed (SPEC "Suwayomi").
+
+### Covers
+
+A series' cover is the Suwayomi thumbnail of a linked manga when it is at least 1500 px wide; else a MangaDex cover, the first of: English volume 1, the lowest-numbered English volume, volume 1 in the series' original language, volume 1 in any language, the series' main cover; else the wider of the AniList cover and the Suwayomi thumbnail. A series with no linked manga skips the Suwayomi steps; with no source either, it has no cover. An image that cannot be read (an error page served as the image), or one its host no longer has, is skipped as if the source had none. The chosen image is stored as `series/<sha256>.<ext>` under `paths.covers` and recorded with its source URL; a file there no series names is deleted once it is a day old.
+
+### Import
+
+`metadata import STATE_FILE CONFIG_FILE` reads the old metadata tool's state file (`.sync_state.json`) and its config's `map` and `overrides`. It first brings the series rows in step with the library, as `intake` does, and imports only series that exist in the library and are in scope, reporting the rest. From the state file: each id, with origin `import` (a `null` id, "searched, nothing found", is skipped: every check searches again); each cover's hash, as the cover Kavita already holds; and which Kavita fields the old tool wrote and the publication status it set (SPEC "Retroactive updates" reads them). `map` (a JSON file, its path relative to the config's folder) and `overrides` (both Kavita series name to Suwayomi manga id or title) become links of those manga to those series. It can run again: it replaces the ids it imported before, and never touches another origin's. An imported series holds no fetched data, so its first check is due.
+
+### Audit
+
+`metadata audit` is read-only, opens no database and ignores `series.only`. For every series of the library it gathers each origin's ids itself (Kavita, Suwayomi trackers of the manga matched to it, the state file given by `--state PATH`, and MangaBaka's and MangaDex's cross-links, fetched at their rate limits), and lists the series whose ids disagree, per source the series no origin gives an id for, and the Suwayomi library manga no series matches by name.
 
 ## Retroactive updates
 

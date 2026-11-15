@@ -49,6 +49,14 @@ kavita:
   library_id: 4
   rescan_after_minutes: 60
 
+metadata:
+  checks_per_run: 25    # metadata checks per intake run beyond those a new chapter made due and first checks
+  recent_months: 6      # a series updated within this many months is checked every recent_days
+  complete_months: 12   # a complete series not updated for this many months is checked every complete_days
+  recent_days: 7
+  quiet_days: 30        # every other series
+  complete_days: 365
+
 export:
   retention_days: 7
 

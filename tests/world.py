@@ -17,6 +17,7 @@ from manga_pipeline.junk import review
 
 from tests.builders import adopted, settle
 from tests.fakes.kavita import FakeKavita
+from tests.fakes.sources import fake_sources
 from tests.fakes.suwayomi import FakeSuwayomi
 from tests.fakes.suwayomi import page as fake_page
 
@@ -141,10 +142,11 @@ class World:
         self.suwayomi = FakeSuwayomi(self.mangas)
         self.kavita = FakeKavita({LIBRARY_ID: "/kavita/library"}, self.cfg["paths"]["kavita_path_map"])
         self.source = self.suwayomi.add_source("Src")
+        self.sources = fake_sources()
         self.kavita_specs = []  # [(id, name, folder, add_series keywords)]: rebuilds the FakeKavita in another process
 
     def context(self, conn, part):
-        return workflow.Context(self.cfg, conn, part, suwayomi=self.suwayomi, kavita=self.kavita)
+        return workflow.Context(self.cfg, conn, part, suwayomi=self.suwayomi, kavita=self.kavita, sources=self.sources)
 
     def run(self, part_module):
         """Run a part (intake, process or export module) as cli.main and its run() do: under its run lock and the

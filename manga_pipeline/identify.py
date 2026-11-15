@@ -16,6 +16,7 @@ from manga_pipeline import archive, comicinfo, config, db, names, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
+from manga_pipeline.metadata import ids as metadata_ids
 
 log = logging.getLogger(__name__)
 
@@ -103,14 +104,20 @@ def series_for(ctx, manga, kavita_series):
     row = subject.linked(conn)
     by_source_id = row is None
     if by_source_id:
-        row = _by_source_id(conn, source_ids(manga))
+        rows = _by_source_id(conn, source_ids(manga))
+        if len(rows) > 1:
+            candidates = ", ".join(f"{r['name']} (series {r['id']})" for r in rows)
+            return _store_held_series(
+                conn, subject, f"{subject.label} has a source id of 2 or more series: {candidates}"
+            )
+        row = rows[0] if rows else None
     if row is not None:
         if not workflow.in_scope(cfg, row["name"], row["kavita_library_id"]):
             return OUT_OF_SCOPE
         if by_source_id:
             with db.transaction(conn):
                 subject.write_link(conn, row["id"])
-        return row
+        return _with_folder(ctx, row)
     return _by_names(ctx, subject, [manga["title"]], kavita_series)
 
 
@@ -120,7 +127,11 @@ def series_for_folder(ctx, folder, paths, kavita_series):
     subject = _folder_subject(folder)
     row = subject.linked(ctx.conn)
     if row is not None:
-        return row if workflow.in_scope(ctx.cfg, row["name"], row["kavita_library_id"]) else OUT_OF_SCOPE
+        return (
+            _with_folder(ctx, row)
+            if workflow.in_scope(ctx.cfg, row["name"], row["kavita_library_id"])
+            else OUT_OF_SCOPE
+        )
     title = subject.held_name
 
     def titles():
@@ -130,6 +141,44 @@ def series_for_folder(ctx, folder, paths, kavita_series):
             yield series
 
     return _by_names(ctx, subject, titles(), kavita_series)
+
+
+def link_manga(conn, manga, series_id):
+    """Store a manga's link to a series; inside the caller's transaction."""
+    _manga_subject(manga).write_link(conn, series_id)
+
+
+def sweep(ctx, library, kavita_series):
+    """Link each library manga with no link to its series when steps 2 or 3 find exactly 1 (SPEC "Series
+    identification"); a near, double or missing hit writes nothing. Returns the manga left unlinked."""
+    conn = ctx.conn
+    linked = {row[0] for row in conn.execute("SELECT manga_id FROM suwayomi_manga")}
+    by_key = {}
+    for kseries in kavita_series.rows():
+        for key in _strict_keys(kseries):
+            by_key.setdefault(key, {})[kseries["id"]] = kseries
+    left = []
+    for manga in library:
+        if manga["id"] in linked:
+            continue
+        rows = _by_source_id(conn, source_ids(manga))
+        if not rows:
+            strict = list(by_key.get(_strict_key(manga["title"]), {}).values()) if _strict_key(manga["title"]) else []
+            if len(strict) == 1:
+                rows = conn.execute("SELECT * FROM series WHERE kavita_series_id = %s", (strict[0]["id"],)).fetchall()
+        if len(rows) == 1 and workflow.in_scope(ctx.cfg, rows[0]["name"], rows[0]["kavita_library_id"]):
+            with db.transaction(conn):
+                link_manga(conn, manga, rows[0]["id"])
+            log.info(
+                "Suwayomi manga %s %r linked to series %s (%s)",
+                manga["id"],
+                manga["title"],
+                rows[0]["id"],
+                rows[0]["name"],
+            )
+        else:
+            left.append(manga)
+    return left
 
 
 def comicinfo_series(paths):
@@ -181,21 +230,20 @@ def _by_names(ctx, subject, titles, kavita_series):
 
 
 def source_ids(manga):
-    """The (source, id) pairs a manga carries that series_source_id can hold. None are derived yet: the MangaDex
-    UUID and tracker ids come with the metadata phase, which also fills series_source_id."""
-    return []
+    """The (source, id) pairs a manga carries (SPEC "Source ids": its trackers and its MangaDex URL)."""
+    return metadata_ids.suwayomi_ids(manga)
 
 
-def _by_source_id(conn, ids):
-    for source, source_id in ids:
-        row = conn.execute(
-            """SELECT s.* FROM series_source_id i JOIN series s ON s.id = i.series_id
-            WHERE i.source = %s AND i.source_id = %s""",
-            (source, source_id),
-        ).fetchone()
-        if row is not None:
-            return row
-    return None
+def _by_source_id(conn, pairs):
+    """The series rows holding any of the ids, from any origin; 2 or more is a double hit."""
+    if not pairs:
+        return []
+    return conn.execute(
+        """SELECT DISTINCT s.* FROM series_source_id i JOIN series s ON s.id = i.series_id
+        WHERE (i.source, i.source_id) IN (SELECT * FROM unnest(%s::text[], %s::text[]))
+        ORDER BY s.id""",
+        ([p[0] for p in pairs], [p[1] for p in pairs]),
+    ).fetchall()
 
 
 def _strict_key(name):
@@ -211,7 +259,7 @@ def _store_kavita_series(ctx, subject, found):
     same series), else a new one with its names and folder; a series with no usable folder is needs_human."""
     conn = ctx.conn
     existing = conn.execute("SELECT id FROM series WHERE kavita_series_id = %s", (found["id"],)).fetchone()
-    folder, problem = _folder(ctx, found["id"])
+    folder, problem = _folder(ctx, found["id"]) if existing is None else (None, None)
     with db.transaction(conn):
         if existing is None:
             series_id = conn.execute(
@@ -232,7 +280,21 @@ def _store_kavita_series(ctx, subject, found):
         else:
             series_id = existing[0]
         subject.write_link(conn, series_id)
-    return conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone()
+    return _with_folder(ctx, conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone())
+
+
+def _with_folder(ctx, row):
+    """The row with its folder: a Kavita series' row the library listing stored has none until a download needs it
+    (SPEC "Metadata checks"); one Kavita gives no usable folder is needs_human."""
+    if row["kavita_series_id"] is None or row["folder"] is not None:
+        return row
+    folder, problem = _folder(ctx, row["kavita_series_id"])
+    with db.transaction(ctx.conn):
+        if folder is not None:
+            ctx.conn.execute("UPDATE series SET folder = %s WHERE id = %s", (folder, row["id"]))
+        else:
+            workflow.needs_human(ctx.conn, "series", row["id"], problem)
+    return ctx.conn.execute("SELECT * FROM series WHERE id = %s", (row["id"],)).fetchone()
 
 
 def _folder(ctx, kavita_series_id):

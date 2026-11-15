@@ -80,6 +80,8 @@ class Context:
     # The run's 1 client of each service (SPEC "Services"): what it learns holds for the run. None = built from cfg.
     suwayomi: Any = None
     kavita: Any = None
+    # The metadata sources' clients (metadata.check.Sources); intake builds them when None.
+    sources: Any = None
 
     def __post_init__(self):
         if self.owner is None:

@@ -26,7 +26,7 @@ paths:
   scratch: "state/scratch"            # the chapter in hand (local disk); relative = project root
   covers: "/mnt/share/covers"         # fetched cover images (on the share: every machine reads them)
   candidates: "/mnt/share/candidates" # open junk candidates' images (on the share: every machine writes them)
-  naming_overrides: "rules/naming"    # per-series volume overrides, <series folder>.yaml (gitignored work folder); relative = project root
+  naming_overrides: "rules/naming"    # per-series volume overrides, <series rules key>.yaml (gitignored work folder); relative = project root
   kavita_path_map: {}                 # Kavita path prefix -> local path prefix, e.g. {"/manga": "/mnt/share"}; not empty ({} = any keys)
 
 workflow:
@@ -46,6 +46,14 @@ kavita:
   api_key: null                  # API key of an admin user; secret: set MANGA_PIPELINE_KAVITA_API_KEY
   library_id: 1                  # the Kavita library the pipeline works; other libraries' series are out of scope
   rescan_after_minutes: 60       # a library scan is requested again when chapters are not indexed after this
+
+metadata:
+  checks_per_run: 25    # metadata checks per intake run beyond those a new chapter made due and first checks
+  recent_months: 6      # a series updated within this many months is checked every recent_days
+  complete_months: 12   # a complete series not updated for this many months is checked every complete_days
+  recent_days: 7
+  quiet_days: 30        # every other series
+  complete_days: 365
 
 export:
   retention_days: 7   # days a removed download stays in paths.retention; 0 deletes it at once
