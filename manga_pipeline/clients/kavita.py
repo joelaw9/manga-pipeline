@@ -5,6 +5,7 @@ Endpoints as verified against Kavita v0.9.1.4 by the bulk converter's client (op
 ported from. 1 object per run: it keeps the token, the library folders and whether Kavita was found unreachable.
 """
 
+import base64
 import logging
 import urllib.parse
 from pathlib import Path
@@ -16,6 +17,30 @@ PLUGIN = "manga-pipeline"
 PAGE_SIZE = 1000
 LIBRARY_FILTER_FIELD = 19  # all-v2 filter statement field: the series' library
 SORT_BY_NAME = 1  # all-v2 sortOptions.sortField
+
+
+# Fields /api/Series/update reads (Kavita 0.9.1); see Kavita.update_series.
+UPDATE_SERIES_FIELDS = (
+    "name",
+    "nameLocked",
+    "sortName",
+    "sortNameLocked",
+    "localizedName",
+    "localizedNameLocked",
+    "coverImageLocked",
+    "aniListId",
+    "malId",
+    "mangaBakaId",
+    "cbrId",
+    "comicVineId",
+    "hardcoverId",
+    "metronId",
+    "metadataProviderOverride",
+)
+
+
+class CoverError(Exception):
+    """Kavita does not serve a cover it accepted."""
 
 
 class FolderError(Exception):
@@ -69,6 +94,38 @@ class Kavita:
     def metadata(self, series_id):
         """GET /api/Series/metadata: the series' metadata (web links, summary, genres, tags, people, locks)."""
         return self._call("GET", f"/api/Series/metadata?seriesId={int(series_id)}").json()
+
+    def update_metadata(self, metadata):
+        """POST /api/Series/metadata: Kavita applies the whole series metadata as sent (read it fresh first)."""
+        self._call("POST", "/api/Series/metadata", {"seriesMetadata": metadata})
+
+    def update_series(self, series, **changes):
+        """POST /api/Series/update: Kavita applies every field it is sent and resets those left out (an omitted
+        aniListId becomes 0, an omitted coverImageLocked unlocks the cover), so the series as just read is resent
+        whole with the changes."""
+        body = {name: series[name] for name in UPDATE_SERIES_FIELDS if name in series}
+        body.update(changes, id=series["id"])
+        self._call("POST", "/api/Series/update", body)
+
+    def upload_cover(self, series_id, image):
+        """POST /api/Upload/series, then check Kavita serves it: Kavita has answered 200 while failing to write the
+        file. CoverError when it does not."""
+        self._call("POST", "/api/Upload/series", {"id": int(series_id), "url": base64.b64encode(image).decode()})
+        if not self.has_uploaded_cover(series_id):
+            raise CoverError(f"Kavita accepted the cover of series {series_id} but does not serve it")
+
+    def has_uploaded_cover(self, series_id):
+        """Whether the series' cover is one uploaded through the API: Kavita names those series<id>.<ext> (a scan
+        names its own after a volume), and serves its image."""
+        series = self.series(series_id) or {}
+        if not (series.get("coverImage") or "").startswith(f"series{int(series_id)}."):
+            return False
+        try:
+            return bool(self._call("GET", f"/api/Image/series-cover?seriesId={int(series_id)}").body)
+        except http.HttpError as e:
+            if e.status == 404:
+                return False
+            raise
 
     def volumes(self, series_id):
         """GET /api/Series/volumes: the series' volumes, each with its chapters, each with its files (Kavita paths)."""

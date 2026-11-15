@@ -36,9 +36,10 @@ class FakeKavita(kavita.Kavita):
         self.library_folders = {library_id: folder.rstrip("/") for library_id, folder in libraries.items()}
         self.series_rows = {}  # series id: DTO
         self.metadata_rows = {}  # series id: series metadata (webLinks, ...)
+        self.covers = {}  # series id: the cover image uploaded
         self.files = {}  # Kavita file path: {series, id, chapter, bytes, pages, pagesRead}
         self.stale_sizes = False
-        self.writes = []  # every scan request, in order
+        self.writes = []  # every write call (scan requests, metadata, series, cover), in order
         self.pending = []  # scan requests Kavita has not run yet
         self._next_id = 1000
 
@@ -66,6 +67,28 @@ class FakeKavita(kavita.Kavita):
 
     def metadata(self, series_id):
         return copy.deepcopy(self.metadata_rows.setdefault(series_id, {"seriesId": series_id, "webLinks": ""}))
+
+    def update_metadata(self, metadata):
+        """As Kavita: the whole metadata replaced; a list entry's id 0 gets an id."""
+        metadata = copy.deepcopy(metadata)
+        for value in metadata.values():
+            for entry in value if isinstance(value, list) else []:
+                if isinstance(entry, dict) and entry.get("id") == 0:
+                    entry["id"] = self._new_id()
+        self.writes.append(("metadata", metadata["seriesId"]))
+        self.metadata_rows[metadata["seriesId"]] = metadata
+
+    def update_series(self, series, **changes):
+        self.writes.append(("series", series["id"], dict(changes)))
+        self.series_rows[series["id"]].update(changes)
+
+    def upload_cover(self, series_id, image):
+        self.writes.append(("cover", series_id))
+        self.series_rows[series_id]["coverImage"] = f"series{series_id}.png"
+        self.covers[series_id] = image
+
+    def has_uploaded_cover(self, series_id):
+        return self.series_rows[series_id].get("coverImage", "").startswith(f"series{series_id}.")
 
     def volumes(self, series_id):
         files = {path: f for path, f in sorted(self.files.items()) if f["series"] == series_id}

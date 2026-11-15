@@ -6,6 +6,25 @@ Part of the spec; the index is [`SPEC.md`](../../SPEC.md). Update this file in t
 
 Everything `ComicInfo.xml` can hold is written there, except `Count`: a completed series' publication status is set through the Kavita API and locked, so its chapters are not all rewritten when 1 more arrives. What Kavita needs beyond the file is written through the Kavita API; for a new series, once Kavita has indexed it. A CBZ that arrives without a `ComicInfo.xml` gets one.
 
+### Series fields
+
+A series' fields come from its stored records alone:
+
+| Field | From |
+|---|---|
+| summary | the first of AniList, MangaDex (English), MangaBaka, MangaUpdates that has one, as plain text (HTML and Markdown read by their parsers; a MangaDex summary ends at its first horizontal rule; a closing "(Source: …)" note dropped) |
+| genres, tags | SPEC "Tag rules" |
+| publication status | MangaBaka: releasing or upcoming = Ongoing, hiatus = Hiatus, completed = Completed, cancelled = Cancelled; never Ended |
+| age rating | MangaBaka's content rating: safe = Everyone, suggestive = Teen, erotica = Mature 17+, pornographic = Adults Only 18+ |
+| language | MangaDex's original language |
+| writers, pencillers | AniList's staff in the role Story or Art, and Story & Art for both |
+| web links | 1 page per source whose record was found, and MyAnimeList |
+| provider ids | AniList, MyAnimeList and MangaBaka ids (SPEC "Source ids") |
+
+`export` writes a series' fields to Kavita, each locked, when the data version, the tag rules or the code that makes and writes them changed since its last write, its cover changed, or Kavita holds the series under a new id; it writes only the fields Kavita does not already hold. It writes nothing while a library scan is awaited (SPEC "Publishing"): Kavita holds such writes back. A field with no value at the sources is left as it is. Web links are only added (1 per source), and so are writers and pencillers: Kavita keeps the people its scans read from the files whatever an update sends. Lists are compared under Kavita's name normalising. Each field is recorded as soon as Kavita accepts it. The cover is uploaded when Kavita does not hold the series' current cover from the pipeline, and Kavita must then serve it; a cover uploaded to Kavita before the pipeline's first upload, and not by the old tool, is a person's, kept and reported once (Kavita names every upload alike, so a person's upload after the pipeline's is not told apart). A series Kavita no longer holds is not written.
+
+A locked Kavita field is overwritten only when it holds the value the pipeline last wrote there, or, for a field the pipeline has never written to the series, a value the old metadata tool wrote (its summary, genres, tags, and the publication status it set). Any other locked value is a person's edit: it is kept, and reported once in the log.
+
 ## Source ids
 
 A series' metadata comes from 4 sources: AniList, MangaUpdates, MangaDex and MangaBaka; MyAnimeList ids are kept too (Kavita's `malId`), though MyAnimeList is never fetched. Each id a series holds is stored with its origin:
