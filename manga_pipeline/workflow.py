@@ -87,6 +87,8 @@ class Context:
     kavita: Any = None
     # The metadata sources' clients (metadata.check.Sources); intake builds them when None.
     sources: Any = None
+    # What the run learnt from Kavita once: the library listing, each new series' id search (SPEC "Publishing").
+    kavita_cache: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if self.owner is None:

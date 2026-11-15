@@ -3,11 +3,13 @@ size on disk, the download is removed the retention way and the published file i
 waits on kavita_scan; a series Kavita no longer holds is needs_human.
 """
 
-from manga_pipeline import config, db, retention, workflow
+from manga_pipeline import config, db, kavita_link, retention, workflow
 
 
 def run(ctx, chapter):
     series = _series(ctx, chapter)
+    if series["kavita_series_id"] is None:
+        return workflow.Waiting("kavita_scan")  # a new series Kavita does not list yet (SPEC "Publishing")
     if ctx.kavita.series(series["kavita_series_id"]) is None:
         with db.transaction(ctx.conn):
             workflow.needs_human(
@@ -33,10 +35,18 @@ def run(ctx, chapter):
 def wait_over(ctx, chapter):
     """The kavita_scan wait ends when the file is indexed, or Kavita no longer holds the series (confirm says so)."""
     series = _series(ctx, chapter)
+    if series["kavita_series_id"] is None:
+        return False
     return ctx.kavita.series(series["kavita_series_id"]) is None or _indexed(ctx, series, chapter)
 
 
 def _series(ctx, chapter):
+    """The chapter's series, its Kavita id looked for first when it is a new series Kavita did not list before."""
+    series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
+    if series["kavita_series_id"] is not None:
+        return series
+    if kavita_link.attach(ctx, series["id"], kavita_link.listing(ctx)) is None:
+        return series
     return ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
 
 

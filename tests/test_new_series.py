@@ -1,12 +1,13 @@
 """New series (SPEC "Series identification", "Metadata checks", "Publishing", "State"): a download no Kavita series
 matches becomes a pending new series, is admitted under its name and folder after its first metadata check, and its
-chapters go through intake and process with a chosen volume basis and a measured layout, then wait at publish."""
+chapters go through intake and process with a chosen volume basis and a measured layout (publishing:
+test_new_series_publish.py)."""
 
 from contextlib import closing
 
 import pytest
 
-from manga_pipeline import config, db, discovery, export, identify, intake, process, workflow
+from manga_pipeline import config, db, discovery, identify, intake, process, workflow
 from manga_pipeline.metadata import human, naming
 
 from tests.builders import settle
@@ -134,7 +135,7 @@ def test_series_new_refuses_a_series_that_is_not_a_held_new_one(world):
 
 
 @budget(load="db", seconds=10)
-def test_a_new_series_goes_through_process_and_waits_at_publish(world):
+def test_a_new_series_goes_through_process_to_publish(world):
     anilist(world, "Brand New Thing", None)
     manga = world.manga("Brand New Thing")
     for n in (1, 2, 3, 4):  # only the last carries a volume: a choice over chapter 1 alone would be none
@@ -146,9 +147,7 @@ def test_a_new_series_goes_through_process_and_waits_at_publish(world):
     assert [o for _, o in world.rows("SELECT layout, origin FROM series_conversion")] == ["computed"], (
         "measured over a sample of its chapters"
     )
-    world.run(export)
-    assert set(world.rows("SELECT stage, status FROM chapter")) == {("publish", "ready")}, "waits: no Kavita id"
-    assert not (world.library / "Brand New Thing").exists(), "nothing published"
+    assert set(world.rows("SELECT stage, status FROM chapter")) == {("comicinfo", "ready")}, "ready for export"
 
 
 @budget(load="pure")

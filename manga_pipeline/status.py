@@ -5,7 +5,7 @@ import json
 from contextlib import closing
 from datetime import datetime
 
-from manga_pipeline import db, workflow
+from manga_pipeline import db, kavita_link, workflow
 
 
 def run(cfg):
@@ -84,6 +84,14 @@ def _report(conn):
         WHERE c.status = 'waiting' AND c.waiting_on = 'bulk_conversion' GROUP BY s.id ORDER BY s.name"""
     ).fetchall()
     lines += [f"  {r['name']} (series {r['id']}): {r['n']} chapter(s)" for r in rows] or ["  none"]
+
+    lines.append("New series published, waiting for Kavita to list them:")
+    rows = conn.execute(
+        f"""SELECT s.id, s.comicinfo_series, MIN(h.handled_at) AS since FROM series s
+        JOIN handled_chapter h ON h.series_id = s.id AND h.outcome = 'published'
+        WHERE {kavita_link.UNATTACHED} GROUP BY s.id ORDER BY s.id"""
+    ).fetchall()
+    lines += [f"  {r['comicinfo_series']} (series {r['id']}): published {r['since']}" for r in rows] or ["  none"]
 
     lines.append("Needs human:")
     series = conn.execute(

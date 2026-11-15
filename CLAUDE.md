@@ -67,6 +67,7 @@ python -m manga_pipeline.cli --help
 | `manga_pipeline/clients/suwayomi.py` | `Suwayomi` GraphQL client (`from_config`): paged library, manga, chapters, queue, sources, `enqueue`, `delete_downloaded`, `start_downloader`, the 2 source calls (`SourceUnavailable`); `GraphQLError`; download names `source_folder`, `manga_folder`, `chapter_file` |
 | `manga_pipeline/clients/kavita.py` | `Kavita` client (`from_config`): token and the 401 rule, `libraries`, `series_in_library`, `series`, `volumes`, `series_files`, `series_folder` (`FolderError`), `local_path`, `scan_library` |
 | `manga_pipeline/clients/kavita_match.py` | Kavita's name `normalize`, `series_names`, `off_names`, `match_folders` (copied from the bulk converter) |
+| `manga_pipeline/kavita_link.py` | a published new series' Kavita id (SPEC "Publishing"): `listing(ctx)` (once per run, `Context.kavita_cache`), `attach` (by ComicInfo name and folder, once per series per run), `attach_all` (for sync and discovery: returns the names still unmatched) |
 | `manga_pipeline/smoke.py` | `smoke`: read-only check of both services; `Failed` = exit 1 |
 | `manga_pipeline/intake.py`, `process.py`, `export.py` | the 3 part loops: `run(cfg)`; their order of work (SPEC "Parts") |
 | `manga_pipeline/validation.py` | `check(cbz, key, published, same)` → `Verdict` (`ok` / `bad` / `human`, measured pages, notes): SPEC "Validation"; `chapter_key(identity)` = (season, side label, number) |
