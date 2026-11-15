@@ -76,9 +76,10 @@ class Service:
         self._down = reason
         return Unreachable(self.name, reason)
 
-    def request(self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True):
+    def request(self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True, retries=RETRIES):
         """Send 1 request, retried as SPEC "Services" says, and return its Response. Raises Unreachable (and marks
-        the service), HttpError, or Timeout for a timeout when retry_timeout is false. ValueError for a URL that is
+        the service), HttpError, or Timeout for a timeout when retry_timeout is false. retries=0 sends it once: a 5xx
+        reply other than UNREACHABLE_STATUS is then an HttpError. ValueError for a URL that is
         not http or https: a wrong setting, never retried."""
         if self._down is not None:
             raise Unreachable(self.name, self._down)
@@ -90,7 +91,7 @@ class Service:
         if json is not None:
             data = jsonlib.dumps(json).encode()
             headers["Content-Type"] = "application/json"
-        for attempt in range(RETRIES + 1):
+        for attempt in range(retries + 1):
             self._wait_for_gap()
             wait = 2**attempt * 2
             failed = None  # (status, body) of an HTTP failure; None for a network one
@@ -111,13 +112,13 @@ class Service:
                 if timed_out and not retry_timeout:
                     raise Timeout(f"{method} {shown} timed out after {timeout} s") from None
                 problem = f"timed out after {timeout} s" if timed_out else f"{type(e).__name__}: {e}"
-            if attempt < RETRIES:
-                retry = f"retry {attempt + 1} of {RETRIES} in {wait} s"
+            if attempt < retries:
+                retry = f"retry {attempt + 1} of {retries} in {wait} s"
                 log.info("%s: %s from %s; %s", self.name, problem, shown, retry)
                 time.sleep(wait)
         if failed is not None and failed[0] not in UNREACHABLE_STATUS:
             raise HttpError(failed[0], url, failed[1])
-        raise self.mark_unreachable(f"{problem} from {shown} after {RETRIES} retries")
+        raise self.mark_unreachable(f"{problem} from {shown} after {retries} retries")
 
     def _wait_for_gap(self):
         if self._last is not None:

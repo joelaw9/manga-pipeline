@@ -12,6 +12,7 @@ import pytest
 from manga_pipeline import config, db, export, intake, process
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
+from manga_pipeline.metadata import check
 
 from tests.builders import run_part
 from tests.timing import budget
@@ -81,6 +82,7 @@ def test_a_database_filled_under_1_mount_is_worked_under_another_and_back(tmp_pa
     world = World(tmp_path)
     monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
     monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     world.kavita_series("Alpha")
     manga = world.manga("Alpha")
     for n in (2, 3):
@@ -121,6 +123,7 @@ def test_no_stored_path_is_absolute_after_a_full_run(tmp_path, monkeypatch):
     world = World(tmp_path)
     monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
     monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     world.kavita_series("Alpha")
     manga = world.manga("Alpha")
     world.download(manga, "Chapter 2")

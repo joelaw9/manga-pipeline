@@ -13,6 +13,7 @@ from psycopg import sql
 from manga_pipeline import cli, config, db, intake, preflight, process, status
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
+from manga_pipeline.metadata import check
 
 from tests import pg
 from tests.builders import add_chapter, add_series, adopted, config_file, download, run_part, running, site_cfg
@@ -149,6 +150,7 @@ def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path, monkeypa
     world = World(tmp_path)
     monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
     monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     cfg = world.cfg
     world.kavita_series("Alpha")
     manga = world.manga("Alpha")

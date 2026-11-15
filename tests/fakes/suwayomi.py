@@ -52,6 +52,7 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         self.unavailable = set()  # ids of the sources whose site is down
         self.writes = []  # every write call, in order
         self._next_id = 100
+        self.thumbnails = {}  # manga id: image bytes (none: Suwayomi cannot serve it)
 
     # --- building state
 
@@ -70,8 +71,13 @@ class FakeSuwayomi(suwayomi.Suwayomi):
             "url": f"/manga/{manga_id}",
             "inLibrary": in_library,
             "sourceId": source_id,
+            "trackRecords": {"nodes": []},
         }
         return manga_id
+
+    def add_tracker(self, manga_id, tracker_id, remote_id):
+        """A tracker record of a manga (Suwayomi's tracker ids: AniList 2, MangaUpdates 7)."""
+        self.manga_rows[manga_id]["trackRecords"]["nodes"].append({"trackerId": tracker_id, "remoteId": remote_id})
 
     def add_chapter(self, manga_id, name, scanlator=None, number=None, listed=True):
         """A chapter of the manga, not downloaded. number defaults to its place in the manga. listed=False: the
@@ -148,6 +154,9 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         _int_id(chapter_id)
         row = self.chapter_rows.get(chapter_id)
         return copy.deepcopy(row)
+
+    def thumbnail(self, manga_id):
+        return self.thumbnails.get(manga_id)
 
     def download_queue(self):
         queue = [

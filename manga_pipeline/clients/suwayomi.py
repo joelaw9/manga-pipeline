@@ -11,7 +11,10 @@ SOURCE_TIMEOUT = 120  # seconds; a source search or chapter fetch waits on the s
 MAX_NAME_BYTES = 240  # UTF-8 bytes
 MANGAS_FOLDER = "mangas"  # the folder of downloads under Suwayomi's download root
 REPLACED = frozenset('"*/:<>?\\|\x7f')
-MANGA = "id title status url inLibrary sourceId source { id name lang displayName }"
+MANGA = (
+    "id title status url inLibrary sourceId source { id name lang displayName }"
+    " trackRecords { nodes { trackerId remoteId } }"
+)
 CHAPTER = "id mangaId name scanlator chapterNumber sourceOrder isDownloaded pageCount uploadDate url realUrl"
 
 
@@ -82,6 +85,27 @@ class Suwayomi:
         query = f"query ($id: Int!) {{ chapters(condition: {{id: $id}}) {{ nodes {{ {CHAPTER} }} }} }}"
         nodes = self.graphql(query, {"id": chapter_id})["chapters"]["nodes"]
         return nodes[0] if nodes else None
+
+    def thumbnail(self, manga_id):
+        """The manga's thumbnail image, or None when Suwayomi cannot serve it: a 500 (the source's image is gone) or a
+        timeout (Suwayomi fetches it from the source's site, which hangs). Sent once: a retry would wait for the same
+        answer, and a timeout here never marks Suwayomi unreachable."""
+        try:
+            reply = self._service.request(
+                "GET",
+                f"{self.base}/api/v1/manga/{int(manga_id)}/thumbnail",
+                headers={"Accept": "image/*"},
+                timeout=SOURCE_TIMEOUT,
+                retry_timeout=False,
+                retries=0,
+            )
+        except http.Timeout:
+            return None
+        except http.HttpError as e:
+            if e.status in (404, 500):
+                return None
+            raise
+        return reply.body
 
     def download_queue(self):
         """{state, queue}: the downloader's state (STARTED, STOPPED) and its entries, each with its state (QUEUED,

@@ -35,6 +35,7 @@ class FakeKavita(kavita.Kavita):
         super().__init__("http://kavita.invalid", "fake-key", path_map, NoNetwork("kavita"))
         self.library_folders = {library_id: folder.rstrip("/") for library_id, folder in libraries.items()}
         self.series_rows = {}  # series id: DTO
+        self.metadata_rows = {}  # series id: series metadata (webLinks, ...)
         self.files = {}  # Kavita file path: {series, id, chapter, bytes, pages, pagesRead}
         self.stale_sizes = False
         self.writes = []  # every scan request, in order
@@ -62,6 +63,9 @@ class FakeKavita(kavita.Kavita):
 
     def series(self, series_id):
         return copy.deepcopy(self.series_rows.get(series_id))
+
+    def metadata(self, series_id):
+        return copy.deepcopy(self.metadata_rows.setdefault(series_id, {"seriesId": series_id, "webLinks": ""}))
 
     def volumes(self, series_id):
         files = {path: f for path, f in sorted(self.files.items()) if f["series"] == series_id}

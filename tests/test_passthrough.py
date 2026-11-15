@@ -314,7 +314,8 @@ def test_state_reset_keeps_a_held_series_held(world):
     with closing(db.connect(world.cfg)) as conn:
         workflow.reset(conn)
     through(world)
-    assert world.rows("SELECT status FROM series") == [("needs_human",)], "only series link settles a near hit"
+    held = world.rows("SELECT status FROM series WHERE kavita_series_id IS NULL")
+    assert held == [("needs_human",)], "only series link settles a near hit"
     assert world.rows("SELECT stage, status FROM chapter") == [("discover", "ready")], "its chapter is held"
 
 

@@ -15,6 +15,7 @@ from manga_pipeline import cli, config, db, fleet, intake, process
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.junk import review, review_run
+from manga_pipeline.metadata import check
 
 from tests.builders import config_file, run_part
 from tests.timing import budget
@@ -54,6 +55,7 @@ def world(tmp_path, monkeypatch):
     w = World(tmp_path)
     monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: w.suwayomi)
     monkeypatch.setattr(kavita_client, "from_config", lambda cfg: w.kavita)
+    monkeypatch.setattr(check, "new_sources", lambda: w.sources)
     w.kavita_series("Alpha")
     manga = w.manga("Alpha")
     w.download(manga, "Chapter 2", data=cbz(credit=True))

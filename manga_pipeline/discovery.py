@@ -12,6 +12,7 @@ from pathlib import Path
 
 from manga_pipeline import config, db, identify, names, workflow
 from manga_pipeline.clients import suwayomi
+from manga_pipeline.metadata import check
 
 log = logging.getLogger(__name__)
 
@@ -165,6 +166,7 @@ def _record(ctx, found, unmatched):
             # once its chapter reads done is a new download, not one an export confirmed since the listing.
             if not open_ and workflow.exists(config.to_local(ctx.cfg, path)):
                 workflow.add_chapter(ctx.conn, series_id, identity, path, chapter_id, source)
+                check.make_urgent(ctx.conn, series_id)  # a new chapter makes its series' check due at once
                 added += 1
         seen = dict(ctx.conn.execute("SELECT path, first_seen FROM unmatched_download").fetchall())
         ctx.conn.execute("DELETE FROM unmatched_download")

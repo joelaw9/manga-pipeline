@@ -66,6 +66,10 @@ class Kavita:
             raise
         return reply.json() if reply.body.strip() else None
 
+    def metadata(self, series_id):
+        """GET /api/Series/metadata: the series' metadata (web links, summary, genres, tags, people, locks)."""
+        return self._call("GET", f"/api/Series/metadata?seriesId={int(series_id)}").json()
+
     def volumes(self, series_id):
         """GET /api/Series/volumes: the series' volumes, each with its chapters, each with its files (Kavita paths)."""
         return self._call("GET", f"/api/Series/volumes?seriesId={int(series_id)}").json()

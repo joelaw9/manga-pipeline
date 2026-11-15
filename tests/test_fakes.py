@@ -87,7 +87,7 @@ def test_reads_have_the_clients_shapes(suw):
     other = suw.add_manga("Elsewhere", suw.source, in_library=False)
     assert suw.library_size() == 1 and [m["id"] for m in suw.library_manga()] == [suw.manga_id]
     manga = suw.manga(suw.manga_id)
-    assert set(manga) == {"id", "title", "status", "url", "inLibrary", "sourceId", "source"}
+    assert set(manga) == {"id", "title", "status", "url", "inLibrary", "sourceId", "source", "trackRecords"}
     assert manga["source"] == {"id": suw.source, "name": "MangaDex", "lang": "en", "displayName": "MangaDex (EN)"}
     assert set(suw.chapters(suw.manga_id)[0]) == set(suwayomi.CHAPTER.split()), "the fields the real query asks for"
     assert suw.manga(other)["inLibrary"] is False and suw.manga(12345) is None

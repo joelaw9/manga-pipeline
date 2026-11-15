@@ -2,6 +2,7 @@
 validate."""
 
 from manga_pipeline import discovery, redownload, workflow
+from manga_pipeline.metadata import check, step
 from manga_pipeline.stages import discover, validate
 
 STAGES = {"discover": discover.run, "validate": validate.run}
@@ -17,6 +18,6 @@ def work(ctx):
     workflow.end_waits(ctx, "suwayomi_download", redownload.wait_over)
     with workflow.share_errors():
         discovery.scan(ctx)
+        step.run(ctx, ctx.sources or check.new_sources())
     for series_id in workflow.series_with_ready(ctx, tuple(STAGES)):
-        # Phase 7: a new series' full metadata retrieval, and a metadata check when one is due, go here.
         workflow.drain(ctx, STAGES, series_id)
