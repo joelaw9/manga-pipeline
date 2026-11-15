@@ -58,8 +58,35 @@ class FakeAniList(_Fake):
         return self.images[url]
 
 
+class FakeTapas(_Fake):
+    """records: ("series_id", slug) -> id; ("episodes", id) -> (items, listed total)."""
+
+    def series_id(self, slug):
+        return self._get("series_id", slug)
+
+    def episodes(self, series_id):
+        return self._get("episodes", series_id)
+
+
+class FakeWebtoons(_Fake):
+    """records: ("episodes", ref) -> items; ("app_only", ref) -> True, False or None (unread)."""
+
+    def episodes(self, ref):
+        return self._get("episodes", ref)
+
+    def app_only(self, ref):
+        return self.records.get(("app_only", ref), False)
+
+
 def fake_sources():
     calls = []
-    sources = check.Sources(FakeMangaBaka(calls), FakeMangaUpdates(calls), FakeMangaDex(calls), FakeAniList(calls))
+    sources = check.Sources(
+        FakeMangaBaka(calls),
+        FakeMangaUpdates(calls),
+        FakeMangaDex(calls),
+        FakeAniList(calls),
+        FakeTapas(calls),
+        FakeWebtoons(calls),
+    )
     sources.calls = calls
     return sources

@@ -441,7 +441,9 @@ def _opens(fixture, k):
 
 
 @budget(load="fs")
-@pytest.mark.parametrize("path", sorted(RECORDS.glob("*.json")), ids=lambda p: p.stem)
+@pytest.mark.parametrize(
+    "path", sorted(p for p in RECORDS.glob("*.json") if not p.stem.startswith("platform-")), ids=lambda p: p.stem
+)  # platform series: tests/test_platforms.py
 def test_a_records_last_chapters_resolve_as_the_bulk_converter_named_them(path):
     fixture = json.loads(path.read_text(encoding="utf-8"))
     # no MangaDex aggregate is kept offline: the record's own MangaDex-sourced volumes stand in for it

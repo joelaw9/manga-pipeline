@@ -1,0 +1,1227 @@
+{
+ "series": "What's Wrong with You, Duke_",
+ "basis": "tapas seasons",
+ "platform": {
+  "name": "tapas",
+  "ref": "whats-wrong-with-you-duke"
+ },
+ "overrides": null,
+ "covered_volumes": [],
+ "chapters": [
+  {
+   "file": "mei_Chapter 1 _ Left to Die.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "1",
+   "title": "Left to Die",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 2 _ Spellbound.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "2",
+   "title": "Spellbound",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 3 _ Treasures to Survive.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "3",
+   "title": "Treasures to Survive",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 4 _ A Man of Two Faces.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "4",
+   "title": "A Man of Two Faces",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 5 _ My Skylark.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "5",
+   "title": "My Skylark",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 6 _ Recipe of a Hex.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "6",
+   "title": "Recipe of a Hex",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 7 _ Spellwork and Swordplay.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "7",
+   "title": "Spellwork and Swordplay",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 8 _ Splintered.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "8",
+   "title": "Splintered",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 9 _ Peeping at the Port.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "9",
+   "title": "Peeping at the Port",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 10 _ Who's Conning Whom_.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "10",
+   "title": "Who's Conning Whom?",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 11 _ A Duke's Vow.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "11",
+   "title": "A Duke's Vow",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 12 _ The Madame's Dignity.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "12",
+   "title": "The Madame's Dignity",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 13 _ Your Kind of Beast.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "13",
+   "title": "Your Kind of Beast",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 14 _ Bookshop Bee.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "14",
+   "title": "Bookshop Bee",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 15 _ Wrath of a Husband.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "15",
+   "title": "Wrath of a Husband",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 16 _ Dark Circus.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "16",
+   "title": "Dark Circus",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 17 _ Fragility.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "17",
+   "title": "Fragility",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 18 _ Wallflower Spy.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "18",
+   "title": "Wallflower Spy",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 19 _ A Magnificent Meltdown.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "19",
+   "title": "A Magnificent Meltdown",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 20 _ Drunk on the Duke.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "20",
+   "title": "Drunk on the Duke",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 21 _ Sweet Indulgence.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "21",
+   "title": "Sweet Indulgence",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 22 _ The Burden of Riches.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "22",
+   "title": "The Burden of Riches",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 23 _ Worries of a Duke.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "23",
+   "title": "Worries of a Duke",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 24 _ A Wish on a Lake.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "24",
+   "title": "A Wish on a Lake",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 25 _ Tangled Together.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "25",
+   "title": "Tangled Together",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 26 _ Spell by Moonlight.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "26",
+   "title": "Spell by Moonlight",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 27 _ Out of the Deep.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "27",
+   "title": "Out of the Deep",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 28 _ To Be Abandoned.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "28",
+   "title": "To Be Abandoned",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 29 _ By His Name.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "29",
+   "title": "By His Name",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 30 _ Quoth the Tarot.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "30",
+   "title": "Quoth the Tarot",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 31 _ An Outing Wasted.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "31",
+   "title": "An Outing Wasted",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 32 _ A Gift to Share.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "32",
+   "title": "A Gift to Share",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 33 _ What's Stalking You, Duke_.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "33",
+   "title": "What's Stalking You, Duke?",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 34 _ Jeweled Hair.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "34",
+   "title": "Jeweled Hair",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 35 _ The Trauma Within.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "35",
+   "title": "The Trauma Within",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 36 _ Innocence Lost.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "36",
+   "title": "Innocence Lost",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 37 _ A Tour Of His Past.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "37",
+   "title": "A Tour Of His Past",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 38 _ Lying in Wait.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "38",
+   "title": "Lying in Wait",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 39 _ Dressed to Unimpress.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "39",
+   "title": "Dressed to Unimpress",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 40 _ The Duchess Dancing.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "40",
+   "title": "The Duchess Dancing",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 41 _ This Thirst for Her.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "41",
+   "title": "This Thirst for Her",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 42 _ Love Like Summer's Heat.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "42",
+   "title": "Love Like Summer's Heat",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 43 _ Into Your Arms.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "43",
+   "title": "Into Your Arms",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 44 _ Blood and Kisses.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "44",
+   "title": "Blood and Kisses",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 45 _ Undress to Impress.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "45",
+   "title": "Undress to Impress",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 46 _ More of Me.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "46",
+   "title": "More of Me",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 47 _ Tears of Rage.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "47",
+   "title": "Tears of Rage",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 48 _ Self Jealousy.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "48",
+   "title": "Self Jealousy",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 49 _ Piggyback Road.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "49",
+   "title": "Piggyback Road",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 50 _ Fireside Memory.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "50",
+   "title": "Fireside Memory",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 51 _ Scarred.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "51",
+   "title": "Scarred",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 52 _ Dark Circus (Again!).cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "52",
+   "title": "Dark Circus (Again!)",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 53 _ Am I Enough_.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "53",
+   "title": "Am I Enough?",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 54 _ The Suspicious Bellêmes.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "54",
+   "title": "The Suspicious Bellêmes",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 55 _ Cards and Cats.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "55",
+   "title": "Cards and Cats",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 56 _ The Shrouded Cottage.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "56",
+   "title": "The Shrouded Cottage",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 57 _ Warning of the Spell.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "57",
+   "title": "Warning of the Spell",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 58 _ Of Spell's End.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "58",
+   "title": "Of Spell's End",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 59 _ Sunlit Bath.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "59",
+   "title": "Sunlit Bath",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 60 _ Masked Festival.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "60",
+   "title": "Masked Festival",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 61 _ Threats Behind Smiles.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "61",
+   "title": "Threats Behind Smiles",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 62 _ One Last Grasp.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "62",
+   "title": "One Last Grasp",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 63 _ Seduce Me Not.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "63",
+   "title": "Seduce Me Not",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 64 _ The Empty Carriage.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "64",
+   "title": "The Empty Carriage",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 65 _ A Viscount's Choice.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "65",
+   "title": "A Viscount's Choice",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 66 _ By Her Blade.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "66",
+   "title": "By Her Blade",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 67 _ Light of Her Heart.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "67",
+   "title": "Light of Her Heart",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 68 _ A Hug Most Needed.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "68",
+   "title": "A Hug Most Needed",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 69 _ What's Wrong With You, Prince_.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "69",
+   "title": "What's Wrong With You, Prince?",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 70 _ Rest and Recovery.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "70",
+   "title": "Rest and Recovery",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 71 _ No More Playing Nice.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "71",
+   "title": "No More Playing Nice",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 72 _ Mine To Protect.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "72",
+   "title": "Mine To Protect",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 73 _ A Report of Nothing.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "73",
+   "title": "A Report of Nothing",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 74 _ Baby Talk.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "74",
+   "title": "Baby Talk",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 75 _ While You Were Away.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "75",
+   "title": "While You Were Away",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 76 _ Fate Favors the Strong.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "76",
+   "title": "Fate Favors the Strong",
+   "open": false
+  },
+  {
+   "file": "CommunityFundedTapaS_Chapter 77 _ Closing In.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "77",
+   "title": "Closing In",
+   "open": false
+  },
+  {
+   "file": "CommunityFundedTapaS_Chapter 78 _ The Bars Between Us.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "78",
+   "title": "The Bars Between Us",
+   "open": false
+  },
+  {
+   "file": "CommunityFundedTapaS_Chapter 79 _ For You.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "79",
+   "title": "For You",
+   "open": false
+  },
+  {
+   "file": "CommunityFundedTapaS_Chapter 80 _ My Wish.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "80",
+   "title": "My Wish",
+   "open": false
+  },
+  {
+   "file": "xxxxxx_Chapter 81 _ Of Spell's Beginning.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "81",
+   "title": "Of Spell's Beginning",
+   "open": false
+  },
+  {
+   "file": "CommunityFundedTapaS_Chapter 82 _ Wolf Boy and Small Girl.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "82",
+   "title": "Wolf Boy and Small Girl",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 83 _ A Jewel Most Precious.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "83",
+   "title": "A Jewel Most Precious",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 84 _ Future Meets Past.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "84",
+   "title": "Future Meets Past",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 85 _ Drained of Life.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "85",
+   "title": "Drained of Life",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 86 _ Executioner.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "86",
+   "title": "Executioner",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 87 _ Alone.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "87",
+   "title": "Alone",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 88 _ Start of a Journey.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "88",
+   "title": "Start of a Journey",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 89 _ God of Death.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "89",
+   "title": "God of Death",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 90 _ Sailing Away.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "90",
+   "title": "Sailing Away",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 91 _ At Last [End of Main Story].cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "91",
+   "title": "At Last",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 92 _ The Man of My... Memories_.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "92",
+   "title": "The Man of My... Memories?",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 93 _ I Do... Not Remember.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "93",
+   "title": "I Do... Not Remember",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 94 _ Stuck.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "94",
+   "title": "Stuck",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 95 _ Recalling Some Things.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "95",
+   "title": "Recalling Some Things",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 96 _ Three Conditions.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "96",
+   "title": "Three Conditions",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 97 _ The Aunt and the Last Resort.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "97",
+   "title": "The Aunt and the Last Resort",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 98 _ Pet Names.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "98",
+   "title": "Pet Names",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 99 _ Emerald Corporation.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "99",
+   "title": "Emerald Corporation",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 100 _ Man of Rouergue.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "100",
+   "title": "Man of Rouergue",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 101 _ A Nest of Our Own.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "101",
+   "title": "A Nest of Our Own",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 102 _ More Like You.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "102",
+   "title": "More Like You",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 103 _ Do You Believe in Margic_.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "103",
+   "title": "Do You Believe in Margic?",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 104 _ Spring.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "104",
+   "title": "Spring",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 105 _ Memories.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "105",
+   "title": "Memories",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 106 _ Only You.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "106",
+   "title": "Only You",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 107 _ A Visit to the Witch.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "107",
+   "title": "A Visit to the Witch",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 108 _ As Long as I Have You.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "108",
+   "title": "As Long as I Have You",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 109 _ No Middle Ground.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "109",
+   "title": "No Middle Ground",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 110 _ The Mushroom Store.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "110",
+   "title": "The Mushroom Store",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 111 _ Childhood Home.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "111",
+   "title": "Childhood Home",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 112 _ High Hopes.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "112",
+   "title": "High Hopes",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 113 _ My Type.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "113",
+   "title": "My Type",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 114 _ Make a Wish.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "114",
+   "title": "Make a Wish",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 115 _ Up High and Out of Sight.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "115",
+   "title": "Up High and Out of Sight",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 116 _ The Right Moment.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "116",
+   "title": "The Right Moment",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 117 _ Carving a Road Through a Mountain.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "117",
+   "title": "Carving a Road Through a Mountain",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 118 _ Will You Try Again_.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "118",
+   "title": "Will You Try Again?",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 119 _ Our Memory.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "119",
+   "title": "Our Memory",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 120 _ Traces of Magic.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "120",
+   "title": "Traces of Magic",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 121 _ A Drink Together.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "121",
+   "title": "A Drink Together",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 122 _ Pop Goes the Mushroom.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "122",
+   "title": "Pop Goes the Mushroom",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 123 _ A Chilly Encounter.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "123",
+   "title": "A Chilly Encounter",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 124 _ Sweet Words.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "124",
+   "title": "Sweet Words",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 125 _ This Is My Response.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "125",
+   "title": "This Is My Response",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 126 _ Reluctant Student.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "126",
+   "title": "Reluctant Student",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 127 _ Tangled and Inescapable.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "127",
+   "title": "Tangled and Inescapable",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 128 _ The Handyman.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "128",
+   "title": "The Handyman",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 129 _ Ten Children.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "129",
+   "title": "Ten Children",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 130 _ The Bunny Poem.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "130",
+   "title": "The Bunny Poem",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 131 _ Four-Leaf Clover.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "131",
+   "title": "Four-Leaf Clover",
+   "open": false
+  },
+  {
+   "file": "mei_Chapter 132 _ A Child's Light.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "132",
+   "title": "A Child's Light",
+   "open": true
+  },
+  {
+   "file": "mei_Chapter 133 _ A Miracle [END].cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "133",
+   "title": "A Miracle",
+   "open": true
+  },
+  {
+   "file": "mei_Season 3 is Coming Soon!.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "134",
+   "title": "Season 3 is Coming Soon!",
+   "open": false
+  },
+  {
+   "file": "mei_Teaser.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "135",
+   "title": "Teaser",
+   "open": false
+  }
+ ]
+}

@@ -8,10 +8,10 @@ Season markers are read from free-form chapter titles by the bulk converter's pa
 chapter gets the volume the converter would give it (flat text heuristics, not a structured format).
 """
 
-import re
 from dataclasses import dataclass
 
 from manga_pipeline import names, volumes
+from manga_pipeline.metadata import episodes, platforms
 
 FILENAME, SEASON_TAGS, OVERRIDE, SIDE_DEFAULT = (
     volumes.FILENAME,
@@ -58,9 +58,10 @@ class Naming:
     opens_covered_volume: bool
 
 
-def resolve(basis, rows, overrides, mangadex):
+def resolve(basis, rows, overrides, mangadex, platform=None):
     """{row key: Naming} for the open rows of 1 series. basis: the record's series.naming.basis (None: no volume);
-    overrides: the override file's mapping, or None when the series has none; mangadex: mangadex_volumes' map.
+    overrides: the override file's mapping, or None when the series has none; mangadex: mangadex_volumes' map;
+    platform: the stored platform list (metadata/platforms.py), or None.
     VolumeError for an `override` basis without an override file, and for an open chapter whose volume is not a
     whole number (ComicInfo Volume is an xs:int)."""
     if basis == OVERRIDE and overrides is None:
@@ -70,8 +71,10 @@ def resolve(basis, rows, overrides, mangadex):
         (i for i, r in enumerate(rows) if r.kind == names.MAIN), key=lambda i: (rows[i].number, rows[i].order)
     )
     side = [i for i, r in enumerate(rows) if r.kind == names.SIDE]
+    past = _past_finale(basis, rows, main, platform)
+    main, side = [i for i in main if i not in past], side + sorted(past, key=lambda i: (rows[i].number, rows[i].order))
     vol = {i: (rows[i].volume, rows[i].volume_source) for i in main if rows[i].settled}
-    vol.update(_open_main_volumes(basis, rows, main, override, mangadex))
+    vol.update(_open_main_volumes(basis, rows, main, override, mangadex, platform))
     for i in main:
         v = vol[i][0]
         if not rows[i].settled and v is not None and v != int(v):
@@ -79,18 +82,29 @@ def resolve(basis, rows, overrides, mangadex):
             raise VolumeError(f"chapter {number}: volume {volume} ({vol[i][1]}) is not a whole number")
     out = {}
     covered = _opens_covered(basis, rows, main, vol, override, mangadex)
+    titles = platforms.chapter_titles(platform)
     for i in main:
         if not rows[i].settled:
             v, source = vol[i]
-            out[rows[i].key] = Naming(names.MAIN, v, rows[i].number, rows[i].title, source, i in covered)
-    out.update(_side_stories(rows, side, [vol[i][0] for i in main]))
+            title = rows[i].title or names.clean_marker_title(titles.get(names.fmt_num(rows[i].number)) or "")
+            out[rows[i].key] = Naming(names.MAIN, v, rows[i].number, title, source, i in covered)
+    out.update(_side_stories(rows, side, [vol[i][0] for i in main], platform, past))
     return out
 
 
-def choose(rows, overrides, mangadex):
+def _past_finale(basis, rows, main, platform):
+    """Open main rows of a platform-basis series that its stored list puts past the main-story finale: side stories,
+    as the bulk converter named them (SPEC "Publishing")."""
+    if basis not in platforms.BASES or not platform or platform["name"] != platforms.BASES[basis]:
+        return set()
+    return platforms.volumes(platform, {i: rows[i].number for i in main if not rows[i].settled})[1]
+
+
+def choose(rows, overrides, mangadex, platform=None):
     """A new series' volume basis (SPEC "Publishing"), chosen once over its chapters known then: the bulk converter's
-    order for a series it meets first (`_main_volumes` with no record). Platform seasons come after season markers
-    (7d-2). MangaDex is the basis only when it volumes half or more of the main chapters."""
+    order for a series it meets first (`_main_volumes` with no record). Platform seasons (the stored platform list's
+    season ranges) come after season markers. MangaDex is the basis only when it volumes half or more of the main
+    chapters."""
     override = (overrides or {}).get("volumes") or {}
     main = [i for i, r in enumerate(rows) if r.kind == names.MAIN]
     if any(names.to_volume(rows[i].src_volume) is not None for i in main):
@@ -99,6 +113,8 @@ def choose(rows, overrides, mangadex):
         return SEASON_TAGS
     if season_volumes(rows, main):
         return SEASON_MARKERS
+    if platform and any(platforms.volumes(platform, {i: rows[i].number for i in main})):
+        return f"{platform['name']} seasons"
     if main and len(_mangadex_volumes(mangadex, rows, main)) / len(main) >= MANGADEX_SHARE:
         return MANGADEX
     if _override_volumes(override, rows, main):
@@ -114,9 +130,9 @@ def mangadex_volumes(aggregate):
     dicts keyed by number or lists ([] when empty)."""
     out = {}
     for volume in _items((aggregate or {}).get("volumes")):
-        v = _norm_number(volume.get("volume"))
+        v = episodes.norm_number(volume.get("volume"))
         for chapter in _items(volume.get("chapters")):
-            n = _norm_number(chapter.get("chapter"))
+            n = episodes.norm_number(chapter.get("chapter"))
             if n is not None and out.get(n) is None:
                 out[n] = v
     return out
@@ -126,27 +142,13 @@ def _items(x):
     return list(x.values()) if isinstance(x, dict) else list(x or [])
 
 
-def _norm_number(n):
-    """'01' -> '1', '17.50' -> '17.5', '3.0' -> '3'; None / '' / 'none' -> None; non-numeric kept as is."""
-    if n is None:
-        return None
-    n = str(n).strip()
-    if not n or n.lower() == "none":
-        return None
-    if not re.fullmatch(r"\d+(?:\.\d+)?", n):
-        return n
-    whole, _, frac = n.partition(".")
-    whole, frac = whole.lstrip("0") or "0", frac.rstrip("0")
-    return f"{whole}.{frac}" if frac else whole
-
-
 # --- main volumes
 
 
-def _open_main_volumes(basis, rows, main, override, mangadex):
+def _open_main_volumes(basis, rows, main, override, mangadex, platform):
     """{row index: (volume, volume source)} of the open main rows: the basis's volume, else a gap fill, else none."""
     free = [i for i in main if not rows[i].settled]
-    found = _basis_volumes(basis, rows, main, free, override, mangadex)
+    found = _basis_volumes(basis, rows, main, free, override, mangadex, platform)
     have = {i: rows[i].volume for i in main if rows[i].settled and rows[i].volume is not None}
     agree = {i: v for i, v in have.items() if rows[i].volume_source == basis}
     fills = _fills(basis, rows, main, free, {**have, **found}, {**agree, **found}, override, mangadex)
@@ -159,9 +161,10 @@ def _open_main_volumes(basis, rows, main, override, mangadex):
     return out
 
 
-def _basis_volumes(basis, rows, main, free, override, mangadex):
-    """{row index: volume} of the free rows from the series' recorded basis only. `none`, the platform bases and no
-    basis give none."""
+def _basis_volumes(basis, rows, main, free, override, mangadex, platform):
+    """{row index: volume} of the free rows from the series' recorded basis only. A platform basis takes its stored
+    list's season ranges (a list of another platform gives none; a chapter past the main-story finale is a side story,
+    _past_finale). `none` and no basis give none."""
     if basis == FILENAME:
         vols = {i: names.to_volume(rows[i].src_volume) for i in free}
     elif basis == SEASON_TAGS:
@@ -174,6 +177,8 @@ def _basis_volumes(basis, rows, main, free, override, mangadex):
         vols = _override_volumes(override, rows, free)
     elif basis == SIDE_DEFAULT:
         vols = {i: 1 for i in free}
+    elif basis in platforms.BASES and platform and platform["name"] == platforms.BASES[basis]:
+        vols = platforms.volumes(platform, {i: rows[i].number for i in free})[0]
     else:
         vols = {}
     return {i: v for i, v in vols.items() if v is not None}
@@ -257,32 +262,7 @@ def _unordered(main, vols):
     return out
 
 
-# --- season markers (sources/episodes.py's reading)
-
-WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
-_NUM = r"(\d+|" + "|".join(WORDS) + r")"
-END_MARKERS = [  # first group: the season number, absent for a bare "(Season Finale)"
-    re.compile(r"(?<!Mid-)(?<!Mid )\bSeason\s*" + _NUM + r"?\s*(?:-\s*)?(?:Finale|END)\b", re.I),
-    re.compile(r"\bEnd\s+of\s+Season\s*" + _NUM + r"?\b", re.I),
-    re.compile(r"\bS(\d+)\s*-?\s*(?:END|Finale)\b", re.I),
-]
-START_MARKERS = [
-    re.compile(r"\bSeason\s*" + _NUM + r"?\s*-?\s*(?:Premiere|Begins|START)\b", re.I),
-    re.compile(r"\bS(\d+)\s*-?\s*START\b", re.I),
-    re.compile(r"\[Season\s*(\d+)\]", re.I),
-    re.compile(r"\bSeason\s*" + _NUM + r"\s*(?:Teaser|Preview|Trailer|(?:is\s+)?Coming)\b", re.I),
-]
-
-
-def read_markers(title):
-    """[(kind "end" | "start", season or None)] of every season marker in a title, end markers first."""
-    out = []
-    for kind, patterns in (("end", END_MARKERS), ("start", START_MARKERS)):
-        for p in patterns:
-            for m in p.finditer(title or ""):
-                g = (m.group(1) or "").lower()
-                out.append((kind, WORDS.get(g) or (int(g) if g else None)))
-    return out
+# --- season markers (metadata/episodes.py's reading)
 
 
 def season_ends(rows, main, known=None):
@@ -293,18 +273,18 @@ def season_ends(rows, main, known=None):
     ends, starts = dict(known or {}), {}
     for i in main:
         r = rows[i]
-        marks = [(kind, season) for kind, season in read_markers(r.marker_title) if season is not None]
+        marks = [(kind, season) for kind, season in episodes.read_markers(r.marker_title) if season is not None]
         marks += [("start", r.season)] if r.season else []
         for kind, season in marks:
             if kind == "end":
                 ends[season] = max(ends.get(season, 0), r.number)
             else:
                 starts[season] = min(starts.get(season, r.number), r.number)
-    for season, first in sorted(starts.items()):
-        before = max((rows[i].number for i in main if rows[i].number < first), default=None)
-        if season > 1 and season - 1 not in ends and before is not None:
-            ends[season - 1] = before
-    return ends
+    befores = [
+        (season, max((rows[i].number for i in main if rows[i].number < first), default=None))
+        for season, first in sorted(starts.items())
+    ]
+    return episodes.close_seasons(ends, befores)
 
 
 def season_volumes(rows, main):
@@ -362,10 +342,15 @@ def _cover_confirmed(basis, rows, main, vol, override, mangadex):
     return confirmed
 
 
-def _side_stories(rows, side, main_volumes):
+def _side_stories(rows, side, main_volumes, platform, past=frozenset()):
     """{row key: Naming} of the open side stories: the settled side stories' volume, else the highest main volume + 1,
     else 2; numbered after the highest settled side number, in (source volume, number, date, order) order; titled
-    "Side Story <n>: <title>", or "Side Story <n>" when the side marker and a bare chapter label leave no title."""
+    "Side Story <n>: <title>", or "Side Story <n>" when the side marker and a bare chapter label leave no title. An
+    untitled one takes the platform special's title for n when the list has as many specials as the series has side
+    stories, published and open (platforms.side_titles); a chapter past the main-story finale (past) takes its own
+    main episode's title first, as the bulk converter named it."""
+    special_titles = platforms.side_titles(platform, len(side))
+    episode_titles = platforms.chapter_titles(platform)
     done = sorted((i for i in side if rows[i].settled), key=lambda i: (rows[i].number, rows[i].order))
     present = [v for v in main_volumes if v is not None]
     side_volume = rows[done[0]].volume if done else int(max(present)) + 1 if present else 2
@@ -377,6 +362,9 @@ def _side_stories(rows, side, main_volumes):
     out = {}
     for n, i in enumerate(todo, start + 1):
         t = names.clean_marker_title(names.SIDE_MARKER.sub("", rows[i].title).strip())
+        if not t and i in past:
+            t = names.clean_marker_title(episode_titles.get(names.fmt_num(rows[i].number)) or "")
+        t = t or names.clean_marker_title(special_titles.get(n) or "")
         base = SIDE_TITLE.format(n=n)
         source = SIDE_SOURCE if side_volume is not None else NONE
         out[rows[i].key] = Naming(names.SIDE, side_volume, float(n), f"{base}: {t}" if t else base, source, False)
