@@ -138,7 +138,7 @@ def test_status_lists_downloads_not_taken_and_published_files_never_confirmed(wo
             )
     with closing(db.read_only(world.cfg)) as conn:
         text = "\n".join(status.report(conn))
-    assert "Downloads not taken:\n" in text and "new series 'Brand New'" in text
+    assert "Downloads not taken:\n" in text and "new series, metadata not fetched yet" in text
     assert "Published files never confirmed:\n  /lib/Ch.9.cbz" in text
 
 

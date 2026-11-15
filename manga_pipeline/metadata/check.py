@@ -56,11 +56,12 @@ def completed(ctx, chapter):
 
 def due(ctx):
     """Ids of the in-scope, not needs_human series whose check runs this run: every urgent or never completed one,
-    then at most metadata.checks_per_run others, the longest due first."""
+    then at most metadata.checks_per_run others, the longest due first. A series is checked when Kavita holds it, or
+    when it is a new series Kavita does not hold yet (admitted or not)."""
     rows = ctx.conn.execute(
         f"""SELECT s.id, k.series_id IS NULL OR k.urgent OR k.data_version = 0 AS always
         FROM series s LEFT JOIN series_check k ON k.series_id = s.id
-        WHERE s.status = 'ok' AND s.kavita_series_id IS NOT NULL AND {workflow.SCOPE}
+        WHERE s.status = 'ok' AND (s.kavita_series_id IS NOT NULL OR s.origin = 'new') AND {workflow.SCOPE}
             AND (k.series_id IS NULL OR k.urgent OR k.data_version = 0 OR k.next_check_at <= %(now)s)
         ORDER BY k.next_check_at NULLS FIRST, s.id""",
         {**workflow.scope_params(ctx.cfg), "now": workflow.now(ctx.conn)},
@@ -81,14 +82,15 @@ def make_urgent(conn, series_id):
 
 def run(ctx, clients, series_id):
     """Check 1 series. Returns True when it completed. Unreachable, HttpError and SourceError from a service end the
-    check (nothing stored) and propagate."""
+    check (nothing stored) and propagate. A new series Kavita does not hold yet has no Kavita record or ids."""
     conn = ctx.conn
     series = conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone()
     mangas = conn.execute(
         "SELECT manga_id, title FROM suwayomi_manga WHERE series_id = %s ORDER BY manga_id", (series_id,)
     ).fetchall()
-    kavita_series = ctx.kavita.series(series["kavita_series_id"])
-    if kavita_series is None:
+    in_kavita = series["kavita_series_id"] is not None
+    kavita_series = ctx.kavita.series(series["kavita_series_id"]) if in_kavita else None
+    if in_kavita and kavita_series is None:
         # Not checked, and not due again for the quiet interval: a deleted series never takes a capped check's place
         now = workflow.now(conn)
         later = (datetime.fromisoformat(now) + timedelta(days=ctx.cfg["metadata"]["quiet_days"])).isoformat()
@@ -149,8 +151,16 @@ def run(ctx, clients, series_id):
 
 
 def _names(series):
-    """The names a source is searched by: the series' Kavita names."""
-    return list(dict.fromkeys(n for n in (series["name"], series["localized_name"], series["original_name"]) if n))
+    """The names a source is searched by: the series' Kavita names; a new series' names it arrived under (its manga's
+    title or title folder, a folder's ComicInfo Series) and, once admitted, its name."""
+    names = (
+        series["name"],
+        series["alt_name"],
+        series["localized_name"],
+        series["original_name"],
+        series["comicinfo_series"],
+    )
+    return list(dict.fromkeys(n for n in names if n))
 
 
 def _stored_ids(conn, series_id):
@@ -167,6 +177,8 @@ def _origin_ids(ctx, series, kavita_series, manga_rows):
     known = []
     for manga in manga_rows:
         known += [(s, "suwayomi", v) for s, v in ids.suwayomi_ids(manga)]
+    if kavita_series is None:  # a new series Kavita does not hold yet
+        return known
     metadata = ctx.kavita.metadata(series["kavita_series_id"])
     return known + [(s, "kavita", v) for s, v in ids.kavita_ids(kavita_series, metadata)]
 

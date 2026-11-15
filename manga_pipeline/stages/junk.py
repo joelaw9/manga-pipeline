@@ -10,6 +10,8 @@ needs_human (a removal that would leave too little; a candidate Claude was unsur
 """
 
 import json
+import os
+import re
 import shutil
 from pathlib import Path
 
@@ -25,6 +27,7 @@ from manga_pipeline import (
     notices,
     page_store,
     strip,
+    volumes,
     workflow,
 )
 from manga_pipeline.junk import candidates, logo_units, ocr, page_units, store, strip_units
@@ -81,8 +84,64 @@ def extract(ctx, chapter, work):
     return paths, names, sizes, measured
 
 
-def _layout(ctx, series, content_paths):
-    return strip.ensure_series_layout(ctx.conn, series["id"], [content_paths])
+def _layout(ctx, chapter, series, content_paths):
+    """The series' layout (SPEC "State"): its override file's `layout`, stored as the series' layout; else the stored
+    one; else measured, for a new series over up to 3 of its chapters (this one among them), for any other over this
+    chapter. OverrideError for a malformed override file."""
+    wanted = volumes.override_layout(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
+    if wanted:
+        with db.transaction(ctx.conn):
+            ctx.conn.execute(
+                """INSERT INTO series_conversion (series_id, layout, origin) VALUES (%s, %s, 'override')
+                ON CONFLICT (series_id) DO UPDATE SET layout = excluded.layout, origin = excluded.origin
+                WHERE series_conversion.layout <> excluded.layout OR series_conversion.origin <> excluded.origin""",
+                (series["id"], wanted),
+            )
+        return wanted
+    stored = ctx.conn.execute("SELECT layout FROM series_conversion WHERE series_id = %s", (series["id"],)).fetchone()
+    if stored is not None:
+        return stored[0]
+    chapters = [content_paths]
+    if series["origin"] == "new":
+        chapters += _sample(ctx, chapter, series)
+    return strip.ensure_series_layout(ctx.conn, series["id"], chapters)
+
+
+def _sample(ctx, chapter, series):
+    """The content pages of up to 2 more of a new series' chapters past validate (first, middle and last by id, this
+    chapter counting as 1 of them), each extracted to the claim's scratch folder; only chapters whose download this
+    machine can use and that still exist (the claim query's count, SPEC "State")."""
+    rows = ctx.conn.execute(
+        """SELECT id, download_path FROM chapter
+        WHERE series_id = %s AND kind = 'download' AND status <> 'done' AND stage NOT IN ('discover', 'validate')
+        ORDER BY id""",
+        (series["id"],),
+    ).fetchall()
+    usable = [
+        r
+        for r in rows
+        if r["download_path"]
+        and not (os.name == "nt" and re.search(workflow.WINDOWS_UNUSABLE, r["download_path"]))
+        and (r["id"] == chapter["id"] or workflow.exists(config.to_local(ctx.cfg, r["download_path"])))
+    ]
+    picked = list(dict.fromkeys(r["id"] for r in (usable[0], usable[-1], usable[len(usable) // 2]))) if usable else []
+    others = [i for i in picked if i != chapter["id"]][:2]  # this chapter is always measured: 2 more at most
+    out = []
+    for r in usable:
+        if r["id"] not in others:
+            continue
+        work = _scratch(ctx, chapter).parent / "sample" / str(r["id"])
+        work.mkdir(parents=True, exist_ok=True)
+        pages = archive.pages(config.to_local(ctx.cfg, r["download_path"]))
+        content = strip._content_indexes([name for name, _ in pages])
+        paths = []
+        for i in content:
+            name, data = pages[i]
+            path = work / f"{i:04d}{Path(name).suffix.lower()}"
+            path.write_bytes(data)
+            paths.append(path)
+        out.append(paths)
+    return out
 
 
 def _aspects(ctx, series, sizes):
@@ -108,7 +167,10 @@ def scan(ctx, chapter, series, key):
     try:
         paths, names, sizes, measured = extract(ctx, chapter, work)
         content = strip._content_indexes(names)
-        layout = _layout(ctx, series, [paths[i] for i in content])
+        try:
+            layout = _layout(ctx, chapter, series, [paths[i] for i in content])
+        except volumes.VolumeError as e:
+            return workflow.NeedsHuman(str(e))
         if layout == "strip":
             sc, units = _scan_strip(ctx, key, paths, sizes, content)
             nul = _nul_rows(sc)

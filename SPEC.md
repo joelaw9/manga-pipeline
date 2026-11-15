@@ -49,7 +49,7 @@ Any CBZ under the downloads folder is taken once its modified time has settled, 
 
 ## Series identification
 
-A Suwayomi manga, or a hand-placed folder, is matched to a series by a stored link, a source id, or exactly 1 Kavita name (a folder: its name, else its files' ComicInfo Series); a near or double hit is `needs_human`, fixed with `series link`; a library manga with no downloads is linked when it matches. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#series-identification)
+A Suwayomi manga, or a hand-placed folder, is matched to a series by a stored link, a source id, or exactly 1 Kavita name (a folder: its name, else its files' ComicInfo Series); a near or double hit is `needs_human`, fixed with `series link`; no hit is a new series, admitted under its own name and folder after its first metadata check (`series new` settles a held one); a library manga with no downloads is linked when it matches. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#series-identification)
 
 ## Services
 

@@ -24,6 +24,7 @@ SEASON_MARKERS, MANGADEX = "season markers", "mangadex"
 NONE, DEFAULT, SIDE_SOURCE = "none", "default", "side"
 FILL_PRIMARIES = (FILENAME, MANGADEX)  # the bases whose gaps a later source fills (seasons are not tankobon volumes)
 SIDE_TITLE = "Side Story {n}"
+MANGADEX_SHARE = 0.5  # choose: half volumed, half loose reads worse than no volumes
 
 VolumeError = volumes.VolumeError  # a volume that cannot be written: a person must act
 
@@ -84,6 +85,27 @@ def resolve(basis, rows, overrides, mangadex):
             out[rows[i].key] = Naming(names.MAIN, v, rows[i].number, rows[i].title, source, i in covered)
     out.update(_side_stories(rows, side, [vol[i][0] for i in main]))
     return out
+
+
+def choose(rows, overrides, mangadex):
+    """A new series' volume basis (SPEC "Publishing"), chosen once over its chapters known then: the bulk converter's
+    order for a series it meets first (`_main_volumes` with no record). Platform seasons come after season markers
+    (7d-2). MangaDex is the basis only when it volumes half or more of the main chapters."""
+    override = (overrides or {}).get("volumes") or {}
+    main = [i for i, r in enumerate(rows) if r.kind == names.MAIN]
+    if any(names.to_volume(rows[i].src_volume) is not None for i in main):
+        return FILENAME
+    if main and all(rows[i].season for i in main):  # every file carries its season: "S2 - Chapter 1"
+        return SEASON_TAGS
+    if season_volumes(rows, main):
+        return SEASON_MARKERS
+    if main and len(_mangadex_volumes(mangadex, rows, main)) / len(main) >= MANGADEX_SHARE:
+        return MANGADEX
+    if _override_volumes(override, rows, main):
+        return OVERRIDE
+    if any(r.kind == names.SIDE for r in rows):
+        return SIDE_DEFAULT
+    return NONE
 
 
 def mangadex_volumes(aggregate):

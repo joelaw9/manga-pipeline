@@ -39,6 +39,8 @@ def median(conn, series_id):
     page-layout series over every published file's source page count (its output's for a bulk-converter file); in a
     strip series over the files the pipeline published (a bulk-converter strip file holds re-cut pages)."""
     row = conn.execute("SELECT layout FROM series_conversion WHERE series_id = %s", (series_id,)).fetchone()
+    if row is None and not conn.execute("SELECT 1 FROM published_file WHERE series_id = %s", (series_id,)).fetchone():
+        return None  # a new series before its layout is measured: nothing published to compare with
     if row is None:
         raise ValueError(f"series {series_id} has no layout (series_conversion): its page counts cannot be compared")
     count = "pages_in" if row["layout"] == "strip" else "coalesce(pages_in, pages_out)"

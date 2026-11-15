@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
 
-from manga_pipeline import archive, comicinfo, config, errors, names, volumes
+from manga_pipeline import archive, comicinfo, config, db, errors, names, volumes
 from manga_pipeline.metadata import naming
 
 OPEN = ("ready", "claimed", "waiting")  # an unnamed needs_human chapter may never be published: no number
@@ -17,6 +17,25 @@ def resolve(ctx, series, downloads=None):
     """{chapter id: naming.Naming} of the series' open download chapters. downloads: {chapter id: stored path} read
     instead of the chapter's own download (validate's re-download candidate). VolumeError (volumes.OverrideError
     included) for a malformed override file, an `override` basis without one, or a volume that is not whole."""
+    rows, overrides, mangadex = _inputs(ctx, series, downloads)
+    return naming.resolve(series["naming_basis"], rows, overrides, mangadex)
+
+
+def choose_basis(ctx, series, downloads=None):
+    """Choose and store a new series' volume basis over its chapters known now (SPEC "Publishing"); kept when another
+    run stored one first. downloads: as resolve's. Returns the series' basis. VolumeError for a malformed override
+    file."""
+    rows, overrides, mangadex = _inputs(ctx, series, downloads)
+    basis = naming.choose(rows, overrides, mangadex)
+    with db.transaction(ctx.conn):
+        ctx.conn.execute(
+            "UPDATE series SET naming_basis = %s WHERE id = %s AND naming_basis IS NULL", (basis, series["id"])
+        )
+        return ctx.conn.execute("SELECT naming_basis FROM series WHERE id = %s", (series["id"],)).fetchone()[0]
+
+
+def _inputs(ctx, series, downloads):
+    """(rows, override mapping or None, MangaDex volume map) of the series."""
     overrides = volumes.override_file(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
     row = ctx.conn.execute(
         "SELECT payload FROM fetched WHERE series_id = %s AND source = 'mangadex' AND kind = 'aggregate'",
@@ -26,7 +45,7 @@ def resolve(ctx, series, downloads=None):
     # ponytail: each call reads every open unnamed chapter's ComicInfo.xml; a series with hundreds of open chapters
     # (a back catalogue) costs that many reads per chapter; store the read fields at validate if that bites
     rows = [*_published(ctx.conn, series["id"]), *_open(ctx, series["id"], downloads or {})]
-    return naming.resolve(series["naming_basis"], rows, overrides, mangadex)
+    return rows, overrides, mangadex
 
 
 def _published(conn, series_id):

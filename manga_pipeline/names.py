@@ -410,6 +410,12 @@ def safe_title(title, limit=MAX_TITLE):
     return t if len(t) <= limit else t[: limit - 1].rstrip(" ._-") + "…"
 
 
+def folder_name(series_name):
+    """A new series' folder name (SPEC "Series identification"): Windows-illegal characters replaced, trailing dots
+    and spaces trimmed; "" when nothing is left."""
+    return ILLEGAL.sub("_", series_name).strip().rstrip(". ")
+
+
 def file_name(number, title, volume=None):
     """The name a published file gets (SPEC "Publishing"): "Vol.<volume> Ch.<number> - <title>.cbz", without
     "Vol.<volume> " when the volume is None and without " - <title>" when the title is empty once made safe.

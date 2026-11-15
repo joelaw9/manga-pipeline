@@ -87,13 +87,21 @@ def _report(conn):
 
     lines.append("Needs human:")
     series = conn.execute(
-        "SELECT id, name, status_reason FROM series WHERE status = 'needs_human' ORDER BY id"
+        "SELECT id, name, status_reason, origin, admitted_at FROM series WHERE status = 'needs_human' ORDER BY id"
     ).fetchall()
     chapters = conn.execute(
         """SELECT c.id, c.identity, c.stage, c.last_error, s.name FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status = 'needs_human' ORDER BY c.id"""
     ).fetchall()
-    human = [f"  series {r['id']} ({r['name']}): {r['status_reason']} -> retry --series {r['id']}" for r in series]
+    human = [
+        f"  series {r['id']} ({r['name']}): {r['status_reason']}"
+        + (
+            ("" if "series new" in r["status_reason"] else f" -> series link or series new {r['id']}")
+            if r["origin"] == "new" and r["admitted_at"] is None
+            else f" -> retry --series {r['id']}"
+        )
+        for r in series
+    ]
     human += [
         f"  chapter {r['id']} ({r['name']} / {r['identity']}, at {r['stage']}): {r['last_error']} -> retry {r['id']}"
         + _settle(r)

@@ -3,7 +3,8 @@ download folder's, belong to.
 
 `series_for` (a manga) and `series_for_folder` (a folder no library manga maps to) work through the order the spec
 gives and write what they settle (a series row and the manga's or folder's link) in 1 transaction; a match outside
-series.only, or a new series, writes nothing. `link` is `series link`.
+series.only writes nothing. A new series gets its row (origin new, not admitted) and link, and its downloads are not
+taken until it is admitted (metadata/admit.py). `link` is `series link`.
 """
 
 import logging
@@ -17,6 +18,7 @@ from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
 from manga_pipeline.metadata import ids as metadata_ids
+from manga_pipeline.metadata import search
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +32,7 @@ class NotTaken:
 
 
 OUT_OF_SCOPE = NotTaken("out of scope", listed=False)
+NOT_ADMITTED = NotTaken("new series, metadata not fetched yet", listed=True)
 
 
 class KavitaSeries:
@@ -112,12 +115,12 @@ def series_for(ctx, manga, kavita_series):
             )
         row = rows[0] if rows else None
     if row is not None:
-        if not workflow.in_scope(cfg, row["name"], row["kavita_library_id"]):
+        if not workflow.row_in_scope(cfg, row):
             return OUT_OF_SCOPE
         if by_source_id:
             with db.transaction(conn):
                 subject.write_link(conn, row["id"])
-        return _with_folder(ctx, row)
+        return _taken(ctx, row)
     return _by_names(ctx, subject, [manga["title"]], kavita_series)
 
 
@@ -127,11 +130,7 @@ def series_for_folder(ctx, folder, paths, kavita_series):
     subject = _folder_subject(folder)
     row = subject.linked(ctx.conn)
     if row is not None:
-        return (
-            _with_folder(ctx, row)
-            if workflow.in_scope(ctx.cfg, row["name"], row["kavita_library_id"])
-            else OUT_OF_SCOPE
-        )
+        return _taken(ctx, row) if workflow.row_in_scope(ctx.cfg, row) else OUT_OF_SCOPE
     title = subject.held_name
 
     def titles():
@@ -166,7 +165,7 @@ def sweep(ctx, library, kavita_series):
             strict = list(by_key.get(_strict_key(manga["title"]), {}).values()) if _strict_key(manga["title"]) else []
             if len(strict) == 1:
                 rows = conn.execute("SELECT * FROM series WHERE kavita_series_id = %s", (strict[0]["id"],)).fetchall()
-        if len(rows) == 1 and workflow.in_scope(ctx.cfg, rows[0]["name"], rows[0]["kavita_library_id"]):
+        if len(rows) == 1 and workflow.row_in_scope(ctx.cfg, rows[0]):
             with db.transaction(conn):
                 link_manga(conn, manga, rows[0]["id"])
             log.info(
@@ -201,32 +200,45 @@ def comicinfo_series(paths):
 
 def _by_names(ctx, subject, titles, kavita_series):
     """Step 3 over each title in turn: the first with exactly 1 strict hit is the series; else the first near or
-    double hit holds the subject's series (needs_human); else a new series. A held or new series is in scope when
-    any title is."""
+    double hit holds the subject's series (needs_human); else a new series (pending: its row and link are stored, its
+    downloads not taken). A held or new series is in scope when any title is; its row keeps a second title (a
+    folder's ComicInfo Series) as its alt_name."""
     cfg, tried, held = ctx.cfg, [], None
     for title in titles:
         tried.append(title)
         strict = [s for s in kavita_series.rows() if _strict_key(title) and _strict_key(title) in _strict_keys(s)]
         if len(strict) == 1:
             found = strict[0]
-            if not workflow.in_scope(cfg, found["name"], found["libraryId"]):
+            if not workflow.in_scope(cfg, series_names(found), found["libraryId"]):
                 return OUT_OF_SCOPE
             return _store_kavita_series(ctx, subject, found)
-        near = [
-            s
-            for s in kavita_series.rows()
-            if names.key(title) and names.key(title) in {names.key(n) for n in series_names(s)}
-        ]
+        near = [s for s in kavita_series.rows() if _near(title, s)]
         if held is None and (strict or near):
             kind = "matches 2 or more Kavita series" if strict else "nearly matches"
             candidates = ", ".join(f"{s['name']} (Kavita {s['id']})" for s in strict or near)
             held = f"{subject.label} {title!r} {kind}: {candidates}"
-    if not any(workflow.in_scope(cfg, t, None) for t in tried):
+    if not workflow.in_scope(cfg, tried, None):
         return OUT_OF_SCOPE
+    alt_name = tried[1] if len(tried) > 1 else None
     if held:
-        return _store_held_series(ctx.conn, subject, held)
-    shown = " / ".join(repr(t) for t in tried)
-    return NotTaken(f"new series {shown}: no Kavita series matches (new series come in a later phase)", listed=True)
+        return _store_held_series(ctx.conn, subject, held, alt_name)
+    _store_new_series(ctx.conn, subject, alt_name)
+    return NOT_ADMITTED
+
+
+def _near(title, kseries):
+    """A near hit (D7.18): a Kavita name equal to the title under the lenient key, or within search.close's fuzzy
+    ratio of it."""
+    key = names.key(title)
+    return bool(key) and any(key == names.key(n) or search.close(title, n) for n in series_names(kseries))
+
+
+def _taken(ctx, row):
+    """The linked row of a manga or folder, with its folder; NotTaken for a pending new series (a held one is
+    returned: its chapters are recorded and held)."""
+    if row["origin"] == "new" and row["admitted_at"] is None and row["status"] == "ok":
+        return NOT_ADMITTED
+    return _with_folder(ctx, row)
 
 
 def source_ids(manga):
@@ -313,13 +325,32 @@ def library_folder(cfg, folder):
     return stored
 
 
-def _store_held_series(conn, subject, reason):
+def _store_new_series(conn, subject, alt_name):
+    """A pending new series' row (origin new, status ok, not admitted) and the subject's link to it."""
+    with db.transaction(conn):
+        series_id = conn.execute(
+            "INSERT INTO series (name, alt_name, origin) VALUES (%s, %s, 'new') RETURNING id",
+            (subject.held_name, alt_name),
+        ).fetchone()[0]
+        subject.write_link(conn, series_id)
+    log.info(
+        "%s: new series %s (%s): admitted after its first metadata check", subject.label, series_id, subject.held_name
+    )
+
+
+def _store_held_series(conn, subject, reason, alt_name=None):
     """A needs_human series row for a manga or folder a person must link (no Kavita id: in scope as not yet known)."""
     with db.transaction(conn):
         series_id = conn.execute(
-            "INSERT INTO series (name, origin) VALUES (%s, 'new') RETURNING id", (subject.held_name,)
+            "INSERT INTO series (name, alt_name, origin) VALUES (%s, %s, 'new') RETURNING id",
+            (subject.held_name, alt_name),
         ).fetchone()[0]
-        workflow.needs_human(conn, "series", series_id, f"{reason} -> {subject.command} KAVITA_SERIES_ID")
+        workflow.needs_human(
+            conn,
+            "series",
+            series_id,
+            f"{reason} -> {subject.command} KAVITA_SERIES_ID, or series new {series_id} [--name NAME]",
+        )
         subject.write_link(conn, series_id)
     return conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone()
 
@@ -348,8 +379,9 @@ def link(cfg, conn, suwayomi, kavita, kavita_series_id, *, manga_id=None, folder
     subject's held row, else a new row gets its Kavita id, names and folder (refreshed when run again); the subject is
     linked to it. A held row of the subject (no Kavita id) is merged into the Kavita series' row: its chapters and links
     move there and it is deleted. workflow.Refused when the manga, the folder or the series does not exist, the series
-    is outside kavita.library_id or has no folder, or the subject's row is another Kavita series' row that holds
-    chapters. needs_human is left for `retry --series` to clear. Returns the series id."""
+    is outside kavita.library_id or has no folder, the subject's row is another Kavita series' row that holds
+    chapters, or the subject's row is an admitted new series (its rows, published files included, are its own).
+    needs_human is left for `retry --series` to clear. Returns the series id."""
     if (manga_id is None) == (folder is None):
         raise ValueError("link takes a manga_id or a folder")
     if folder is not None:
@@ -373,7 +405,12 @@ def link(cfg, conn, suwayomi, kavita, kavita_series_id, *, manga_id=None, folder
         raise workflow.Refused(str(e)) from None
     with db.transaction(conn):
         by_kavita = conn.execute("SELECT id FROM series WHERE kavita_series_id = %s", (kavita_series_id,)).fetchone()
-        by_manga = subject.linked(conn, "s.id, s.kavita_series_id")
+        by_manga = subject.linked(conn, "s.id, s.kavita_series_id, s.origin, s.admitted_at")
+        if by_manga and by_manga["origin"] == "new" and by_manga["admitted_at"] is not None:
+            raise workflow.Refused(
+                f"{subject.label} is linked to series {by_manga['id']}, a new series admitted under its own name: "
+                f"it is not moved to another series"
+            )
         other_kavita = by_manga and by_manga["kavita_series_id"] not in (None, kavita_series_id)
         if other_kavita and conn.execute("SELECT 1 FROM chapter WHERE series_id = %s", (by_manga["id"],)).fetchone():
             raise workflow.Refused(
@@ -413,12 +450,21 @@ def link(cfg, conn, suwayomi, kavita, kavita_series_id, *, manga_id=None, folder
 
 
 def _merge_held(conn, held_id, series_id):
-    """Move a held row's chapters (workflow.move_chapters) and manga links to the series row, and delete it (inside
-    link's transaction). A held row publishes nothing (it has no ComicInfo Series name), so it has no published or
-    handled chapter; a layout or calibration computed for it is dropped."""
+    """Move a held row's chapters (workflow.move_chapters), handled chapters, manga and folder links and the ids a
+    person set to the series row, and delete it (inside link's transaction); its other Phase 7 rows go with it
+    (ON DELETE CASCADE). A held row is never admitted, so it publishes nothing; a layout or calibration computed for
+    it is dropped. A human id the series row already holds is kept once; a different one is then a disagreement
+    (SPEC "Source ids")."""
     workflow.move_chapters(conn, held_id, series_id)
+    conn.execute("UPDATE handled_chapter SET series_id = %s WHERE series_id = %s", (series_id, held_id))
     conn.execute("UPDATE suwayomi_manga SET series_id = %s WHERE series_id = %s", (series_id, held_id))
     conn.execute("UPDATE download_folder SET series_id = %s WHERE series_id = %s", (series_id, held_id))
+    conn.execute(
+        """INSERT INTO series_source_id (series_id, source, origin, source_id)
+        SELECT %s, source, origin, source_id FROM series_source_id WHERE series_id = %s AND origin = 'human'
+        ON CONFLICT DO NOTHING""",
+        (series_id, held_id),
+    )
     conn.execute("DELETE FROM series_conversion WHERE series_id = %s", (held_id,))
     conn.execute("DELETE FROM series_calibration WHERE series_id = %s", (held_id,))
     conn.execute("DELETE FROM series WHERE id = %s", (held_id,))

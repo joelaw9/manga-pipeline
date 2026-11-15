@@ -1,5 +1,6 @@
 """`intake`'s metadata step (SPEC "Metadata checks"): bring the series rows in step with the library, link library
-manga that have no downloads, then run the due checks, each series alone. The step never stops intake's chapter work:
+manga that have no downloads, then run the due checks, each series alone, then admit the new series whose check
+completed (metadata/admit.py). The step never stops intake's chapter work:
 a service that cannot be reached skips the step, and a check that fails is logged and stays due. Only a failing share or
 database ends the run.
 """
@@ -9,7 +10,7 @@ import logging
 from manga_pipeline import db, identify, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import suwayomi as suwayomi_client
-from manga_pipeline.metadata import check, covers, library, sources
+from manga_pipeline.metadata import admit, check, covers, library, sources
 
 log = logging.getLogger(__name__)
 # What a service's answer can raise: the check simply did not complete.
@@ -37,3 +38,4 @@ def run(ctx, clients):
                 raise  # the database or the share: the run's problem
             # A reply of an unexpected shape, a file this machine cannot write: this series' problem, not the run's
             log.exception("series %s: metadata check failed", series_id)
+    admit.run(ctx, kavita_series.rows())

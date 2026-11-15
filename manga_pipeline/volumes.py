@@ -1,5 +1,6 @@
 """A series' naming override file (SPEC "Publishing"): `<paths.naming_overrides>/<series rules key>.yaml`, read and
-checked as the bulk converter accepts it (`volumes` ranges, `series_group`), and the volume a range gives a chapter.
+checked as the bulk converter accepts it (`volumes` ranges, `series_group`, `layout`), and the volume a range gives a
+chapter.
 The volume bases' names. Volumes themselves are resolved by metadata/naming.py.
 """
 
@@ -11,6 +12,7 @@ from manga_pipeline import errors, names
 
 FILENAME, SEASON_TAGS, OVERRIDE = "filename", "season tags", "override"
 SIDE_DEFAULT = "side stories need volumes: main story = Vol 1"
+LAYOUTS = ("strip", "pages")
 
 
 class VolumeError(ValueError):
@@ -19,6 +21,22 @@ class VolumeError(ValueError):
 
 class OverrideError(VolumeError):
     """The series' override file is missing or not one the bulk converter would accept: a person must fix it."""
+
+
+def layout(data):
+    """`layout:` of an overrides mapping as the bulk converter reads it (case-folded, trimmed): "strip", "pages" or
+    None. ValueError for any other value."""
+    v = data.get("layout")
+    v = str(v).strip().lower() if v is not None else None
+    if v not in (None, *LAYOUTS):
+        raise ValueError(f"overrides layout must be 'strip' or 'pages', not {v!r}")
+    return v
+
+
+def override_layout(overrides, folder_name):
+    """The layout the series' override file names, None without the file or the key. OverrideError when the file is
+    malformed."""
+    return layout(override_file(overrides, folder_name) or {})
 
 
 def series_group(overrides, folder_name):
@@ -40,6 +58,7 @@ def override_file(overrides, folder_name):
         check_volumes(data.get("volumes"))
         if "series_group" in data:
             _group_names(data["series_group"])
+        layout(data)
     except (yaml.YAMLError, ValueError) as e:
         raise OverrideError(f"{path}: {e}") from None
     return data
