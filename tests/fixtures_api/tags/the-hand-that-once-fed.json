@@ -1,0 +1,1034 @@
+{
+ "series": "The Hand That Once Fed",
+ "mangabaka.series": {
+  "genres": [
+   "drama",
+   "fantasy",
+   "romance",
+   "josei",
+   "mature",
+   "smut"
+  ],
+  "tags_v2": [
+   {
+    "name": "Slavery",
+    "weight": "defining"
+   },
+   {
+    "name": "Josei",
+    "weight": "defining"
+   },
+   {
+    "name": "Yandere",
+    "weight": "defining"
+   },
+   {
+    "name": "Villainess",
+    "weight": "incidental"
+   },
+   {
+    "name": "Golden/Yellow-Eyed Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Green-Eyed Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Black-Haired Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Blonde-Haired Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Adult Cast",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Female Lead",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Female Lead with Children",
+    "weight": "defining"
+   },
+   {
+    "name": "Duchess Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Noble Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Cruel Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Abused Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Protagonist",
+    "weight": "defining"
+   },
+   {
+    "name": "Widow/Widower",
+    "weight": "defining"
+   },
+   {
+    "name": "Europe",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Dead Spouse",
+    "weight": "defining"
+   },
+   {
+    "name": "Enemies Become Lovers",
+    "weight": "defining"
+   },
+   {
+    "name": "Lovers Grow Distant",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Harem",
+    "weight": "incidental"
+   },
+   {
+    "name": "Noble-Commoner Relationship",
+    "weight": "defining"
+   },
+   {
+    "name": "Heterosexual",
+    "weight": "unweighted"
+   },
+   {
+    "name": "European Ambience",
+    "weight": "defining"
+   },
+   {
+    "name": "Medieval European Ambience",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining"
+   },
+   {
+    "name": "Mature",
+    "weight": "defining"
+   },
+   {
+    "name": "Smut",
+    "weight": "defining"
+   },
+   {
+    "name": "Obsessive Love",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Drama",
+    "weight": "defining"
+   },
+   {
+    "name": "Military",
+    "weight": "defining"
+   },
+   {
+    "name": "Romance",
+    "weight": "defining"
+   },
+   {
+    "name": "Nobility",
+    "weight": "defining"
+   },
+   {
+    "name": "Revenge",
+    "weight": "defining"
+   },
+   {
+    "name": "Longstrip",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Full Color",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Web Comic",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Manhwa",
+    "weight": "unweighted"
+   }
+  ],
+  "status": "releasing",
+  "type": "manhwa",
+  "content_rating": "safe"
+ },
+ "mangaupdates.series": {
+  "genres": [
+   {
+    "genre": "Drama"
+   },
+   {
+    "genre": "Fantasy"
+   },
+   {
+    "genre": "Josei"
+   },
+   {
+    "genre": "Mature"
+   },
+   {
+    "genre": "Romance"
+   },
+   {
+    "genre": "Smut"
+   }
+  ],
+  "categories": [
+   {
+    "category": "Abduction"
+   },
+   {
+    "category": "Abuse"
+   },
+   {
+    "category": "Abused Female Lead"
+   },
+   {
+    "category": "Abused Male Lead"
+   },
+   {
+    "category": "Abusive Family Member/s"
+   },
+   {
+    "category": "Academy"
+   },
+   {
+    "category": "Acting"
+   },
+   {
+    "category": "Alcohol"
+   },
+   {
+    "category": "Alliance/s"
+   },
+   {
+    "category": "Amnesia"
+   },
+   {
+    "category": "Angst"
+   },
+   {
+    "category": "Aphrodisiac"
+   },
+   {
+    "category": "Arrogant Female Lead"
+   },
+   {
+    "category": "Arson"
+   },
+   {
+    "category": "Artist/s"
+   },
+   {
+    "category": "Attempted Rape"
+   },
+   {
+    "category": "Attempted Reverse Rape"
+   },
+   {
+    "category": "Attempted Suicide"
+   },
+   {
+    "category": "Auction/s"
+   },
+   {
+    "category": "Bar/s"
+   },
+   {
+    "category": "Baron/Baroness"
+   },
+   {
+    "category": "Bath"
+   },
+   {
+    "category": "Beast/s"
+   },
+   {
+    "category": "Beautiful Female Character/s"
+   },
+   {
+    "category": "Beautiful Female Lead"
+   },
+   {
+    "category": "Bet/s"
+   },
+   {
+    "category": "Biting"
+   },
+   {
+    "category": "Black-Haired Male Lead"
+   },
+   {
+    "category": "Blacksmith/s"
+   },
+   {
+    "category": "Blonde-Haired Character/s"
+   },
+   {
+    "category": "Blonde-Haired Female Lead"
+   },
+   {
+    "category": "Blushing Character/s"
+   },
+   {
+    "category": "Blushing Male Lead"
+   },
+   {
+    "category": "Bridge/s"
+   },
+   {
+    "category": "Brother/s"
+   },
+   {
+    "category": "Brown-Haired Character/s"
+   },
+   {
+    "category": "Burns"
+   },
+   {
+    "category": "Candy"
+   },
+   {
+    "category": "Caught in the Act"
+   },
+   {
+    "category": "Cave"
+   },
+   {
+    "category": "Chess"
+   },
+   {
+    "category": "Child/ren"
+   },
+   {
+    "category": "Childcare"
+   },
+   {
+    "category": "Childhood"
+   },
+   {
+    "category": "Chocolate/s"
+   },
+   {
+    "category": "Choking"
+   },
+   {
+    "category": "Church"
+   },
+   {
+    "category": "Competition/s"
+   },
+   {
+    "category": "Contract/s"
+   },
+   {
+    "category": "Corpses"
+   },
+   {
+    "category": "Courtroom"
+   },
+   {
+    "category": "Cousin-Cousin Relationship"
+   },
+   {
+    "category": "Cousin/s"
+   },
+   {
+    "category": "Cruel Female Lead"
+   },
+   {
+    "category": "Cute Child/ren"
+   },
+   {
+    "category": "Dagger/s"
+   },
+   {
+    "category": "Dancing"
+   },
+   {
+    "category": "Dead Animal/s"
+   },
+   {
+    "category": "Dead Family Member/s"
+   },
+   {
+    "category": "Dead Mother"
+   },
+   {
+    "category": "Dead Spouse"
+   },
+   {
+    "category": "Decapitation"
+   },
+   {
+    "category": "Denial"
+   },
+   {
+    "category": "Denied Feelings"
+   },
+   {
+    "category": "Difficult Childhood"
+   },
+   {
+    "category": "Disquise/s"
+   },
+   {
+    "category": "Doctor/s"
+   },
+   {
+    "category": "Drawing/s"
+   },
+   {
+    "category": "Dream/s"
+   },
+   {
+    "category": "Drug/s"
+   },
+   {
+    "category": "Drugged"
+   },
+   {
+    "category": "Drunk/s"
+   },
+   {
+    "category": "Duchess Female Lead"
+   },
+   {
+    "category": "Duels"
+   },
+   {
+    "category": "Duke/s"
+   },
+   {
+    "category": "Enemies Become Lovers"
+   },
+   {
+    "category": "Estranged Family"
+   },
+   {
+    "category": "European Ambience"
+   },
+   {
+    "category": "Eyepatch"
+   },
+   {
+    "category": "Factory"
+   },
+   {
+    "category": "Fairytale Reference"
+   },
+   {
+    "category": "Female Lead with Child/ren"
+   },
+   {
+    "category": "Female Protagonist"
+   },
+   {
+    "category": "Festival"
+   },
+   {
+    "category": "Fever"
+   },
+   {
+    "category": "Fight/s"
+   },
+   {
+    "category": "Fire"
+   },
+   {
+    "category": "Fireworks"
+   },
+   {
+    "category": "Flashback/s"
+   },
+   {
+    "category": "Flower/s"
+   },
+   {
+    "category": "Foot Massage"
+   },
+   {
+    "category": "Friends Become Enemies"
+   },
+   {
+    "category": "Full Color"
+   },
+   {
+    "category": "Funeral"
+   },
+   {
+    "category": "Gambling Addict/s"
+   },
+   {
+    "category": "Garden"
+   },
+   {
+    "category": "General/s"
+   },
+   {
+    "category": "Golden/Yellow-Eyed Male Lead"
+   },
+   {
+    "category": "Green-Eyed Character/s"
+   },
+   {
+    "category": "Green-Eyed Female Lead"
+   },
+   {
+    "category": "Guilt"
+   },
+   {
+    "category": "Gun/s"
+   },
+   {
+    "category": "Handcuffs"
+   },
+   {
+    "category": "Handsome Male Lead"
+   },
+   {
+    "category": "Hickeys"
+   },
+   {
+    "category": "Homeless Male Lead"
+   },
+   {
+    "category": "Horse Riding"
+   },
+   {
+    "category": "Horse/s"
+   },
+   {
+    "category": "Hospital"
+   },
+   {
+    "category": "Hunting"
+   },
+   {
+    "category": "Illegitimate Child/ren"
+   },
+   {
+    "category": "Impersonating Someone"
+   },
+   {
+    "category": "Imprisonment"
+   },
+   {
+    "category": "Injury/ies"
+   },
+   {
+    "category": "Insect/s"
+   },
+   {
+    "category": "Insecure Male Lead"
+   },
+   {
+    "category": "Jealous Male Lead"
+   },
+   {
+    "category": "Jealousy"
+   },
+   {
+    "category": "Kidnapping/s"
+   },
+   {
+    "category": "King/s"
+   },
+   {
+    "category": "Kingdom/s"
+   },
+   {
+    "category": "Kiss/es"
+   },
+   {
+    "category": "Knife/ves"
+   },
+   {
+    "category": "Letter/s"
+   },
+   {
+    "category": "Liar/s"
+   },
+   {
+    "category": "Look-alike/s"
+   },
+   {
+    "category": "Love Confession/s"
+   },
+   {
+    "category": "Love-Hate Relationship"
+   },
+   {
+    "category": "Lovers Grow Distant"
+   },
+   {
+    "category": "Maid/s"
+   },
+   {
+    "category": "Male Lead Falls in Love First"
+   },
+   {
+    "category": "Masochistic Male Lead"
+   },
+   {
+    "category": "Memories"
+   },
+   {
+    "category": "Memory Loss"
+   },
+   {
+    "category": "Mental Breakdown"
+   },
+   {
+    "category": "Mercenary/ies"
+   },
+   {
+    "category": "Military"
+   },
+   {
+    "category": "Military Officer/s"
+   },
+   {
+    "category": "Mother and Daughter"
+   },
+   {
+    "category": "Mother Female Lead"
+   },
+   {
+    "category": "Mother-Daughter Relationship"
+   },
+   {
+    "category": "Murder/s"
+   },
+   {
+    "category": "Muscular Male Lead"
+   },
+   {
+    "category": "Mute Character/s"
+   },
+   {
+    "category": "Nephew/s"
+   },
+   {
+    "category": "Niece/s"
+   },
+   {
+    "category": "Nightmare/s"
+   },
+   {
+    "category": "Nobility/Aristocracy"
+   },
+   {
+    "category": "Noble Female Lead"
+   },
+   {
+    "category": "Noble Protagonist"
+   },
+   {
+    "category": "Noble-Commoner Relationship"
+   },
+   {
+    "category": "Nudity"
+   },
+   {
+    "category": "Obsessive Character/s"
+   },
+   {
+    "category": "Obsessive Male Lead"
+   },
+   {
+    "category": "Older Female Younger Male"
+   },
+   {
+    "category": "Organization/s"
+   },
+   {
+    "category": "Orphan Female Lead"
+   },
+   {
+    "category": "Orphan Male Lead"
+   },
+   {
+    "category": "Outdoor Intercourse"
+   },
+   {
+    "category": "Painter/s"
+   },
+   {
+    "category": "Palace/s"
+   },
+   {
+    "category": "Party/ies"
+   },
+   {
+    "category": "Pink-Eyed Character/s"
+   },
+   {
+    "category": "Pink-Haired Character/s"
+   },
+   {
+    "category": "Playboy/s"
+   },
+   {
+    "category": "Poison/s"
+   },
+   {
+    "category": "Politician/s"
+   },
+   {
+    "category": "Pride"
+   },
+   {
+    "category": "Priest/s"
+   },
+   {
+    "category": "Prince/s"
+   },
+   {
+    "category": "Promiscuous Character/s"
+   },
+   {
+    "category": "Rain"
+   },
+   {
+    "category": "Rebellion/s"
+   },
+   {
+    "category": "Reporter/s"
+   },
+   {
+    "category": "Reunion/s"
+   },
+   {
+    "category": "Revenge"
+   },
+   {
+    "category": "Royalty"
+   },
+   {
+    "category": "Rumor/s"
+   },
+   {
+    "category": "Scandal/s"
+   },
+   {
+    "category": "Scar/s"
+   },
+   {
+    "category": "Scarred Character/s"
+   },
+   {
+    "category": "Scarred Female Lead"
+   },
+   {
+    "category": "Scarred Male Lead"
+   },
+   {
+    "category": "Scary Male Lead"
+   },
+   {
+    "category": "Scheming Character/s"
+   },
+   {
+    "category": "Secret Relationship/s"
+   },
+   {
+    "category": "Secret/s"
+   },
+   {
+    "category": "Seduction"
+   },
+   {
+    "category": "Servant/s"
+   },
+   {
+    "category": "Sex"
+   },
+   {
+    "category": "Sickly Character/s"
+   },
+   {
+    "category": "Single Mother"
+   },
+   {
+    "category": "Single Parent"
+   },
+   {
+    "category": "Slavery"
+   },
+   {
+    "category": "Smoking"
+   },
+   {
+    "category": "Snow"
+   },
+   {
+    "category": "Stabbing"
+   },
+   {
+    "category": "Statue/s"
+   },
+   {
+    "category": "Stoic Male Lead"
+   },
+   {
+    "category": "Strangling"
+   },
+   {
+    "category": "Stubborn Female Lead"
+   },
+   {
+    "category": "Suicidal Female Lead"
+   },
+   {
+    "category": "Suicidal Male Lead"
+   },
+   {
+    "category": "Suicide/s"
+   },
+   {
+    "category": "Sword/s"
+   },
+   {
+    "category": "Swordsman/men"
+   },
+   {
+    "category": "Tea"
+   },
+   {
+    "category": "Terrorist/s"
+   },
+   {
+    "category": "Thief/ves"
+   },
+   {
+    "category": "Time Skip"
+   },
+   {
+    "category": "Time Skip in First Chapter/Prologue"
+   },
+   {
+    "category": "Torture"
+   },
+   {
+    "category": "Toxic Relationship"
+   },
+   {
+    "category": "Tragic Past"
+   },
+   {
+    "category": "Trial/s"
+   },
+   {
+    "category": "Tsundere Female Lead"
+   },
+   {
+    "category": "Tutor/s"
+   },
+   {
+    "category": "Two-Faced Character/s"
+   },
+   {
+    "category": "Ugly Character/s"
+   },
+   {
+    "category": "Uncle-Niece Relationship"
+   },
+   {
+    "category": "Uncle/s"
+   },
+   {
+    "category": "Underestimated Female Lead"
+   },
+   {
+    "category": "Violence"
+   },
+   {
+    "category": "Violent Character/s"
+   },
+   {
+    "category": "War/s"
+   },
+   {
+    "category": "Webtoon/Webcomic"
+   },
+   {
+    "category": "Whipping"
+   },
+   {
+    "category": "White/Silver-Haired Character/s"
+   },
+   {
+    "category": "Widow / Widower"
+   },
+   {
+    "category": "Winter"
+   }
+  ],
+  "type": "Manhwa"
+ },
+ "mangadex.manga": {
+  "attributes": {
+   "tags": [
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Long Strip"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Romance"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Drama"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Fantasy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Web Comic"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Full Color"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "anilist.media": {
+  "genres": [
+   "Drama",
+   "Fantasy",
+   "Romance"
+  ],
+  "tags": [
+   {
+    "name": "Yandere",
+    "rank": 79,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Full Color",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Female Harem",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Heterosexual",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Villainess",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Revenge",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Female Protagonist",
+    "rank": 20,
+    "isMediaSpoiler": false
+   }
+  ]
+ },
+ "old_tool_wrote": {
+  "genres": [
+   "Drama",
+   "Fantasy",
+   "Harem",
+   "Hentai",
+   "Josei",
+   "Manhwa",
+   "Mature",
+   "Releasing",
+   "Romance",
+   "Romance Fantasy"
+  ],
+  "tags": [
+   "Enemies to Lovers",
+   "Female Protagonist",
+   "Military",
+   "Nobility",
+   "Obsessive Love",
+   "Revenge",
+   "Sexual Content",
+   "Slavery"
+  ]
+ },
+ "expected": {
+  "genres": [
+   "Drama",
+   "Fantasy",
+   "Romance",
+   "Josei",
+   "Mature",
+   "Hentai",
+   "Romance Fantasy",
+   "Harem",
+   "Releasing",
+   "Manhwa"
+  ],
+  "tags": [
+   "Obsessive Love",
+   "Sexual Content",
+   "Revenge",
+   "Enemies to Lovers",
+   "Slavery",
+   "Female Protagonist",
+   "Nobility"
+  ]
+ }
+}

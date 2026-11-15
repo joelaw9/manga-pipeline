@@ -1,0 +1,349 @@
+{
+ "series": "Move, I'm Deciding the Ending!",
+ "mangabaka.series": {
+  "genres": [
+   "fantasy",
+   "romance",
+   "shoujo"
+  ],
+  "tags_v2": [
+   {
+    "name": "Slavery",
+    "weight": "defining"
+   },
+   {
+    "name": "Shoujo",
+    "weight": "defining"
+   },
+   {
+    "name": "Villainess",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Green-Eyed Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "White/Silver-Haired Character",
+    "weight": "defining"
+   },
+   {
+    "name": "Beautiful Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Heterochromia",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Noble Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Protagonist",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Based on a Web Novel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Europe",
+    "weight": "unweighted"
+   },
+   {
+    "name": "European Ambience",
+    "weight": "defining"
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining"
+   },
+   {
+    "name": "Isekai",
+    "weight": "defining"
+   },
+   {
+    "name": "Transmigrated into a Game",
+    "weight": "defining"
+   },
+   {
+    "name": "Transmigration",
+    "weight": "defining"
+   },
+   {
+    "name": "Transmigrated into an Otome Game",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Game Elements",
+    "weight": "core"
+   },
+   {
+    "name": "Game World",
+    "weight": "incidental"
+   },
+   {
+    "name": "Romance",
+    "weight": "defining"
+   },
+   {
+    "name": "Nobility",
+    "weight": "defining"
+   },
+   {
+    "name": "Royalty",
+    "weight": "defining"
+   },
+   {
+    "name": "Otome Game",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Longstrip",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Full Color",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Web Comic",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Manhwa",
+    "weight": "unweighted"
+   }
+  ],
+  "status": "hiatus",
+  "type": "manhwa",
+  "content_rating": "safe"
+ },
+ "mangaupdates.series": {
+  "genres": [
+   {
+    "genre": "Fantasy"
+   },
+   {
+    "genre": "Romance"
+   },
+   {
+    "genre": "Shoujo"
+   }
+  ],
+  "categories": [
+   {
+    "category": "Beautiful Female Lead"
+   },
+   {
+    "category": "Black-Haired Male Lead"
+   },
+   {
+    "category": "Brown-Eyed Male Lead"
+   },
+   {
+    "category": "European Ambience"
+   },
+   {
+    "category": "Female Protagonist"
+   },
+   {
+    "category": "Full Color"
+   },
+   {
+    "category": "Game Elements"
+   },
+   {
+    "category": "Game World"
+   },
+   {
+    "category": "Green-Eyed Female Lead"
+   },
+   {
+    "category": "Heterochromia"
+   },
+   {
+    "category": "Isekai"
+   },
+   {
+    "category": "Nobility/Aristocracy"
+   },
+   {
+    "category": "Noble Female Lead"
+   },
+   {
+    "category": "Noble Male Lead"
+   },
+   {
+    "category": "Royalty"
+   },
+   {
+    "category": "Scenario Deviation"
+   },
+   {
+    "category": "Slavery"
+   },
+   {
+    "category": "System Administrator"
+   },
+   {
+    "category": "Transmigrated into a Game"
+   },
+   {
+    "category": "Transmigration"
+   },
+   {
+    "category": "Virtual Game World"
+   },
+   {
+    "category": "Virtual Reality"
+   },
+   {
+    "category": "Webtoon/Webcomic"
+   },
+   {
+    "category": "White/Silver-Haired Character/s"
+   }
+  ],
+  "type": "Manhwa"
+ },
+ "mangadex.manga": {
+  "attributes": {
+   "tags": [
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Long Strip"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Romance"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Video Games"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Drama"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Fantasy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Villainess"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Full Color"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "anilist.media": {
+  "genres": [
+   "Fantasy",
+   "Romance"
+  ],
+  "tags": [
+   {
+    "name": "Full Color",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Female Protagonist",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Long Strip",
+    "rank": 20,
+    "isMediaSpoiler": false
+   }
+  ]
+ },
+ "old_tool_wrote": {
+  "genres": [
+   "Drama",
+   "Fantasy",
+   "Hiatus",
+   "Isekai",
+   "Manhwa",
+   "Romance",
+   "Romance Fantasy",
+   "Shoujo"
+  ],
+  "tags": [
+   "Female Protagonist",
+   "LitRPG",
+   "Nobility",
+   "Otome Isekai",
+   "Reincarnated in an Otome Game",
+   "Reincarnation",
+   "Royal Affairs",
+   "Slavery",
+   "Transmigrated into a Story",
+   "Video Games",
+   "Villainess"
+  ]
+ },
+ "expected": {
+  "genres": [
+   "Fantasy",
+   "Romance",
+   "Shoujo",
+   "Drama",
+   "Romance Fantasy",
+   "Isekai",
+   "Hiatus",
+   "Manhwa"
+  ],
+  "tags": [
+   "Video Games",
+   "Villainess",
+   "Otome Isekai",
+   "Reincarnated in an Otome Game",
+   "LitRPG",
+   "Slavery",
+   "Transmigrated into a Story",
+   "Reincarnation",
+   "Nobility",
+   "Royal Affairs"
+  ]
+ }
+}

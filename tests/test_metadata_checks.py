@@ -330,3 +330,15 @@ def test_a_series_deleted_from_kavita_never_takes_a_capped_check(world):
     assert due == {series_id(world, gone): True, series_id(world, kept): True}, (
         "the deleted series is pushed back, so the cap's 1 check reaches Beta"
     )
+
+
+@budget(load="db")
+def test_an_id_that_leads_to_a_novel_is_not_used(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.kavita.metadata_rows[kavita_id] = {"webLinks": "https://anilist.co/manga/5"}
+    world.sources.anilist.records[("media", "5")] = {"id": 5, "format": "NOVEL", "idMal": 9}
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    stored = world.rows("SELECT payload IS NULL FROM fetched WHERE series_id = %s AND source = 'anilist'", sid)
+    assert stored == [(True,)], "the light novel's record is not the series' record"
+    assert ("myanimelist", "anilist", "9") not in ids_of(world, sid), "nor are its cross-links"

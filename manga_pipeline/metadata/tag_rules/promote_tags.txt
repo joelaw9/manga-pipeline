@@ -1,0 +1,19 @@
+# Tags written whenever any source carries them, at any weight (MangaBaka tags of
+# every weight, MangaUpdates categories), after the canonical conversion: so every
+# synonym in consolidation.csv that maps to one of these counts too. Add synonyms
+# to consolidation.csv, not here. One tag per line.
+# "Tag: weight" (core, defining or recurrent) also requires MangaBaka to weight the
+# tag at least that; unweighted tags and other sources' terms always qualify.
+Regression
+Revenge: recurrent
+Childcare
+Academy
+Saintess
+Axed
+Reincarnated in an Otome Game
+Obsessive Love
+Non-Human Protagonist
+Enemies to Lovers
+Overpowered Protagonist
+# Content warning: written at any weight, so an incidental mention still warns
+Rape

@@ -1,0 +1,8 @@
+# Tags and genres a top-up never adds (the old metadata tool's top_up_exclude), 1 per line
+Long Strip
+Full Color
+Based on a Novel
+Heterosexual
+Large Breasts
+Flat Chest
+Nudity

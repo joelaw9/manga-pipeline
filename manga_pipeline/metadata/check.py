@@ -186,12 +186,12 @@ def _fetch(clients, names, known):
 
     records = {(source, kind): None for source, kinds in KINDS.items() for kind in kinds}
     mb_id = id_for("mangabaka", lambda: search.mangabaka(clients.mangabaka, names, agreed()))
-    if mb_id is not None and (record := clients.mangabaka.series(mb_id)) is not None:
+    if mb_id is not None and (record := _comic(clients.mangabaka.series(mb_id), "type", "novel", mb_id)) is not None:
         records[("mangabaka", "series")] = record
         learn("mangabaka", "mangabaka", ids.mangabaka_ids(record))
     mu_id = id_for("mangaupdates", lambda: search.mangaupdates(clients.mangaupdates, names))
     if mu_id is not None:
-        records[("mangaupdates", "series")] = clients.mangaupdates.series(mu_id)
+        records[("mangaupdates", "series")] = _comic(clients.mangaupdates.series(mu_id), "type", "novel", mu_id)
     md_id = id_for("mangadex", lambda: search.mangadex(clients.mangadex, names, agreed()))
     if md_id is not None and (record := clients.mangadex.manga(md_id)) is not None:
         records[("mangadex", "manga")] = record
@@ -199,11 +199,20 @@ def _fetch(clients, names, known):
         records[("mangadex", "covers")] = clients.mangadex.covers(md_id)
         learn("mangadex", "mangadex", ids.mangadex_ids(record))
     al_id = id_for("anilist", lambda: search.anilist(clients.anilist, names))
-    if al_id is not None and (record := clients.anilist.media(al_id)) is not None:
+    if al_id is not None and (record := _comic(clients.anilist.media(al_id), "format", "novel", al_id)) is not None:
         records[("anilist", "media")] = record
         learn("anilist", "anilist", ids.anilist_ids(record))
     agreed()
     return records
+
+
+def _comic(record, field, novel, source_id):
+    """The record, or None when it is a novel's (an id that led to a manga's light novel): the library is comics. A
+    dropped record is logged; a person fixes the id with `series set-id`."""
+    if record is not None and (record.get(field) or "").lower() == novel:
+        log.warning("record %s is a novel's: not used (fix the series' id with `series set-id`)", source_id)
+        return None
+    return record
 
 
 def _store_disagreement(conn, series_id, known, problem):

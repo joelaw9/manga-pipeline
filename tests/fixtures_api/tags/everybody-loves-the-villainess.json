@@ -1,0 +1,352 @@
+{
+ "series": "Everybody Loves the Villainess",
+ "mangabaka.series": {
+  "genres": [
+   "drama",
+   "fantasy",
+   "romance",
+   "shoujo"
+  ],
+  "tags_v2": [
+   {
+    "name": "Shoujo",
+    "weight": "defining"
+   },
+   {
+    "name": "Villainess",
+    "weight": "core"
+   },
+   {
+    "name": "Long-Haired Male Lead",
+    "weight": "core"
+   },
+   {
+    "name": "Red-Haired Female Lead",
+    "weight": "core"
+   },
+   {
+    "name": "Beautiful Female Lead",
+    "weight": "core"
+   },
+   {
+    "name": "Handsome Male Lead",
+    "weight": "core"
+   },
+   {
+    "name": "Glasses-Wearing Male Lead",
+    "weight": "core"
+   },
+   {
+    "name": "Female Lead",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Married Female Lead",
+    "weight": "core"
+   },
+   {
+    "name": "Calm Female Lead",
+    "weight": "core"
+   },
+   {
+    "name": "Female Protagonist",
+    "weight": "core"
+   },
+   {
+    "name": "Based on a Web Novel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Europe",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Memories of Past Life",
+    "weight": "core"
+   },
+   {
+    "name": "Saints",
+    "weight": "core"
+   },
+   {
+    "name": "Heterosexual",
+    "weight": "unweighted"
+   },
+   {
+    "name": "European Ambience",
+    "weight": "core"
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining"
+   },
+   {
+    "name": "Elves",
+    "weight": "core"
+   },
+   {
+    "name": "Death",
+    "weight": "core"
+   },
+   {
+    "name": "Drama",
+    "weight": "defining"
+   },
+   {
+    "name": "Religion",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Romance",
+    "weight": "defining"
+   },
+   {
+    "name": "Longstrip",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Full Color",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Web Comic",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Manhwa",
+    "weight": "unweighted"
+   }
+  ],
+  "status": "completed",
+  "type": "manhwa",
+  "content_rating": "safe"
+ },
+ "mangaupdates.series": {
+  "genres": [
+   {
+    "genre": "Drama"
+   },
+   {
+    "genre": "Fantasy"
+   },
+   {
+    "genre": "Romance"
+   },
+   {
+    "genre": "Shoujo"
+   }
+  ],
+  "categories": [
+   {
+    "category": "Based on a Novel"
+   },
+   {
+    "category": "Beautiful Female Lead"
+   },
+   {
+    "category": "Blonde-Haired Male Lead"
+   },
+   {
+    "category": "Calm Female Lead"
+   },
+   {
+    "category": "Cunning Male Lead"
+   },
+   {
+    "category": "Death"
+   },
+   {
+    "category": "Elf/ves"
+   },
+   {
+    "category": "European Ambience"
+   },
+   {
+    "category": "Female Protagonist"
+   },
+   {
+    "category": "Full Color"
+   },
+   {
+    "category": "Glasses-Wearing Male Lead"
+   },
+   {
+    "category": "Handsome Male Lead"
+   },
+   {
+    "category": "Long-Haired Male Lead"
+   },
+   {
+    "category": "Marriage Without Love"
+   },
+   {
+    "category": "Married Female Lead"
+   },
+   {
+    "category": "Master-Disciple Relationship"
+   },
+   {
+    "category": "Memories of Past Life"
+   },
+   {
+    "category": "Motherly Female Lead"
+   },
+   {
+    "category": "Nobility/Aristocracy"
+   },
+   {
+    "category": "Past Friendship/s"
+   },
+   {
+    "category": "Red-Eyed Female Lead"
+   },
+   {
+    "category": "Red-Haired Female Lead"
+   },
+   {
+    "category": "Reverse Harem"
+   },
+   {
+    "category": "Saint/Saintess"
+   },
+   {
+    "category": "Transmigrated as the Villain/ess"
+   },
+   {
+    "category": "Transmigration"
+   },
+   {
+    "category": "Villainess/es"
+   },
+   {
+    "category": "Webtoon/Webcomic"
+   }
+  ],
+  "type": "Manhwa"
+ },
+ "mangadex.manga": {
+  "attributes": {
+   "tags": [
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Reincarnation"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Long Strip"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Romance"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Magic"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Fantasy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Villainess"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Adaptation"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Full Color"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "anilist.media": {
+  "genres": [
+   "Drama",
+   "Fantasy",
+   "Romance"
+  ],
+  "tags": [
+   {
+    "name": "Full Color",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Heterosexual",
+    "rank": 20,
+    "isMediaSpoiler": false
+   }
+  ]
+ },
+ "old_tool_wrote": {
+  "genres": [
+   "Completed",
+   "Drama",
+   "Fantasy",
+   "Manhwa",
+   "Romance",
+   "Shoujo"
+  ],
+  "tags": [
+   "Elf",
+   "Female Protagonist",
+   "Magic",
+   "Reincarnation",
+   "Saintess",
+   "Villainess"
+  ]
+ },
+ "expected": {
+  "genres": [
+   "Drama",
+   "Fantasy",
+   "Romance",
+   "Shoujo",
+   "Completed",
+   "Manhwa"
+  ],
+  "tags": [
+   "Reincarnation",
+   "Magic",
+   "Villainess",
+   "Saintess",
+   "Female Protagonist",
+   "Elf"
+  ]
+ }
+}

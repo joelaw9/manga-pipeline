@@ -69,7 +69,7 @@ Every id a series holds for a source, from any origin, must agree, else the seri
 
 ## Tag rules
 
-Hand-written rule files in the repository; a change to them recomputes every series' tags from stored source data. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#tag-rules)
+Hand-written rule files in the program; a series' genres and tags come from its stored records through consolidation, derived tags and a top-up limited to the rule files' names; a change to them recomputes every series' tags from stored source data. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#tag-rules)
 
 ## Metadata checks
 

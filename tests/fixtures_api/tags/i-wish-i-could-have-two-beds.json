@@ -1,0 +1,642 @@
+{
+ "series": "I Wish I Could Have Two Beds",
+ "mangabaka.series": {
+  "genres": [
+   "fantasy",
+   "romance",
+   "adult",
+   "drama",
+   "josei",
+   "erotica"
+  ],
+  "tags_v2": [
+   {
+    "name": "Josei",
+    "weight": "defining"
+   },
+   {
+    "name": "Based on a Web Novel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Heterosexual",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining"
+   },
+   {
+    "name": "Adult",
+    "weight": "defining"
+   },
+   {
+    "name": "Erotica",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Mature",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Smut",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Drama",
+    "weight": "defining"
+   },
+   {
+    "name": "Romance",
+    "weight": "defining"
+   },
+   {
+    "name": "Royalty",
+    "weight": "incidental"
+   },
+   {
+    "name": "Elaborate",
+    "weight": "core"
+   },
+   {
+    "name": "Longstrip",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Full Color",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Web Comic",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Manhwa",
+    "weight": "unweighted"
+   }
+  ],
+  "status": "releasing",
+  "type": "manhwa",
+  "content_rating": "safe"
+ },
+ "mangaupdates.series": {
+  "genres": [
+   {
+    "genre": "Adult"
+   },
+   {
+    "genre": "Drama"
+   },
+   {
+    "genre": "Fantasy"
+   },
+   {
+    "genre": "Josei"
+   },
+   {
+    "genre": "Romance"
+   }
+  ],
+  "categories": [
+   {
+    "category": "Affectionate Lover"
+   },
+   {
+    "category": "Affectionate Male Lead"
+   },
+   {
+    "category": "Age Regression"
+   },
+   {
+    "category": "Alcohol"
+   },
+   {
+    "category": "Archery"
+   },
+   {
+    "category": "Arranged Marriage"
+   },
+   {
+    "category": "Attempted Murder"
+   },
+   {
+    "category": "Attempted Suicide"
+   },
+   {
+    "category": "Based on a Novel"
+   },
+   {
+    "category": "Beast/s"
+   },
+   {
+    "category": "Beautiful Couple"
+   },
+   {
+    "category": "Beautiful Female Lead"
+   },
+   {
+    "category": "Best Friend/s"
+   },
+   {
+    "category": "Birthday"
+   },
+   {
+    "category": "Black-Eyed Character/s"
+   },
+   {
+    "category": "Black-Haired Male Lead"
+   },
+   {
+    "category": "Black/Dark Magic"
+   },
+   {
+    "category": "Blonde-Haired Female Lead"
+   },
+   {
+    "category": "Blue-Eyed Male Lead"
+   },
+   {
+    "category": "Blushing Female Lead"
+   },
+   {
+    "category": "Blushing Male Lead"
+   },
+   {
+    "category": "Book/s"
+   },
+   {
+    "category": "Breast Sucking"
+   },
+   {
+    "category": "Brother-Sister Relationship"
+   },
+   {
+    "category": "Brown-Haired Character/s"
+   },
+   {
+    "category": "Child Bride"
+   },
+   {
+    "category": "Childhood Friend/s"
+   },
+   {
+    "category": "Childhood Friends Become Lovers"
+   },
+   {
+    "category": "Childhood Love"
+   },
+   {
+    "category": "Coma"
+   },
+   {
+    "category": "Coming of Age"
+   },
+   {
+    "category": "Competition/s"
+   },
+   {
+    "category": "Concubine/s"
+   },
+   {
+    "category": "Count/Countess"
+   },
+   {
+    "category": "Crazy Character/s"
+   },
+   {
+    "category": "Cross-dressing"
+   },
+   {
+    "category": "Cross-dressing Male Lead"
+   },
+   {
+    "category": "Cunnilingus"
+   },
+   {
+    "category": "Curse/s"
+   },
+   {
+    "category": "Cursed Male Lead"
+   },
+   {
+    "category": "Dancing"
+   },
+   {
+    "category": "Dense Female Lead"
+   },
+   {
+    "category": "Disquise/s"
+   },
+   {
+    "category": "Dream/s"
+   },
+   {
+    "category": "Duchess/es"
+   },
+   {
+    "category": "Duke/s"
+   },
+   {
+    "category": "Ear Licking"
+   },
+   {
+    "category": "Elaborate Art Style"
+   },
+   {
+    "category": "Emperor/King Male Lead"
+   },
+   {
+    "category": "Empire/s"
+   },
+   {
+    "category": "Empress/Queen Female Lead"
+   },
+   {
+    "category": "European Ambience"
+   },
+   {
+    "category": "Eye Color Change"
+   },
+   {
+    "category": "Family Secret"
+   },
+   {
+    "category": "Festival"
+   },
+   {
+    "category": "Fever"
+   },
+   {
+    "category": "Fingering"
+   },
+   {
+    "category": "Flashback/s"
+   },
+   {
+    "category": "Foreigner/s"
+   },
+   {
+    "category": "Forest/s"
+   },
+   {
+    "category": "Full Color"
+   },
+   {
+    "category": "Gateway/s"
+   },
+   {
+    "category": "Gemstones"
+   },
+   {
+    "category": "Gossip/s"
+   },
+   {
+    "category": "Green-Eyed Character/s"
+   },
+   {
+    "category": "Gun/s"
+   },
+   {
+    "category": "Half-Sibling/s"
+   },
+   {
+    "category": "Half-Sisters"
+   },
+   {
+    "category": "Handsome Male Lead"
+   },
+   {
+    "category": "Hickeys"
+   },
+   {
+    "category": "Hunting"
+   },
+   {
+    "category": "Illegitimate Male Lead"
+   },
+   {
+    "category": "Illusions"
+   },
+   {
+    "category": "In-Law/s"
+   },
+   {
+    "category": "Injury/ies"
+   },
+   {
+    "category": "Intimidation"
+   },
+   {
+    "category": "Jealousy"
+   },
+   {
+    "category": "Jewelry"
+   },
+   {
+    "category": "Kind Female Lead"
+   },
+   {
+    "category": "Kingdom/s"
+   },
+   {
+    "category": "Kiss/es"
+   },
+   {
+    "category": "Knife/ves"
+   },
+   {
+    "category": "Letter/s"
+   },
+   {
+    "category": "Light Magic/Power"
+   },
+   {
+    "category": "Love Confession/s"
+   },
+   {
+    "category": "Mage Female Lead"
+   },
+   {
+    "category": "Mage/s"
+   },
+   {
+    "category": "Magic"
+   },
+   {
+    "category": "Magic Crystals/Stones"
+   },
+   {
+    "category": "Magic Item/s"
+   },
+   {
+    "category": "Male Lead Falls in Love First"
+   },
+   {
+    "category": "Mana"
+   },
+   {
+    "category": "Memories"
+   },
+   {
+    "category": "Memory Erasure"
+   },
+   {
+    "category": "Memory Loss"
+   },
+   {
+    "category": "Memory Manipulation"
+   },
+   {
+    "category": "Misunderstanding/s"
+   },
+   {
+    "category": "Monster/s"
+   },
+   {
+    "category": "Mother-Son Relationship"
+   },
+   {
+    "category": "Mother/s"
+   },
+   {
+    "category": "Muscular Male Lead"
+   },
+   {
+    "category": "Nightmare/s"
+   },
+   {
+    "category": "Official English Uncensored"
+   },
+   {
+    "category": "Organization/s"
+   },
+   {
+    "category": "Painting"
+   },
+   {
+    "category": "Palace/s"
+   },
+   {
+    "category": "Party/ies"
+   },
+   {
+    "category": "Perceptive Male Lead"
+   },
+   {
+    "category": "Perverted Character/s"
+   },
+   {
+    "category": "Poison/s"
+   },
+   {
+    "category": "Priest/s"
+   },
+   {
+    "category": "Promiscuous Character/s"
+   },
+   {
+    "category": "Prophecy/ies"
+   },
+   {
+    "category": "Purple/Violet-Eyed Female Lead"
+   },
+   {
+    "category": "Purple/Violet-Haired Character/s"
+   },
+   {
+    "category": "Queen/s"
+   },
+   {
+    "category": "R18"
+   },
+   {
+    "category": "Red-Haired Character/s"
+   },
+   {
+    "category": "Ring/s"
+   },
+   {
+    "category": "Royalty"
+   },
+   {
+    "category": "Rumor/s"
+   },
+   {
+    "category": "Scar/s"
+   },
+   {
+    "category": "Scary Male Lead"
+   },
+   {
+    "category": "Secret/s"
+   },
+   {
+    "category": "Self-Harm"
+   },
+   {
+    "category": "Shop/s"
+   },
+   {
+    "category": "Sick Family Member/s"
+   },
+   {
+    "category": "Sick Parent/s"
+   },
+   {
+    "category": "Snake/s"
+   },
+   {
+    "category": "Sociopath/s"
+   },
+   {
+    "category": "Sorcery"
+   },
+   {
+    "category": "Stoic Character/s"
+   },
+   {
+    "category": "Strong Female Lead"
+   },
+   {
+    "category": "Strong Male Lead"
+   },
+   {
+    "category": "Sword/s"
+   },
+   {
+    "category": "Swordsman/men"
+   },
+   {
+    "category": "Tea"
+   },
+   {
+    "category": "Teleportation"
+   },
+   {
+    "category": "Terrorist/s"
+   },
+   {
+    "category": "Tower/s"
+   },
+   {
+    "category": "Travel/Journey"
+   },
+   {
+    "category": "Webtoon/Webcomic"
+   },
+   {
+    "category": "White/Silver-Haired Character/s"
+   }
+  ],
+  "type": "Manhwa"
+ },
+ "mangadex.manga": {
+  "attributes": {
+   "tags": [
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Long Strip"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Romance"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Fantasy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Adaptation"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Full Color"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "anilist.media": {
+  "genres": [
+   "Fantasy",
+   "Romance"
+  ],
+  "tags": [
+   {
+    "name": "Full Color",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Long Strip",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Heterosexual",
+    "rank": 20,
+    "isMediaSpoiler": false
+   }
+  ]
+ },
+ "old_tool_wrote": {
+  "genres": [
+   "Adult",
+   "Drama",
+   "Fantasy",
+   "Josei",
+   "Manhwa",
+   "Releasing",
+   "Romance"
+  ],
+  "tags": [
+   "Age Regression",
+   "Archery",
+   "Arranged Marriage",
+   "Childhood Friends",
+   "Coming of Age",
+   "Crossdressing",
+   "Sexual Content"
+  ]
+ },
+ "expected": {
+  "genres": [
+   "Fantasy",
+   "Romance",
+   "Adult",
+   "Drama",
+   "Josei",
+   "Erotica",
+   "Releasing",
+   "Manhwa"
+  ],
+  "tags": [
+   "Sexual Content",
+   "Arranged Marriage",
+   "Childhood Friends",
+   "Curses",
+   "Magic",
+   "Magic Items"
+  ]
+ }
+}
