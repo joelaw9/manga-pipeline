@@ -259,11 +259,11 @@ def test_bad_database_settings_are_config_errors(change, error):
 
 @budget(load="db")
 def test_a_refused_login_cannot_connect_and_never_shows_the_password():
-    login = {"user": "manga_pipeline", "password": "wrong-secret"}  # a role the test server does not have
+    login = {"user": "mp_test_no_such_role", "password": "wrong-secret"}  # a role the test server does not have
     cfg = {**config.cached(), "database": {**config.cached()["database"], **login}}
     with pytest.raises(db.CannotConnect) as e:
         db.connect(cfg)
-    assert "localhost:5432" in str(e.value) and "manga_pipeline" in str(e.value)
+    assert "localhost:5432" in str(e.value) and "mp_test_no_such_role" in str(e.value)
     assert "wrong-secret" not in str(e.value), "the message never holds the password"
 
 
@@ -521,7 +521,7 @@ def test_a_bad_database_setting_exits_2_and_a_refused_login_exits_4(tmp_path, ca
         status({"port": 0})
     assert exit_.value.code == 2, "a bad database setting is a config error"
     assert "database.port" in capsys.readouterr().err
-    assert status({"user": "manga_pipeline", "password": "wrong-secret"}) == 4, "a refused login exits 4"
+    assert status({"user": "mp_test_no_such_role", "password": "wrong-secret"}) == 4, "a refused login exits 4"
     err = capsys.readouterr().err
     assert "cannot use the database server localhost:5432" in err and "wrong-secret" not in err
 
