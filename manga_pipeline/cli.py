@@ -38,7 +38,7 @@ from manga_pipeline.junk import candidates, importing, review, review_run
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
 log = logging.getLogger("manga_pipeline.cli")
 DESCRIPTION = "Suwayomi to Kavita manga pipeline: junk removal, metadata, bad-download repair, AVIF conversion"
-# Every command that takes a lock runs these.
+# Every command that takes a lock but state version runs these.
 LOCKED_CHECKS = (
     preflight.PYTHON_VERSION,
     preflight.FREE_SPACE,
@@ -85,7 +85,7 @@ class Command:
     checks: tuple[preflight.Check, ...]
     # handler(cfg, args, conn): conn is the command's connection holding its locks, None for a command without any
     handler: Callable[[dict, argparse.Namespace, object], None]
-    builds: bool = False  # creates the database when the server has none (SPEC "State")
+    builds: bool = False  # creates the database when the server has none, and builds one holding no schema record
 
     @property
     def locked(self):
@@ -230,7 +230,7 @@ COMMANDS = {
     "junk show": Command((), None, None, (), _unlocked(junk_show)),
     "junk decide": Command((), None, None, (), _unlocked(junk_decide)),
     "junk review": Command(
-        ("junk-review",), S, "junk-review", REVIEW_CHECKS, lambda cfg, args, conn: review_run.run(cfg, conn), True
+        ("junk-review",), S, "junk-review", REVIEW_CHECKS, lambda cfg, args, conn: review_run.run(cfg, conn)
     ),
     "state reset": Command((), X, None, RESET_CHECKS, lambda cfg, args, conn: state.reset(cfg, conn)),
     "state adopt": Command((), X, None, ADOPT_CHECKS, lambda cfg, args, conn: state.adopt(cfg, conn), True),
@@ -321,7 +321,8 @@ def parser():
 def main(argv=None):
     """Exit code: 0 done, 1 an unexpected error (logged with its traceback), a failed smoke check or a failed junk
     review, 2 usage or config error or a refused command, 3 another run holds a lock the command takes, 4 a hard
-    preflight check failed, the database server cannot be used, or the database is not one this version can use."""
+    preflight check failed, the database server cannot be used, a command with locks finds no database, or the
+    database is not one this version can use."""
     p = parser()
     args = p.parse_args(argv)
     command = COMMANDS[args.command]
@@ -380,11 +381,9 @@ def main(argv=None):
 
 
 def _open(cfg, command):
-    """The command's 1 connection, opened before its locks (SPEC "Run lock"): never creates the database but for a
-    command that builds one."""
-    if command.builds:
-        db.create_missing(cfg)
-    return db.open_existing(cfg)
+    """The command's 1 connection, opened before its locks (SPEC "Run lock"): a command that builds creates a missing
+    database; for any other, a database missing or holding no schema record is NoDatabase."""
+    return db.open_database(cfg, builds=command.builds)
 
 
 if __name__ == "__main__":
