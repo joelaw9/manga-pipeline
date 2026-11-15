@@ -73,7 +73,7 @@ Hand-written rule files in the program; a series' genres and tags come from its 
 
 ## Metadata checks
 
-How often a series is checked depends on the time since its last published update; no series is exempt; a check fetches every source, stores what it found and picks the cover; the old tool's ids are imported, and `metadata audit` lists disagreements before cutover. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#metadata-checks)
+How often a series is checked depends on the time since its last published update; no series is exempt; a check fetches every source (and a Tapas or Webtoons series' episode list, for its volumes and titles), stores what it found and picks the cover; the old tool's ids are imported, and `metadata audit` lists disagreements before cutover. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#metadata-checks)
 
 ## Retroactive updates
 

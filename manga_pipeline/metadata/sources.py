@@ -1,4 +1,5 @@
-"""The 4 metadata sources' clients (SPEC "Source ids", "Metadata checks"): MangaBaka, MangaUpdates, MangaDex, AniList.
+"""The metadata sources' clients (SPEC "Source ids", "Metadata checks"): MangaBaka, MangaUpdates, MangaDex, AniList,
+and the official platforms' episode lists, Tapas and Webtoons (SPEC "Metadata", platform lists).
 
 Each client is thin: a record by id (None when the source no longer has it), and a title search returning the raw
 results; which result is accepted is `match`'s job. Every record is the source's own JSON, stored as fetched. 1 client
@@ -6,6 +7,8 @@ per source per run, each on its own `http.Service` with the source's minimum gap
 """
 
 import urllib.parse
+from datetime import UTC, datetime
+from html.parser import HTMLParser
 
 from manga_pipeline.clients import http
 
@@ -14,6 +17,11 @@ MANGAUPDATES = "https://api.mangaupdates.com/v1"
 MANGADEX = "https://api.mangadex.org"
 MANGADEX_UPLOADS = "https://uploads.mangadex.org"
 ANILIST = "https://graphql.anilist.co"
+TAPAS = "https://tapas.io"
+TAPAS_PAGE = 20  # the largest page of episodes Tapas serves
+WEBTOONS_API = "https://m.webtoons.com/api/v1"
+WEBTOONS_WEB = "https://www.webtoons.com"
+WEBTOONS_PAGE = 100
 MANGADEX_RATINGS = [("contentRating[]", r) for r in ("safe", "suggestive", "erotica", "pornographic")]
 SEARCH_RESULTS = 10
 IMAGE_TIMEOUT = 120  # seconds
@@ -21,13 +29,23 @@ COVER_PAGE = 100  # the largest page of covers MangaDex serves
 ANILIST_MEDIA = """query ($id: Int) { Media(id: $id, type: MANGA) {
   id idMal format status title { romaji english native } synonyms description genres
   tags { name rank isMediaSpoiler } coverImage { extraLarge } startDate { year month day }
-  staff { edges { role node { name { full } } } } } }"""
+  staff { edges { role node { name { full } } } } externalLinks { site type url language } } }"""
 ANILIST_SEARCH = """query ($s: String) { Page(perPage: 8) { media(search: $s, type: MANGA) {
   id format title { romaji english native } synonyms } } }"""
 
 
 class SourceError(Exception):
     """A source answered with an error that is not "not found" (AniList's GraphQL `errors`)."""
+
+
+def _gone(call, statuses=(404,)):
+    """The call's result, or None when the site answers that the page is gone."""
+    try:
+        return call()
+    except http.HttpError as e:
+        if e.status in statuses:
+            return None
+        raise
 
 
 def _unless_gone(call):
@@ -145,3 +163,129 @@ class AniList:
         if reply.get("errors"):
             raise SourceError("AniList: " + "; ".join(str(e.get("message")) for e in reply["errors"]))
         return reply["data"]
+
+
+class Tapas:
+    """Tapas' own site endpoints (local library tapas.md). A 403 is Tapas blocking: unreachable for the run."""
+
+    GONE = (400, 404)
+
+    def __init__(self):
+        self._service = http.Service("tapas", 0.5)
+
+    def series_id(self, slug):
+        """The numeric series id from the series' /info page (its `tapastic://series/<id>` meta; the page carries it
+        only when asked for HTML), or None when the page is gone or carries none."""
+        url = f"{TAPAS}/series/{urllib.parse.quote(slug)}/info"
+        reply = _gone(lambda: self._get(url, "text/html"), self.GONE)
+        if reply is None:
+            return None
+        finder = _MetaFinder("tapastic://series/")
+        finder.feed(reply.body.decode("utf-8", "replace"))
+        return finder.found.split("/")[0] if finder.found and finder.found.split("/")[0].isdigit() else None
+
+    def episodes(self, series_id):
+        """([(site number, title, date, id)] in site order, the count Tapas says it has), or None when the list is
+        gone. Episodes are kept once each, by id."""
+        items, seen, total, page = [], set(), 0, 1
+        while True:
+            url = f"{TAPAS}/series/{series_id}/episodes?page={page}&sort=OLDEST&max_limit={TAPAS_PAGE}"
+            # a gone first page is no list; a page gone later is an error: the stored list is kept
+            reply = _gone(lambda url=url: self._get(url), self.GONE if page == 1 else ())
+            if reply is None:
+                return None
+            data = reply.json()["data"]
+            for e in data["episodes"]:
+                if e["id"] not in seen:
+                    seen.add(e["id"])
+                    items.append((e["scene"], e["title"], (e.get("publish_date") or "")[:10] or None, e["id"]))
+            total = max(total, data["pagination"].get("total") or 0)
+            following = data["pagination"].get("page") or 0  # Tapas gives the next page's number
+            if not data["pagination"]["has_next"] or not data["episodes"] or following <= page:
+                return items, total
+            page = following
+
+    def _get(self, url, accept="application/json"):
+        try:
+            return self._service.request("GET", url, headers={"Accept": accept})
+        except http.HttpError as e:
+            if e.status == 403:
+                raise self._service.mark_unreachable(f"HTTP 403 from {http.redact_url(url)}: blocked") from None
+            raise
+
+
+class Webtoons:
+    """Webtoons' own endpoints (local library webtoons.md); a ref is "<webtoon|canvas>:<title_no>"."""
+
+    def __init__(self):
+        self._service = http.Service("webtoons", 0.5)
+
+    def episodes(self, ref):
+        """[(site number, title, date, None)] in site order, or None when Webtoons has no such series
+        (`success` false, or a page that is gone)."""
+        kind, number = ref.split(":")
+        items, cursor = [], None
+        while True:
+            url = f"{WEBTOONS_API}/{kind}/{number}/episodes?pageSize={WEBTOONS_PAGE}"
+            url += f"&cursor={cursor}" if cursor else ""
+            # a gone first page is no list; a page gone later is an error: the stored list is kept
+            reply = _gone(lambda url=url: self._service.request("GET", url), (400, 404) if cursor is None else ())
+            if reply is None:
+                return None
+            data = reply.json()
+            if not data.get("success"):
+                if cursor is None:
+                    return None
+                raise SourceError(f"Webtoons: {kind} {number} failed after cursor {cursor}")
+            result = data.get("result") or {}
+            following = result.get("nextCursor")
+            if cursor is not None and following and following <= cursor:
+                return items  # the page asked for again: it does not move on, and its episodes are in already
+            for e in result.get("episodeList") or []:
+                millis = e.get("exposureDateMillis")
+                date = datetime.fromtimestamp(millis / 1000, UTC).date().isoformat() if millis else None
+                items.append((e["episodeNo"], e.get("episodeTitle"), date, None))
+            if not following or not result.get("episodeList"):
+                return items
+            cursor = following
+
+    def app_only(self, ref):
+        """Whether the web list page says episodes are only on the app (its `detail_install_app` block); None when the
+        page cannot be read."""
+        kind, number = ref.split(":")
+        path = "/challenge/episodeList" if kind == "canvas" else "/episodeList"
+        try:
+            reply = self._service.request(
+                "GET", f"{WEBTOONS_WEB}{path}?titleNo={number}", headers={"Accept": "text/html"}
+            )
+        except http.HttpError:
+            return None
+        finder = _AttributeFinder("detail_install_app")
+        finder.feed(reply.body.decode("utf-8", "replace"))
+        return finder.found
+
+
+class _MetaFinder(HTMLParser):
+    """The rest of the first <meta content> that starts with prefix."""
+
+    def __init__(self, prefix):
+        super().__init__()
+        self.prefix, self.found = prefix, None
+
+    def handle_starttag(self, tag, attrs):
+        content = dict(attrs).get("content") or ""
+        if tag == "meta" and self.found is None and content.startswith(self.prefix):
+            self.found = content[len(self.prefix) :]
+
+
+class _AttributeFinder(HTMLParser):
+    """Whether any element carries the name as a class or as its id."""
+
+    def __init__(self, name):
+        super().__init__()
+        self.name, self.found = name, False
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if self.name in (values.get("class") or "").split() or values.get("id") == self.name:
+            self.found = True

@@ -1,0 +1,1362 @@
+{
+ "series": "I Am The Real One",
+ "basis": "tapas seasons",
+ "platform": {
+  "name": "tapas",
+  "ref": "i-am-the-real-one"
+ },
+ "overrides": null,
+ "covered_volumes": [],
+ "chapters": [
+  {
+   "file": "Official_Chapter 1.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "1",
+   "title": "Devoted Daughter",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 2.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "2",
+   "title": "Family Resemblance",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 3.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "3",
+   "title": "An Insult or the Truth",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 4.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "4",
+   "title": "Hierarchical Order",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 5.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "5",
+   "title": "Downward Spiral",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 6.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "6",
+   "title": "Second Chance",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 7.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "7",
+   "title": "Strained Relationship",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 8.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "8",
+   "title": "The Parvis Knights",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 9.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "9",
+   "title": "Recognition",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 10.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "10",
+   "title": "A Different Side to Her",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 11.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "11",
+   "title": "Finding A Hobby",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 12.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "12",
+   "title": "A Good Converstation",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 13.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "13",
+   "title": "Dignity and Authority",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 14.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "14",
+   "title": "To Be Closer With the Knights",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 15.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "15",
+   "title": "A Noble Lady's Interests",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 16.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "16",
+   "title": "Somewhere Fun",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 17.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "17",
+   "title": "A Fateful Encounter?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 18.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "18",
+   "title": "First Crush",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 19.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "19",
+   "title": "Date With A Scumbag",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 20.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "20",
+   "title": "An Important Mission",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 21.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "21",
+   "title": "His Looks",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 22.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "22",
+   "title": "The Right to Ask",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 23.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "23",
+   "title": "All Dressed Up",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 24.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "24",
+   "title": "Caught In The Act",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 25.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "25",
+   "title": "He Had It Coming",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 26.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "26",
+   "title": "Realization",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 27.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "27",
+   "title": "Quite Noisy",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 28.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "28",
+   "title": "Discontent",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 29.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "29",
+   "title": "At the Princess' Salon",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 30.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "30",
+   "title": "Cheat Sheet",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 31.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "31",
+   "title": "For Courtesy's Sake",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 32.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "32",
+   "title": "Time Magic",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 33.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "33",
+   "title": "A Secret",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 34.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "34",
+   "title": "Clues and Information",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 35.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "35",
+   "title": "Resonance",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 36.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "36",
+   "title": "Birthday",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 37.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "37",
+   "title": "I'm His Daughter",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 38.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "38",
+   "title": "Dismissed",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 39.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "39",
+   "title": "After the Banquet",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 40.cbz",
+   "kind": "main",
+   "volume": 1,
+   "volume_source": "tapas seasons",
+   "number": "40",
+   "title": "It'll Be Different This Time",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 41.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "41",
+   "title": "The Past Joseph",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 42.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "42",
+   "title": "Meaningful Sparring",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 43.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "43",
+   "title": "What He Wanted to Tell Her",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 44.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "44",
+   "title": "Piles of Letters",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 45.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "45",
+   "title": "A Flipped Conversation",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 46.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "46",
+   "title": "A Maid's Dreams",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 47.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "47",
+   "title": "Visiting Great-Aunt",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 48.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "48",
+   "title": "Elemental Crystal",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 49.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "49",
+   "title": "Intruder in the Basement",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 50.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "50",
+   "title": "Entrapment",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 51.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "51",
+   "title": "Suspicions",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 52.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "52",
+   "title": "A Protective Measure",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 53.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "53",
+   "title": "Returning to Duty",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 54.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "54",
+   "title": "Dignity Over Harmony",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 55.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "55",
+   "title": "Rowena Weinberg",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 56.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "56",
+   "title": "Same Boat",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 57.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "57",
+   "title": "Meeting Her Father",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 58.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "58",
+   "title": "Cosette's Maid",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 59.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "59",
+   "title": "Maids Gossiping",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 60.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "60",
+   "title": "The Captain is Back",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 61.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "61",
+   "title": "A Question of Loyalty",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 62.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "62",
+   "title": "The Letter from Aunt Johanna",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 63.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "63",
+   "title": "Who Will Perform the Rite?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 64.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "64",
+   "title": "The Inner Temple",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 65.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "65",
+   "title": "Preparing for the Final Ceremony",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 66.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "66",
+   "title": "Fire",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 67.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "67",
+   "title": "How Did the Relic Break?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 68.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "68",
+   "title": "Where Was Mina?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 69.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "69",
+   "title": "Consequences",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 70.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "70",
+   "title": "Probation",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 71.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "71",
+   "title": "Clothes Shopping",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 72.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "72",
+   "title": "Introductions",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 73.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "73",
+   "title": "Swordsmanship Contest",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 74.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "74",
+   "title": "Walking in the Sky",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 75.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "75",
+   "title": "Festival Cake",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 76.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "76",
+   "title": "The Imperial Library",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 77.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "77",
+   "title": "The Fairy Tale",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 78.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "78",
+   "title": "Realizations",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 79.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "79",
+   "title": "Fairy-Tale Romance",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 80.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "80",
+   "title": "Who Would She Choose?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 81.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "81",
+   "title": "Acting Weird",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 82.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "82",
+   "title": "An Intruder!",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 83.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "83",
+   "title": "The Trip to the Hunting Festival",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 84.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "84",
+   "title": "Finding Their Tents",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 85.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "85",
+   "title": "Day One of the Hunt",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 86.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "86",
+   "title": "The Fawn",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 87.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "87",
+   "title": "Let Me Fix This",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 88.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "88",
+   "title": "A Demonic Monster",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 89.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "89",
+   "title": "Aftermath",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 90.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "90",
+   "title": "Changed Emotions",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 91.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "91",
+   "title": "Side Story 1",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 92.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "92",
+   "title": "Side Story - Rowena",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 93.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "93",
+   "title": "The Deal",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 94.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "94",
+   "title": "Nightmares",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 95.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "95",
+   "title": "Moving Forward",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 96.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "96",
+   "title": "A Secret",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 97.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "97",
+   "title": "Time to Leave",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 98.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "98",
+   "title": "Eri's Lost Ball",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 99.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "99",
+   "title": "Telecom Stone",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 100.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "100",
+   "title": "Cosette's Plan",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 101.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "101",
+   "title": "Gunpowder",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 102.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "102",
+   "title": "A Visit to Great-Aunt Johanna",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 103.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "103",
+   "title": "Interrogations",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 104.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "104",
+   "title": "Visit the Magic Tower?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 105.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "105",
+   "title": "Stepsister",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 106.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "106",
+   "title": "A Demon?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 107.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "107",
+   "title": "No Breakfast",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 108.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "108",
+   "title": "Trust or Betrayal?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 109.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "109",
+   "title": "The Demon World",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 110.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "110",
+   "title": "Ragibach's Power",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 111.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "111",
+   "title": "Secret Lover",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 112.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "112",
+   "title": "What Did Count Edinburgh Know?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 113.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "113",
+   "title": "Mediation",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 114.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "114",
+   "title": "The Ball Begins",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 115.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "115",
+   "title": "Request for Trial",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 116.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "116",
+   "title": "Travel Records",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 117.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "117",
+   "title": "The Outcome",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 118.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "118",
+   "title": "Will He Wake Up?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 119.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "119",
+   "title": "Weinberg's Fate",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 120.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "120",
+   "title": "A Funeral and An Investigation",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 121.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "121",
+   "title": "A Trip",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 122.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "122",
+   "title": "Rough Coordinates",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 123.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "123",
+   "title": "Ajayi's Eye",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 124.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "124",
+   "title": "Find the Shard",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 125.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "125",
+   "title": "The Shard",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 126.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "126",
+   "title": "Inside the Shard",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 127.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "127",
+   "title": "The Demons' Meeting",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 128.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "128",
+   "title": "Ragibach's Intel",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 129.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "129",
+   "title": "Discussing Plans",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 130.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "130",
+   "title": "Return to the Human World",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 131.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "131",
+   "title": "A Very Brief Rest",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 132.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "132",
+   "title": "Where Is Cosette?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 133.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "133",
+   "title": "Cosette's Escape",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 134.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "134",
+   "title": "The Path to the Elemental Crystals",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 135.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "135",
+   "title": "Keira versus Cosette",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 136.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "136",
+   "title": "Stand Up",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 137.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "137",
+   "title": "Two Spirits",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 138.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "138",
+   "title": "Won't Give Up",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 139.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "139",
+   "title": "Meeting Cosette",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 140.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "140",
+   "title": "Calling Ajayi",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 141.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "141",
+   "title": "Time to Explain",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 142.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "142",
+   "title": "The Price",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 143.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "143",
+   "title": "Keira's Elemental Powers",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 144.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "144",
+   "title": "Grand Duke Parvis Tells All",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 145.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "145",
+   "title": "A Redefined Relationship",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 146.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "146",
+   "title": "What Will You Sacrifice?",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 147.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "147",
+   "title": "Peace Treaty",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 148.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "148",
+   "title": "A Simple Marker",
+   "open": false
+  },
+  {
+   "file": "Official_Chapter 149.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "149",
+   "title": "Changing Minds",
+   "open": true
+  },
+  {
+   "file": "Official_Chapter 150.cbz",
+   "kind": "main",
+   "volume": 2,
+   "volume_source": "tapas seasons",
+   "number": "150",
+   "title": "The Goddess",
+   "open": true
+  }
+ ]
+}

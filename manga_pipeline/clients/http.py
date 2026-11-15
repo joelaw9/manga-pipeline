@@ -21,7 +21,11 @@ RETRIES = 4
 MAX_RETRY_AFTER = 60  # seconds; a service asking for longer is unreachable at once
 UNREACHABLE_STATUS = frozenset({429, 502, 503, 504})
 SECRET_WORDS = ("key", "token", "secret", "pass", "auth", "sig")
-USER_AGENT = "manga-pipeline"
+USER_AGENT = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )
 BODY_SHOWN = 200  # characters of an error reply shown in its message
 
 

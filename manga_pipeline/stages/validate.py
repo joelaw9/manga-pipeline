@@ -5,7 +5,8 @@ and downloaded again (redownload.py), and the replacement is validated here, in 
 The stage is a state machine over chapter.redownload; every step can run again after a crash or an unreachable
 Suwayomi, because each lands in the database before the next call. Before any of it, a series Kavita holds gets its
 baseline (waiting on bulk_conversion until its record can be read), and a series that has never completed a
-metadata check waits on metadata_check: its chapters' names and volume covers need both.
+metadata check waits on metadata_check (a platform-basis series also until the check its new chapter made due
+completes: check.completed): its chapters' names and volume covers need both.
 """
 
 import functools

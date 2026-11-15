@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from manga_pipeline import db, workflow
-from manga_pipeline.metadata import covers, ids, refresh, search, sources
+from manga_pipeline.metadata import covers, ids, platforms, refresh, search, sources
 
 log = logging.getLogger(__name__)
 FETCHED_ORIGINS = ("suwayomi", "kavita", "anilist", "mangabaka", "mangadex")  # replaced by every completed check
@@ -29,16 +29,25 @@ KINDS = {
 
 @dataclass
 class Sources:
-    """The run's 4 source clients."""
+    """The run's source clients: the 4 metadata sources and the 2 platforms."""
 
     mangabaka: sources.MangaBaka
     mangaupdates: sources.MangaUpdates
     mangadex: sources.MangaDex
     anilist: sources.AniList
+    tapas: sources.Tapas
+    webtoons: sources.Webtoons
 
 
 def new_sources():
-    return Sources(sources.MangaBaka(), sources.MangaUpdates(), sources.MangaDex(), sources.AniList())
+    return Sources(
+        sources.MangaBaka(),
+        sources.MangaUpdates(),
+        sources.MangaDex(),
+        sources.AniList(),
+        sources.Tapas(),
+        sources.Webtoons(),
+    )
 
 
 class Disagree(Exception):
@@ -47,11 +56,16 @@ class Disagree(Exception):
 
 def completed(ctx, chapter):
     """Whether the chapter's series has completed a metadata check (found or not): the end of a metadata_check
-    wait."""
+    wait. A series on a platform basis also needs the check its new chapter made due to complete, so the chapter is
+    never named from a list older than its arrival (SPEC "Metadata", platform lists)."""
     row = ctx.conn.execute(
-        "SELECT data_version FROM series_check WHERE series_id = %s", (chapter["series_id"],)
+        """SELECT k.data_version, k.urgent, s.naming_basis FROM series s
+        LEFT JOIN series_check k ON k.series_id = s.id WHERE s.id = %s""",
+        (chapter["series_id"],),
     ).fetchone()
-    return row is not None and row["data_version"] > 0
+    if row is None or not row["data_version"]:
+        return False
+    return not (row["naming_basis"] in platforms.BASES and row["urgent"])
 
 
 def due(ctx):
@@ -108,13 +122,15 @@ def run(ctx, clients, series_id):
         )
         return False
     manga_rows = [m for m in (ctx.suwayomi.manga(row["manga_id"]) for row in mangas) if m is not None]
-    known = _stored_ids(conn, series_id) + _origin_ids(ctx, series, kavita_series, manga_rows)
+    kavita_meta = ctx.kavita.metadata(series["kavita_series_id"]) if kavita_series is not None else None
+    known = _stored_ids(conn, series_id) + _origin_ids(kavita_series, kavita_meta, manga_rows)
     try:
         records = _fetch(clients, _names(series), known)
     except Disagree as e:
         _store_disagreement(conn, series_id, known, str(e))
         log.warning("series %s (%s): needs_human: %s", series_id, series["name"], e)
         return False
+    platform = _platform(clients, series, kavita_meta, records, _stored_platform(conn, series_id))
     refresh.completed(ctx, series_id, manga_rows)
     last = _last_update(ctx, clients, manga_rows, records)
     complete = any(m["status"] == refresh.COMPLETED for m in manga_rows) or (
@@ -124,6 +140,7 @@ def run(ctx, clients, series_id):
     now = workflow.now(conn)
     with db.transaction(conn):
         changed = _store(conn, series_id, known, records, now)
+        _store_platform(conn, series_id, platform, now)
         if cover is not None:
             covers.store(conn, series_id, cover)
         version = conn.execute(
@@ -173,14 +190,60 @@ def _stored_ids(conn, series_id):
     return [tuple(r) for r in rows]
 
 
-def _origin_ids(ctx, series, kavita_series, manga_rows):
+def _origin_ids(kavita_series, kavita_meta, manga_rows):
     known = []
     for manga in manga_rows:
         known += [(s, "suwayomi", v) for s, v in ids.suwayomi_ids(manga)]
     if kavita_series is None:  # a new series Kavita does not hold yet
         return known
-    metadata = ctx.kavita.metadata(series["kavita_series_id"])
-    return known + [(s, "kavita", v) for s, v in ids.kavita_ids(kavita_series, metadata)]
+    return known + [(s, "kavita", v) for s, v in ids.kavita_ids(kavita_series, kavita_meta)]
+
+
+def _stored_platform(conn, series_id):
+    row = conn.execute(
+        "SELECT payload FROM fetched WHERE series_id = %s AND kind = %s", (series_id, platforms.KIND)
+    ).fetchone()
+    return row["payload"] if row else None
+
+
+def _platform(clients, series, kavita_meta, records, stored):
+    """The series' platform episode list (SPEC "Metadata", platform lists), or None: the first candidate page that
+    has a list. Unreachable (Tapas blocking included) and other HTTP errors end the check, as for any source."""
+    kavita_links = [u.strip() for u in ((kavita_meta or {}).get("webLinks") or "").split(",") if u.strip()]
+    anilist_links = platforms.anilist_links(records[("anilist", "media")])
+    for name, ref in platforms.candidates(kavita_links, anilist_links, series["naming_basis"]):
+        if name == platforms.TAPAS:
+            known = (stored or {}).get("series_id") if (stored or {}).get("ref") == ref else None
+            series_id = known or clients.tapas.series_id(ref)  # the /info page only when the id is not known
+            listed = clients.tapas.episodes(series_id) if series_id is not None else None
+            if listed is not None:
+                return platforms.record(name, ref, listed[0], listed_total=listed[1], series_id=series_id)
+        else:
+            items = clients.webtoons.episodes(ref)
+            if items is not None:
+                app_only = clients.webtoons.app_only(ref)
+                return platforms.record(name, ref, items, app_only=bool(app_only), list_page_read=app_only is not None)
+    return None
+
+
+def _store_platform(conn, series_id, platform, now):
+    """Store the series' platform list (outside the data hash: a new episode is not a data change). A list with fewer
+    main episodes than the stored one of the same page does not replace it (a Webtoons Original cut back to its
+    web episodes); no list removes the stored one."""
+    stored = conn.execute(
+        "SELECT source, payload FROM fetched WHERE series_id = %s AND kind = %s", (series_id, platforms.KIND)
+    ).fetchone()
+    same = stored is not None and platform is not None and stored["payload"]["ref"] == platform["ref"]
+    if same and stored["source"] == platform["name"]:
+        if platforms.main_episodes(platform) < platforms.main_episodes(stored["payload"]):
+            return
+    conn.execute("DELETE FROM fetched WHERE series_id = %s AND kind = %s", (series_id, platforms.KIND))
+    if platform is not None:
+        conn.execute(
+            """INSERT INTO fetched (series_id, source, kind, payload, payload_hash, fetched_at)
+            VALUES (%s, %s, %s, %s, %s, %s)""",
+            (series_id, platform["name"], platforms.KIND, json.dumps(platform), _hash(platform), now),
+        )
 
 
 def _fetch(clients, names, known):
