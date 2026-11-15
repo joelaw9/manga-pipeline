@@ -132,8 +132,9 @@ class Kavita:
         return self._call("GET", f"/api/Series/volumes?seriesId={int(series_id)}").json()
 
     def series_files(self, series_id):
-        """Every file Kavita holds for the series: its local path, bytes, pages, file id, chapter id, volume id and
-        the chapter's pagesRead (of the API key's user)."""
+        """Every file Kavita holds for the series: its local path, bytes, pages, file id, chapter id, volume id, the
+        chapter's pagesRead (of the API key's user) and its lastModifiedUtc (moved by every scan that re-reads the
+        file: local library kavita-scanning.md)."""
         return [
             {
                 "path": self.local_path(file["filePath"]),
@@ -143,11 +144,35 @@ class Kavita:
                 "chapter_id": chapter["id"],
                 "volume_id": volume["id"],
                 "pages_read": chapter["pagesRead"],
+                "modified": chapter["lastModifiedUtc"],
             }
             for volume in self.volumes(series_id)
             for chapter in volume["chapters"]
             for file in chapter["files"]
         ]
+
+    def save_progress(self, series_id, volume_id, chapter_id, page):
+        """The API key's user has read `page` pages of the chapter (POST /api/reader/progress; Kavita caps it at the
+        chapter's page count)."""
+        body = {
+            "volumeId": volume_id,
+            "chapterId": chapter_id,
+            "pageNum": page,
+            "seriesId": series_id,
+            "libraryId": self.series(series_id)["libraryId"],
+            "bookScrollId": None,
+        }
+        self._call("POST", "/api/reader/progress", json=body)
+
+    def mark_read(self, series_id, chapter_ids):
+        """The API key's user has read the chapters whole (POST /api/reader/mark-multiple-read)."""
+        body = {
+            "seriesId": series_id,
+            "volumeIds": [],
+            "chapterIds": list(chapter_ids),
+            "generateReadingSession": False,
+        }
+        self._call("POST", "/api/reader/mark-multiple-read", json=body)
 
     def series_folder(self, series_id):
         """The single folder holding the series' files, as a local path. FolderError when its files lie in no folder,

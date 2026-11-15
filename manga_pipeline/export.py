@@ -8,7 +8,7 @@ import os
 from datetime import timedelta
 from pathlib import PurePosixPath
 
-from manga_pipeline import config, db, kavita_link, retention, workflow
+from manga_pipeline import config, db, kavita_link, retention, rewrite, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.metadata import kavita_write
@@ -27,12 +27,16 @@ def run(cfg, conn):
 def work(ctx):
     with workflow.share_errors():
         retention.purge(ctx.cfg)
-    workflow.drain(ctx, {"comicinfo": comicinfo.run})
+    # The comparison (SPEC "Retroactive updates"): rewrite chapters for comicinfo and publish below
+    rewrite.compare(ctx)
+    workflow.drain(ctx, {"comicinfo": _comicinfo})
     for series_id in workflow.series_with_ready(ctx, ("publish",)):
         # A new series Kavita does not hold yet is published by new_series (SPEC "Publishing": it lands whole)
         if not _in_kavita(ctx, series_id) or folder_moved(ctx, series_id):
             continue
-        workflow.drain(ctx, {"publish": publish.run}, series_id)
+        workflow.drain(ctx, {"publish": _publish}, series_id)
+    # Every queued rewrite, this run's and what a crash or a reset left: 1 try a run
+    rewrite.finish_all(ctx)
     # Kavita unreachable here ends the run: what is left all needs Kavita.
     workflow.end_waits(ctx, "kavita_scan", confirm.wait_over)
     # Confirm before the new series and the request: every chapter a run published before is then indexed or waiting
@@ -40,6 +44,7 @@ def work(ctx):
     workflow.drain(ctx, {"confirm": confirm.run})
     with workflow.share_errors():
         new_series(ctx)
+    rewrite.restore_all(ctx)
     # Kavita holds series writes while its scan runs: written by a run when no scan is awaited
     if scan_awaited(ctx) is None:
         with workflow.share_errors():
@@ -120,6 +125,14 @@ def _hold(ctx, series, reason):
     return False
 
 
+def _comicinfo(ctx, chapter):
+    return (rewrite.comicinfo_run if chapter["kind"] == "rewrite" else comicinfo.run)(ctx, chapter)
+
+
+def _publish(ctx, chapter):
+    return (rewrite.publish_run if chapter["kind"] == "rewrite" else publish.run)(ctx, chapter)
+
+
 def _in_kavita(ctx, series_id):
     row = ctx.conn.execute("SELECT kavita_series_id FROM series WHERE id = %s", (series_id,)).fetchone()
     return row["kavita_series_id"] is not None
@@ -159,11 +172,15 @@ def scan_awaited(ctx):
 
 
 def _waiting(ctx):
-    return ctx.conn.execute(
-        f"""SELECT COUNT(*) FROM chapter c JOIN series s ON s.id = c.series_id
+    """Chapters waiting on kavita_scan, and rewritten files waiting for Kavita to re-read them."""
+    return (
+        rewrite.waiting(ctx.conn)
+        + ctx.conn.execute(
+            f"""SELECT COUNT(*) FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {workflow.SCOPE}""",
-        workflow.scope_params(ctx.cfg),
-    ).fetchone()[0]
+            workflow.scope_params(ctx.cfg),
+        ).fetchone()[0]
+    )
 
 
 def request_scan(ctx):
@@ -193,6 +210,7 @@ def request_scan(ctx):
         if previous is not None:
             reason = f"not indexed {minutes} minutes after the library scan request"
             charged = workflow.charge_waits(ctx, "kavita_scan", reason, previous, requested)
+            charged += rewrite.charge_waits(ctx, previous, requested)
     log.info("%s: library scan requested", ctx.part)
     if charged:
         log.warning("%s: %d chapter(s) still not indexed charged 1 attempt", ctx.part, charged)

@@ -59,6 +59,7 @@ metadata:
 
 export:
   retention_days: 7
+  rewrites_open: 50
 
 tools:
   avifenc: "$TMP/tools/avifenc"

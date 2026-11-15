@@ -8,7 +8,12 @@ It models what the pipeline must cope with (local library `kavita-scanning.md`):
 - a scan is only requested: nothing changes until Kavita runs it (here: until the test calls run_scans());
 - lowestFolderPath is the common parent of the series' files (the library root for a series spanning 2 top folders);
   folderPath is the top folder under the library root, shared by every series below it;
-- with `stale_sizes` set, a scan keeps the old size of a file replaced under the same name.
+- with `stale_sizes` set, a scan keeps the old size of a file replaced under the same name;
+- a file replaced under the same name keeps its chapter, file id and reading progress only while its ComicInfo Volume
+  is unchanged; a changed volume, like a new name, gets a new chapter with no progress; every file a scan re-reads
+  (new, or modified since) gets a later chapter lastModifiedUtc (measured 2026-11-15: local library
+  kavita-scanning.md);
+- reading progress is written for the API key's user: save_progress, mark_read.
 
 Simpler than Kavita: every file is its own chapter in 1 volume per series, and a file with no ComicInfo Series takes
 its folder's name (Kavita parses the file name first).
@@ -42,6 +47,7 @@ class FakeKavita(kavita.Kavita):
         self.writes = []  # every write call (scan requests, metadata, series, cover), in order
         self.pending = []  # scan requests Kavita has not run yet
         self._next_id = 1000
+        self._clock = 0  # Kavita's own clock: lastModifiedUtc values
 
     # --- building state
 
@@ -101,6 +107,7 @@ class FakeKavita(kavita.Kavita):
                 "volumeId": volume_id,
                 "pages": f["pages"],
                 "pagesRead": f["pagesRead"],
+                "lastModifiedUtc": f["modified"],
                 "files": [{"id": f["id"], "filePath": path, "bytes": f["bytes"], "pages": f["pages"]}],
             }
             for path, f in files.items()
@@ -110,6 +117,17 @@ class FakeKavita(kavita.Kavita):
     def scan_library(self, library_id):
         self.writes.append(("scan_library", library_id))
         self.pending.append(library_id)
+
+    def save_progress(self, series_id, volume_id, chapter_id, page):
+        self.writes.append(("progress", chapter_id, page))
+        file = next(f for f in self.files.values() if f["chapter"] == chapter_id)
+        file["pagesRead"] = min(page, file["pages"])
+
+    def mark_read(self, series_id, chapter_ids):
+        self.writes.append(("read", tuple(chapter_ids)))
+        for file in self.files.values():
+            if file["chapter"] in chapter_ids:
+                file["pagesRead"] = file["pages"]
 
     # --- the scan model
 
@@ -152,8 +170,8 @@ class FakeKavita(kavita.Kavita):
         return None
 
     def _index(self, series_id, path, before):
-        """Index 1 file into a series. A file the series held before the scan keeps its ids and reading progress,
-        and with stale_sizes its old size."""
+        """Index 1 file into a series. A file the series held before the scan under the same volume keeps its ids and
+        reading progress, and with stale_sizes its old size; a re-read file's chapter gets a later lastModifiedUtc."""
         local = self.local_path(path)
         try:
             with zipfile.ZipFile(local) as archive:
@@ -161,7 +179,11 @@ class FakeKavita(kavita.Kavita):
         except zipfile.BadZipFile:
             return  # Kavita lists it as a media error and indexes nothing
         old = before.get(path)
-        kept = old is not None and old["series"] == series_id
+        volume = _volume_in(local)
+        kept = old is not None and old["series"] == series_id and old["volume"] == volume
+        mtime = local.stat().st_mtime_ns
+        reread = not kept or old["mtime"] != mtime
+        self._clock += reread
         self.files[path] = {
             "series": series_id,
             "id": old["id"] if kept else self._new_id(),
@@ -169,6 +191,9 @@ class FakeKavita(kavita.Kavita):
             "bytes": old["bytes"] if kept and self.stale_sizes else local.stat().st_size,
             "pages": pages,
             "pagesRead": old["pagesRead"] if kept else 0,
+            "volume": volume,
+            "mtime": mtime,
+            "modified": self._stamp() if reread else old["modified"],
         }
 
     def _add(self, library_id, name, folder, localized, original):
@@ -206,9 +231,23 @@ class FakeKavita(kavita.Kavita):
                 return root if rest == "." else f"{root}/{rest}"
         raise AssertionError(f"FakeKavita: {local} is under no library folder")
 
+    def _stamp(self):
+        """Kavita's lastModifiedUtc now: 7 fractional digits, as Kavita writes it; 1 second a re-read."""
+        c = self._clock
+        return f"2026-01-01T{c // 3600:02d}:{c // 60 % 60:02d}:{c % 60:02d}.0000000"
+
     def _new_id(self):
         self._next_id += 1
         return self._next_id
+
+
+def _volume_in(local):
+    """The ComicInfo Volume a scan reads from a CBZ, or None."""
+    try:
+        with zipfile.ZipFile(local) as archive:
+            return (ET.fromstring(archive.read("ComicInfo.xml")).findtext("Volume") or "").strip() or None
+    except (KeyError, zipfile.BadZipFile, ET.ParseError):
+        return None
 
 
 def _names_in(local, folder_name):

@@ -37,6 +37,25 @@ def put(cfg, download):
     log.info("retention: moved %s to %s", download, target)
 
 
+def put_library(cfg, file):
+    """Keep a library file about to be replaced (SPEC "Retroactive updates") the retention way: a hard link to it
+    under <paths.retention>/library-files/<its folder below the library root>/ (a free "(n)" name, as put picks),
+    its retention period starting now; the library keeps the file until the replace. Nothing when
+    export.retention_days is 0."""
+    if cfg["export"]["retention_days"] == 0:
+        return
+    root = config.abs_path(cfg["paths"]["library"])
+    folder = config.abs_path(cfg["paths"]["retention"]) / "library-files" / file.parent.relative_to(root)
+    folder.mkdir(parents=True, exist_ok=True)
+    target, n = folder / file.name, 1
+    while errors.exists(target):
+        n += 1
+        target = folder / f"{file.stem} ({n}){file.suffix}"
+    os.link(file, target)
+    os.utime(target)  # 1 inode with the library file until the replace: the period runs from now
+    log.info("retention: kept %s as %s", file, target)
+
+
 def purge(cfg, now=None):
     """Delete retained files older than export.retention_days by modification time, and the folders that leaves
     empty. Returns how many files were deleted. A folder that cannot be read raises."""

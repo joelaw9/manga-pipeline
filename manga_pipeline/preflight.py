@@ -148,13 +148,15 @@ def share_folders(cfg):
     )
     if missing:
         return missing
-    # A download is moved to retention by a rename, which cannot cross filesystems.
-    downloads, retention = (config.abs_path(cfg["paths"][key]) for key in ("downloads", "retention"))
-    try:
-        if os.stat(downloads).st_dev != os.stat(retention).st_dev:
-            return "paths.retention is not on the same filesystem as paths.downloads"
-    except OSError as e:
-        return f"cannot read the filesystem of paths.downloads or paths.retention: {e}"
+    # A download is moved to retention by a rename, and a rewritten library file kept there by a hard link (SPEC
+    # "Retroactive updates"): neither crosses filesystems.
+    retention = config.abs_path(cfg["paths"]["retention"])
+    for key in ("downloads", "library"):
+        try:
+            if os.stat(config.abs_path(cfg["paths"][key])).st_dev != os.stat(retention).st_dev:
+                return f"paths.retention is not on the same filesystem as paths.{key}"
+        except OSError as e:
+            return f"cannot read the filesystem of paths.{key} or paths.retention: {e}"
     return None
 
 
@@ -166,6 +168,7 @@ def workflow_settings(cfg):
         ("kavita.library_id", 1),
         ("kavita.rescan_after_minutes", 1),
         ("export.retention_days", 0),
+        ("export.rewrites_open", 1),
         ("convert.workers", 1),
         ("junk.review_limit", 1),
         ("junk.review_batch", 1),

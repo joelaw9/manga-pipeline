@@ -58,10 +58,12 @@ class Naming:
     opens_covered_volume: bool
 
 
-def resolve(basis, rows, overrides, mangadex, platform=None):
+def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset()):
     """{row key: Naming} for the open rows of 1 series. basis: the record's series.naming.basis (None: no volume);
     overrides: the override file's mapping, or None when the series has none; mangadex: mangadex_volumes' map;
-    platform: the stored platform list (metadata/platforms.py), or None.
+    platform: the stored platform list (metadata/platforms.py), or None; fill: keys of open rows that are published
+    files holding no volume, named only to fill it (SPEC "Retroactive updates": their caller takes a whole volume of a
+    main chapter or nothing, so they raise no VolumeError).
     VolumeError for an `override` basis without an override file, and for an open chapter whose volume is not a
     whole number (ComicInfo Volume is an xs:int)."""
     if basis == OVERRIDE and overrides is None:
@@ -77,7 +79,7 @@ def resolve(basis, rows, overrides, mangadex, platform=None):
     vol.update(_open_main_volumes(basis, rows, main, override, mangadex, platform))
     for i in main:
         v = vol[i][0]
-        if not rows[i].settled and v is not None and v != int(v):
+        if not rows[i].settled and rows[i].key not in fill and v is not None and v != int(v):
             number, volume = names.fmt_num(rows[i].number), names.fmt_num(v)
             raise VolumeError(f"chapter {number}: volume {volume} ({vol[i][1]}) is not a whole number")
     out = {}
@@ -146,19 +148,30 @@ def _items(x):
 
 
 def _open_main_volumes(basis, rows, main, override, mangadex, platform):
-    """{row index: (volume, volume source)} of the open main rows: the basis's volume, else a gap fill, else none."""
+    """{row index: (volume, volume source)} of the open main rows: the override range's volume (whatever the basis;
+    only for a chapter that carries no season: a season's numbers restart), else the basis's volume, else a gap fill,
+    else none."""
     free = [i for i in main if not rows[i].settled]
-    found = _basis_volumes(basis, rows, main, free, override, mangadex, platform)
+    ranged = override_volumes(override, rows, free)
+    found = _basis_volumes(basis, rows, main, [i for i in free if i not in ranged], override, mangadex, platform)
     have = {i: rows[i].volume for i in main if rows[i].settled and rows[i].volume is not None}
     agree = {i: v for i, v in have.items() if rows[i].volume_source == basis}
-    fills = _fills(basis, rows, main, free, {**have, **found}, {**agree, **found}, override, mangadex)
+    fills = _fills(basis, rows, main, free, {**have, **ranged, **found}, {**agree, **found}, override, mangadex)
     out = {}
     for i in free:
-        if i in found:
+        if i in ranged:
+            out[i] = (ranged[i], OVERRIDE)
+        elif i in found:
             out[i] = (found[i], DEFAULT if basis == SIDE_DEFAULT else basis)
         else:
             out[i] = fills.get(i, (None, NONE))
     return out
+
+
+def override_volumes(override, rows, ids):
+    """{row index: volume} of the rows among ids that carry no season and whose number lies in a range of the
+    override file's `volumes` mapping (the 1 reader of ranges: volumes.override_volume)."""
+    return {i: v for i, v in _override_volumes(override, rows, ids).items() if rows[i].season is None}
 
 
 def _basis_volumes(basis, rows, main, free, override, mangadex, platform):

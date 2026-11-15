@@ -10,17 +10,21 @@ log = logging.getLogger(__name__)
 
 
 def reset(cfg, conn):
-    """Empty the workflow tables and set every series ok, then empty the staging folder (keeping the owner file), the
-    scratch folder and the junk candidates folder. Downloads, the library, knowledge and sync records are never
-    touched."""
+    """Empty the workflow tables and set every series ok, then empty the staging folder (keeping the owner file and
+    the staged files of queued rewrites: SPEC "Retroactive updates"), the scratch folder and the junk candidates folder.
+    Downloads, the library, knowledge and sync records are never touched."""
     workflow.reset(conn)
+    queued = {
+        config.to_local(cfg, r[0])
+        for r in conn.execute("SELECT pending_staged FROM published_file WHERE pending_staged IS NOT NULL")
+    }
     owner = preflight.owner_file(cfg)
     for key in ("staging", "scratch", "candidates"):
         folder = config.abs_path(cfg["paths"][key])
         if not folder.exists():
             continue
         for entry in folder.iterdir():
-            if entry == owner:
+            if entry == owner or entry in queued:
                 continue
             # A symlink or junction is removed itself, never followed; rmtree does the same for those inside a folder.
             if entry.is_dir() and not entry.is_symlink() and not entry.is_junction():

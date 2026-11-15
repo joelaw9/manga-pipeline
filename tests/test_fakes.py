@@ -2,6 +2,8 @@
 download flag and file names of Suwayomi, and Kavita's scans (name matching, deleted and recreated series, stale
 sizes, folderPath)."""
 
+import os
+
 import pytest
 
 from manga_pipeline.clients import kavita, suwayomi
@@ -231,6 +233,30 @@ def test_a_scan_sees_a_replaced_file_unless_sizes_are_stale(kav, tmp_path):
     kav.scan_library(4)
     kav.run_scans()
     assert kav.series_files(sid)[0]["bytes"] == path.stat().st_size
+
+
+@budget(load="fs")
+def test_a_replaced_file_keeps_its_progress_only_while_its_volume_is_unchanged(kav, tmp_path):
+    put(tmp_path, "Alpha/Ch.1.cbz", "Alpha", pages=4)
+    put(tmp_path, "Alpha/Ch.2.cbz", "Alpha", pages=4)
+    sid = kav.add_series("Alpha", "Alpha")
+    first = {f["path"].name: f for f in kav.series_files(sid)}
+    for f in first.values():
+        kav.save_progress(sid, f["volume_id"], f["chapter_id"], 2)
+    xml = "<?xml version='1.0'?><ComicInfo><Series>Alpha</Series><Volume>2</Volume></ComicInfo>"
+    (tmp_path / "library" / "Alpha" / "Ch.1.cbz").write_bytes(cbz(4, comicinfo("Alpha")))  # same volume (none)
+    (tmp_path / "library" / "Alpha" / "Ch.2.cbz").write_bytes(cbz(4, xml))
+    os.utime(tmp_path / "library" / "Alpha" / "Ch.1.cbz", ns=(1, 1))  # a new modified time: re-read
+    kav.scan_library(4)
+    kav.run_scans()
+    after = {f["path"].name: f for f in kav.series_files(sid)}
+    assert after["Ch.1.cbz"]["chapter_id"] == first["Ch.1.cbz"]["chapter_id"], "volume unchanged: same chapter"
+    assert after["Ch.1.cbz"]["pages_read"] == 2, "and its progress"
+    assert after["Ch.1.cbz"]["modified"] > first["Ch.1.cbz"]["modified"], "a re-read file is modified later"
+    assert after["Ch.2.cbz"]["chapter_id"] != first["Ch.2.cbz"]["chapter_id"], "a new volume: a new chapter"
+    assert after["Ch.2.cbz"]["pages_read"] == 0, "with no progress (measured 2026-11-15)"
+    kav.mark_read(sid, [after["Ch.2.cbz"]["chapter_id"]])
+    assert {f["path"].name: f["pages_read"] for f in kav.series_files(sid)}["Ch.2.cbz"] == 4, "marked read"
 
 
 @budget(load="fs")

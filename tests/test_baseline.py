@@ -75,7 +75,8 @@ def test_the_baseline_records_the_series_published_and_handled_chapters_once(wor
 def test_a_download_with_the_pages_of_a_bulk_source_is_put_aside_once_the_baseline_exists(world):
     _, path = at_junk(world, data=cbz(seed="Grp_Chapter 1"))  # the same pages as bulk chapter 1's source
     world.run(process)
-    assert world.rows("SELECT stage, status FROM chapter") == [("junk", "done")], "dropped, never published twice"
+    # the daily baseline pass took the baseline before the download arrived: dropped at discover as handled
+    assert world.rows("SELECT stage, status FROM chapter") == [("discover", "done")], "dropped, never published twice"
     assert not path.exists(), "put aside the retention way"
 
 

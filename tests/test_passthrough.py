@@ -297,13 +297,14 @@ def test_a_record_without_a_known_layout_keeps_the_chapter_waiting(world, layout
 
 
 @budget(load="db", seconds=2)
-def test_a_record_naming_another_series_keeps_the_chapter_waiting(world):
+def test_a_record_naming_another_series_holds_the_series(world):
     kavita_id = world.kavita_series("Solo Leveling", record=False)
     world.write_record("Other Name", kavita_id, "Solo Leveling", [])
     world.download(world.manga("Solo Leveling"), "Chapter 2")
     through(world, intake, intake)
-    assert world.rows("SELECT status FROM series") == [("needs_human",)]
-    assert world.rows("SELECT stage, status, waiting_on FROM chapter") == [("validate", "waiting", "bulk_conversion")]
+    ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
+    assert status == "needs_human" and "Other Name" in reason, "the baseline pass holds the series"
+    assert world.rows("SELECT stage, status FROM chapter") == [("discover", "ready")], "its chapter is held"
 
 
 @budget(load="db", seconds=2)

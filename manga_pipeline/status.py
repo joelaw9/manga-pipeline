@@ -5,7 +5,7 @@ import json
 from contextlib import closing
 from datetime import datetime
 
-from manga_pipeline import db, kavita_link, workflow
+from manga_pipeline import config, db, kavita_link, rewrite, workflow
 
 
 def run(cfg):
@@ -92,6 +92,31 @@ def _report(conn):
         WHERE {kavita_link.UNATTACHED} GROUP BY s.id ORDER BY s.id"""
     ).fetchall()
     lines += [f"  {r['comicinfo_series']} (series {r['id']}): published {r['since']}" for r in rows] or ["  none"]
+
+    lines.append("Rewrites (queued, waiting for Kavita, failed):")
+    rows = conn.execute(
+        """SELECT id, library_path, pending_path, pending_step, pending_error, pending_attempts, indexed_since
+        FROM published_file
+        WHERE pending_path IS NOT NULL OR indexed_since IS NOT NULL OR pending_error IS NOT NULL ORDER BY id"""
+    ).fetchall()
+    open_rewrites = conn.execute(f"SELECT count(*) FROM chapter WHERE {rewrite.OPEN_REWRITES}").fetchone()[0]
+    if open_rewrites:
+        lines.append(f"  rewrite chapters open: {open_rewrites}")
+    if not (rows or open_rewrites):
+        lines.append("  none")
+    for r in rows:
+        stuck = r["pending_path"] is None or r["pending_attempts"] >= config.cached()["workflow"]["attempt_limit"]
+        if r["pending_error"] and not stuck:
+            lines.append(f"  file {r['id']} ({r['library_path']}): {r['pending_error']} (tried again by export)")
+        elif r["pending_error"]:
+            fix = f"rewrite retry {r['id']}"
+            if r["pending_path"] is None or r["pending_step"] < 3:
+                fix += f", or rewrite drop {r['id']}"
+            lines.append(f"  file {r['id']} ({r['library_path']}): {r['pending_error']} -> {fix}")
+        elif r["pending_path"]:
+            lines.append(f"  file {r['id']} ({r['library_path']}): queued as {r['pending_path']}")
+        else:
+            lines.append(f"  file {r['id']} ({r['library_path']}): waiting for Kavita since {r['indexed_since']}")
 
     lines.append("Needs human:")
     series = conn.execute(

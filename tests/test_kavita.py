@@ -40,6 +40,7 @@ def volumes(*paths, read=0):
             "volumeId": 7,
             "pages": 10,
             "pagesRead": read,
+            "lastModifiedUtc": f"2026-11-15T21:24:02.{i:07d}",
             "files": [{"id": 200 + i, "filePath": p, "bytes": 1000 + i, "pages": 10}],
         }
         for i, p in enumerate(paths)
@@ -187,6 +188,7 @@ def test_series_files_carry_local_paths_sizes_and_ids():
             "chapter_id": 100,
             "volume_id": 7,
             "pages_read": 3,
+            "modified": "2026-11-15T21:24:02.0000000",
         },
         {
             "path": Path("/mnt/share/library/S/Ch.2.cbz"),
@@ -196,6 +198,7 @@ def test_series_files_carry_local_paths_sizes_and_ids():
             "chapter_id": 101,
             "volume_id": 7,
             "pages_read": 3,
+            "modified": "2026-11-15T21:24:02.0000001",
         },
     ]
     assert service.sent[-1] == ("GET", "/api/Series/volumes?seriesId=12", None)
