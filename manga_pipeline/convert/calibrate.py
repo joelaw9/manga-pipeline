@@ -133,11 +133,13 @@ def choose(samples):
     return q, f"ladder floor q{q} passes ({len(counted)} samples)"
 
 
-def add(conn, series_id, group, chapter_id, new):
+def add(conn, series_id, group, chapter_id, new, guard):
     """Store a chapter's samples of an open group ([{"sha1", "rendered", "bytes_in", "scores"}]) and fix the group
     when choose allows, in 1 transaction that reads the row again: nothing is added when the group is fixed by now or
-    the chapter has added samples before (a retried chapter, a second run). Returns the group's row as stored."""
+    the chapter has added samples before (a retried chapter, a second run). guard(conn) runs first in it and raises
+    to add nothing (the stage's claim check). Returns the group's row as stored."""
     with db.transaction(conn):
+        guard(conn)
         row = conn.execute(
             "SELECT q, fixed, origin, why, samples FROM series_calibration WHERE series_id = %s AND grp = %s",
             (series_id, group),

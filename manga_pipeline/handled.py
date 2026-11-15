@@ -3,9 +3,7 @@ dropped, with its download's content digest. A download whose pages a handled ch
 put aside, not processed again; checked by the discover stage and by the junk stage once the series' baseline exists.
 """
 
-from pathlib import Path
-
-from manga_pipeline import retention, workflow
+from manga_pipeline import config, retention, workflow
 
 OUTCOMES = ("published", "rejected", "duplicate", "dropped")
 
@@ -20,7 +18,8 @@ def put_aside(ctx, chapter, digest):
     ).fetchone()
     if row is None:
         return None
-    retention.put(ctx.cfg, Path(chapter["download_path"]))
+    workflow.holds_claim(ctx, chapter)
+    retention.put(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]))
     return f"same pages as a handled chapter ({row['outcome']}, {row['identity']})"
 
 
@@ -32,5 +31,5 @@ def record(conn, series_id, identity, outcome, digest):
     conn.execute(
         "INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at)"
         " VALUES (%s, %s, %s, %s, %s)",
-        (series_id, identity, outcome, digest, workflow.now()),
+        (series_id, identity, outcome, digest, workflow.now(conn)),
     )

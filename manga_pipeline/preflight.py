@@ -11,9 +11,10 @@ import shutil
 import sys
 import urllib.parse
 from collections.abc import Callable
+from contextlib import closing
 from dataclasses import dataclass
 
-from manga_pipeline import config, db
+from manga_pipeline import config, db, fleet
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.convert import tools, vship
 from manga_pipeline.junk import ocr
@@ -22,7 +23,8 @@ log = logging.getLogger(__name__)
 HARD, SOFT = "hard", "soft"
 MIB = 1024 * 1024
 OWNER_FILE = ".pipeline-owner"
-SHARE_FOLDERS = ("downloads", "library", "staging", "retention")
+# The share folders a run needs (SPEC "Preflight"): the share roots of SPEC "State".
+SHARE_FOLDERS = ("downloads", "library", "staging", "retention", "candidates", "covers")
 
 
 @dataclass(frozen=True)
@@ -85,7 +87,6 @@ def folder_layout(cfg):
             "paths.retention": paths["retention"],
             "paths.covers": paths["covers"],
             "logging.dir": config.abs_path(cfg["logging"]["dir"]).resolve(),
-            "lock.dir": config.abs_path(cfg["lock"]["dir"]).resolve(),
             "the project root": config.ROOT.resolve(),
         }
     except OSError as e:
@@ -132,7 +133,7 @@ def staging_folder(cfg):
 
 def share_folders(cfg):
     missing = _missing_folders(
-        cfg, ("downloads", ("downloads", suwayomi.MANGAS_FOLDER), "library", "retention", "naming_overrides")
+        cfg, ("downloads", ("downloads", suwayomi.MANGAS_FOLDER), "library", "retention", "candidates", "covers")
     )
     if missing:
         return missing
@@ -250,6 +251,19 @@ def junk_word_lists(cfg):
     return ocr.word_list_problem(cfg["junk"])
 
 
+def naming_overrides(cfg):
+    return _missing_folders(cfg, ("naming_overrides",))
+
+
+def fleet_version(cfg):
+    """This machine runs the fleet's version (SPEC "State"): fleet.problem, read on a connection of its own."""
+    try:
+        with closing(db.open_existing(cfg)) as conn:
+            return fleet.problem(conn, cfg)
+    except Exception as e:  # a check turns its own errors into its problem text
+        return f"cannot compare this machine with the fleet's version: {type(e).__name__}: {e}"
+
+
 PYTHON_VERSION = Check("runtime version", HARD, python_version)
 FREE_SPACE = Check("free disk space", SOFT, free_space)
 STAGING_FOLDER = Check("staging folder", HARD, staging_folder)
@@ -264,6 +278,8 @@ IMAGE_TOOLS = Check("image tools", HARD, image_tools)
 SCORER = Check("scorer", HARD, scorer)
 SCRATCH_SPACE = Check("scratch space", HARD, scratch_space)
 CLAUDE_SETTINGS = Check("Claude settings", HARD, claude_settings)
+NAMING_OVERRIDES = Check("naming overrides", HARD, naming_overrides)
+FLEET_VERSION = Check("fleet version", HARD, fleet_version)
 
 
 def run(cfg, checks):

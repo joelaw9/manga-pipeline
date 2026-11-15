@@ -19,7 +19,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from manga_pipeline import config
+from manga_pipeline import config, fleet
 from manga_pipeline.convert import image, tools, vship
 
 REAL_SCORER = vship.Scorer  # taken at import, before install replaces it
@@ -68,6 +68,10 @@ class FakeScorer:
         return SCORE[0](Path(reference), Path(distorted))
 
 
+# What fleet._tools reports for the fake tools (SPEC "State": the tools' versions enter the fleet digest).
+FAKE_TOOL_VERSIONS = {"avifenc": "fake", "avifdec": "fake", "jpegtran": "fake", "oxipng": "fake", "vship": "fake"}
+
+
 def install(setattr):
     """Put the fakes in place (setattr(target, name, value), e.g. monkeypatch.setattr) and create the tool files the
     config names, so the "image tools" preflight check passes."""
@@ -78,5 +82,6 @@ def install(setattr):
     setattr(tools, "run", fake_run)
     setattr(image, "pool", ThreadPoolExecutor)  # threads: the fake tools reach the workers
     setattr(vship, "Scorer", FakeScorer)
+    setattr(fleet, "_tools", lambda cfg: dict(FAKE_TOOL_VERSIONS))  # the fakes have no version to print
     CALLS.clear()
     SCORE[0] = lambda ref, dec: DEFAULT_SCORE

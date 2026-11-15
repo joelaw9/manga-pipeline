@@ -3,9 +3,7 @@ size on disk, the download is removed the retention way and the published file i
 waits on kavita_scan; a series Kavita no longer holds is needs_human.
 """
 
-from pathlib import Path
-
-from manga_pipeline import db, retention, workflow
+from manga_pipeline import config, db, retention, workflow
 
 
 def run(ctx, chapter):
@@ -21,7 +19,7 @@ def run(ctx, chapter):
         return workflow.Waiting("kavita_scan", {"why": "series gone from Kavita"})
     if not _indexed(ctx, series, chapter):
         return workflow.Waiting("kavita_scan")
-    retention.put(ctx.cfg, Path(chapter["download_path"]))
+    retention.put(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]))
 
     def record(conn):
         conn.execute(
@@ -43,6 +41,6 @@ def _series(ctx, chapter):
 
 def _indexed(ctx, series, chapter):
     """Kavita lists the published file in the series with the size it has on disk (a scan can keep a stale size)."""
-    target = Path(chapter["library_path"])
+    target = config.to_local(ctx.cfg, chapter["library_path"])
     size = target.stat().st_size
     return any(f["path"] == target and f["bytes"] == size for f in ctx.kavita.series_files(series["kavita_series_id"]))

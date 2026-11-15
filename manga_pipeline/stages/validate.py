@@ -12,6 +12,7 @@ from pathlib import Path
 from manga_pipeline import (
     archive,
     comicinfo,
+    config,
     db,
     handled,
     names,
@@ -34,7 +35,7 @@ def run(ctx, chapter):
         state = _reject(ctx, chapter, redownload.new_state(ctx, chapter, {}), _own(chapter), verdict.reason)
     elif "original" not in state:  # chapter use on a chapter never rejected: its file in hand, if any, gives way
         state = redownload.new_state(ctx, chapter, state)
-        if Path(chapter["download_path"]).exists():
+        if workflow.exists(config.to_local(ctx.cfg, chapter["download_path"])):
             state = _reject(ctx, chapter, state, _own(chapter), "replaced by the download a person chose")
         else:
             redownload.save(ctx, chapter, state)
@@ -87,13 +88,14 @@ def _check(ctx, chapter, path):
     ]
     ours = validation.chapter_key(chapter["identity"])
     series = _series(ctx, chapter)
+    local = config.to_local(ctx.cfg, path)  # path: a stored download path
     try:
         verdict = validation.check(
-            Path(path), ours, published, lambda p: volumes.same_as_published(series, path, p["volume"])
+            local, ours, published, lambda p: volumes.same_as_published(series, local, p["volume"])
         )
     except volumes.VolumeError as e:
         return validation.Verdict("human", str(e))
-    theirs = _file_key(path)
+    theirs = _file_key(local)
     if verdict.kind != "bad" and theirs != ours:
         # A file numbered otherwise (only a person's choice can bring one) would be published under its own number
         # (comicinfo reads the file's name) while the chapter's identity and records say ours. Checked on every look,
@@ -115,7 +117,7 @@ def _series(ctx, chapter):
 def _reject(ctx, chapter, state, copy, why):
     """Record a rejected copy (a target: {source, chapter_id, path}) and queue its removal; the state and the handled
     chapter land in 1 transaction."""
-    digest = archive.digest_or_none(copy["path"])
+    digest = archive.digest_or_none(config.to_local(ctx.cfg, copy["path"]))
     queued = copy["path"] != chapter["download_path"]  # an expected download, not the file discovered
     state["defect"] = state["defect"] or why
     state["rejected"].append({"source": copy["source"], "chapter_id": copy["chapter_id"], "digest": digest, "why": why})
@@ -151,7 +153,7 @@ def _candidate(ctx, chapter, state):
         "download_path": expected["path"],
         "suwayomi_chapter_id": expected["chapter_id"],
         "source": expected["source"],
-        "content_digest": archive.digest_or_none(expected["path"]),
+        "content_digest": archive.digest_or_none(config.to_local(ctx.cfg, expected["path"])),
     }
     if verdict.kind == "human":
         # The replacement becomes the chapter's own download: chapter drop removes it, retry judges it again.

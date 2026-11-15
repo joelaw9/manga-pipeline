@@ -3,19 +3,17 @@ share's owner. Both run under every part's lock (cli command table)."""
 
 import logging
 import shutil
-from contextlib import closing
 
-from manga_pipeline import config, db, preflight, workflow
+from manga_pipeline import config, db, fleet, preflight, workflow
 
 log = logging.getLogger(__name__)
 
 
-def reset(cfg):
+def reset(cfg, conn):
     """Empty the workflow tables and set every series ok, then empty the staging folder (keeping the owner file), the
     scratch folder and the junk candidates folder. Downloads, the library, knowledge and sync records are never
     touched."""
-    with closing(db.connect(cfg)) as conn:
-        workflow.reset(conn)
+    workflow.reset(conn)
     owner = preflight.owner_file(cfg)
     for key in ("staging", "scratch", "candidates"):
         folder = config.abs_path(cfg["paths"][key])
@@ -32,11 +30,18 @@ def reset(cfg):
     log.info("workflow state reset; staging, scratch and candidates emptied")
 
 
-def adopt(cfg):
+def adopt(cfg, conn):
     """Write this database's id to the owner file. The staging folder is never created (preflight requires it), so an
     unmounted share is never written under its mount point."""
-    with closing(db.connect(cfg)) as conn:
-        database_id = db.database_id(conn)
+    database_id = db.database_id(conn)
     path = preflight.owner_file(cfg)
     path.write_text(database_id, encoding="utf-8")
     log.info("%s now holds database id %s", path, database_id)
+
+
+def version(cfg, conn):
+    """Store this machine's digest as the fleet's version (SPEC "State"): run once per deploy or change of a shared
+    setting, while nothing else runs (the exclusive lock)."""
+    with db.transaction(conn):
+        fleet.store(conn, cfg)
+    log.info("this machine's program, shared settings, packages and tools are now the fleet's version")

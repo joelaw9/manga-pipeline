@@ -9,8 +9,7 @@ remove: [{path, chapter_id, dequeue}]}; a target is {source, manga_id, chapter_i
 
 import json
 import logging
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from datetime import datetime, timedelta
 
 from rapidfuzz import fuzz
 
@@ -41,8 +40,15 @@ def save_in(ctx, chapter, state, **columns):
     holds the chapter's claim; raises when a person changed the row meanwhile."""
     sets = "".join(f", {name} = %s" for name in columns)
     changed = ctx.conn.execute(
-        f"UPDATE chapter SET redownload = %s{sets} WHERE id = %s AND claimed_by = %s AND status = 'claimed'",
-        (None if state is None else json.dumps(state), *columns.values(), chapter["id"], ctx.part),
+        f"UPDATE chapter SET redownload = %s{sets} WHERE id = %s AND claimed_by = %s AND claim_count = %s"
+        " AND status = 'claimed'",
+        (
+            None if state is None else json.dumps(state),
+            *columns.values(),
+            chapter["id"],
+            ctx.owner,
+            chapter["claim_count"],
+        ),
     ).rowcount
     if not changed:
         raise RuntimeError(f"chapter {chapter['id']} changed while {ctx.part} re-downloaded it")
@@ -74,9 +80,10 @@ def remove(ctx, chapter, state):
     """Remove the copies the state lists: off the queue when queued, the file the retention way, then Suwayomi's
     downloaded mark (a file already gone is no error to Suwayomi). Safe to run again."""
     for item in state["remove"]:
+        workflow.holds_claim(ctx, chapter)  # before each removal: it cannot be undone
         if item.get("dequeue"):
             ctx.suwayomi.dequeue([item["chapter_id"]])
-        retention.put(ctx.cfg, Path(item["path"]))
+        retention.put(ctx.cfg, config.to_local(ctx.cfg, item["path"]))
         ctx.suwayomi.delete_downloaded([item["chapter_id"]])
     if state["remove"]:
         state["remove"] = []
@@ -98,7 +105,12 @@ def target(ctx, chapter_id):
         / suwayomi.manga_folder(manga["title"])
         / suwayomi.chapter_file(row["scanlator"], row["name"])
     )
-    return {"source": display, "manga_id": manga["id"], "chapter_id": chapter_id, "path": str(path)}
+    return {
+        "source": display,
+        "manga_id": manga["id"],
+        "chapter_id": chapter_id,
+        "path": config.to_stored(ctx.cfg, path),
+    }
 
 
 def pick(ctx, chapter, series, state):
@@ -231,7 +243,7 @@ def enqueue(ctx, chapter, state, found):
         state["chosen"] = None
     # Recorded first: a download Suwayomi starts is never untracked. An interruption before the queue call leaves an
     # expected download that is neither queued nor downloaded ("lost"), which validate queues again.
-    state["expected"] = {**found, "enqueued_at": workflow.now()}
+    state["expected"] = {**found, "enqueued_at": workflow.now(ctx.conn)}
     save(ctx, chapter, state)
     queue(ctx, found)
 
@@ -249,9 +261,11 @@ def download_state(ctx, expected):
     if row is None:
         return "failed"
     if row["isDownloaded"]:
-        return "complete" if Path(expected["path"]).exists() else "failed"
+        return "complete" if workflow.exists(config.to_local(ctx.cfg, expected["path"])) else "failed"
     queued_at = datetime.fromisoformat(expected["enqueued_at"])
-    if datetime.now(UTC) - queued_at > timedelta(hours=ctx.cfg["sources"]["download_timeout_hours"]):
+    if datetime.fromisoformat(workflow.now(ctx.conn)) - queued_at > timedelta(
+        hours=ctx.cfg["sources"]["download_timeout_hours"]
+    ):
         return "failed"
     for entry in ctx.suwayomi.download_queue()["queue"]:
         if entry["chapter"]["id"] == expected["chapter_id"]:

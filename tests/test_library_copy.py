@@ -37,7 +37,14 @@ def published_copy(world, number="5", source=BEST, pages_in=3, width=16, strip=4
             """INSERT INTO published_file (library_path, series_id, identity, source, state, pages_in,
                 median_page_width, strip_length, origin)
             VALUES (%s, 1, %s, %s, 'confirmed', %s, %s, %s, 'pipeline')""",
-            (str(path), json.dumps(["grp", season, "", number, ""]), source, pages_in, width, strip),
+            (
+                config.to_stored(world.cfg, path),
+                json.dumps(["grp", season, "", number, ""]),
+                source,
+                pages_in,
+                width,
+                strip,
+            ),
         )
     return path
 

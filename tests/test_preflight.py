@@ -51,6 +51,8 @@ def test_shipped_checks():
         "OCR device": (HARD, preflight.ocr_device),
         "junk word lists": (HARD, preflight.junk_word_lists),
         "Claude settings": (HARD, preflight.claude_settings),
+        "naming overrides": (HARD, preflight.naming_overrides),
+        "fleet version": (HARD, preflight.fleet_version),
     }
     assert shipped == want, "SPEC 'Preflight' lists every check with its kind"
 
@@ -130,8 +132,6 @@ def site(tmp_path, database=pg.UNASSIGNED):
     share = tmp_path / "share"
     paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {
         "scratch": str(tmp_path / "scratch"),
-        "covers": str(tmp_path / "covers"),
-        "candidates": str(tmp_path / "candidates"),
         "naming_overrides": str(tmp_path / "overrides"),
     }
     return {**pg.cfg_for(database), "paths": paths}
@@ -381,11 +381,14 @@ def test_share_folders_need_the_mangas_folder_and_retention(tmp_path):
     cfg = site_cfg(tmp_path)
     (tmp_path / "share" / "downloads" / "mangas").rmdir()
     (tmp_path / "share" / "retention").rmdir()
+    (tmp_path / "share" / "candidates").rmdir()
     (tmp_path / "overrides").rmdir()
     text = preflight.share_folders(cfg)
     assert "the mangas folder of paths.downloads" in text, "downloads lie under mangas (SPEC Suwayomi)"
     assert "paths.retention" in text, "removed downloads go to the retention folder"
-    assert "paths.naming_overrides" in text, "the override folder is read at comicinfo"
+    assert "paths.candidates" in text, "the candidates folder is on the share: every machine writes it"
+    assert "paths.naming_overrides" not in text, "only export reads the overrides: a check of its own"
+    assert "paths.naming_overrides" in preflight.naming_overrides(cfg), "export's own check"
 
 
 @budget(load="pure")

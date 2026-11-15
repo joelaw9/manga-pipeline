@@ -4,9 +4,19 @@ series' baseline has recorded what the library holds. Reads the share and the da
 """
 
 import zipfile
-from pathlib import Path
 
-from manga_pipeline import archive, handled, images, measures, page_store, retention, validation, volumes, workflow
+from manga_pipeline import (
+    archive,
+    config,
+    handled,
+    images,
+    measures,
+    page_store,
+    retention,
+    validation,
+    volumes,
+    workflow,
+)
 
 SAME_CHAPTER = 0.15  # page count or strip length within this share: the same chapter (old duplicate_page_tolerance)
 WIDER = 1.05  # median page width this many times the published copy's: better
@@ -22,13 +32,17 @@ def judge(ctx, chapter):
         r
         for r in ctx.conn.execute("SELECT * FROM published_file WHERE series_id = %s", (chapter["series_id"],))
         # A published file gone from the library is no copy: publishing replaces its record (SPEC "Publishing").
-        if validation.chapter_key(r["identity"]) == key and Path(r["library_path"]).exists()
+        if validation.chapter_key(r["identity"]) == key and workflow.exists(config.to_local(ctx.cfg, r["library_path"]))
     ]
     if rows:  # the series row as it is now: the baseline may just have set its volume basis
         series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
         try:
             rows = [
-                r for r in rows if volumes.same_as_published(series, chapter["download_path"], r["comicinfo_volume"])
+                r
+                for r in rows
+                if volumes.same_as_published(
+                    series, config.to_local(ctx.cfg, chapter["download_path"]), r["comicinfo_volume"]
+                )
             ]
         except volumes.VolumeError as e:
             return workflow.NeedsHuman(str(e))
@@ -43,7 +57,7 @@ def judge(ctx, chapter):
     if not pages:
         raise ValueError(f"chapter {chapter['id']} has no page rows: validate stores them")
     ours = measures.summary(pages)
-    theirs = _original(published)
+    theirs = _original(ctx, published)
     row = ctx.conn.execute(
         "SELECT layout FROM series_conversion WHERE series_id = %s", (chapter["series_id"],)
     ).fetchone()
@@ -66,7 +80,8 @@ def judge(ctx, chapter):
             f"{their_width}, source {chapter['source']} against {published['source'] or published['origin']}); "
             "replacing a published file comes with Phase 7e"
         )
-    retention.put(ctx.cfg, Path(chapter["download_path"]))
+    workflow.holds_claim(ctx, chapter)
+    retention.put(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]))
 
     def record(conn):
         handled.record(conn, chapter["series_id"], chapter["identity"], "duplicate", chapter["content_digest"])
@@ -74,13 +89,13 @@ def judge(ctx, chapter):
     return workflow.Dropped(f"a duplicate of the published {published['library_path']}", record)
 
 
-def _original(published):
+def _original(ctx, published):
     """The published copy's original measurements: as stored when the pipeline published it, else measured from the
     library file (the bulk converter's, or published before they were stored). Each page is read whole and not
     decoded: an AVIF page gives no size from its first bytes."""
     if published["pages_in"] is not None:
         return {k: published[k] for k in ("pages_in", "median_page_width", "strip_length")}
-    with zipfile.ZipFile(published["library_path"]) as z:
+    with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
         names = archive.archive_pages(z.namelist())
         sizes = [images.dimensions(z.read(n)) for n in names]
     if not sizes or None in sizes:

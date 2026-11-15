@@ -6,7 +6,7 @@ import json
 import logging
 from pathlib import Path
 
-from manga_pipeline import db, names, workflow
+from manga_pipeline import config, db, names, workflow
 from manga_pipeline.clients.kavita_match import normalize
 from manga_pipeline.convert import calibrate, record_reader
 from manga_pipeline.junk import importing, store
@@ -30,10 +30,10 @@ def needed(series):
     return series["origin"] == "kavita" and series["baseline_at"] is None
 
 
-def record_problem(series):
+def record_problem(cfg, series):
     """Why the series' record cannot be used yet (no file, partial, broken, no known layout), or None."""
     try:
-        record = _load(series)
+        record = _load(cfg, series)
     except FileNotFoundError:
         return f"no {record_reader.RECORD_NAME} in {series['folder']}"
     except record_reader.RecordError as e:
@@ -52,10 +52,10 @@ def take(ctx, series):
     """Take the series' baseline from its record. Returns None once the series has one; else why not (the chapter
     waits). A record whose series name is not one of the series' Kavita names records nothing and makes the series
     needs_human."""
-    problem = record_problem(series)
+    problem = record_problem(ctx.cfg, series)
     if problem:
         return problem
-    record = _load(series)
+    record = _load(ctx.cfg, series)
     name = record["series"]["naming"]["series_name"]
     kavita_names = [series["name"], series["localized_name"], series["original_name"]]
     if normalize(name) not in {normalize(n) for n in kavita_names if n}:
@@ -75,20 +75,19 @@ def take(ctx, series):
     return None
 
 
-def _load(series):
-    return record_reader.load(Path(series["folder"]))
+def _load(cfg, series):
+    return record_reader.load(config.to_local(cfg, series["folder"]))
 
 
 def _write(conn, series, record, name, layout):
-    folder = Path(series["folder"])
-    stamp = workflow.now()
+    stamp = workflow.now(conn)
     for c in record["chapters"]:
         conn.execute(
             """INSERT INTO published_file (library_path, series_id, identity, state, pages_out, comicinfo_series,
                 comicinfo_volume, comicinfo_number, comicinfo_title, origin)
             VALUES (%s, %s, %s, 'confirmed', %s, %s, %s, %s, %s, 'bulk')""",
             (
-                str(folder / c["output"]),
+                f"{series['folder']}/{c['output']}",  # stored form: the folder's, then the file name
                 series["id"],
                 names.identity(names.parse(Path(c["file"]).stem)),
                 c["pages_out"],

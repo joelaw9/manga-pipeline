@@ -8,11 +8,11 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import cli, config, db, intake, lock, preflight, status
+from manga_pipeline import cli, config, db, intake, preflight, status
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 
-from tests.builders import add_chapter, add_series, adopted, config_file, download, site_cfg
+from tests.builders import add_chapter, add_series, adopted, config_file, download, run_part, running, site_cfg
 from tests.timing import budget
 from tests.world import World, cbz
 
@@ -57,7 +57,7 @@ def seeded(tmp_path):
 @budget(load="db")
 def test_status_reports_while_every_part_runs(tmp_path, seeded, capsys):
     cfg, ids, ok, held = seeded
-    with lock.held(cfg, *PARTS):
+    with running(cfg, *PARTS):
         assert main(tmp_path, cfg, "status") == 0, "status takes no lock"
     out = capsys.readouterr().out
     for line in (
@@ -84,7 +84,7 @@ def test_status_without_a_database_says_so_and_creates_none(tmp_path, capsys):
 @budget(load="db")
 def test_retry_chapter_while_every_part_runs(tmp_path, seeded):
     cfg, ids, _, _ = seeded
-    with lock.held(cfg, *PARTS):
+    with running(cfg, *PARTS):
         assert main(tmp_path, cfg, "retry", str(ids["stuck"])) == 0, "retry takes no lock"
     got = rows(cfg, "SELECT stage, status, attempts FROM chapter WHERE id = %s", ids["stuck"])
     assert got == [("convert", "ready", 0)], "ready again at the stage where it stopped, attempts 0"
@@ -136,7 +136,7 @@ def test_retry_refuses_what_is_not_needs_human(tmp_path, seeded, capsys, target,
 @pytest.mark.parametrize("held", PARTS)
 def test_state_reset_waits_for_no_part(tmp_path, seeded, held):
     cfg = seeded[0]
-    with lock.held(cfg, held):
+    with running(cfg, held):
         assert main(tmp_path, cfg, "state", "reset", "--yes") == 3
     assert rows(cfg, "SELECT count(*) FROM chapter") == [(4,)], "a refused reset changes nothing"
 
@@ -176,11 +176,12 @@ def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path, monkeypa
     assert kept_download.exists() and published_download.exists(), "downloads are never touched"
     assert sorted(p.name for p in config.abs_path(cfg["paths"]["library"]).rglob("*.cbz")) == library
 
-    intake.run(cfg)
+    run_part(cfg, intake)
     got = rows(cfg, "SELECT download_path, stage, status FROM chapter ORDER BY id")
-    assert got == [(str(kept_download), "junk", "ready"), (str(published_download), "discover", "done")], (
-        "the next intake rediscovers the downloads, and puts aside the one already published"
-    )
+    assert got == [
+        (config.to_stored(cfg, kept_download), "junk", "ready"),
+        (config.to_stored(cfg, published_download), "discover", "done"),
+    ], "the next intake rediscovers the downloads, and puts aside the one already published"
 
 
 @budget(load="db")

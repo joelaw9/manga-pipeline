@@ -5,14 +5,12 @@ chapter with no number, or a number with 2 readings (names.two_readings), needs_
 cannot read gets no digest and goes on to validate, which judges it. Finding the downloads is discovery.py's.
 """
 
-from pathlib import Path
-
-from manga_pipeline import archive, comicinfo, handled, names, notices, workflow
+from manga_pipeline import archive, comicinfo, config, handled, names, notices, workflow
 
 
 def run(ctx, chapter):
-    download = Path(chapter["download_path"])
-    if not download.exists():
+    download = config.to_local(ctx.cfg, chapter["download_path"])
+    if not workflow.exists(download):
         # Moved away after discovery listed it, or put aside by a run that crashed before its outcome.
         return workflow.Dropped("the download is gone")
     number = comicinfo.download_number(download)

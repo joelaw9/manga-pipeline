@@ -4,7 +4,7 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import db, discovery, identify, intake, status, workflow
+from manga_pipeline import config, db, discovery, identify, intake, status, workflow
 
 from tests.builders import add_series
 from tests.timing import budget
@@ -36,9 +36,16 @@ def test_link_fixes_a_near_hit_and_retry_releases_its_chapters(world):
     assert status_ == "needs_human"
     assert link(world, manga, kavita_id) == series_id, "the manga's held row is the one linked"
     got = world.rows("SELECT name, kavita_series_id, kavita_library_id, folder, origin, status FROM series")
-    assert got == [("Kaiju No. 8!", kavita_id, 4, str(world.library / "Kaiju No. 8!"), "kavita", "needs_human")], (
-        "link stores the fix; retry --series clears needs_human"
-    )
+    assert got == [
+        (
+            "Kaiju No. 8!",
+            kavita_id,
+            4,
+            config.to_stored(world.cfg, world.library / "Kaiju No. 8!"),
+            "kavita",
+            "needs_human",
+        )
+    ], "link stores the fix; retry --series clears needs_human"
     with closing(db.connect(world.cfg)) as conn:
         workflow.retry_series(conn, series_id)
     world.run(intake)

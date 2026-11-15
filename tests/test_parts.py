@@ -13,7 +13,7 @@ from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.stages import junk
 
-from tests.builders import add_chapter, add_series, config_file
+from tests.builders import add_chapter, add_series, config_file, run_part
 from tests.timing import budget
 from tests.world import World, cbz, decide_junk
 
@@ -38,9 +38,9 @@ class Site:
     def run_all(self):
         """intake, process, export, then Kavita runs the scans and export confirms."""
         for part in (intake, process, export):
-            part.run(self.cfg)
+            run_part(self.cfg, part)
         self.world.kavita.run_scans()
-        export.run(self.cfg)
+        run_part(self.cfg, export)
 
 
 @pytest.fixture
@@ -62,7 +62,9 @@ def published(cfg):
 
 def chapter_of(cfg, path):
     return rows(
-        cfg, "SELECT stage, status, attempts, last_error, waiting_on FROM chapter WHERE download_path = %s", str(path)
+        cfg,
+        "SELECT stage, status, attempts, last_error, waiting_on FROM chapter WHERE download_path = %s",
+        config.to_stored(cfg, path),
     )
 
 
@@ -105,7 +107,7 @@ def test_failing_chapter_does_not_stop_the_chapters_after_it(site, monkeypatch):
     real = process.STAGES["convert"]
 
     def convert(ctx, chapter):
-        if chapter["download_path"] == str(bad):
+        if chapter["download_path"] == config.to_stored(site.cfg, bad):
             raise ValueError("cannot decode page 3")
         return real(ctx, chapter)
 
@@ -133,7 +135,7 @@ def test_new_chapter_of_a_known_series_is_worked_next(site, monkeypatch):
 
     monkeypatch.setitem(process.STAGES, "junk", recording_junk)
     monkeypatch.setitem(process.STAGES, "convert", lambda ctx, chapter: workflow.Done())
-    process.run(cfg)
+    run_part(cfg, process)
     assert order[:3] == ["big00", "ongoing-ch9", "big01"], "process picks again by priority after every chapter"
     assert len(order) == 51
 
@@ -159,8 +161,8 @@ def test_out_of_scope_series_is_untouched_by_every_part(tmp_path, monkeypatch):
 def test_unreachable_share_is_the_runs_result_with_exit_0(site, tmp_path, monkeypatch, where):
     cfg = site.cfg
     site.download("Alpha", 2, data=cbz(credit=where == "wait check"))
-    intake.run(cfg)
-    process.run(cfg)  # the chapter now waits (wait check) or is done with junk (stage)
+    run_part(cfg, intake)
+    run_part(cfg, process)  # the chapter now waits (wait check) or is done with junk (stage)
     if where == "wait check":
         before = ("junk", "waiting", 0)
     else:
@@ -177,12 +179,17 @@ def test_unreachable_share_is_the_runs_result_with_exit_0(site, tmp_path, monkey
     for handler in logging.getLogger("manga_pipeline").handlers[:]:  # close the log file cli.main opened
         logging.getLogger("manga_pipeline").removeHandler(handler)
         handler.close()
-    assert rows(cfg, "SELECT value FROM meta WHERE key = 'process.last_result'") == [("unreachable: share",)]
+    assert meta(cfg, "process")["process.last_result"] == "unreachable: share"
     assert rows(cfg, "SELECT stage, status, attempts FROM chapter") == [before]
 
 
 def meta(cfg, part):
-    return dict(rows(cfg, f"SELECT key, value FROM meta WHERE key LIKE '{part}.%'"))
+    """The run records of the part on this machine (workflow.owner), named by part ("process.last_result")."""
+    owner = workflow.owner(part)
+    return {
+        k.replace(owner, part, 1): v
+        for k, v in rows(cfg, "SELECT key, value FROM meta WHERE key LIKE %s", f"{owner}.%")
+    }
 
 
 def failing_scan(monkeypatch, cfg, error):
@@ -202,7 +209,7 @@ def failing_scan(monkeypatch, cfg, error):
 def test_unreadable_downloads_folder_is_an_unreachable_share(site, monkeypatch):
     site.download("Alpha", 2)
     failing_scan(monkeypatch, site.cfg, (errno.EIO, "Input/output error"))
-    intake.run(site.cfg)
+    run_part(site.cfg, intake)
     got = meta(site.cfg, "intake")
     assert got["intake.last_result"] == "unreachable: share" and "intake.last_success" not in got
     assert rows(site.cfg, "SELECT count(*) FROM chapter") == [(0,)]
@@ -212,7 +219,7 @@ def test_unreadable_downloads_folder_is_an_unreachable_share(site, monkeypatch):
 def test_other_scan_error_fails_the_run_loudly(site, monkeypatch):
     failing_scan(monkeypatch, site.cfg, (errno.EACCES, "Permission denied"))
     with pytest.raises(PermissionError):
-        intake.run(site.cfg)
+        run_part(site.cfg, intake)
     assert meta(site.cfg, "intake")["intake.last_result"] == "error"
 
 
@@ -223,8 +230,8 @@ def test_leftover_staged_files_are_not_taken_for_a_chapters_output(site):
     leftovers = {staging / "1.cbz": b"other database!!", staging / "0123abcd-1.cbz": b"another database"}
     for path, data in leftovers.items():
         path.write_bytes(data)
-    intake.run(site.cfg)
-    process.run(site.cfg)
+    run_part(site.cfg, intake)
+    run_part(site.cfg, process)
     ((staged,),) = rows(site.cfg, "SELECT staged_path FROM chapter")
     assert Path(staged).name not in {p.name for p in leftovers}
     with closing(db.connect(site.cfg)) as conn:
@@ -237,7 +244,7 @@ def test_leftover_staged_files_are_not_taken_for_a_chapters_output(site):
 def test_each_outcome_and_the_run_counts_are_logged(site, caplog):
     site.download("Alpha", 2)
     with caplog.at_level(logging.INFO, logger="manga_pipeline"):
-        intake.run(site.cfg)
+        run_part(site.cfg, intake)
     identity = '["", null, "", "2", ""]'
     assert f"intake: chapter 1 (series 1, {identity}, at discover) done" in caplog.text
     assert f"intake: chapter 1 (series 1, {identity}, at validate) done" in caplog.text
@@ -248,16 +255,16 @@ def test_each_outcome_and_the_run_counts_are_logged(site, caplog):
 @pytest.mark.parametrize("error", [workflow.Unreachable("share"), OSError(errno.EIO, "io")], ids=["unreachable", "eio"])
 def test_unreachable_share_in_a_wait_check_ends_the_run(site, monkeypatch, error):
     site.download("Alpha", 2, data=cbz(credit=True))
-    intake.run(site.cfg)
-    process.run(site.cfg)
+    run_part(site.cfg, intake)
+    run_part(site.cfg, process)
 
     def wait_over(ctx, chapter):
         raise error
 
     monkeypatch.setattr(junk, "junk_decision_over", wait_over)
     with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
-        conn.execute("DELETE FROM meta WHERE key = 'process.last_success'")
-    process.run(site.cfg)
+        conn.execute("DELETE FROM meta WHERE key = %s", (f"{workflow.owner('process')}.last_success",))
+    run_part(site.cfg, process)
     got = meta(site.cfg, "process")
     assert got["process.last_result"] == "unreachable: share"
     assert "process.last_success" not in got, "a run that met an unreachable share is no success"
@@ -268,15 +275,15 @@ def test_run_end_line_counts_waiting_and_failed(site, monkeypatch, caplog):
     site.download("Alpha", 2, data=cbz(credit=True))
     bad = site.download("Beta", 2)
     site.download("Gamma", 2)
-    intake.run(site.cfg)
+    run_part(site.cfg, intake)
     real = process.STAGES["convert"]
 
     def convert(ctx, chapter):
-        if chapter["download_path"] == str(bad):
+        if chapter["download_path"] == config.to_stored(site.cfg, bad):
             raise ValueError("cannot decode page 3")
         return real(ctx, chapter)
 
     monkeypatch.setitem(process.STAGES, "convert", convert)
     with caplog.at_level(logging.INFO, logger="manga_pipeline"):
-        process.run(site.cfg)
-    assert "process: run ended: ok (3 done, 1 waiting, 1 failed)" in caplog.text
+        run_part(site.cfg, process)
+    assert f"{workflow.owner('process')}: run ended: ok (3 done, 1 waiting, 1 failed)" in caplog.text

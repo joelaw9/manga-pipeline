@@ -2,10 +2,11 @@
 "Publishing")."""
 
 import json
+from contextlib import closing
 
 import pytest
 
-from manga_pipeline import intake, process
+from manga_pipeline import config, db, intake, process
 
 from tests.timing import budget
 from tests.world import World, cbz
@@ -58,8 +59,8 @@ def test_the_baseline_records_the_series_published_and_handled_chapters_once(wor
     )
     folder = world.library / "Solo Leveling"
     assert published == [
-        (str(folder / "Ch.1.5 - Extra.cbz"), "confirmed", "bulk", "1.5", "Solo Leveling"),
-        (str(folder / "Ch.1.cbz"), "confirmed", "bulk", "1", "Solo Leveling"),
+        (config.to_stored(world.cfg, folder / "Ch.1.5 - Extra.cbz"), "confirmed", "bulk", "1.5", "Solo Leveling"),
+        (config.to_stored(world.cfg, folder / "Ch.1.cbz"), "confirmed", "bulk", "1", "Solo Leveling"),
     ], "the record's chapters are the series' published files, taken once"
     handled = world.rows("SELECT identity, outcome FROM handled_chapter ORDER BY identity")
     assert handled == [
@@ -134,5 +135,6 @@ def test_the_baseline_stores_the_records_probed_calibration_groups_and_a_reset_k
     want = [("colour", 75, 1, "record")]
     got = world.rows("SELECT grp, q, fixed, origin FROM series_calibration")
     assert got == want, "the record's probed colour group is fixed; its unprobed gray group stays open (no row)"
-    state.reset(world.cfg)
+    with closing(db.connect(world.cfg)) as conn:
+        state.reset(world.cfg, conn)
     assert world.rows("SELECT grp, q, fixed, origin FROM series_calibration") == want, "calibration is knowledge"

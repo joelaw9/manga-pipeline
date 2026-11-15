@@ -1,17 +1,15 @@
 """Part intake (SPEC "Parts"): discovers new downloads, then per series takes its chapters through discover and
 validate."""
 
-from contextlib import closing
-
-from manga_pipeline import db, discovery, redownload, workflow
+from manga_pipeline import discovery, redownload, workflow
 from manga_pipeline.stages import discover, validate
 
 STAGES = {"discover": discover.run, "validate": validate.run}
 
 
-def run(cfg):
-    with closing(db.connect(cfg)) as conn:
-        workflow.run_part(workflow.Context(cfg, conn, "intake"), work)
+def run(cfg, conn):
+    """conn: the command's connection, holding its run lock (cli.main)."""
+    workflow.run_part(workflow.Context(cfg, conn, "intake"), work)
 
 
 def work(ctx):

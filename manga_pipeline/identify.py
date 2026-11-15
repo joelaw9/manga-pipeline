@@ -7,7 +7,7 @@
 import logging
 from dataclasses import dataclass
 
-from manga_pipeline import db, names, workflow
+from manga_pipeline import config, db, names, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
 
@@ -133,11 +133,19 @@ def _store_kavita_series(ctx, manga, found):
 
 
 def _folder(ctx, kavita_series_id):
-    """(the series folder as text, None) or (None, why it has none)."""
+    """(the series folder in stored form, None) or (None, why it has none)."""
     try:
-        return str(ctx.kavita.series_folder(kavita_series_id)), None
-    except kavita_client.FolderError as e:
+        return library_folder(ctx.cfg, ctx.kavita.series_folder(kavita_series_id)), None
+    except (kavita_client.FolderError, config.PathError) as e:
         return None, str(e)
+
+
+def library_folder(cfg, folder):
+    """A Kavita series folder in stored form; PathError unless it lies under paths.library (SPEC "State")."""
+    stored = config.to_stored(cfg, folder)
+    if stored.split("/", 1)[0] != "library":
+        raise config.PathError(f"the series folder {folder} is not under paths.library")
+    return stored
 
 
 def _store_held_series(conn, manga, reason):
@@ -182,8 +190,8 @@ def link(cfg, conn, suwayomi, kavita, manga_id, kavita_series_id):
             f"{cfg['kavita']['library_id']}"
         )
     try:
-        folder = str(kavita.series_folder(kavita_series_id))
-    except kavita_client.FolderError as e:
+        folder = library_folder(cfg, kavita.series_folder(kavita_series_id))
+    except (kavita_client.FolderError, config.PathError) as e:
         raise workflow.Refused(str(e)) from None
     with db.transaction(conn):
         by_kavita = conn.execute("SELECT id FROM series WHERE kavita_series_id = %s", (kavita_series_id,)).fetchone()

@@ -1,71 +1,103 @@
-"""lock.held: 1 run per lock name, several names all or nothing, none when lock.enabled is false (SPEC "Run lock")."""
+"""lock.held: run locks are session locks of the database; 1 session per lock name, several names all or nothing, the
+idle lock shared or exclusive, none when lock.enabled is false; a lock dies with its session (SPEC "Run lock")."""
+
+from contextlib import closing
 
 import pytest
 
-from manga_pipeline import config, lock
+from manga_pipeline import config, db, lock
 
+from tests.builders import site_cfg
 from tests.timing import budget
 
 
-def with_lock(**changes):
-    return {**config.cached(), "lock": {**config.cached()["lock"], **changes}}
+@pytest.fixture
+def cfg(tmp_path):
+    return site_cfg(tmp_path)
 
 
-def lock_file(name):
-    return config.abs_path(config.cached()["lock"]["dir"]) / f"{name}.lock"
+def held(cfg, conn, name):
+    """Whether some session holds the run lock `name` (lock.HELD_SQL), asked on conn."""
+    return conn.execute(f"SELECT {lock.HELD_SQL.format(name='%s')}", (name,)).fetchone()[0]
 
 
-@budget(load="fs")
-def test_second_run_of_a_command_is_refused_naming_its_lock_file():
-    with lock.held(config.cached(), "intake"):
-        with pytest.raises(lock.LockHeld) as refused:
-            with lock.held(config.cached(), "intake"):
-                pass
-    assert str(refused.value) == f"another run holds {lock_file('intake')}"
+@budget(load="db")
+def test_a_second_session_is_refused_a_held_lock_naming_it(cfg):
+    with closing(db.connect(cfg)) as a, closing(db.connect(cfg)) as b:
+        with lock.held(a, cfg, ["intake"]):
+            with pytest.raises(lock.LockHeld, match="another run holds the lock 'intake'"):
+                with lock.held(b, cfg, ["intake"]):
+                    pass
 
 
-@budget(load="fs")
-def test_different_commands_run_at_once():
-    with lock.held(config.cached(), "intake"):
-        with lock.held(config.cached(), "process"):
+@budget(load="db")
+def test_different_locks_are_held_at_once_and_freed_after_the_block(cfg):
+    with closing(db.connect(cfg)) as a, closing(db.connect(cfg)) as b:
+        with lock.held(a, cfg, ["process@one"]), lock.held(b, cfg, ["process@two"]):
+            assert held(cfg, a, "process@one") and held(cfg, a, "process@two"), "both machines' locks are seen"
+        assert not held(cfg, a, "process@one"), "freed when the block ends"
+        with lock.held(b, cfg, ["process@one"]):
             pass
 
 
-@budget(load="fs")
-def test_lock_is_free_after_the_block():
-    with lock.held(config.cached(), "export"):
-        pass
-    with lock.held(config.cached(), "export"):
-        pass
+@budget(load="db")
+def test_several_locks_are_all_or_nothing(cfg):
+    with closing(db.connect(cfg)) as a, closing(db.connect(cfg)) as b:
+        with lock.held(a, cfg, ["export"]):
+            with pytest.raises(lock.LockHeld, match="'export'"):
+                with lock.held(b, cfg, ["intake", "export"]):
+                    pass
+            assert not held(cfg, a, "intake"), "a lock taken before the held one was found is freed again"
 
 
-@budget(load="fs")
-def test_leftover_lock_file_blocks_nothing():
-    path = lock_file("intake")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(b"")
-    with lock.held(config.cached(), "intake"):
-        pass
+@budget(load="db")
+def test_parts_share_the_idle_lock_and_a_state_command_needs_it_alone(cfg):
+    with closing(db.connect(cfg)) as a, closing(db.connect(cfg)) as b:
+        with lock.held(a, cfg, ["intake"], lock.SHARED), lock.held(b, cfg, ["export"], lock.SHARED):
+            with closing(db.connect(cfg)) as c:
+                with pytest.raises(lock.LockHeld, match="a running command holds"):
+                    with lock.held(c, cfg, [], lock.EXCLUSIVE):
+                        pass
+        with lock.held(a, cfg, [], lock.EXCLUSIVE):
+            with pytest.raises(lock.LockHeld):
+                with lock.held(b, cfg, ["intake"], lock.SHARED):
+                    pass
 
 
-@budget(load="fs")
-def test_several_locks_are_all_or_nothing():
-    names = ("intake", "process", "export", "junk-review")
-    with lock.held(config.cached(), "export"):
-        with pytest.raises(lock.LockHeld, match="export.lock"):
-            with lock.held(config.cached(), *names):
+@budget(load="db")
+def test_a_lock_dies_with_its_session(cfg):
+    with closing(db.connect(cfg)) as b:
+        a = db.connect(cfg)
+        with lock.held(a, cfg, ["process@gone"]):
+            a.close()  # the machine vanished: its session ends
+            for _ in range(50):  # the server frees the lock once it has seen the session end
+                if not held(cfg, b, "process@gone"):
+                    break
+            assert not held(cfg, b, "process@gone"), "a closed session holds no lock"
+        with lock.held(b, cfg, ["process@gone"]):
+            pass
+
+
+@budget(load="db")
+def test_locks_of_another_database_are_not_held_here(cfg, tmp_path):
+    other_cfg = site_cfg(tmp_path / "other")
+    with closing(db.connect(other_cfg)) as other, closing(db.connect(cfg)) as here:
+        with lock.held(other, other_cfg, ["process@elsewhere"]):
+            assert not held(cfg, here, "process@elsewhere"), "a lock is this database's only"
+            with lock.held(here, cfg, ["process@elsewhere"]):
                 pass
-        with lock.held(config.cached(), "intake"):
-            pass  # taken before export was found held, and freed again
-    with lock.held(config.cached(), *names):
-        with pytest.raises(lock.LockHeld, match="junk-review.lock"):
-            with lock.held(config.cached(), "junk-review"):
-                pass
+
+
+@budget(load="db")
+def test_no_lock_when_locks_are_off(cfg):
+    off = {**cfg, "lock": {**config.cached()["lock"], "enabled": False}}
+    with closing(db.connect(cfg)) as a, closing(db.connect(cfg)) as b:
+        with lock.held(a, off, ["intake"], lock.EXCLUSIVE), lock.held(b, off, ["intake"], lock.EXCLUSIVE):
+            assert not held(cfg, a, "intake")
 
 
 @budget(load="pure")
-def test_disabled_lock_lets_runs_overlap():
-    cfg = with_lock(enabled=False)
-    with lock.held(cfg, "intake"):
-        with lock.held(cfg, "intake"):
+def test_idle_mode_is_checked():
+    with pytest.raises(ValueError, match="idle must be"):
+        with lock.held(None, config.cached(), [], "sometimes"):
             pass

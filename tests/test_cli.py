@@ -12,9 +12,10 @@ from contextlib import closing
 import pytest
 import yaml
 
-from manga_pipeline import cli, config, db, discovery, lock, preflight, status
+from manga_pipeline import cli, config, db, discovery, fleet, lock, preflight, status, workflow
 
 from tests import pg
+from tests.builders import running
 from tests.timing import budget
 
 log = logging.getLogger("manga_pipeline.cli")
@@ -30,27 +31,34 @@ ARGV = {
     "series link": ["series", "link", "1", "2"],
     "state reset": ["state", "reset", "--yes"],
     "state adopt": ["state", "adopt", "--yes"],
+    "state version": ["state", "version", "--yes"],
 }
 PARTS = ("intake", "process", "export", "junk-review")
 LOCKED = ["runtime version", "free disk space", "folder layout", "share folders"]
-PART_CHECKS = [*LOCKED, "workflow settings", "share ownership"]
-# SPEC "Run lock", "Logging", "Preflight": (locks held, log file, checks run) per command.
+PART_CHECKS = [*LOCKED, "workflow settings", "share ownership", "fleet version"]
+# SPEC "Run lock", "Logging", "Preflight": (locks held, log file, checks run) per command. "idle": the idle lock held
+# (shared or exclusive); "idle exclusive": held exclusive.
 SPEC = {
-    "intake": ({"intake"}, "intake.log", [*PART_CHECKS, "service settings"]),
+    "intake": ({"intake", "idle"}, "intake.log", [*PART_CHECKS, "service settings"]),
     "process": (
-        {"process"},
+        {"process", "idle"},
         "process.log",
         [*PART_CHECKS, "OCR device", "junk word lists", "image tools", "scorer", "scratch space"],
     ),
-    "export": ({"export"}, "export.log", [*PART_CHECKS, "service settings"]),
+    "export": ({"export", "idle"}, "export.log", [*PART_CHECKS, "service settings", "naming overrides"]),
     "status": (set(), None, []),
     "retry": (set(), None, []),
     "chapter use": (set(), None, []),
     "chapter drop": (set(), None, []),
     "smoke": (set(), None, ["workflow settings", "service settings"]),
     "series link": (set(), None, ["workflow settings", "service settings"]),
-    "state reset": (set(PARTS), None, [*LOCKED, "share ownership"]),
-    "state adopt": (set(PARTS), None, [*LOCKED, "staging folder"]),
+    "state reset": ({"idle", "idle exclusive"}, None, [*LOCKED, "share ownership"]),
+    "state adopt": ({"idle", "idle exclusive"}, None, [*LOCKED, "staging folder"]),
+    "state version": (
+        {"idle", "idle exclusive"},
+        None,
+        ["runtime version", "free disk space", "image tools", "scorer"],
+    ),
 }
 
 
@@ -70,15 +78,24 @@ def site(tmp_path):
     (tmp_path / "share" / "downloads" / "mangas").mkdir(parents=True)
     (tmp_path / "share" / "retention").mkdir()
     (tmp_path / "share" / "library").mkdir()
+    (tmp_path / "share" / "candidates").mkdir()
+    (tmp_path / "share" / "covers").mkdir()
     (tmp_path / "overrides").mkdir()
     return [
         f"logging.dir={tmp_path / 'logs'}",
-        f"lock.dir={tmp_path / 'locks'}",
         f"database.name={pg.process.database(tmp_path.resolve(), built=True)}",
         *(f"paths.{key}={tmp_path / 'share' / key}" for key in preflight.SHARE_FOLDERS),
         f"paths.scratch={tmp_path / 'scratch'}",
         f"paths.naming_overrides={tmp_path / 'overrides'}",
     ]
+
+
+def adopt(site):
+    """state adopt, and this machine's digest stored as the fleet's (as state version --yes, with the fake tools)."""
+    assert run(site, "state adopt") == 0
+    cfg = site_cfg(site)
+    with closing(db.connect(cfg)) as conn, db.transaction(conn):
+        fleet.store(conn, cfg)
 
 
 def run(site, command, *extra):
@@ -99,14 +116,17 @@ def log_files(site):
 def test_each_command_runs_in_its_table_row(site, command, monkeypatch):
     seen = {}
 
-    def probe(cfg, args):
+    def probe(cfg, args, conn):
         held = set()
-        for name in PARTS:
-            try:
-                with lock.held(cfg, name):
-                    pass
-            except lock.LockHeld:
-                held.add(name)
+        with closing(db.connect(cfg)) as other:  # another session asks for each lock
+            tries = {name: ([workflow.owner(name)], None) for name in PARTS}
+            tries |= {"idle": ([], lock.EXCLUSIVE), "idle exclusive": ([], lock.SHARED)}
+            for what, (names, idle) in tries.items():
+                try:
+                    with lock.held(other, cfg, names, idle):
+                        pass
+                except lock.LockHeld:
+                    held.add(what)
         seen["locks"] = held
         log.info("probe ran")
 
@@ -120,7 +140,7 @@ def test_each_command_runs_in_its_table_row(site, command, monkeypatch):
 
 @budget(load="db")
 def test_part_logs_that_it_ran(site):
-    assert run(site, "state adopt") == 0
+    adopt(site)
     assert run(site, "intake") == 0
     log_file = config.abs_path(site_cfg(site)["logging"]["dir"]) / "intake.log"
     assert "intake: run ended: ok" in log_file.read_text(encoding="utf-8")
@@ -129,11 +149,16 @@ def test_part_logs_that_it_ran(site):
 @budget(load="subprocess")
 def test_module_run_writes_the_log(site, tmp_path):
     # python -m runs cli.py as __main__, which the in-process tests above never do.
-    assert run(site, "state adopt") == 0
+    adopt(site)
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(site_cfg(site)), encoding="utf-8")
+    # The fake tools' versions, as in this process (the fleet digest reads them), then cli.py run as __main__.
+    main = (
+        "import runpy, sys; from tests.fakes import convert; convert.install(setattr); "
+        "sys.argv[0] = 'manga_pipeline.cli'; runpy.run_module('manga_pipeline.cli', run_name='__main__')"
+    )
     done = subprocess.run(
-        [sys.executable, "-m", "manga_pipeline.cli", "--config", str(path), "export"],
+        [sys.executable, "-c", main, "--config", str(path), "export"],
         cwd=config.ROOT,
         capture_output=True,
         text=True,
@@ -145,10 +170,10 @@ def test_module_run_writes_the_log(site, tmp_path):
 @budget(load="fs")
 @pytest.mark.parametrize("command", ["intake", "state reset", "state adopt"])
 def test_held_lock_exits_3_without_opening_a_log_file(site, command, capsys):
-    with lock.held(site_cfg(site), "intake"):
+    with running(site_cfg(site), "intake"):
         assert run(site, command) == 3, "a run must stop at once while another holds a lock it takes"
     err = capsys.readouterr().err
-    assert "another run holds" in err and "intake.lock" in err, "the error names the held lock file"
+    assert "holds the lock" in err, "the error names the held lock"
     assert log_files(site) == [], "a refused run must not open the log file the holder writes"
 
 
@@ -156,13 +181,13 @@ def test_held_lock_exits_3_without_opening_a_log_file(site, command, capsys):
 def test_adopt_lets_a_part_pass_preflight(site, capsys):
     assert run(site, "process") == 4, "a share no database adopted stops every part"
     assert "share ownership" in capsys.readouterr().err
-    assert run(site, "state adopt") == 0
+    adopt(site)
     assert run(site, "process") == 0
 
 
 @budget(load="db")
 def test_share_owned_by_another_database_exits_4(site, capsys):
-    assert run(site, "state adopt") == 0
+    adopt(site)
     preflight.owner_file(site_cfg(site)).write_text("another-database", encoding="utf-8")
     assert run(site, "export") == 4
     assert "holds database id 'another-database'" in capsys.readouterr().err
@@ -220,7 +245,7 @@ def test_crash_inside_a_part_exits_1_with_1_traceback_in_its_log(site, monkeypat
     def unreadable(ctx):
         raise PermissionError(errno.EACCES, "Permission denied", "downloads")
 
-    assert run(site, "state adopt") == 0
+    adopt(site)
     monkeypatch.setattr(discovery, "scan", unreadable)
     assert run(site, "intake") == 1, "SPEC 'CLI': an unexpected error exits 1"
     text = (config.abs_path(site_cfg(site)["logging"]["dir"]) / "intake.log").read_text(encoding="utf-8")

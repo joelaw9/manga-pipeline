@@ -68,6 +68,38 @@ def abs_path(value):
     return p if p.is_absolute() else ROOT / p
 
 
+# The share roots a stored path names (SPEC "State"): <root>/<path below it, with / separators>.
+SHARE_ROOTS = ("downloads", "library", "staging", "retention", "candidates", "covers")
+
+
+class PathError(ValueError):
+    """A path that lies under no share root, or a stored path that names no root."""
+
+
+def to_stored(cfg, path):
+    """The stored form of a path on this machine: the share root it lies under (paths.<root>, compared as configured:
+    no link, drive letter or UNC name is resolved) and the path below it, with / separators. PathError when it lies
+    under no root."""
+    path = Path(path)
+    if ".." in path.parts:  # compared as written: a .. would pass for a path under the root it leaves
+        raise PathError(f"{path} holds '..': a stored path names no parent folder")
+    for root in SHARE_ROOTS:
+        base = abs_path(cfg["paths"][root])
+        if path == base or path.is_relative_to(base):
+            below = path.relative_to(base).as_posix()
+            return root if below == "." else f"{root}/{below}"
+    raise PathError(f"{path} lies under no share root (paths.{', paths.'.join(SHARE_ROOTS)})")
+
+
+def to_local(cfg, stored):
+    """This machine's path for a stored path (to_stored's form). PathError for a text that names no share root."""
+    root, _, below = stored.partition("/")
+    if root not in SHARE_ROOTS or "\\" in stored or ".." in below.split("/"):
+        raise PathError(f"stored path {stored!r} is not <share root>/<path>")
+    base = abs_path(cfg["paths"][root])
+    return base.joinpath(*below.split("/")) if below else base
+
+
 def _read(path, allow_empty=False):
     try:
         text = path.read_text(encoding="utf-8")

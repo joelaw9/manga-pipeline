@@ -9,11 +9,11 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import config, db, intake, process
+from manga_pipeline import config, db, fleet, intake, process, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 
-from tests.builders import config_file
+from tests.builders import config_file, run_part
 from tests.timing import budget
 from tests.world import World
 
@@ -109,7 +109,7 @@ def test_parts_at_once_publish_every_chapter_exactly_once(world, tmp_path):
 def test_killed_process_run_is_finished_by_the_next_run(world, tmp_path, monkeypatch):
     cfg = world.cfg
     downloads(world, 1, 1)
-    intake.run(cfg)
+    run_part(cfg, intake)
     step = tmp_path / "in-convert"
     out = open(tmp_path / "killed.out", "wb")
     run = start(["-c", BLOCKING_PROCESS, str(step), str(config_file(tmp_path, cfg))], out)
@@ -124,11 +124,11 @@ def test_killed_process_run_is_finished_by_the_next_run(world, tmp_path, monkeyp
         run.wait()
         out.close()
     got = rows(cfg, "SELECT stage, status, claimed_by, attempts FROM chapter")
-    assert got == [("convert", "claimed", "process", 0)], "the killed run left its claim"
+    assert got == [("convert", "claimed", workflow.owner("process"), 0)], "the killed run left its claim"
 
     junk_runs = []
     monkeypatch.setitem(process.STAGES, "junk", lambda ctx, chapter: junk_runs.append(chapter["id"]))
-    process.run(cfg)
+    run_part(cfg, process)
     got = rows(cfg, "SELECT stage, status, claimed_by, attempts FROM chapter")
     assert got == [("comicinfo", "ready", None, 0)], "the next run releases the claim and finishes the chapter"
     assert junk_runs == [], "the junk stage it had finished is not redone"
@@ -149,15 +149,17 @@ def outcome_lines(text, outcome):
 # 2 process runs over 40 chapters: every statement is a round trip to the server (23 s on SQLite, 33-40 s here).
 @budget(load="subprocess", seconds=45)
 def test_2_unlocked_runs_of_a_part_never_work_a_chapter_twice(world, tmp_path):
-    cfg = world.cfg
+    cfg = {**world.cfg, "lock": {"enabled": False}}  # a shared setting: the fleet's version is set with it
+    with closing(db.connect(cfg)) as conn, db.transaction(conn):
+        fleet.store(conn, cfg)
     downloads(world, 4, 10)
-    intake.run(cfg)
+    run_part(cfg, intake)
     path = config_file(tmp_path, cfg)
     world_file = world.dump(tmp_path / "world.json")
     runs = []
     for n in range(2):
         out = open(tmp_path / f"process-{n}.out", "wb")
-        argv = part_argv(world_file, path, "--set", "lock.enabled=false", "process")
+        argv = part_argv(world_file, path, "process")
         runs.append((out, start(argv, out)))
     for out, run in runs:
         assert run.wait(timeout=STEP_TIMEOUT_S) == 0

@@ -10,7 +10,7 @@ import logging
 import os
 import time
 
-from manga_pipeline import config
+from manga_pipeline import config, errors
 
 log = logging.getLogger(__name__)
 DAY = 86400
@@ -19,7 +19,7 @@ DAY = 86400
 def put(cfg, download):
     """Remove a download (a Path under <paths.downloads>/mangas) the retention way. A download already gone counts as
     removed (a crash after the move, before its outcome was recorded)."""
-    if not download.exists():
+    if not errors.exists(download):
         log.info("retention: %s is already gone", download)
         return
     if cfg["export"]["retention_days"] == 0:
@@ -29,7 +29,7 @@ def put(cfg, download):
     folder = config.abs_path(cfg["paths"]["retention"]) / download.parent.parent.name / download.parent.name
     folder.mkdir(parents=True, exist_ok=True)
     target, n = folder / download.name, 1
-    while target.exists():  # an earlier download of the same name is kept: this one is "<stem> (2)<suffix>", ...
+    while errors.exists(target):  # an earlier download of the same name is kept: this one is "<stem> (2)<suffix>", ...
         n += 1
         target = folder / f"{download.stem} ({n}){download.suffix}"
     os.utime(download)  # the period runs from the move, not from the download; touched first, so a crash keeps it
