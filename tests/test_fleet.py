@@ -1,18 +1,20 @@
 """process on several machines against 1 database (SPEC "Parts", "State", "Chapter stages", "Run lock"): each
 machine here is its own connection holding its own run lock, with its own claim owner."""
 
+import ast
 from contextlib import ExitStack, closing
 from datetime import datetime as real_datetime
 from pathlib import Path
 
 import pytest
 
-from manga_pipeline import cli, db, handled, lock, workflow
+from manga_pipeline import cli, config, db, handled, images, lock, notices, page_store, workflow
 from manga_pipeline.convert import calibrate
 from manga_pipeline.workflow import Failed, Waiting
 
 from tests.builders import add_chapter, add_series, chapter, site_cfg
 from tests.timing import budget
+from tests.world import cbz
 
 
 class Fleet:
@@ -137,10 +139,10 @@ def test_a_lock_held_in_another_database_keeps_no_claim_here(fleet, tmp_path):
         assert workflow.claim(fleet.machine("b"), ("junk",))["id"] == c1, "only a lock in this database counts"
 
 
-def lost(fleet):
+def lost(fleet, cfg=None):
     """Machine a's claim of a chapter, then freed and taken by machine b (a slept): (a, a's stale row)."""
     _, (c1,) = fleet.series("S", chapters=1)
-    a, b = fleet.machine("a"), fleet.machine("b")
+    a, b = fleet.machine("a", cfg), fleet.machine("b")
     stale = workflow.claim(a, ("junk",))
     with db.transaction(fleet.conn):
         fleet.conn.execute(
@@ -198,6 +200,31 @@ def test_a_lost_claim_puts_no_download_aside_and_adds_no_calibration_sample(flee
 
 
 @budget(load="db")
+def test_a_lost_claim_neither_notes_a_kept_notice_nor_puts_a_dropped_one_aside(fleet):
+    cfg = {**fleet.cfg, "validate": {**fleet.cfg["validate"], "non_chapter_names": ["Author's Note"]}}
+    a, stale = lost(fleet, cfg)
+    download = config.abs_path(cfg["paths"]["downloads"]) / "Chapter 131 - Author's Note [END].cbz"
+    download.parent.mkdir(parents=True, exist_ok=True)
+    download.write_bytes(cbz())
+    with db.transaction(fleet.conn):
+        fleet.conn.execute(
+            "UPDATE chapter SET download_path = %s WHERE id = %s", (config.to_stored(cfg, download), stale["id"])
+        )
+        fleet.conn.execute(
+            "INSERT INTO series_conversion (series_id, layout, origin) VALUES (%s, 'pages', 'computed')",
+            (stale["series_id"],),
+        )
+        page_store.save(fleet.conn, stale["id"], images.measure_pages(download))
+    stale = {**dict(zip(stale.keys(), stale, strict=True)), "download_path": config.to_stored(cfg, download)}
+    with pytest.raises(workflow.ClaimLost):
+        notices.judge(a, stale)  # an end marker keeps it as a chapter, with a note
+    assert fleet.row(stale["id"])["notes"] is None, "no note is written under a lost claim"
+    with pytest.raises(workflow.ClaimLost):
+        notices.drop(a, stale, download)
+    assert download.exists(), "no notice is put aside under a lost claim"
+
+
+@budget(load="db")
 def test_a_failed_chapter_waits_5_minutes_on_every_machine_and_its_series_goes_on(fleet):
     _, (c1, c2) = fleet.series("S", chapters=2)
     a, b = fleet.machine("a"), fleet.machine("b")
@@ -228,13 +255,7 @@ def test_retry_ends_the_pause_at_once(fleet):
 
 
 @budget(load="db")
-def test_every_stored_time_comes_from_the_servers_clock(fleet, monkeypatch):
-    class NoMachineClock(real_datetime):
-        @classmethod
-        def now(cls, tz=None):
-            raise AssertionError("the machine's clock was read")
-
-    monkeypatch.setattr(workflow, "datetime", NoMachineClock)
+def test_every_stored_time_comes_from_the_servers_clock(fleet):
     fleet.series("S", chapters=1)
     a = fleet.machine("a")
     row = workflow.claim(a, ("junk",))
@@ -242,6 +263,59 @@ def test_every_stored_time_comes_from_the_servers_clock(fleet, monkeypatch):
     server = real_datetime.fromisoformat(workflow.now(fleet.conn))
     stored = real_datetime.fromisoformat(fleet.row(row["id"])["updated_at"])
     assert abs((server - stored).total_seconds()) <= 2, "the stored time is the server's"
+
+
+def machine_clock_reads(source):
+    """The lines of source that read the machine's clock as a datetime: datetime.now / utcnow / today or date.today,
+    whether the class is imported (from datetime import datetime [as x]) or reached through the module (import
+    datetime [as x])."""
+    tree = ast.parse(source)
+    classes, modules = set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "datetime":
+            classes |= {a.asname or a.name for a in node.names if a.name in ("datetime", "date")}
+        elif isinstance(node, ast.Import):
+            modules |= {a.asname or a.name for a in node.names if a.name == "datetime"}
+    lines = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr not in ("now", "utcnow", "today"):
+            continue
+        owner = node.func.value
+        if (isinstance(owner, ast.Name) and owner.id in classes) or (
+            isinstance(owner, ast.Attribute)
+            and owner.attr in ("datetime", "date")
+            and isinstance(owner.value, ast.Name)
+            and owner.value.id in modules
+        ):
+            lines.append(node.lineno)
+    return lines
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from datetime import datetime\ndatetime.now()",
+        "from datetime import datetime as dt, timedelta\ndt.utcnow()",
+        "import datetime\ndatetime.date.today()",
+        "import datetime as d\nd.datetime.now(d.timezone.utc)",
+    ],
+)
+def test_the_clock_check_finds_every_import_form(source):
+    assert machine_clock_reads(source) == [2], "each way the code base imports datetime is seen"
+
+
+@budget(load="fs")
+def test_no_module_reads_the_machines_clock_as_a_datetime():
+    root = Path(workflow.__file__).parent
+    found = {
+        p.relative_to(root).as_posix(): lines
+        for p in sorted(root.rglob("*.py"))
+        if (lines := machine_clock_reads(p.read_text(encoding="utf-8")))
+    }
+    assert found == {}, "every stored time comes from the server's clock (workflow.now), never the machine's"
 
 
 @budget(load="pure")

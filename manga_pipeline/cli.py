@@ -54,6 +54,7 @@ PROCESS_CHECKS = (
     preflight.IMAGE_TOOLS,
     preflight.SCORER,
     preflight.SCRATCH_SPACE,
+    preflight.LONG_PATHS,
 )
 # intake and export reach Suwayomi and Kavita; export writes the naming overrides' volumes.
 INTAKE_CHECKS = (*PART_CHECKS, preflight.SERVICE_SETTINGS)

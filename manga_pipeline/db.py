@@ -168,11 +168,6 @@ def open_database(cfg, builds):
     return conn
 
 
-def open_existing(cfg):
-    """Open database.name as connect does, but create and apply nothing: NoDatabase when it does not exist."""
-    return _open(cfg)
-
-
 def read_only(cfg):
     """Open the existing database for reading only: every transaction is read-only and repeatable-read, so 1
     transaction reads 1 snapshot. Raises NoDatabase when there is none, and SchemaError unless it holds exactly this

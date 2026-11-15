@@ -240,6 +240,47 @@ def test_leftover_staged_files_are_not_taken_for_a_chapters_output(site):
     assert all(path.read_bytes() == data for path, data in leftovers.items()), "files of others are left alone"
 
 
+@budget(load="db", seconds=3)
+def test_an_export_stage_that_lost_its_claim_leaves_every_file_untouched(site):
+    from manga_pipeline.stages import comicinfo, confirm, publish
+
+    download = site.download("Alpha", 2)
+    run_part(site.cfg, intake)
+    run_part(site.cfg, process)
+    with closing(db.connect(site.cfg)) as conn:
+        ctx = workflow.Context(site.cfg, conn, "export")
+
+        def lost(stage, run):
+            """The chapter's claim at stage, freed and taken by another run before the stage's act."""
+            row = workflow.claim(ctx, (stage,))
+            with db.transaction(conn):
+                conn.execute(
+                    "UPDATE chapter SET claimed_by = 'export@elsewhere', claim_count = claim_count + 1 WHERE id = %s",
+                    (row["id"],),
+                )
+            with pytest.raises(workflow.ClaimLost):
+                run(ctx, row)
+            with db.transaction(conn):  # handed back, as the other run would
+                conn.execute("UPDATE chapter SET status = 'ready', claimed_by = NULL WHERE id = %s", (row["id"],))
+
+        def done(stage, run):
+            assert isinstance(workflow.work(ctx, workflow.claim(ctx, (stage,)), run), workflow.Done)
+
+        ((stored,),) = rows(site.cfg, "SELECT staged_path FROM chapter")
+        staged = config.to_local(site.cfg, stored)
+        before = staged.read_bytes()
+        lost("comicinfo", comicinfo.run)
+        assert staged.read_bytes() == before, "no ComicInfo.xml is written under a lost claim"
+        done("comicinfo", comicinfo.run)
+        lost("publish", publish.run)
+        assert staged.exists() and not published(site.cfg), "nothing is moved into the library under a lost claim"
+        done("publish", publish.run)
+        export.request_scan(ctx)
+        site.world.kavita.run_scans()
+        lost("confirm", confirm.run)
+        assert download.exists(), "no download is put aside under a lost claim"
+
+
 @budget(load="db")
 def test_each_outcome_and_the_run_counts_are_logged(site, caplog):
     site.download("Alpha", 2)

@@ -19,6 +19,7 @@ def run(ctx, chapter):
         return workflow.Waiting("kavita_scan", {"why": "series gone from Kavita"})
     if not _indexed(ctx, series, chapter):
         return workflow.Waiting("kavita_scan")
+    workflow.holds_claim(ctx, chapter)
     retention.put(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]))
 
     def record(conn):

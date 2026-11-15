@@ -116,6 +116,10 @@ def scan(ctx, chapter, series, key):
         layout = _layout(ctx, series, [paths[i] for i in content])
         if layout == "strip":
             sc, units = _scan_strip(ctx, key, paths, sizes, content)
+            nul = _nul_rows(sc)
+            if nul:  # PostgreSQL's jsonb cannot hold it: storing the scan would fail every claim query
+                rows = ", ".join(f"{s}-{e}" for s, e in nul)
+                return workflow.NeedsHuman(f"OCR text of strip rows {rows} holds a NUL character: it cannot be stored")
         else:
             uniform = [m["junk_signature"] is None for m in measured]
             sc = page_units.scan(paths, names, sizes, uniform, _aspects(ctx, series, sizes))
@@ -163,6 +167,13 @@ def _scan_strip(ctx, key, paths, sizes, content):
     sc["content"] = content
     sc["marks"] = logos
     return sc, [("block", b["sig"]) for b in sc["blocks"]]
+
+
+def _nul_rows(sc):
+    """[(start, end)] of the strip units whose OCR text holds a NUL: the edge blocks and their join pieces, the only
+    units OCR reads."""
+    units = [u for b in sc["blocks"] for u in (b, *b["joins"])]
+    return [(u["start"], u["end"]) for u in units if "\x00" in u.get("text", "")]
 
 
 def _page_units(sc):

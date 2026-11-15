@@ -9,7 +9,7 @@ import re
 import shutil
 import time
 
-from manga_pipeline import config, workflow
+from manga_pipeline import config, errors, workflow
 from manga_pipeline.stages import convert, junk
 
 log = logging.getLogger(__name__)
@@ -45,12 +45,21 @@ def clean_scratch(cfg):
 
 
 def clean_staging(ctx):
-    """Delete a staged .cbz no chapter names once it is a day old (a run whose claim was freed may have left one); the
-    owner file and anything else in the staging folder are kept."""
+    """Delete a staged .cbz no chapter names, or a .cbz.part (a killed archive write's), once it is a day old (a run
+    whose claim was freed may have left one); the owner file and anything else in the staging folder are kept. A file
+    another machine's process start deleted first is skipped."""
     root = config.abs_path(ctx.cfg["paths"]["staging"])
     named = {row[0] for row in ctx.conn.execute("SELECT staged_path FROM chapter WHERE staged_path IS NOT NULL")}
     cutoff = time.time() - STAGED_KEEP_S
-    for entry in root.glob("*.cbz"):
-        if config.to_stored(ctx.cfg, entry) not in named and entry.stat().st_mtime < cutoff:
+    for entry in [*root.glob("*.cbz"), *root.glob("*.cbz.part")]:
+        if config.to_stored(ctx.cfg, entry) in named:
+            continue
+        try:
+            if entry.stat().st_mtime >= cutoff:
+                continue
             entry.unlink()
-            log.info("process: deleted %s: staged by a run whose claim was freed", entry)
+        except FileNotFoundError as e:
+            if errors.dropped_share(e):
+                raise
+            continue
+        log.info("process: deleted %s: staged by a run whose claim was freed", entry)

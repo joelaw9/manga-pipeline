@@ -592,6 +592,47 @@ def test_a_process_start_deletes_day_old_staged_files_no_chapter_names(site):
     assert (root / ".pipeline-owner").exists()
 
 
+@budget(load="db")
+def test_a_process_start_deletes_a_day_old_part_file(site):
+    import os
+
+    from manga_pipeline import process
+
+    root = config.abs_path(site.cfg["paths"]["staging"])
+    old, fresh = root / "old.cbz.part", root / "fresh.cbz.part"
+    for path in (old, fresh):
+        path.write_bytes(b"x")
+    os.utime(old, (old.stat().st_atime - 2 * 86400, old.stat().st_mtime - 2 * 86400))
+    process.clean_staging(site.ctx)
+    assert not old.exists() and fresh.exists(), "a killed archive write's .part goes once a day old, as a .cbz does"
+
+
+@budget(load="db")
+@pytest.mark.parametrize("winerror", [None, 53])
+def test_a_staged_file_that_vanishes_during_the_clean_up(site, monkeypatch, winerror):
+    import pathlib
+
+    from manga_pipeline import process
+
+    root = config.abs_path(site.cfg["paths"]["staging"])
+    (root / "gone.cbz").write_bytes(b"x")
+    real = pathlib.Path.stat
+
+    def stat(self, **kwargs):
+        if self.name == "gone.cbz":  # another machine's process start removed it after this one listed it
+            error = FileNotFoundError(2, "No such file or directory")
+            error.winerror = winerror
+            raise error
+        return real(self, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "stat", stat)
+    if winerror is None:
+        process.clean_staging(site.ctx)  # skipped: nothing left to delete
+    else:
+        with pytest.raises(FileNotFoundError):
+            process.clean_staging(site.ctx)  # a dropped share is not a vanished file: share_errors reports it
+
+
 @budget(load="pool")
 def test_output_pages_not_as_many_as_the_outcome_writes_fail(site, monkeypatch):
     from manga_pipeline.convert import image

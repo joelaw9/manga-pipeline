@@ -25,6 +25,7 @@ MIB = 1024 * 1024
 OWNER_FILE = ".pipeline-owner"
 # The share folders a run needs (SPEC "Preflight"): the share roots of SPEC "State".
 SHARE_FOLDERS = ("downloads", "library", "staging", "retention", "candidates", "covers")
+LONG_PATHS_KEY = r"SYSTEM\CurrentControlSet\Control\FileSystem"
 
 
 @dataclass(frozen=True)
@@ -256,10 +257,37 @@ def naming_overrides(cfg):
     return _missing_folders(cfg, ("naming_overrides",))
 
 
+def long_paths_value():
+    """Windows' LongPathsEnabled registry value, or None when it is absent."""
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, LONG_PATHS_KEY) as key:
+            return winreg.QueryValueEx(key, "LongPathsEnabled")[0]
+    except FileNotFoundError:
+        return None
+
+
+def long_paths(cfg):
+    """On Windows, paths of 260 or more characters open (SPEC "Preflight"); elsewhere they always do."""
+    if sys.platform != "win32":
+        return None
+    try:
+        value = long_paths_value()
+    except OSError as e:
+        return f"cannot read LongPathsEnabled under HKLM\\{LONG_PATHS_KEY}: {e}"
+    if value != 1:
+        return (
+            f"LongPathsEnabled under HKLM\\{LONG_PATHS_KEY} is {'absent' if value is None else value}: set it to 1"
+            " (a DWORD), or a share path of 260 or more characters cannot be opened"
+        )
+    return None
+
+
 def fleet_version(cfg):
     """This machine runs the fleet's version (SPEC "State"): fleet.problem, read on a connection of its own."""
     try:
-        with closing(db.open_existing(cfg)) as conn:
+        with closing(db.open_database(cfg, builds=False)) as conn:
             return fleet.problem(conn, cfg)
     except Exception as e:  # a check turns its own errors into its problem text
         return f"cannot compare this machine with the fleet's version: {type(e).__name__}: {e}"
@@ -281,6 +309,7 @@ SCRATCH_SPACE = Check("scratch space", HARD, scratch_space)
 CLAUDE_SETTINGS = Check("Claude settings", HARD, claude_settings)
 NAMING_OVERRIDES = Check("naming overrides", HARD, naming_overrides)
 FLEET_VERSION = Check("fleet version", HARD, fleet_version)
+LONG_PATHS = Check("long paths", HARD, long_paths)
 
 
 def run(cfg, checks):
