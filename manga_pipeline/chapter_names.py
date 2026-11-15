@@ -17,7 +17,7 @@ def resolve(ctx, series, downloads=None):
     """{chapter id: naming.Naming} of the series' open download chapters. downloads: {chapter id: stored path} read
     instead of the chapter's own download (validate's re-download candidate). VolumeError (volumes.OverrideError
     included) for a malformed override file, an `override` basis without one, or a volume that is not whole."""
-    rows, overrides, mangadex, platform = _inputs(ctx, series, downloads)
+    rows, overrides, mangadex, platform = inputs(ctx, series, downloads)
     return naming.resolve(series["naming_basis"], rows, overrides, mangadex, platform)
 
 
@@ -25,7 +25,7 @@ def choose_basis(ctx, series, downloads=None):
     """Choose and store a new series' volume basis over its chapters known now (SPEC "Publishing"); kept when another
     run stored one first. downloads: as resolve's. Returns the series' basis. VolumeError for a malformed override
     file."""
-    rows, overrides, mangadex, platform = _inputs(ctx, series, downloads)
+    rows, overrides, mangadex, platform = inputs(ctx, series, downloads)
     basis = naming.choose(rows, overrides, mangadex, platform)
     with db.transaction(ctx.conn):
         ctx.conn.execute(
@@ -34,7 +34,7 @@ def choose_basis(ctx, series, downloads=None):
         return ctx.conn.execute("SELECT naming_basis FROM series WHERE id = %s", (series["id"],)).fetchone()[0]
 
 
-def _inputs(ctx, series, downloads):
+def inputs(ctx, series, downloads=None):
     """(rows, override mapping or None, MangaDex volume map, stored platform list or None) of the series."""
     overrides = volumes.override_file(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
     row = ctx.conn.execute(

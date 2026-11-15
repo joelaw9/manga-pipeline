@@ -58,7 +58,7 @@ def run(ctx, chapter):
     fields.pop("LocalizedSeries", None)
     if series["localized_name"]:
         fields["LocalizedSeries"] = series["localized_name"]
-    fields.update(_series_fields(ctx, series, chapter, group))
+    fields.update(series_fields(ctx, series, chapter, group))
     result, pages = json.loads(chapter["convert_result"]), json.loads(chapter["output_pages"])
     entries = page_entries(pages, bool(result["cover"]), _layout(ctx.conn, series["id"]) == "pages")
     fields["PageCount"] = len(entries)
@@ -91,7 +91,7 @@ def run(ctx, chapter):
     return workflow.Done(record)
 
 
-def _series_fields(ctx, series, chapter, group):
+def series_fields(ctx, series, chapter, group):
     """The elements the series' stored fields and the chapter's source give."""
     got = merge.stored(ctx.conn, series["id"], tags.load())
     web = [*got.links, *([chapter["source_url"]] if chapter["source_url"] else [])]

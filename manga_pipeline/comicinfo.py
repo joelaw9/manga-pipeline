@@ -112,6 +112,13 @@ def read_all(xml_bytes):
     }
 
 
+def read_pages(xml_bytes):
+    """The Page entries of the Pages element ([{attribute: value}] in order; [] when there is none), as build takes
+    them. ET.ParseError for XML that does not parse."""
+    pages = ET.fromstring(xml_bytes).find("Pages")
+    return [] if pages is None else [dict(page.attrib) for page in pages.findall("Page")]
+
+
 def build(fields, pages=None):
     """ComicInfo.xml bytes with elements in schema order. `fields` maps element -> value (str/int);
     empty values are skipped; `pages` is [{"Image": 0, "Type": "FrontCover", ...}]. Raises if invalid."""

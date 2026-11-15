@@ -220,16 +220,13 @@ def test_a_completed_series_queues_only_the_new_chapters_it_lacks(world):
 
 
 @budget(load="db")
-def test_a_series_linked_by_the_sweep_gets_its_folder_with_its_first_download(world):
+def test_a_library_series_gets_its_folder_from_the_baseline_pass(world):
     world.kavita_series("Solo Leveling")
-    manga = world.manga("Solo Leveling")
-    world.run(intake)
-    assert world.rows("SELECT folder FROM series") == [(None,)], "a library series has no folder until it is needed"
-    world.download(manga, "Chapter 2")
+    world.manga("Solo Leveling")
     world.run(intake)
     assert world.rows("SELECT folder, rules_key, status FROM series") == [
         ("library/Solo Leveling", "Solo Leveling", "ok")
-    ], "the linked series' first download fetches its folder (and so its rules key)"
+    ], "the daily baseline pass fetches the folder of a series with no baseline (and so its rules key)"
 
 
 @budget(load="db")
@@ -283,12 +280,15 @@ def test_a_new_chapter_key_2_manga_list_is_queued_once(world):
 
 
 @budget(load="db")
-def test_a_recreated_series_with_no_folder_keeps_its_row(world):
+def test_a_recreated_series_keeps_its_row(world):
     old = world.kavita_series("Solo Leveling")
     world.run(intake)
     sid = series_id(world, old)
     row = world.kavita.series_rows.pop(old)
     world.kavita.series_rows[old + 50] = {**row, "id": old + 50}
+    for file in world.kavita.files.values():  # Kavita recreates a series with its files
+        if file["series"] == old:
+            file["series"] = old + 50
     world.run(intake)
     assert world.rows("SELECT id, kavita_series_id FROM series") == [(sid, old + 50)], "no ghost row is left"
 

@@ -167,14 +167,6 @@ def test_a_none_series_with_an_override_file_takes_its_volumes():
             3,
             (1, "override"),
         ),
-        (
-            "filename",
-            [settled(1, 1, "filename"), settled(2, 1, "filename"), new(3)],
-            {"volumes": {2: "1-3"}},
-            None,
-            3,
-            (None, "none"),
-        ),
         ("filename", [settled(1, 1, "filename"), new(2)], None, {"1": "1", "2": "1"}, 2, (1, "mangadex")),
         ("filename", [settled(5, 2, "filename"), new(6)], None, {"6": "1"}, 6, (None, "none")),
         (
@@ -186,32 +178,47 @@ def test_a_none_series_with_an_override_file_takes_its_volumes():
             (2, "override"),
         ),
         ("mangadex", [settled(1, 1, "mangadex"), new(2)], {"volumes": {1: "1-2"}}, {"1": "1"}, 2, (1, "override")),
-        ("mangadex", [settled(1, 1, "mangadex"), new(2)], {"volumes": {2: "1-2"}}, {"1": "1"}, 2, (None, "none")),
-        (
-            "mangadex",
-            [settled(1, 1, "mangadex"), new(2)],
-            {"volumes": {3: "2"}},
-            {"1": "1", "2": "2"},
-            2,
-            (2, "mangadex"),
-        ),
-        ("season tags", [settled(1, 1, "season tags"), new(2)], {"volumes": {1: "1-2"}}, None, 2, (None, "none")),
     ],
     ids=[
         "filename-override-fills",
-        "filename-override-clashes",
         "filename-mangadex-fills",
         "filename-fill-breaks-order",
         "override-before-mangadex",
         "mangadex-override-fills",
-        "mangadex-override-clashes",
-        "mangadex-beats-override",
-        "seasons-never-filled",
     ],
 )
 def test_a_gap_fill_fills_only_what_agrees_and_keeps_order(basis, rows, overrides, mangadex, number, want):
     assert volume_of(basis, rows, number, overrides, mangadex) == want, (
         "a filler fills nothing when it clashes with the basis, and no fill breaks the volume order"
+    )
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    "basis, rows, overrides, mangadex, want",
+    [
+        (
+            "filename",
+            [settled(1, 1, "filename"), settled(2, 1, "filename"), new(3)],
+            {"volumes": {2: "1-3"}},
+            None,
+            (2, "override"),
+        ),
+        ("mangadex", [settled(1, 1, "mangadex"), new(3)], {"volumes": {2: "1-3"}}, {"1": "1"}, (2, "override")),
+        ("mangadex", [settled(1, 1, "mangadex"), new(3)], {"volumes": {3: "3"}}, {"1": "1", "3": "2"}, (3, "override")),
+        (
+            "season tags",
+            [settled(1, 1, "season tags", season=1), new(3, season=1)],
+            {"volumes": {2: "1-3"}},
+            None,
+            (1, "season tags"),
+        ),
+    ],
+    ids=["filename-clash", "mangadex-clash", "beats-mangadex", "season-chapter-ignores-ranges"],
+)
+def test_an_override_range_gives_a_new_chapter_its_volume_whatever_the_basis(basis, rows, overrides, mangadex, want):
+    assert volume_of(basis, rows, 3, overrides, mangadex) == want, (
+        'the override file wins over every source for a chapter carrying no season (SPEC "Publishing")'
     )
 
 

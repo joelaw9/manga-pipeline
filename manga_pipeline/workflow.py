@@ -567,7 +567,7 @@ def droppable(conn, chapter_id):
     """The row of a chapter a person may drop (needs_human at a DROPPABLE stage, with no removal or download of its
     re-download outstanding); Refused otherwise."""
     with db.transaction(conn):
-        row = _refuse_unless_human(conn, chapter_id, DROPPABLE)
+        row = _refuse_unless_human(conn, chapter_id, _droppable_stages(conn, chapter_id))
         state = json.loads(row["redownload"] or "{}")
         pending = [r["path"] for r in state.get("remove", [])] + (
             [state["expected"]["path"]] if state.get("expected") else []
@@ -584,13 +584,19 @@ def drop_chapter(conn, chapter_id, record):
     """A person gives a needs_human chapter up (chapter drop): done where it stands, with record(conn) (its handled
     row) in the same transaction. The caller removes its download first."""
     with db.transaction(conn):
-        _refuse_unless_human(conn, chapter_id, DROPPABLE)
+        _refuse_unless_human(conn, chapter_id, _droppable_stages(conn, chapter_id))
         conn.execute(
             """UPDATE chapter SET status = 'done', last_error = 'dropped by a person', redownload = NULL,
                 notes = NULL, updated_at = %s WHERE id = %s""",
             (now(conn), chapter_id),
         )
         record(conn)
+
+
+def _droppable_stages(conn, chapter_id):
+    """DROPPABLE, or every stage for a rewrite chapter: it holds no download (SPEC "Retroactive updates")."""
+    row = conn.execute("SELECT kind FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
+    return STAGES if row is not None and row["kind"] == "rewrite" else DROPPABLE
 
 
 def _refuse_unless_human(conn, chapter_id, stages):
@@ -674,7 +680,8 @@ def _outcome_columns(chapter, outcome, limit, stamp):
             attempts >= limit,
         )
     if isinstance(outcome, Done):
-        last = chapter["stage"] == STAGES[-1]
+        # a rewrite ends at publish: its file's row carries the rest (SPEC "Retroactive updates")
+        last = chapter["stage"] == STAGES[-1] or (chapter["kind"] == "rewrite" and chapter["stage"] == "publish")
         stage = chapter["stage"] if last else STAGES[STAGES.index(chapter["stage"]) + 1]
         set_, values = "stage = %s, status = %s, attempts = 0", (stage, "done" if last else "ready")
     elif isinstance(outcome, Waiting):

@@ -35,8 +35,10 @@ def judge(ctx, chapter):
         for r in ctx.conn.execute(
             "SELECT * FROM published_file WHERE series_id = %s AND state = 'confirmed'", (chapter["series_id"],)
         )
-        # A published file gone from the library is no copy: publishing replaces its record (SPEC "Publishing").
-        if validation.chapter_key(r["identity"]) == key and workflow.exists(config.to_local(ctx.cfg, r["library_path"]))
+        # A published file gone from the library is no copy: publishing replaces its record (SPEC "Publishing"); a
+        # file whose queued rewrite renamed it is in the library under its queued name (SPEC "Retroactive updates").
+        if validation.chapter_key(r["identity"]) == key
+        and any(workflow.exists(config.to_local(ctx.cfg, p)) for p in (r["library_path"], r["pending_path"]) if p)
     ]
     if rows:
         ours = functools.cache(lambda: chapter_names.download_volume(ctx.cfg, chapter["download_path"]))

@@ -56,7 +56,8 @@ metadata:
   complete_days: 365
 
 export:
-  retention_days: 7   # days a removed download stays in paths.retention; 0 deletes it at once
+  retention_days: 7   # days a removed download (or a rewritten library file) stays in paths.retention; 0 deletes it at once
+  rewrites_open: 50   # at most this many file rewrites open at a time (SPEC "Retroactive updates")
 
 tools:   # per machine; relative = project root; nothing is searched on PATH
   avifenc: "/opt/libavif/avifenc"

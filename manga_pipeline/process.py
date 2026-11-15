@@ -49,6 +49,10 @@ def clean_staging(ctx):
     another machine's process start deleted first is skipped."""
     root = config.abs_path(ctx.cfg["paths"]["staging"])
     named = {row[0] for row in ctx.conn.execute("SELECT staged_path FROM chapter WHERE staged_path IS NOT NULL")}
+    # a queued rewrite's staged file belongs to its published file's row, whatever became of its chapter
+    named |= {
+        row[0] for row in ctx.conn.execute("SELECT pending_staged FROM published_file WHERE pending_staged IS NOT NULL")
+    }
     cutoff = time.time() - STAGED_KEEP_S
     for entry in [*root.glob("*.cbz"), *root.glob("*.cbz.part")]:
         if config.to_stored(ctx.cfg, entry) in named:

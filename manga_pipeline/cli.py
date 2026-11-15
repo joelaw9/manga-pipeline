@@ -27,9 +27,11 @@ from manga_pipeline import (
     preflight,
     process,
     retention,
+    rewrite,
     smoke,
     state,
     status,
+    volumes,
     workflow,
 )
 from manga_pipeline.clients import kavita, suwayomi
@@ -125,6 +127,12 @@ def chapter_drop(cfg, args):
     and the next drop finds its download already gone."""
     with _database(cfg, "drop") as conn:
         row = workflow.droppable(conn, args.chapter)
+        if row["kind"] == "rewrite":  # no download, nothing handled: its staged file goes; the file stays as it is
+            if row["staged_path"]:
+                config.to_local(cfg, row["staged_path"]).unlink(missing_ok=True)
+            workflow.drop_chapter(conn, args.chapter, lambda c: None)
+            log.info("chapter %s dropped", args.chapter)
+            return
         digest = row["content_digest"]
         if row["download_path"]:
             download = config.to_local(cfg, row["download_path"])
@@ -160,6 +168,43 @@ def series_new(cfg, args):
     with _database(cfg, "admit a series in") as conn:
         human.new_series(conn, args.series_id, args.name)
     log.info("series %s: to be admitted as a new series%s", args.series_id, f" as {args.name!r}" if args.name else "")
+
+
+def naming_diff(cfg, args):
+    """Read-only: what the comparison would rewrite, and the differences 7e never applies (SPEC "Retroactive
+    updates")."""
+    with db.read_only(cfg) as conn:
+        ctx = workflow.Context(cfg, conn, "export")
+        where = "s.id = %(series)s" if args.series_id else "s.kavita_series_id IS NOT NULL"
+        series_rows = conn.execute(
+            f"SELECT s.* FROM series s WHERE {where} AND {workflow.SCOPE} ORDER BY s.id",
+            {**workflow.scope_params(cfg), "series": args.series_id},
+        ).fetchall()
+        for series in series_rows:
+            try:
+                queued, apart = rewrite.diff(ctx, series)
+            except volumes.VolumeError as e:
+                print(f"series {series['id']} ({series['name']}): {e}")
+                continue
+            for path, old, new, target in queued:
+                renamed = f" -> {target}" if target != path else ""
+                print(f"series {series['id']}: {path}: volume {old or '-'} -> {new}{renamed}")
+            for path, stored, now in apart:
+                print(f"series {series['id']}: {path}: volume {stored}, the sources say {now or 'none'} (not applied)")
+
+
+def rewrite_drop(cfg, args):
+    with _database(cfg, "drop a rewrite in") as conn:
+        row = rewrite.drop(conn, args.file_id, cfg["workflow"]["attempt_limit"])
+    if row["pending_staged"]:
+        config.to_local(cfg, row["pending_staged"]).unlink(missing_ok=True)
+    log.info("published file %s: rewrite dropped", args.file_id)
+
+
+def rewrite_retry(cfg, args):
+    with _database(cfg, "retry a rewrite in") as conn:
+        rewrite.retry(conn, args.file_id)
+    log.info("published file %s: rewrite tried again by the next export", args.file_id)
 
 
 def metadata_import(cfg, args, conn):
@@ -255,6 +300,9 @@ COMMANDS = {
     "series link": Command((), None, None, LINK_CHECKS, _unlocked(series_link)),
     "series set-id": Command((), None, None, (), _unlocked(series_set_id)),
     "series new": Command((), None, None, (), _unlocked(series_new)),
+    "naming diff": Command((), None, None, (), _unlocked(naming_diff)),
+    "rewrite drop": Command((), None, None, (), _unlocked(rewrite_drop)),
+    "rewrite retry": Command((), None, None, (), _unlocked(rewrite_retry)),
     "metadata import": Command(("intake",), S, None, IMPORT_CHECKS, metadata_import),
     "metadata audit": Command((), None, None, LINK_CHECKS, _unlocked(metadata_audit)),
     "junk import": Command((), None, None, (), _unlocked(junk_import)),
@@ -303,6 +351,21 @@ def parser():
     new.add_argument("series_id", type=int, help="series id (as status shows it)")
     new.add_argument("--name", help="the name to admit it under (default: its own, SPEC 'Series identification')")
     new.set_defaults(command="series new")
+    naming = commands.add_parser("naming", help="chapter naming").add_subparsers(
+        dest="naming_command", required=True, metavar="ACTION"
+    )
+    diff = naming.add_parser("diff", help="list what retroactive updates would rewrite, and what they never apply")
+    diff.add_argument("series_id", nargs="?", type=int, help="series id (default: every series in scope)")
+    diff.set_defaults(command="naming diff")
+    rewrites = commands.add_parser("rewrite", help="retroactive rewrites of published files").add_subparsers(
+        dest="rewrite_command", required=True, metavar="ACTION"
+    )
+    drop_rewrite = rewrites.add_parser("drop", help="give up a stuck rewrite before its rename (as status names it)")
+    drop_rewrite.add_argument("file_id", type=int, help="published file id")
+    drop_rewrite.set_defaults(command="rewrite drop")
+    retry_rewrite = rewrites.add_parser("retry", help="try a failed rewrite again from its next step")
+    retry_rewrite.add_argument("file_id", type=int, help="published file id")
+    retry_rewrite.set_defaults(command="rewrite retry")
     metadata = commands.add_parser("metadata", help="series metadata").add_subparsers(
         dest="metadata_command", required=True, metavar="ACTION"
     )
