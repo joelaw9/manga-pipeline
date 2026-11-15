@@ -41,14 +41,29 @@ class Timeout(Exception):
     """A request sent with retry_timeout=False timed out; the service is not marked unreachable."""
 
 
+class NotJson(HttpError):
+    """A reply read as JSON is not JSON (SPEC "Services"): a bot check's HTML page, say. A failure of the request, as
+    an HttpError is; its status is the reply's own."""
+
+    def __init__(self, service, status, content_type, body):
+        Exception.__init__(self, f"{service}: HTTP {status} reply is not JSON (Content-Type {content_type})")
+        self.status = status
+        self.body = body
+
+
 @dataclass(frozen=True)
 class Response:
+    service: str  # the name of the Service that got it
     status: int
     headers: Any  # the reply's headers: get(name) ignores case
     body: bytes
 
     def json(self):
-        return jsonlib.loads(self.body)
+        """The body as JSON; NotJson naming the service, status and content type when it is not."""
+        try:
+            return jsonlib.loads(self.body)
+        except ValueError:
+            raise NotJson(self.service, self.status, self.headers.get("Content-Type"), self.body) from None
 
 
 def redact_url(url):
@@ -65,11 +80,12 @@ def redact_url(url):
 
 class Service:
     """1 service as 1 run sees it: its name (what Unreachable carries), its minimum gap between requests in seconds,
-    when it was last asked, and whether it was found unreachable."""
+    the User-Agent it sends, when it was last asked, and whether it was found unreachable."""
 
-    def __init__(self, name, min_gap=0.0):
+    def __init__(self, name, min_gap=0.0, user_agent=USER_AGENT):
         self.name = name
         self.min_gap = min_gap
+        self.user_agent = user_agent
         self._last = None
         self._down = None
 
@@ -88,7 +104,7 @@ class Service:
         shown = redact_url(url)
         if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
             raise ValueError(f"{self.name}: not an http or https URL: {shown}")
-        headers = {"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
+        headers = {"User-Agent": self.user_agent, "Accept": "application/json", **(headers or {})}
         data = None
         if json is not None:
             data = jsonlib.dumps(json).encode()
@@ -98,7 +114,7 @@ class Service:
             wait = 2**attempt * 2
             failed = None  # (status, body) of an HTTP failure; None for a network one
             try:
-                return _send(method, url, shown, headers, data, timeout)
+                return _send(self.name, method, url, shown, headers, data, timeout)
             except urllib.error.HTTPError as e:
                 failed = (e.code, _error_body(e))
                 if e.code != 429 and e.code < 500:
@@ -130,7 +146,7 @@ class Service:
         self._last = time.monotonic()
 
 
-def _send(method, url, shown, headers, data, timeout):
+def _send(service, method, url, shown, headers, data, timeout):
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     start = time.monotonic()
     outcome, size = None, 0
@@ -138,7 +154,7 @@ def _send(method, url, shown, headers, data, timeout):
         with urllib.request.urlopen(request, timeout=timeout) as reply:
             body = reply.read()
             outcome, size = reply.status, len(body)
-            return Response(reply.status, reply.headers, body)
+            return Response(service, reply.status, reply.headers, body)
     except urllib.error.HTTPError as e:
         outcome = e.code
         raise

@@ -26,7 +26,7 @@ def tapas_client(slug):
     """A Tapas client answering from the recorded replies of 1 series."""
     html = (PLATFORMS / f"tapas-{slug}-info.html").read_bytes()
     series_id = html.decode().split("tapastic://series/")[1].split("/")[0]
-    answers = {f"/series/{slug}/info": http.Response(200, None, html)}
+    answers = {f"/series/{slug}/info": reply(html)}
     for path in sorted(PLATFORMS.glob(f"tapas-{slug}-episodes-*.json")):
         page = path.stem.rsplit("-", 1)[1]
         answers[f"/series/{series_id}/episodes?page={page}&"] = json.loads(path.read_text(encoding="utf-8"))
@@ -40,7 +40,7 @@ def webtoons_client(kind, number):
         f"/api/v1/{kind}/{number}/episodes": json.loads(
             (PLATFORMS / f"webtoons-{kind}-{number}-episodes-1.json").read_text(encoding="utf-8")
         ),
-        "/episodeList": http.Response(200, None, (PLATFORMS / f"webtoons-{kind}-{number}-list.html").read_bytes()),
+        "/episodeList": reply((PLATFORMS / f"webtoons-{kind}-{number}-list.html").read_bytes()),
     }
     client = sources.Webtoons()
     client._service = CannedService("webtoons", answers)

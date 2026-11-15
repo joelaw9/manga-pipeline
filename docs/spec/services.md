@@ -10,6 +10,8 @@ The pipeline talks to Suwayomi (GraphQL) and Kavita (REST) through 1 HTTP layer,
 - A service is unreachable (SPEC "Parts") when a request still ends, after those retries, in a network error, a timeout or HTTP 429, 502, 503 or 504, or as soon as it answers with a `Retry-After` above 60 seconds. A run that found a service unreachable does not ask it again.
 - Any other status of 400 or above is a failure of the request: one of 500 or above (HTTP 500 included) after its retries, one below 500 at once.
 - A service can have a minimum gap between 2 requests; Suwayomi and Kavita have none.
+- Requests carry a browser User-Agent, except MangaDex's, which name the client (`manga-pipeline`): MangaDex answers a browser one with a bot check.
+- A reply read as JSON that is not JSON (a bot check's HTML page, say) is a failure of the request, naming the service, the status and the content type.
 - Every request is logged at DEBUG. No log line or error message carries a secret: the value of a query parameter whose name contains `key`, `token`, `secret`, `pass`, `auth` or `sig`, in any case, is replaced.
 
 `smoke` checks both services with reads only: it prints the size of Suwayomi's library, its source count and 1 manga's chapters, then Kavita's libraries, the series count of `kavita.library_id` and 1 series' files after path mapping, with whether each mapped path exists; a mapped path that does not exist fails the check. It tries both services whatever the first one answers, and exits 1 when either check fails.
