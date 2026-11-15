@@ -199,7 +199,7 @@ def test_a_lost_claim_puts_no_download_aside_and_adds_no_calibration_sample(flee
     assert fleet.conn.execute("SELECT count(*) FROM series_calibration").fetchone()[0] == 0
 
 
-@budget(load="db")
+@budget(load="db", seconds=2)
 def test_a_lost_claim_neither_notes_a_kept_notice_nor_puts_a_dropped_one_aside(fleet):
     cfg = {**fleet.cfg, "validate": {**fleet.cfg["validate"], "non_chapter_names": ["Author's Note"]}}
     a, stale = lost(fleet, cfg)

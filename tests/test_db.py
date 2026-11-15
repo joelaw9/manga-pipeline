@@ -69,6 +69,7 @@ def test_settings_are_in_effect(tmp_path):
         assert (encoding, collate, ctype) == ("UTF8", "C", "C"), "UTF-8 with bytewise text order"
         isolation = conn.execute("SHOW default_transaction_isolation").fetchone()[0]
         assert isolation == "read committed", "a write transaction sees what committed before its write lock"
+        assert "default_transaction_isolation" in conn.info.options, "set by the connection, not left to the server"
 
 
 @budget(load="db")

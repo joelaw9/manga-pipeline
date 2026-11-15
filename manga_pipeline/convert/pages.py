@@ -77,8 +77,8 @@ class Page:
 
 
 def _pixels(page, mode):
-    """Pixels for comparison: RGBA (exact) or LA (luma), so a changed alpha channel never matches and a dropped
-    fully-opaque one still does."""
+    """Pixels for comparison: RGBA (exact) or LA (luma), so a changed alpha channel does not match (beyond
+    LUMA_TOLERANCE in luma mode) and a dropped fully-opaque one still does."""
     return np.asarray(page.image()[0].convert("LA" if mode == "luma" else "RGBA"))
 
 

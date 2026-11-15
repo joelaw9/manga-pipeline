@@ -335,7 +335,7 @@ def test_a_builder_whose_role_cannot_create_the_database_exits_4(tmp_path, missi
     assert missing["database"]["name"] in err and "permission denied to create database" in err, "named on stderr"
 
 
-@budget(load="db")
+@budget(load="db", seconds=5)
 def test_a_connection_the_server_ends_mid_run_exits_1_with_its_traceback(tmp_path, monkeypatch):
     cfg = adopted(tmp_path, logging={**config.cached()["logging"], "dir": str(tmp_path / "logs")})
 
