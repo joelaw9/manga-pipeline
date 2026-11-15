@@ -1,0 +1,335 @@
+{
+ "series": "The Archduke's Magical Business Partner",
+ "mangabaka.series": {
+  "genres": [
+   "fantasy",
+   "romance",
+   "shoujo"
+  ],
+  "tags_v2": [
+   {
+    "name": "Shoujo",
+    "weight": "defining"
+   },
+   {
+    "name": "Villainess",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Pink-Haired Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Noble Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Based on a Web Novel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Heterosexual",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining"
+   },
+   {
+    "name": "Isekai",
+    "weight": "defining"
+   },
+   {
+    "name": "Isekaied Into a Novel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Transmigrated as the Villainess",
+    "weight": "defining"
+   },
+   {
+    "name": "Transmigration",
+    "weight": "defining"
+   },
+   {
+    "name": "Medical",
+    "weight": "incidental"
+   },
+   {
+    "name": "Romance",
+    "weight": "defining"
+   },
+   {
+    "name": "Nobility",
+    "weight": "core"
+   },
+   {
+    "name": "Business Management",
+    "weight": "defining"
+   },
+   {
+    "name": "Longstrip",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Full Color",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Web Comic",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Manhwa",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Magic",
+    "weight": "incidental"
+   }
+  ],
+  "status": "releasing",
+  "type": "manhwa",
+  "content_rating": "safe"
+ },
+ "mangaupdates.series": {
+  "genres": [
+   {
+    "genre": "Fantasy"
+   },
+   {
+    "genre": "Romance"
+   },
+   {
+    "genre": "Shoujo"
+   }
+  ],
+  "categories": [
+   {
+    "category": "Based on a Novel"
+   },
+   {
+    "category": "Business Management"
+   },
+   {
+    "category": "European Ambience"
+   },
+   {
+    "category": "Female Protagonist"
+   },
+   {
+    "category": "Full Color"
+   },
+   {
+    "category": "Green-Eyed Female Lead"
+   },
+   {
+    "category": "Isekai"
+   },
+   {
+    "category": "Mage Male Lead"
+   },
+   {
+    "category": "Nobility/Aristocracy"
+   },
+   {
+    "category": "Noble Female Lead"
+   },
+   {
+    "category": "Pink-Haired Female Lead"
+   },
+   {
+    "category": "Red-Eyed Male Lead"
+   },
+   {
+    "category": "Scenario Deviation"
+   },
+   {
+    "category": "Secret Identity"
+   },
+   {
+    "category": "Transmigrated as the Villain/ess"
+   },
+   {
+    "category": "Transmigrated into a Book World"
+   },
+   {
+    "category": "transmigration"
+   },
+   {
+    "category": "Webtoon/Webcomic"
+   },
+   {
+    "category": "White/Silver-Haired Male Lead"
+   }
+  ],
+  "type": "Manhwa"
+ },
+ "mangadex.manga": {
+  "attributes": {
+   "tags": [
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Reincarnation"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Long Strip"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Romance"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Magic"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Isekai"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Drama"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Fantasy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Villainess"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Adaptation"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Full Color"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "anilist.media": {
+  "genres": [
+   "Fantasy",
+   "Romance"
+  ],
+  "tags": [
+   {
+    "name": "Isekai",
+    "rank": 79,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Full Color",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Heterosexual",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Female Protagonist",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Medicine",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Magic",
+    "rank": 20,
+    "isMediaSpoiler": false
+   }
+  ]
+ },
+ "old_tool_wrote": {
+  "genres": [
+   "Drama",
+   "Fantasy",
+   "Isekai",
+   "Manhwa",
+   "Releasing",
+   "Romance",
+   "Shoujo"
+  ],
+  "tags": [
+   "Female Protagonist",
+   "Magic",
+   "Nobility",
+   "Otome Isekai",
+   "Reincarnation",
+   "Transmigrated into a Story",
+   "Villainess"
+  ]
+ },
+ "expected": {
+  "genres": [
+   "Fantasy",
+   "Romance",
+   "Shoujo",
+   "Isekai",
+   "Drama",
+   "Releasing",
+   "Manhwa"
+  ],
+  "tags": [
+   "Reincarnation",
+   "Magic",
+   "Villainess",
+   "Otome Isekai",
+   "Nobility",
+   "Female Protagonist"
+  ]
+ }
+}

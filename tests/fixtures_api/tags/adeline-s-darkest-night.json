@@ -1,0 +1,567 @@
+{
+ "series": "Adeline's Darkest Night",
+ "mangabaka.series": {
+  "genres": [
+   "fantasy",
+   "romance",
+   "josei"
+  ],
+  "tags_v2": [
+   {
+    "name": "Josei",
+    "weight": "defining"
+   },
+   {
+    "name": "Black-Eyed Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Purple/Violet-Eyed Character",
+    "weight": "defining"
+   },
+   {
+    "name": "Purple/Violet-Eyed Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Black-Haired Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Blonde-Haired Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Blonde-Haired Protagonist",
+    "weight": "defining"
+   },
+   {
+    "name": "Primarily Adult Cast",
+    "weight": "incidental"
+   },
+   {
+    "name": "Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Smart Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Abused Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Illegitimate Female Lead",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Regressed Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Determined Female Lead",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Shy Female Lead",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Strong Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Duke Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Cold Male Lead",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Strong Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Protagonist",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Regressor Protagonist",
+    "weight": "defining"
+   },
+   {
+    "name": "Based on a Novel",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Based on a Web Novel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Europe",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Divine/Celestial/Heaven/God Realm",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Age Regression",
+    "weight": "core"
+   },
+   {
+    "name": "Personality Change",
+    "weight": "defining"
+   },
+   {
+    "name": "Hidden Motives",
+    "weight": "defining"
+   },
+   {
+    "name": "Lack of Communication",
+    "weight": "defining"
+   },
+   {
+    "name": "Past Plays a Big Role",
+    "weight": "defining"
+   },
+   {
+    "name": "Time Manipulation",
+    "weight": "defining"
+   },
+   {
+    "name": "Time Rewind",
+    "weight": "core"
+   },
+   {
+    "name": "Time Travel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Flashbacks",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Prophets",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Demon King",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Dukes",
+    "weight": "defining"
+   },
+   {
+    "name": "Older Male Younger Female",
+    "weight": "defining"
+   },
+   {
+    "name": "Heterosexual",
+    "weight": "unweighted"
+   },
+   {
+    "name": "European Ambience",
+    "weight": "defining"
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining"
+   },
+   {
+    "name": "Sci-Fi",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Supernatural",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Angels",
+    "weight": "defining"
+   },
+   {
+    "name": "Non-human",
+    "weight": "defining"
+   },
+   {
+    "name": "Demons",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Second Life",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Dreams",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Female Empowerment",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Forced into Marriage",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Changing Fate",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Romance",
+    "weight": "defining"
+   },
+   {
+    "name": "Sacrifice",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Second Chance",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Nobility",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Revenge",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Longstrip",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Full Color",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Web Comic",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Manhwa",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Magic",
+    "weight": "core"
+   }
+  ],
+  "status": "completed",
+  "type": "manhwa",
+  "content_rating": "safe"
+ },
+ "mangaupdates.series": {
+  "genres": [
+   {
+    "genre": "Fantasy"
+   },
+   {
+    "genre": "Josei"
+   },
+   {
+    "genre": "Romance"
+   }
+  ],
+  "categories": [
+   {
+    "category": "Abused Female Lead"
+   },
+   {
+    "category": "Angel/s"
+   },
+   {
+    "category": "Based on a Novel"
+   },
+   {
+    "category": "Black-Eyed Male Lead"
+   },
+   {
+    "category": "Black-Haired Male Lead"
+   },
+   {
+    "category": "Blonde-Haired Female Lead"
+   },
+   {
+    "category": "Blonde-Haired Protagonist"
+   },
+   {
+    "category": "Changing Fate"
+   },
+   {
+    "category": "Cold Male Lead"
+   },
+   {
+    "category": "Demon Lord/King"
+   },
+   {
+    "category": "Determined Female Lead"
+   },
+   {
+    "category": "Divine/Celestial/Heaven/God Realm"
+   },
+   {
+    "category": "Dream/s"
+   },
+   {
+    "category": "Duke Male Lead"
+   },
+   {
+    "category": "Duke/s"
+   },
+   {
+    "category": "European Ambience"
+   },
+   {
+    "category": "Female Protagonist"
+   },
+   {
+    "category": "Forced into Marriage"
+   },
+   {
+    "category": "Full Color"
+   },
+   {
+    "category": "Hidden Motive"
+   },
+   {
+    "category": "Illegitimate Female Lead"
+   },
+   {
+    "category": "Lack of Communication"
+   },
+   {
+    "category": "Magic"
+   },
+   {
+    "category": "Nonhuman/s"
+   },
+   {
+    "category": "Older Male Younger Female"
+   },
+   {
+    "category": "Past Life/ves Play/s a Big Role"
+   },
+   {
+    "category": "Personality Change/s"
+   },
+   {
+    "category": "Prophet/s"
+   },
+   {
+    "category": "Purple/Violet-Eyed Character/s"
+   },
+   {
+    "category": "Purple/Violet-Eyed Female Lead"
+   },
+   {
+    "category": "Regressed Female Lead"
+   },
+   {
+    "category": "Regression"
+   },
+   {
+    "category": "Regressor Protagonist"
+   },
+   {
+    "category": "Revenge"
+   },
+   {
+    "category": "Sacrifice/s"
+   },
+   {
+    "category": "Scenario Deviation"
+   },
+   {
+    "category": "Second Life"
+   },
+   {
+    "category": "Shy Female Lead"
+   },
+   {
+    "category": "Smart Female Lead"
+   },
+   {
+    "category": "Strong Female Lead"
+   },
+   {
+    "category": "Strong Male Lead"
+   },
+   {
+    "category": "Time Rewind"
+   },
+   {
+    "category": "Webtoon/Webcomic"
+   }
+  ],
+  "type": "Manhwa"
+ },
+ "mangadex.manga": {
+  "attributes": {
+   "tags": [
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Demons"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Long Strip"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Romance"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Magic"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Fantasy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Web Comic"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Adaptation"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Full Color"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "anilist.media": {
+  "genres": [
+   "Fantasy",
+   "Romance"
+  ],
+  "tags": [
+   {
+    "name": "Female Protagonist",
+    "rank": 60,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Magic",
+    "rank": 60,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Time Manipulation",
+    "rank": 50,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Full Color",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Heterosexual",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Primarily Adult Cast",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Age Regression",
+    "rank": 20,
+    "isMediaSpoiler": false
+   }
+  ]
+ },
+ "old_tool_wrote": {
+  "genres": [
+   "Completed",
+   "Fantasy",
+   "Josei",
+   "Manhwa",
+   "Romance",
+   "Romance Fantasy"
+  ],
+  "tags": [
+   "Abused Female Lead",
+   "Defying Fate",
+   "Demon King",
+   "Demons",
+   "Female Protagonist",
+   "Magic",
+   "Non-Human Protagonist",
+   "Regression",
+   "Revenge",
+   "Royal Affairs",
+   "Smart Female Lead",
+   "Strong Female Lead",
+   "Strong Male Lead"
+  ]
+ },
+ "expected": {
+  "genres": [
+   "Fantasy",
+   "Romance",
+   "Josei",
+   "Romance Fantasy",
+   "Completed",
+   "Manhwa"
+  ],
+  "tags": [
+   "Female Protagonist",
+   "Magic",
+   "Demons",
+   "Regression",
+   "Revenge",
+   "Non-Human Protagonist",
+   "Smart Female Lead",
+   "Abused Female Lead",
+   "Strong Female Lead",
+   "Royal Affairs",
+   "Strong Male Lead",
+   "Demon King",
+   "Defying Fate"
+  ]
+ }
+}

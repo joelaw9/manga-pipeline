@@ -1,0 +1,100 @@
+# Tags --fill-empty-tags may add besides those the library already uses
+# (MangaBaka tags are mapped through consolidation.csv first). One per line.
+Nobility
+Strong Female Lead
+Strong Male Lead
+Smart Female Lead
+Smart Male Lead
+Male Lead Falls in Love First
+Female Lead Falls in Love First
+Abused Female Lead
+Overpowered Protagonist
+Weak to Strong
+Special Ability
+Secret Identity
+Misunderstandings
+Betrayal
+Murder
+Knights
+Adventurers
+Transmigrated into a Story
+Summoning
+Childhood Friends
+Master-Servant Relationship
+Obsessive Love
+Slow Romance
+Dark Fantasy
+Spirits
+Healing Power
+Magic Items
+Disciple
+Character Growth
+Manipulation
+Social Hierarchy
+Hero
+Pregnancy
+Villain Protagonist
+Side Character Reincarnation
+Slow Life
+Enemies Become Allies
+Abusive Family
+Based on a Novel
+Regression
+Saintess
+Childcare
+LitRPG
+Academy
+# Round 2 (top-up shortfall)
+Non-Human Protagonist
+Enemies to Lovers
+Defying Fate
+Family Drama
+Female Empowerment
+Forbidden Love
+Commoner Female Lead
+Cohabitation
+Illness
+# Round 3 (MangaBaka capture, 2026-10-23)
+Royal Affairs
+Villainess
+Arranged Marriage
+Demons
+Politics
+Monsters
+Anti-Hero
+Dragons
+Slavery
+Elf
+Kemonomimi
+Witch
+Dungeon
+Assassins
+Curses
+Reverse Harem
+Female Harem
+Demon King
+Scheming Character
+Illegitimate Child
+Traumatic Past
+Dead Family Member
+# Synonym targets (consolidation.csv) not already listed
+Reincarnation
+Parenthood
+Gods
+Magic
+Kingdom Management
+Fugitive
+Alchemy
+Necromancy
+Virtual Reality
+Office Workers
+Philosophy
+Cooking
+Delinquents
+Drugs
+Bisexual
+Ghosts
+Vampires
+Zombies
+Monster Girls
+Gyaru

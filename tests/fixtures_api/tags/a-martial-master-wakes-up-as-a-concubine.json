@@ -1,0 +1,687 @@
+{
+ "series": "A Martial Master Wakes Up as a Concubine",
+ "mangabaka.series": {
+  "genres": [
+   "fantasy",
+   "romance",
+   "comedy",
+   "drama",
+   "josei",
+   "martial_arts"
+  ],
+  "tags_v2": [
+   {
+    "name": "Organized Crime",
+    "weight": "defining"
+   },
+   {
+    "name": "Crossdressing",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Archery",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Josei",
+    "weight": "defining"
+   },
+   {
+    "name": "Villainess",
+    "weight": "defining"
+   },
+   {
+    "name": "Brown-Eyed Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Black-Haired Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Long-Haired Male Character",
+    "weight": "defining"
+   },
+   {
+    "name": "Long-Haired Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Pretending Character",
+    "weight": "defining"
+   },
+   {
+    "name": "Primarily Adult Cast",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Lead",
+    "weight": "core"
+   },
+   {
+    "name": "Straightforward Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Strong Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Emperor/King Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Affectionate Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Protagonist",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Male Protagonist",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Based on a Web Novel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "China",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Palace",
+    "weight": "defining"
+   },
+   {
+    "name": "Body Swapping",
+    "weight": "defining"
+   },
+   {
+    "name": "Impersonation",
+    "weight": "defining"
+   },
+   {
+    "name": "Secret Identity",
+    "weight": "defining"
+   },
+   {
+    "name": "Love Triangle",
+    "weight": "defining"
+   },
+   {
+    "name": "Male Lead Falls in Love First",
+    "weight": "defining"
+   },
+   {
+    "name": "Reincarnation",
+    "weight": "core"
+   },
+   {
+    "name": "Hanfu",
+    "weight": "defining"
+   },
+   {
+    "name": "Concubine",
+    "weight": "defining"
+   },
+   {
+    "name": "Emperors",
+    "weight": "defining"
+   },
+   {
+    "name": "Martial Artist",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Harem",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Heterosexual",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Chinese Ambience",
+    "weight": "core"
+   },
+   {
+    "name": "Korean ambience",
+    "weight": "defining"
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining"
+   },
+   {
+    "name": "Transmigration",
+    "weight": "defining"
+   },
+   {
+    "name": "Murim",
+    "weight": "defining"
+   },
+   {
+    "name": "Zombies",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Comedy",
+    "weight": "defining"
+   },
+   {
+    "name": "Slapstick",
+    "weight": "defining"
+   },
+   {
+    "name": "Drama",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Empowerment",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Horror",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Human Experiment",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Intrigue",
+    "weight": "defining"
+   },
+   {
+    "name": "Martial Arts",
+    "weight": "core"
+   },
+   {
+    "name": "Cultivation",
+    "weight": "defining"
+   },
+   {
+    "name": "Conspiracy",
+    "weight": "defining"
+   },
+   {
+    "name": "Court Politics",
+    "weight": "defining"
+   },
+   {
+    "name": "Pregnancy",
+    "weight": "defining"
+   },
+   {
+    "name": "Romance",
+    "weight": "defining"
+   },
+   {
+    "name": "Royalty",
+    "weight": "defining"
+   },
+   {
+    "name": "Revenge",
+    "weight": "defining"
+   },
+   {
+    "name": "Ancient China",
+    "weight": "core"
+   },
+   {
+    "name": "Wuxia",
+    "weight": "defining"
+   },
+   {
+    "name": "Elaborate",
+    "weight": "defining"
+   },
+   {
+    "name": "Longstrip",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Full Color",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Web Comic",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Manhwa",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Magic",
+    "weight": "defining"
+   }
+  ],
+  "status": "completed",
+  "type": "manhwa",
+  "content_rating": "safe"
+ },
+ "mangaupdates.series": {
+  "genres": [
+   {
+    "genre": "Comedy"
+   },
+   {
+    "genre": "Drama"
+   },
+   {
+    "genre": "Fantasy"
+   },
+   {
+    "genre": "Josei"
+   },
+   {
+    "genre": "Martial Arts"
+   },
+   {
+    "genre": "Romance"
+   }
+  ],
+  "categories": [
+   {
+    "category": "Affectionate Male Lead"
+   },
+   {
+    "category": "Ancient China"
+   },
+   {
+    "category": "Based on a Novel"
+   },
+   {
+    "category": "Black-Haired Female Lead"
+   },
+   {
+    "category": "Brown-Eyed Male Lead"
+   },
+   {
+    "category": "Chinese Ambience"
+   },
+   {
+    "category": "Concubine/s"
+   },
+   {
+    "category": "Conspiracy/ies"
+   },
+   {
+    "category": "Court Politics"
+   },
+   {
+    "category": "Dumb Female Lead"
+   },
+   {
+    "category": "Elaborate Art Style"
+   },
+   {
+    "category": "Emperor/King Male Lead"
+   },
+   {
+    "category": "Emperor/s"
+   },
+   {
+    "category": "Envious Character/s"
+   },
+   {
+    "category": "Female Protagonist"
+   },
+   {
+    "category": "Full Color"
+   },
+   {
+    "category": "General/s"
+   },
+   {
+    "category": "Golden/Yellow-Eyed Female Lead"
+   },
+   {
+    "category": "Hanfu"
+   },
+   {
+    "category": "Impersonating Someone"
+   },
+   {
+    "category": "Intrigue/s"
+   },
+   {
+    "category": "Korean Ambience"
+   },
+   {
+    "category": "Long-Haired Male Character/s"
+   },
+   {
+    "category": "Long-Haired Male Lead"
+   },
+   {
+    "category": "Male Lead Falls in Love First"
+   },
+   {
+    "category": "Martial Artist/s"
+   },
+   {
+    "category": "Murim"
+   },
+   {
+    "category": "Palace/s"
+   },
+   {
+    "category": "Polygamy"
+   },
+   {
+    "category": "Pretending Character/s"
+   },
+   {
+    "category": "Secret Identity"
+   },
+   {
+    "category": "Straightforward Female Lead"
+   },
+   {
+    "category": "Strong Female Lead"
+   },
+   {
+    "category": "Transmigration"
+   },
+   {
+    "category": "Unrequited Love"
+   },
+   {
+    "category": "Webtoon/Webcomic"
+   },
+   {
+    "category": "Wuxia"
+   }
+  ],
+  "type": "Manhwa"
+ },
+ "mangadex.manga": {
+  "attributes": {
+   "tags": [
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Reincarnation"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Action"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Long Strip"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Romance"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Comedy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Martial Arts"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Adventure"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Web Comic"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Full Color"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "anilist.media": {
+  "genres": [
+   "Fantasy",
+   "Romance"
+  ],
+  "tags": [
+   {
+    "name": "Martial Arts",
+    "rank": 85,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Reincarnation",
+    "rank": 84,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Female Protagonist",
+    "rank": 84,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Full Color",
+    "rank": 80,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Royal Affairs",
+    "rank": 79,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Wuxia",
+    "rank": 79,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Villainess",
+    "rank": 79,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Long Strip",
+    "rank": 79,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Slapstick",
+    "rank": 79,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Criminal Organization",
+    "rank": 79,
+    "isMediaSpoiler": true
+   },
+   {
+    "name": "Primarily Adult Cast",
+    "rank": 79,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Male Protagonist",
+    "rank": 79,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Heterosexual",
+    "rank": 70,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Revenge",
+    "rank": 70,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Love Triangle",
+    "rank": 70,
+    "isMediaSpoiler": true
+   },
+   {
+    "name": "Pregnancy",
+    "rank": 60,
+    "isMediaSpoiler": true
+   },
+   {
+    "name": "Magic",
+    "rank": 60,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Cultivation",
+    "rank": 60,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Body Swapping",
+    "rank": 60,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Human Experimentation",
+    "rank": 60,
+    "isMediaSpoiler": true
+   },
+   {
+    "name": "Zombie",
+    "rank": 40,
+    "isMediaSpoiler": true
+   },
+   {
+    "name": "Crossdressing",
+    "rank": 40,
+    "isMediaSpoiler": true
+   },
+   {
+    "name": "Archery",
+    "rank": 30,
+    "isMediaSpoiler": false
+   }
+  ]
+ },
+ "old_tool_wrote": {
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Completed",
+   "Crime",
+   "Drama",
+   "Fantasy",
+   "Harem",
+   "Historical",
+   "Josei",
+   "Manhwa",
+   "Martial arts",
+   "Romance",
+   "Wuxia"
+  ],
+  "tags": [
+   "Body Swapping",
+   "Cultivation",
+   "Female Protagonist",
+   "Full Color",
+   "Heterosexual",
+   "Inner Court Politics",
+   "Long Strip",
+   "Magic",
+   "Male Lead Falls in Love First",
+   "Male Protagonist",
+   "Pregnancy",
+   "Primarily Adult Cast",
+   "Reincarnation",
+   "Revenge",
+   "Royal Affairs",
+   "Secret Identity",
+   "Slapstick",
+   "Strong Female Lead",
+   "Villainess",
+   "Zombies"
+  ]
+ },
+ "expected": {
+  "genres": [
+   "Fantasy",
+   "Romance",
+   "Comedy",
+   "Drama",
+   "Josei",
+   "Martial Arts",
+   "Action",
+   "Adventure",
+   "Wuxia",
+   "Historical",
+   "Harem",
+   "Completed",
+   "Manhwa",
+   "Crime"
+  ],
+  "tags": [
+   "Reincarnation",
+   "Female Protagonist",
+   "Full Color",
+   "Royal Affairs",
+   "Villainess",
+   "Long Strip",
+   "Slapstick",
+   "Primarily Adult Cast",
+   "Male Protagonist",
+   "Heterosexual",
+   "Revenge",
+   "Magic",
+   "Cultivation",
+   "Body Swapping",
+   "Inner Court Politics",
+   "Strong Female Lead",
+   "Secret Identity",
+   "Male Lead Falls in Love First",
+   "Pregnancy",
+   "Zombies"
+  ]
+ }
+}

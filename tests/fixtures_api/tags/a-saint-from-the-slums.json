@@ -1,0 +1,343 @@
+{
+ "series": "A Saint From the Slums",
+ "mangabaka.series": {
+  "genres": [
+   "fantasy",
+   "romance",
+   "historical",
+   "shoujo"
+  ],
+  "tags_v2": [
+   {
+    "name": "Shoujo",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Lead",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Female Protagonist",
+    "weight": "incidental"
+   },
+   {
+    "name": "Based on a Web Novel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Love Triangle",
+    "weight": "incidental"
+   },
+   {
+    "name": "Saints",
+    "weight": "incidental"
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining"
+   },
+   {
+    "name": "Drama",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Religion",
+    "weight": "incidental"
+   },
+   {
+    "name": "Romance",
+    "weight": "defining"
+   },
+   {
+    "name": "Historical",
+    "weight": "defining"
+   },
+   {
+    "name": "Longstrip",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Full Color",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Web Comic",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Manhwa",
+    "weight": "unweighted"
+   }
+  ],
+  "status": "completed",
+  "type": "manhwa",
+  "content_rating": "safe"
+ },
+ "mangaupdates.series": {
+  "genres": [
+   {
+    "genre": "Fantasy"
+   },
+   {
+    "genre": "Historical"
+   },
+   {
+    "genre": "Romance"
+   },
+   {
+    "genre": "Shoujo"
+   }
+  ],
+  "categories": [
+   {
+    "category": "Based on a Novel"
+   },
+   {
+    "category": "Black-Haired Male Lead"
+   },
+   {
+    "category": "Blonde-Haired Character/s"
+   },
+   {
+    "category": "Body Marking/s"
+   },
+   {
+    "category": "Cat/s"
+   },
+   {
+    "category": "Child Protagonist"
+   },
+   {
+    "category": "European Ambience"
+   },
+   {
+    "category": "Female Protagonist"
+   },
+   {
+    "category": "Full Color"
+   },
+   {
+    "category": "Garden"
+   },
+   {
+    "category": "God/s"
+   },
+   {
+    "category": "Goddess/es"
+   },
+   {
+    "category": "Golden/Yellow-Eyed Male Lead"
+   },
+   {
+    "category": "Green-Haired Character/s"
+   },
+   {
+    "category": "Misunderstanding/s"
+   },
+   {
+    "category": "Misunderstood Character/s"
+   },
+   {
+    "category": "Orphan Female Lead"
+   },
+   {
+    "category": "Orphan/s"
+   },
+   {
+    "category": "Pet/s"
+   },
+   {
+    "category": "Priest/s"
+   },
+   {
+    "category": "Prince Male Lead"
+   },
+   {
+    "category": "Purple/Violet-Eyed Character/s"
+   },
+   {
+    "category": "Purple/Violet-Eyed Female Lead"
+   },
+   {
+    "category": "Purple/Violet-Eyed Protagonist"
+   },
+   {
+    "category": "Red-Eyed Character/s"
+   },
+   {
+    "category": "Red-Haired Character/s"
+   },
+   {
+    "category": "Religion"
+   },
+   {
+    "category": "Royalty"
+   },
+   {
+    "category": "Saint Female Lead"
+   },
+   {
+    "category": "Saint/Saintess"
+   },
+   {
+    "category": "Separation of Family Member/s"
+   },
+   {
+    "category": "Separation/s"
+   },
+   {
+    "category": "Short Female Lead"
+   },
+   {
+    "category": "Slum/s"
+   },
+   {
+    "category": "Talking Animal/s"
+   },
+   {
+    "category": "Webtoon/Webcomic"
+   },
+   {
+    "category": "White/Silver-Haired Character/s"
+   },
+   {
+    "category": "White/Silver-Haired Female Lead"
+   },
+   {
+    "category": "White/Silver-Haired Protagonist"
+   }
+  ],
+  "type": "Manhwa"
+ },
+ "mangadex.manga": {
+  "attributes": {
+   "tags": [
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Reincarnation"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Long Strip"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Romance"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Magic"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Isekai"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Fantasy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Adaptation"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Full Color"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "anilist.media": {
+  "genres": [
+   "Fantasy",
+   "Romance"
+  ],
+  "tags": [
+   {
+    "name": "Full Color",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Female Protagonist",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Love Triangle",
+    "rank": 20,
+    "isMediaSpoiler": true
+   }
+  ]
+ },
+ "old_tool_wrote": {
+  "genres": [
+   "Completed",
+   "Fantasy",
+   "Historical",
+   "Isekai",
+   "Manhwa",
+   "Romance",
+   "Shoujo"
+  ],
+  "tags": [
+   "Childcare",
+   "Magic",
+   "Misunderstandings",
+   "Orphan",
+   "Reincarnation",
+   "Saintess"
+  ]
+ },
+ "expected": {
+  "genres": [
+   "Fantasy",
+   "Romance",
+   "Historical",
+   "Shoujo",
+   "Isekai",
+   "Completed",
+   "Manhwa"
+  ],
+  "tags": [
+   "Reincarnation",
+   "Magic",
+   "Saintess",
+   "Female Protagonist",
+   "Childcare",
+   "Misunderstandings"
+  ]
+ }
+}

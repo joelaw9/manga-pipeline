@@ -1,0 +1,272 @@
+{
+ "series": "I Was Loved by No One, So Mopping the Floor Turned It into a Sacred Sanctuary",
+ "mangabaka.series": {
+  "genres": [
+   "comedy",
+   "fantasy",
+   "romance",
+   "josei"
+  ],
+  "tags_v2": [
+   {
+    "name": "Josei",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Lead",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Neglected Female Lead",
+    "weight": "core"
+   },
+   {
+    "name": "Prince Male Lead",
+    "weight": "core"
+   },
+   {
+    "name": "Female Protagonist",
+    "weight": "incidental"
+   },
+   {
+    "name": "Based on a Web Novel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Saints",
+    "weight": "core"
+   },
+   {
+    "name": "Maids",
+    "weight": "incidental"
+   },
+   {
+    "name": "Dead Mother",
+    "weight": "core"
+   },
+   {
+    "name": "Master-Servant Relationship",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining"
+   },
+   {
+    "name": "Comedy",
+    "weight": "defining"
+   },
+   {
+    "name": "Religion",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Romance",
+    "weight": "defining"
+   },
+   {
+    "name": "Royalty",
+    "weight": "incidental"
+   },
+   {
+    "name": "Magic",
+    "weight": "incidental"
+   }
+  ],
+  "status": "releasing",
+  "type": "manga",
+  "content_rating": "safe"
+ },
+ "mangaupdates.series": {
+  "genres": [
+   {
+    "genre": "Comedy"
+   },
+   {
+    "genre": "Fantasy"
+   },
+   {
+    "genre": "Josei"
+   },
+   {
+    "genre": "Romance"
+   }
+  ],
+  "categories": [
+   {
+    "category": "Based on a Japanese Novel"
+   },
+   {
+    "category": "Based on a Novel"
+   },
+   {
+    "category": "Broken Engagement/s"
+   },
+   {
+    "category": "Dead Mother"
+   },
+   {
+    "category": "European Ambience"
+   },
+   {
+    "category": "Fantasy World"
+   },
+   {
+    "category": "Female Protagonist"
+   },
+   {
+    "category": "Magic"
+   },
+   {
+    "category": "Neglected Female Lead"
+   },
+   {
+    "category": "Neglected Protagonist"
+   },
+   {
+    "category": "Nobility/Aristocracy"
+   },
+   {
+    "category": "Prince Male Lead"
+   },
+   {
+    "category": "Prince/s"
+   },
+   {
+    "category": "Royal-Noble Relationship"
+   },
+   {
+    "category": "Royalty"
+   },
+   {
+    "category": "Saint Female Lead"
+   },
+   {
+    "category": "Saint/Saintess"
+   },
+   {
+    "category": "Special Ability/ies"
+   }
+  ],
+  "type": "Manga"
+ },
+ "mangadex.manga": {
+  "attributes": {
+   "tags": [
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Monsters"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Romance"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Comedy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Magic"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Fantasy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Adaptation"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "anilist.media": {
+  "genres": [
+   "Comedy",
+   "Fantasy",
+   "Romance"
+  ],
+  "tags": [
+   {
+    "name": "Josei",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Female Protagonist",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Maids",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Magic",
+    "rank": 20,
+    "isMediaSpoiler": false
+   }
+  ]
+ },
+ "old_tool_wrote": {
+  "genres": [
+   "Comedy",
+   "Fantasy",
+   "Josei",
+   "Manga",
+   "Releasing",
+   "Romance"
+  ],
+  "tags": [
+   "Magic",
+   "Master-Servant Relationship",
+   "Monsters",
+   "Nobility",
+   "Religion",
+   "Saintess"
+  ]
+ },
+ "expected": {
+  "genres": [
+   "Comedy",
+   "Fantasy",
+   "Romance",
+   "Josei",
+   "Releasing",
+   "Manga"
+  ],
+  "tags": [
+   "Monsters",
+   "Magic",
+   "Saintess",
+   "Female Protagonist",
+   "Master-Servant Relationship",
+   "Nobility"
+  ]
+ }
+}

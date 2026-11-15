@@ -1,0 +1,217 @@
+# Tags and genres derived from MangaBaka tags (any weight; they carry MangaUpdates'
+# user-voted categories), MangaBaka genres and status ("Status: Cancelled"), plus
+# MangaUpdates categories and genres for series with sparse MangaBaka entries.
+# Rule terms and series terms both go through the same conversion (plural markers
+# dropped, case ignored, then consolidation.csv), so list any source's name for a
+# term once; add other sources' synonyms to consolidation.csv, not here. An entry applies when any of its rules matches.
+# In a rule, every group under "all" needs at least one of its terms, and none
+# of the "none" terms may be present. "kind" is tag (default) or genre.
+# Only multi-condition rules live here. A tag that just needs one term present
+# (any synonym, any weight) goes in promote_tags.txt instead.
+# The script adds these and removes them again only if it added them.
+
+- tag: Wuxia
+  kind: genre
+  rules: &wuxia
+    # Martial-world settings
+    - all:
+        - [Murim, Wuxia, Xianxia]
+    # "Cultivation" also means farming on MangaUpdates (e.g. The Promised Neverland),
+    # so it only counts alongside martial arts or an East Asian setting
+    - all:
+        - [Cultivation]
+        - [Martial Arts, Chinese Ambience, Korean Ambience, East Asian Ambience, Ancient China,
+           Ancient Korea, China]
+
+# Rules only see source terms, not other derived tags, so a broader genre implied by a
+# derived one reuses that entry's rules (YAML alias)
+- tag: Martial Arts
+  kind: genre
+  rules: *wuxia
+
+- tag: Inner Court Politics
+  rules: &inner_court
+    # Harem/court roles in an East Asian setting (martial-world settings allowed)
+    - all:
+        - &east_asian [Chinese Ambience, Korean Ambience, Japanese Ambience, East Asian Ambience,
+                       Ancient China, Ancient Korea, Joseon Era, Hanfu, Hanbok, China, Tang Dynasty]
+        - [Concubine/s, Consort/s, Eunuch/s, Court Politics]
+    # Broader court categories in an East Asian setting, but not the martial world
+    # (those belong under a Wuxia tag)
+    - all:
+        - *east_asian
+        - [Palace/s, Royal Court, Intrigue/s, Political Intrigue, Politics Involving Royalty,
+           Emperor/s, Empress/Queen Female Lead, Polygamy, Power Struggle]
+      none: [Murim, Wuxia, Cultivation]
+
+- tag: Historical
+  kind: genre
+  rules: *inner_court
+
+- tag: Romance Fantasy
+  kind: genre
+  rules: &romance_fantasy
+    # European-style noble setting, female lead, romance
+    - all:
+        - [European Ambience]
+        - [Nobility/Aristocracy, Royalty, Duke/s, Prince/s, Princess/es]
+        - [Female Protagonist, Strong Female Lead, Smart Female Lead, Beautiful Female Lead, Noble Female Lead]
+        - [Romance]
+
+- tag: Romance
+  kind: genre
+  rules: *romance_fantasy
+
+- tag: Fantasy
+  kind: genre
+  rules: *romance_fantasy
+
+- tag: LitRPG
+  rules:
+    # Game-style systems (status windows, skills) driving a progression story
+    - all:
+        - [Game Elements, Skill/s, Status Window, System]
+        - [Male Protagonist, Strong Male Lead, Overpowered Protagonist, Weak to Strong,
+           Protagonist Strong from the Start, Adventurer/s, Dungeon/s]
+
+- tag: Isekai
+  kind: genre
+  rules:
+    # Transported into a book, game or otome game is isekai, whatever the sources say
+    - all:
+        - [Transmigrated into a Story, Reincarnated in an Otome Game, Side Character Reincarnation,
+           GL Isekai, Trapped in a Video Game, Reverse Isekai]
+
+# Specific terms worth keeping that also imply a broader one. Terms that just mean the
+# broader one are synonyms in consolidation.csv instead.
+- tag: Transmigrated into a Story
+  rules:
+    - all:
+        - [Side Character Reincarnation]
+
+- tag: Reincarnation
+  rules:
+    - all:
+        - [Reincarnated in the Past, Reincarnated in the Future]
+
+- tag: Vampires
+  rules:
+    - all:
+        - [Vampire Protagonist, Vampire Female Lead, Vampire Hunter]
+
+- tag: Girls' Love
+  kind: genre
+  rules:
+    - all:
+        - [GL Isekai]
+
+- tag: Horror
+  kind: genre
+  rules:
+    - all:
+        - [Cosmic Horror, Body Horror]
+
+- tag: Mystery
+  kind: genre
+  rules:
+    - all:
+        - [Murder Mystery, Detective/s]
+
+- tag: Crime
+  kind: genre
+  rules:
+    - all:
+        - [Mafia, Yakuza]
+
+- tag: School Life
+  kind: genre
+  rules:
+    - all:
+        - [Boarding School]
+
+- tag: Sci-Fi
+  kind: genre
+  rules:
+    - all:
+        - [Robot/s, Android/s, Alien/s]
+
+- tag: Harem
+  kind: genre
+  rules:
+    # Either direction of harem (Male Harem converts to Reverse Harem)
+    - all:
+        - [Female Harem, Reverse Harem]
+
+# Publication status genres, from MangaBaka's status. Cancelled is Axed (promote_tags.txt,
+# with MangaUpdates' Axed category as a synonym); "unknown" gets none.
+- tag: Releasing
+  kind: genre
+  rules:
+    - all:
+        - ["Status: Releasing"]
+
+- tag: Completed
+  kind: genre
+  rules:
+    - all:
+        - ["Status: Completed"]
+
+- tag: Hiatus
+  kind: genre
+  rules:
+    - all:
+        - ["Status: Hiatus"]
+
+- tag: Upcoming
+  kind: genre
+  rules:
+    - all:
+        - ["Status: Upcoming"]
+
+# Format genres, from MangaBaka's type (MangaUpdates' for series MangaBaka doesn't know).
+# Novels get none: they live in their own libraries.
+- tag: Manga
+  kind: genre
+  rules:
+    - all:
+        - ["Type: Manga"]
+
+- tag: Manhwa
+  kind: genre
+  rules:
+    - all:
+        - ["Type: Manhwa"]
+
+- tag: Manhua
+  kind: genre
+  rules:
+    - all:
+        - ["Type: Manhua"]
+
+- tag: Comic
+  kind: genre
+  rules:
+    # Original English-language comics and anything else MangaBaka types "other"
+    - all:
+        - ["Type: OEL", "Type: Other"]
+
+- tag: Sexual Content
+  rules:
+    # Explicit content only (MangaBaka's rating, adult genres, depicted acts); not sexual
+    # themes (Rape has its own warning tag), Ecchi (fanservice), Mature (also violence) or
+    # MangaUpdates' Adult (broader than MangaBaka's rating: Goblin Slayer, Made in Abyss)
+    - all:
+        - ["Content Rating: Erotica", "Content Rating: Pornographic", Hentai, Erotica,
+           Sexual Acts, Sex Toys, Fellatio, Group Sex, Threesome, Nakadashi, Bondage, Femdom,
+           Ahegao, Squirting]
+
+- tag: Otome Isekai
+  rules:
+    # Reborn into an otome game
+    - all:
+        - [Reincarnated in an Otome Game]
+    # Female lead transmigrated into a story as (or around) its villainess
+    - all:
+        - [Transmigrated into a Story]
+        - [Female Protagonist]
+        - [Villainess]

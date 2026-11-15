@@ -1,0 +1,573 @@
+{
+ "series": "The Monster Life of the Freshly Drafted: The Comic",
+ "mangabaka.series": {
+  "genres": [
+   "action",
+   "adventure",
+   "comedy",
+   "ecchi",
+   "fantasy",
+   "romance",
+   "sci-fi"
+  ],
+  "tags_v2": [
+   {
+    "name": "Swordplay",
+    "weight": "incidental"
+   },
+   {
+    "name": "Anti-Hero",
+    "weight": "defining"
+   },
+   {
+    "name": "Big Breasts",
+    "weight": "core"
+   },
+   {
+    "name": "Voluptuous Female Character",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Male Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Hunted Protagonist",
+    "weight": "defining"
+   },
+   {
+    "name": "Misunderstood Protagonist",
+    "weight": "core"
+   },
+   {
+    "name": "Non-Human Protagonist",
+    "weight": "defining"
+   },
+   {
+    "name": "Sex Slave",
+    "weight": "defining"
+   },
+   {
+    "name": "Based on a Light Novel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Based on a Novel",
+    "weight": "defining"
+   },
+   {
+    "name": "Based on a Web Novel",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Ruins",
+    "weight": "defining"
+   },
+   {
+    "name": "Human Becomes Nonhuman",
+    "weight": "defining"
+   },
+   {
+    "name": "Protagonist Strong from the Start",
+    "weight": "core"
+   },
+   {
+    "name": "Language Barrier",
+    "weight": "core"
+   },
+   {
+    "name": "Misunderstandings",
+    "weight": "defining"
+   },
+   {
+    "name": "Time Skip",
+    "weight": "defining"
+   },
+   {
+    "name": "Meta",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Airship",
+    "weight": "defining"
+   },
+   {
+    "name": "Monster Hunter",
+    "weight": "defining"
+   },
+   {
+    "name": "Witch",
+    "weight": "defining"
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining"
+   },
+   {
+    "name": "Fantasy World",
+    "weight": "core"
+   },
+   {
+    "name": "Sci-Fi",
+    "weight": "defining"
+   },
+   {
+    "name": "Breast Fetish",
+    "weight": "defining"
+   },
+   {
+    "name": "Ecchi",
+    "weight": "defining"
+   },
+   {
+    "name": "Inverted Nipples",
+    "weight": "defining"
+   },
+   {
+    "name": "Nudity",
+    "weight": "core"
+   },
+   {
+    "name": "Partial Nudity",
+    "weight": "core"
+   },
+   {
+    "name": "Rape",
+    "weight": "defining"
+   },
+   {
+    "name": "Monsters",
+    "weight": "core"
+   },
+   {
+    "name": "Monster Boys",
+    "weight": "defining"
+   },
+   {
+    "name": "Ogre",
+    "weight": "defining"
+   },
+   {
+    "name": "Dragons",
+    "weight": "defining"
+   },
+   {
+    "name": "Non-human",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Elves",
+    "weight": "defining"
+   },
+   {
+    "name": "Goblin",
+    "weight": "defining"
+   },
+   {
+    "name": "Action",
+    "weight": "defining"
+   },
+   {
+    "name": "Adventure",
+    "weight": "defining"
+   },
+   {
+    "name": "Body Modification",
+    "weight": "core"
+   },
+   {
+    "name": "Comedy",
+    "weight": "defining"
+   },
+   {
+    "name": "Genetic Modification",
+    "weight": "defining"
+   },
+   {
+    "name": "Infertility",
+    "weight": "defining"
+   },
+   {
+    "name": "Human Experiment",
+    "weight": "core"
+   },
+   {
+    "name": "Politics",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Romance",
+    "weight": "defining"
+   },
+   {
+    "name": "Technology",
+    "weight": "defining"
+   },
+   {
+    "name": "Technology Gap",
+    "weight": "defining"
+   },
+   {
+    "name": "Prejudice",
+    "weight": "defining"
+   },
+   {
+    "name": "Super Powers",
+    "weight": "defining"
+   },
+   {
+    "name": "Gore",
+    "weight": "core"
+   },
+   {
+    "name": "Future",
+    "weight": "defining"
+   },
+   {
+    "name": "Magic",
+    "weight": "defining"
+   }
+  ],
+  "status": "releasing",
+  "type": "manga",
+  "content_rating": "suggestive"
+ },
+ "mangaupdates.series": {
+  "genres": [
+   {
+    "genre": "Action"
+   },
+   {
+    "genre": "Comedy"
+   },
+   {
+    "genre": "Ecchi"
+   },
+   {
+    "genre": "Fantasy"
+   },
+   {
+    "genre": "Sci-fi"
+   }
+  ],
+  "categories": [
+   {
+    "category": "Airship/s"
+   },
+   {
+    "category": "Based on a Novel"
+   },
+   {
+    "category": "Big Breasts"
+   },
+   {
+    "category": "Blood and Gore"
+   },
+   {
+    "category": "Body Modification"
+   },
+   {
+    "category": "Breast Fetish"
+   },
+   {
+    "category": "Dragon/s"
+   },
+   {
+    "category": "Elf/ves"
+   },
+   {
+    "category": "Fantasy World"
+   },
+   {
+    "category": "Future"
+   },
+   {
+    "category": "Genetic Modification"
+   },
+   {
+    "category": "Goblin/s"
+   },
+   {
+    "category": "Human Becomes Nonhuman"
+   },
+   {
+    "category": "Human Experiment/s"
+   },
+   {
+    "category": "Hunted Protagonist"
+   },
+   {
+    "category": "Infertility"
+   },
+   {
+    "category": "Inverted Nipples"
+   },
+   {
+    "category": "Language Barrier"
+   },
+   {
+    "category": "Magic"
+   },
+   {
+    "category": "Male Protagonist"
+   },
+   {
+    "category": "Misunderstanding/s"
+   },
+   {
+    "category": "Misunderstood Protagonist"
+   },
+   {
+    "category": "Monster Hunter/s"
+   },
+   {
+    "category": "Monster/s"
+   },
+   {
+    "category": "Nonhuman Protagonist"
+   },
+   {
+    "category": "Nudity"
+   },
+   {
+    "category": "Ogre/s"
+   },
+   {
+    "category": "Partial Nudity"
+   },
+   {
+    "category": "Prejudice"
+   },
+   {
+    "category": "Protagonist Strong from the Start"
+   },
+   {
+    "category": "Rape"
+   },
+   {
+    "category": "Ruins"
+   },
+   {
+    "category": "Sex Slave/s"
+   },
+   {
+    "category": "Technology"
+   },
+   {
+    "category": "Technology Gap"
+   },
+   {
+    "category": "Witch/es"
+   }
+  ],
+  "type": "Manga"
+ },
+ "mangadex.manga": {
+  "attributes": {
+   "tags": [
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Monsters"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Action"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Comedy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "content",
+      "name": {
+       "en": "Sexual Violence"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Magic"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "content",
+      "name": {
+       "en": "Gore"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Fantasy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Supernatural"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "format",
+      "name": {
+       "en": "Adaptation"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "anilist.media": {
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Ecchi",
+   "Fantasy",
+   "Romance",
+   "Sci-Fi"
+  ],
+  "tags": [
+   {
+    "name": "Monster Boy",
+    "rank": 79,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Super Power",
+    "rank": 79,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Time Skip",
+    "rank": 73,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Anti-Hero",
+    "rank": 60,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Nudity",
+    "rank": 50,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Elf",
+    "rank": 40,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Goblin",
+    "rank": 40,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Politics",
+    "rank": 40,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Meta",
+    "rank": 40,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Magic",
+    "rank": 26,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Swordplay",
+    "rank": 20,
+    "isMediaSpoiler": false
+   }
+  ]
+ },
+ "old_tool_wrote": {
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Ecchi",
+   "Fantasy",
+   "Manga",
+   "Releasing",
+   "Romance",
+   "Sci-fi",
+   "Supernatural"
+  ],
+  "tags": [
+   "Anti-Hero",
+   "Dragons",
+   "Elf",
+   "Fugitive",
+   "Magic",
+   "Misunderstandings",
+   "Monster Boy",
+   "Monsters",
+   "Non-Human Protagonist",
+   "Overpowered Protagonist",
+   "Politics",
+   "Rape",
+   "Super Power",
+   "Time Skip",
+   "Witch"
+  ]
+ },
+ "expected": {
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Ecchi",
+   "Fantasy",
+   "Romance",
+   "Sci-Fi",
+   "Supernatural",
+   "Releasing",
+   "Manga"
+  ],
+  "tags": [
+   "Monster Boy",
+   "Super Power",
+   "Time Skip",
+   "Anti-Hero",
+   "Monsters",
+   "Magic",
+   "Non-Human Protagonist",
+   "Overpowered Protagonist",
+   "Rape",
+   "Fugitive",
+   "Misunderstandings",
+   "Witch",
+   "Dragons",
+   "Elf",
+   "Politics"
+  ]
+ }
+}

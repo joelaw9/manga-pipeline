@@ -1,0 +1,332 @@
+{
+ "series": "A Kingdom of Quartz",
+ "mangabaka.series": {
+  "genres": [
+   "fantasy",
+   "mystery",
+   "action",
+   "adventure",
+   "drama",
+   "seinen"
+  ],
+  "tags_v2": [
+   {
+    "name": "Seinen",
+    "weight": "defining"
+   },
+   {
+    "name": "Female Lead",
+    "weight": "defining"
+   },
+   {
+    "name": "Non-Human Protagonist",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Fairy Tale",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Foreign",
+    "weight": "incidental"
+   },
+   {
+    "name": "Family Drama",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Time Skip",
+    "weight": "incidental"
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining"
+   },
+   {
+    "name": "Mythology",
+    "weight": "incidental"
+   },
+   {
+    "name": "Supernatural",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Angels",
+    "weight": "core"
+   },
+   {
+    "name": "Non-human",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Demons",
+    "weight": "defining"
+   },
+   {
+    "name": "Action",
+    "weight": "defining"
+   },
+   {
+    "name": "Adventure",
+    "weight": "defining"
+   },
+   {
+    "name": "Drama",
+    "weight": "defining"
+   },
+   {
+    "name": "Disability",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Orphans",
+    "weight": "core"
+   },
+   {
+    "name": "LGBTQ+",
+    "weight": "recurrent"
+   },
+   {
+    "name": "Mystery",
+    "weight": "defining"
+   },
+   {
+    "name": "Romance",
+    "weight": "unweighted"
+   },
+   {
+    "name": "Elaborate",
+    "weight": "core"
+   },
+   {
+    "name": "Magic",
+    "weight": "recurrent"
+   }
+  ],
+  "status": "completed",
+  "type": "manga",
+  "content_rating": "safe"
+ },
+ "mangaupdates.series": {
+  "genres": [
+   {
+    "genre": "Action"
+   },
+   {
+    "genre": "Adventure"
+   },
+   {
+    "genre": "Drama"
+   },
+   {
+    "genre": "Fantasy"
+   },
+   {
+    "genre": "Seinen"
+   }
+  ],
+  "categories": [
+   {
+    "category": "Angel/s"
+   },
+   {
+    "category": "Child Protagonist"
+   },
+   {
+    "category": "Demon/s"
+   },
+   {
+    "category": "Elaborate Art Style"
+   },
+   {
+    "category": "Fantasy World"
+   },
+   {
+    "category": "Female Protagonist"
+   },
+   {
+    "category": "Highly Visual Narrative"
+   },
+   {
+    "category": "Male Demographic with Female Lead"
+   },
+   {
+    "category": "Orphan Female Lead"
+   },
+   {
+    "category": "Orphan/s"
+   },
+   {
+    "category": "Winged Character/s"
+   }
+  ],
+  "type": "Manga"
+ },
+ "mangadex.manga": {
+  "attributes": {
+   "tags": [
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Action"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "theme",
+      "name": {
+       "en": "Demons"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Romance"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Drama"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Fantasy"
+      }
+     }
+    },
+    {
+     "attributes": {
+      "group": "genre",
+      "name": {
+       "en": "Tragedy"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "anilist.media": {
+  "genres": [
+   "Fantasy",
+   "Mystery"
+  ],
+  "tags": [
+   {
+    "name": "Angels",
+    "rank": 75,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Seinen",
+    "rank": 73,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Female Protagonist",
+    "rank": 72,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Demons",
+    "rank": 60,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Orphan",
+    "rank": 60,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Fairy Tale",
+    "rank": 40,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Magic",
+    "rank": 40,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Disability",
+    "rank": 30,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "LGBTQ+ Themes",
+    "rank": 30,
+    "isMediaSpoiler": true
+   },
+   {
+    "name": "Mythology",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Foreign",
+    "rank": 20,
+    "isMediaSpoiler": false
+   },
+   {
+    "name": "Time Skip",
+    "rank": 20,
+    "isMediaSpoiler": false
+   }
+  ]
+ },
+ "old_tool_wrote": {
+  "genres": [
+   "Action",
+   "Adventure",
+   "Completed",
+   "Drama",
+   "Fantasy",
+   "Manga",
+   "Mystery",
+   "Romance",
+   "Seinen",
+   "Tragedy"
+  ],
+  "tags": [
+   "Angels",
+   "Demons",
+   "Fairy Tale",
+   "Female Protagonist",
+   "Magic",
+   "Non-Human Protagonist",
+   "Orphan"
+  ]
+ },
+ "expected": {
+  "genres": [
+   "Fantasy",
+   "Mystery",
+   "Action",
+   "Adventure",
+   "Drama",
+   "Seinen",
+   "Romance",
+   "Tragedy",
+   "Completed",
+   "Manga"
+  ],
+  "tags": [
+   "Angels",
+   "Female Protagonist",
+   "Demons",
+   "Orphan",
+   "Non-Human Protagonist",
+   "Magic"
+  ]
+ }
+}

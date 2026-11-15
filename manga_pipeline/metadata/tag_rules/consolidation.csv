@@ -1,0 +1,233 @@
+group,from_kind,from,series,to_kind,to
+Tag that is a genre,tag,Boys' Love,1,genre,Boys' Love
+Tag that is a genre,tag,Crime,6,genre,Crime
+Tag that is a genre,tag,Harem,20,genre,Harem
+Tag that is a genre,tag,Historical,17,genre,Historical
+Tag that is a genre,tag,Isekai,26,genre,Isekai
+Tag that is a genre,tag,Josei,8,genre,Josei
+Tag that is a genre,tag,Martial Arts,32,genre,Martial Arts
+Tag that is a genre,tag,School Life,24,genre,School Life
+Tag that is a genre,tag,Seinen,17,genre,Seinen
+Tag that is a genre,tag,Shoujo,9,genre,Shoujo
+Tag that is a genre,tag,Shounen,7,genre,Shounen
+Tag that is a genre,tag,Supernatural,46,genre,Supernatural
+Tag that is a genre,tag,Tragedy,21,genre,Tragedy
+Tag that is a genre,tag,Wuxia,12,genre,Wuxia
+Genre synonym,genre,Boys Love,2,genre,Boys' Love
+Genre synonym,genre,Yaoi,2,genre,Boys' Love
+Genre synonym,genre,Gender bender,32,genre,Gender Bender
+Genre synonym,tag,Gender Bending,15,genre,Gender Bender
+Genre synonym,tag,Gender Swapped Protagonist,,genre,Gender Bender
+Genre synonym,tag,Gender Transformation,,genre,Gender Bender
+Genre synonym,tag,Gender-Swapped Character,,genre,Gender Bender
+Genre synonym,tag,Genderswap,21,genre,Gender Bender
+Genre synonym,genre,Girls Love,36,genre,Girls' Love
+Genre synonym,genre,Shoujo ai,14,genre,Girls' Love
+Genre synonym,genre,Yuri,22,genre,Girls' Love
+Genre synonym,tag,Yuri,17,genre,Girls' Love
+Genre synonym,genre,Smut,15,genre,Hentai
+Genre synonym,tag,Transmigrated into Another World,,genre,Isekai
+Genre synonym,tag,Transported to Another World,,genre,Isekai
+Genre synonym,genre,Mahou Shoujo,2,genre,Magical Girls
+Genre synonym,genre,Martial arts,49,genre,Martial Arts
+Genre synonym,tag,Medicine,10,genre,Medical
+Genre synonym,tag,School,25,genre,School Life
+Genre synonym,genre,School life,45,genre,School Life
+Genre synonym,genre,Sci-fi,43,genre,Sci-Fi
+Genre synonym,genre,Seinen(m),2,genre,Seinen
+Genre synonym,genre,Slice of life,150,genre,Slice of Life
+Narrower term for a genre,tag,Absurdity,,genre,Comedy
+Narrower term for a genre,tag,Comedic Misunderstanding,,genre,Comedy
+Narrower term for a genre,tag,Gag Humor,,genre,Comedy
+Narrower term for a genre,tag,Gangs,,genre,Crime
+Narrower term for a genre,tag,Organized Crime,,genre,Crime
+Narrower term for a genre,tag,Male to Female,,genre,Gender Bender
+Narrower term for a genre,tag,Reincarnated as the Opposite Gender,,genre,Gender Bender
+Narrower term for a genre,tag,Lesbian Protagonist,,genre,Girls' Love
+Narrower term for a genre,tag,Summoned Into Another World,,genre,Isekai
+Narrower term for a genre,tag,Henshin,3,genre,Magical Girls
+Narrower term for a genre,tag,Martial Artist,,genre,Martial Arts
+Narrower term for a genre,tag,Doctors,,genre,Medical
+Narrower term for a genre,tag,Female Doctor,,genre,Medical
+Narrower term for a genre,tag,Hospital,,genre,Medical
+Narrower term for a genre,tag,Classical Music,1,genre,Music
+Narrower term for a genre,tag,Rock Music,1,genre,Music
+Narrower term for a genre,tag,High School,,genre,School Life
+Narrower term for a genre,tag,Athletics,1,genre,Sports
+Narrower term for a genre,tag,Boxing,1,genre,Sports
+Narrower term for a genre,tag,Murim,,genre,Wuxia
+Genre that is really a tag,genre,Bisexual,1,tag,Bisexual
+Genre that is really a tag,genre,Delinquents,1,tag,Delinquents
+Genre that is really a tag,genre,Demon,1,tag,Demons
+Genre that is really a tag,genre,Demons,1,tag,Demons
+Genre that is really a tag,genre,Drugs,2,tag,Drugs
+Genre that is really a tag,genre,Full color,4,tag,Full Color
+Genre that is really a tag,genre,Gyaru,2,tag,Gyaru
+Genre that is really a tag,genre,Fox girl,1,tag,Kemonomimi
+Genre that is really a tag,genre,Kemonomimi,2,tag,Kemonomimi
+Genre that is really a tag,genre,Magic,1,tag,Magic
+Genre that is really a tag,genre,Monster,1,tag,Monsters
+Genre that is really a tag,genre,Philosophical,3,tag,Philosophy
+Genre that is really a tag,genre,Slave,1,tag,Slavery
+Tag synonym,tag,Abusive Family Member,,tag,Abusive Family
+Tag synonym,tag,Alchemists,,tag,Alchemy
+Tag synonym,tag,Food,8,tag,Cooking
+Tag synonym,tag,Dark Ambience,,tag,Dark Fantasy
+Tag synonym,tag,Death of Loved One,,tag,Dead Family Member
+Tag synonym,tag,Changing Fate,,tag,Defying Fate
+Tag synonym,tag,Defying Destiny/Fate,,tag,Defying Fate
+Tag synonym,tag,Dungeon Exploring,,tag,Dungeon
+Tag synonym,tag,Elves,,tag,Elf
+Tag synonym,tag,Enemies Become Lovers,,tag,Enemies to Lovers
+Tag synonym,tag,Female Lead,,tag,Female Protagonist
+Tag synonym,tag,Hunted Protagonist,,tag,Fugitive
+Tag synonym,tag,Ghost,8,tag,Ghosts
+Tag synonym,tag,Kingdom Building,,tag,Kingdom Management
+Tag synonym,tag,Knight,,tag,Knights
+Tag synonym,tag,Male Lead,,tag,Male Protagonist
+Tag synonym,tag,Deception,,tag,Manipulation
+Tag synonym,tag,Master-Slave Relationship,,tag,Master-Servant Relationship
+Tag synonym,tag,Monster Girl,11,tag,Monster Girls
+Tag synonym,tag,Necromancer,,tag,Necromancy
+Tag synonym,tag,Nobility/Aristocracy,,tag,Nobility
+Tag synonym,tag,Non-human,,tag,Non-Human Protagonist
+Tag synonym,tag,Obsession,,tag,Obsessive Love
+Tag synonym,tag,Obsessive Character,,tag,Obsessive Love
+Tag synonym,tag,Cheat Skills,,tag,Overpowered Protagonist
+Tag synonym,tag,Protagonist Strong from the Start,,tag,Overpowered Protagonist
+Tag synonym,tag,Regressor Protagonist,,tag,Regression
+Tag synonym,tag,Second Chance,,tag,Regression
+Tag synonym,tag,Time Rewind,,tag,Regression
+Tag synonym,tag,Transmigrated into an Otome Game,,tag,Reincarnated in an Otome Game
+Tag synonym,tag,Memories of Past Life,,tag,Reincarnation
+Tag synonym,tag,Past Life,,tag,Reincarnation
+Tag synonym,tag,Rebirth,,tag,Reincarnation
+Tag synonym,tag,Reincarnated in Another World,,tag,Reincarnation
+Tag synonym,tag,Reincarnated Protagonist,,tag,Reincarnation
+Tag synonym,tag,Transmigration,,tag,Reincarnation
+Tag synonym,tag,Male Harem,11,tag,Reverse Harem
+Tag synonym,tag,Royalty,,tag,Royal Affairs
+Tag synonym,tag,Saint,,tag,Saintess
+Tag synonym,tag,Saint/Saintess,,tag,Saintess
+Tag synonym,tag,Saints,,tag,Saintess
+Tag synonym,tag,Reincarnated as a Side Character,,tag,Side Character Reincarnation
+Tag synonym,tag,Transmigrated as a Side Character,,tag,Side Character Reincarnation
+Tag synonym,tag,Subtle Romance,,tag,Slow Romance
+Tag synonym,tag,Discrimination,,tag,Social Hierarchy
+Tag synonym,tag,Hidden Powers,,tag,Special Ability
+Tag synonym,tag,Mysterious Powers,,tag,Special Ability
+Tag synonym,tag,Capable Female Lead,,tag,Strong Female Lead
+Tag synonym,tag,Determined Female Lead,,tag,Strong Female Lead
+Tag synonym,tag,Emotionally Strong Female Lead,,tag,Strong Female Lead
+Tag synonym,tag,Capable Male Lead,,tag,Strong Male Lead
+Tag synonym,tag,Game World,,tag,Transmigrated into a Story
+Tag synonym,tag,Isekaied Into a Novel,,tag,Transmigrated into a Story
+Tag synonym,tag,Reincarnated in a Book World,,tag,Transmigrated into a Story
+Tag synonym,tag,Reincarnated in a Game World,,tag,Transmigrated into a Story
+Tag synonym,tag,Transmigrated into a Book World,,tag,Transmigrated into a Story
+Tag synonym,tag,Transmigrated into a Game,,tag,Transmigrated into a Story
+Tag synonym,tag,Transported To a Book World,,tag,Transmigrated into a Story
+Tag synonym,tag,Transported to a Game World,,tag,Transmigrated into a Story
+Tag synonym,tag,Tragic Past,,tag,Traumatic Past
+Tag synonym,tag,Trauma,,tag,Traumatic Past
+Tag synonym,tag,Vampire,11,tag,Vampires
+Tag synonym,tag,Villains,,tag,Villain Protagonist
+Tag synonym,tag,Virtual World,6,tag,Virtual Reality
+Tag synonym,tag,Zombie,5,tag,Zombies
+Narrower term for a tag,tag,Bullied Female Lead,,tag,Abused Female Lead
+Narrower term for a tag,tag,Child Abuse,,tag,Abusive Family
+Narrower term for a tag,tag,Emotional Abuse,,tag,Abusive Family
+Narrower term for a tag,tag,Magic School,,tag,Academy
+Narrower term for a tag,tag,Guilds,,tag,Adventurers
+Narrower term for a tag,tag,Contracts,,tag,Arranged Marriage
+Narrower term for a tag,tag,Engagement,,tag,Arranged Marriage
+Narrower term for a tag,tag,Marriage of Convenience,,tag,Arranged Marriage
+Narrower term for a tag,tag,Framed,,tag,Betrayal
+Narrower term for a tag,tag,Adopted Children,,tag,Childcare
+Narrower term for a tag,tag,Adopted Protagonist,,tag,Childcare
+Narrower term for a tag,tag,Child Protagonist,,tag,Childcare
+Narrower term for a tag,tag,Cursed Female Lead,,tag,Curses
+Narrower term for a tag,tag,Dead Parents,,tag,Dead Family Member
+Narrower term for a tag,tag,Scenario Deviation,,tag,Defying Fate
+Narrower term for a tag,tag,Love-Hate Relationship,,tag,Enemies to Lovers
+Narrower term for a tag,tag,Divine Holy Powers,,tag,Gods
+Narrower term for a tag,tag,Godly Powers,,tag,Gods
+Narrower term for a tag,tag,Nekomimi,4,tag,Kemonomimi
+Narrower term for a tag,tag,Knight Female Lead,,tag,Knights
+Narrower term for a tag,tag,Game Elements,,tag,LitRPG
+Narrower term for a tag,tag,Level System,,tag,LitRPG
+Narrower term for a tag,tag,RPG Character Role,,tag,LitRPG
+Narrower term for a tag,tag,Skill Growth,,tag,LitRPG
+Narrower term for a tag,tag,Skills,,tag,LitRPG
+Narrower term for a tag,tag,Mage Female Lead,,tag,Magic
+Narrower term for a tag,tag,Mages,,tag,Magic
+Narrower term for a tag,tag,Potion,,tag,Magic Items
+Narrower term for a tag,tag,Slime,,tag,Monsters
+Narrower term for a tag,tag,Massacre,,tag,Murder
+Narrower term for a tag,tag,Human Becomes Nonhuman,,tag,Non-Human Protagonist
+Narrower term for a tag,tag,Reincarnated As A Monster Nonhuman,,tag,Non-Human Protagonist
+Narrower term for a tag,tag,Yandere,,tag,Obsessive Love
+Narrower term for a tag,tag,Yandere Male Lead,,tag,Obsessive Love
+Narrower term for a tag,tag,Office Lady,2,tag,Office Workers
+Narrower term for a tag,tag,Father and Daughter,,tag,Parenthood
+Narrower term for a tag,tag,Single Father,,tag,Parenthood
+Narrower term for a tag,tag,Politicians,,tag,Politics
+Narrower term for a tag,tag,Politics Involving Royalty,,tag,Politics
+Narrower term for a tag,tag,Multiple Regressed Individuals,,tag,Regression
+Narrower term for a tag,tag,Regressed Female Lead,,tag,Regression
+Narrower term for a tag,tag,Regressed Male Lead,,tag,Regression
+Narrower term for a tag,tag,Multiple Reincarnated Individuals,,tag,Reincarnation
+Narrower term for a tag,tag,Reincarnated Female Lead,,tag,Reincarnation
+Narrower term for a tag,tag,Reincarnated Male Lead,,tag,Reincarnation
+Narrower term for a tag,tag,Duke Male Lead,,tag,Royal Affairs
+Narrower term for a tag,tag,Dukes,,tag,Royal Affairs
+Narrower term for a tag,tag,Emperor/King Male Lead,,tag,Royal Affairs
+Narrower term for a tag,tag,Emperors,,tag,Royal Affairs
+Narrower term for a tag,tag,Kings,,tag,Royal Affairs
+Narrower term for a tag,tag,Prince,,tag,Royal Affairs
+Narrower term for a tag,tag,Princess,,tag,Royal Affairs
+Narrower term for a tag,tag,Princess Female Lead,,tag,Royal Affairs
+Narrower term for a tag,tag,Princess Protagonist,,tag,Royal Affairs
+Narrower term for a tag,tag,Impersonation,,tag,Secret Identity
+Narrower term for a tag,tag,Author Transmigrated to Their Own Creation,,tag,Transmigrated into a Story
+Narrower term for a tag,tag,Otome Game,,tag,Transmigrated into a Story
+Narrower term for a tag,tag,Reincarnated as the Villainess,,tag,Villainess
+Narrower term for a tag,tag,Transmigrated as the Villainess,,tag,Villainess
+Adult content (genre to tag),genre,Ahegao,4,tag,Ahegao
+Adult content (genre to tag),genre,Bondage,1,tag,Bondage
+Adult content (genre to tag),genre,Blowjob,4,tag,Fellatio
+Adult content (genre to tag),genre,Blowjob face,1,tag,Fellatio
+Adult content (genre to tag),genre,Deepthroat,2,tag,Fellatio
+Adult content (genre to tag),genre,Multimouth blowjob,1,tag,Fellatio
+Adult content (genre to tag),genre,Femdom,1,tag,Femdom
+Adult content (genre to tag),genre,Small breasts,2,tag,Flat Chest
+Adult content (genre to tag),genre,Group,2,tag,Group Sex
+Adult content (genre to tag),genre,Big breasts,3,tag,Large Breasts
+Adult content (genre to tag),genre,Lolicon,6,tag,Loli
+Adult content (genre to tag),genre,Nakadashi,3,tag,Nakadashi
+Adult content (genre to tag),genre,Sex toys,1,tag,Sex Toys
+Adult content (genre to tag),genre,Shotacon,2,tag,Shota
+Adult content (genre to tag),genre,Squirting,1,tag,Squirting
+Adult content (genre to tag),genre,Ffm threesome,2,tag,Threesome
+Content warning: Rape,tag,Attempted Gang Rape,,tag,Rape
+Content warning: Rape,tag,Attempted Rape,,tag,Rape
+Content warning: Rape,tag,Child Born From Rape,,tag,Rape
+Content warning: Rape,tag,Child Rape,,tag,Rape
+Content warning: Rape,tag,Gang Rape,,tag,Rape
+Content warning: Rape,genre,Rape,1,tag,Rape
+Content warning: Rape,tag,Rape as a Start of Relationship,,tag,Rape
+Content warning: Rape,tag,Reverse Rape,,tag,Rape
+Content warning: Rape,tag,Sexual Abuse,,tag,Rape
+Content warning: Rape,tag,Sexual Assault,,tag,Rape
+Content warning: Rape,tag,Sexual Violence,,tag,Rape
+Publication status: Axed,tag,Axed,,genre,Axed
+Publication status: Axed,tag,Axed/Cancelled/Discontinued,,genre,Axed
+Publication status: Axed,tag,Cancelled,,genre,Axed
+Publication status: Axed,tag,Status: Cancelled,,genre,Axed
+Not a genre (remove),genre,Adaptation,1,remove,
+Not a genre (remove),genre,Doujinshi,1,remove,
+Not a genre (remove),genre,Mosaic censorship,1,remove,
+Not a genre (remove),genre,Multi-work series,1,remove,
+Not a genre (remove),genre,Oneshot,1,remove,
+Not a genre (remove),genre,Rough translation,1,remove,
+Not a genre (remove),genre,Uncensored,2,remove,
