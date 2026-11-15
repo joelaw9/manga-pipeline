@@ -151,6 +151,7 @@ def workflow_settings(cfg):
     problems = []
     for key, low in (
         ("workflow.attempt_limit", 1),
+        ("intake.settle_minutes", 1),
         ("kavita.library_id", 1),
         ("kavita.rescan_after_minutes", 1),
         ("export.retention_days", 0),

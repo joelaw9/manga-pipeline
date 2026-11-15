@@ -55,8 +55,9 @@ def save_in(ctx, chapter, state, **columns):
 
 
 def new_state(ctx, chapter, state):
-    """The state of a chapter rejected for the first time (state: what a person set, e.g. chosen, or {})."""
-    found = target(ctx, chapter["suwayomi_chapter_id"])
+    """The state of a chapter rejected for the first time (state: what a person set, e.g. chosen, or {}). A hand-placed
+    chapter (no Suwayomi chapter) has no original source."""
+    found = None if chapter["suwayomi_chapter_id"] is None else target(ctx, chapter["suwayomi_chapter_id"])
     original = {
         # by Suwayomi's display name, which sources.ranking uses (chapter.source may hold a source id)
         "source": chapter["source"] if found is None else found["source"],
@@ -78,13 +79,14 @@ def new_state(ctx, chapter, state):
 
 def remove(ctx, chapter, state):
     """Remove the copies the state lists: off the queue when queued, the file the retention way, then Suwayomi's
-    downloaded mark (a file already gone is no error to Suwayomi). Safe to run again."""
+    downloaded mark when it has a Suwayomi chapter (a file already gone is no error to Suwayomi). Safe to run again."""
     for item in state["remove"]:
         workflow.holds_claim(ctx, chapter)  # before each removal: it cannot be undone
         if item.get("dequeue"):
             ctx.suwayomi.dequeue([item["chapter_id"]])
         retention.put(ctx.cfg, config.to_local(ctx.cfg, item["path"]))
-        ctx.suwayomi.delete_downloaded([item["chapter_id"]])
+        if item["chapter_id"] is not None:  # a hand-placed copy: Suwayomi knows nothing of it
+            ctx.suwayomi.delete_downloaded([item["chapter_id"]])
     if state["remove"]:
         state["remove"] = []
         save(ctx, chapter, state)
@@ -116,20 +118,26 @@ def target(ctx, chapter_id):
 def pick(ctx, chapter, series, state):
     """The next download to queue: the original chapter once, then the best-ranked installed source not tried that
     matches the chapter. Records each source tried as it goes. Returns a target, or an outcome when none is left:
-    Failed when every remaining source could not answer, else NeedsHuman."""
-    if not state["same_source_done"]:
-        found = target(ctx, state["original"]["chapter_id"])
+    Failed when every remaining source could not answer, else NeedsHuman. A hand-placed chapter has no original
+    chapter; its numbering is checked against the series' reference manga, found again on every pick."""
+    original = state["original"]
+    hand_placed = original["chapter_id"] is None
+    if not state["same_source_done"] and not hand_placed:
+        found = target(ctx, original["chapter_id"])
         if found and not held_elsewhere(ctx, chapter, found):
             return {**found, "same_source": True}  # enqueue records it as done, with the expected download
         state["same_source_done"] = True
         save(ctx, chapter, state)
+    reference = reference_manga(ctx, chapter["series_id"]) if hand_placed else original["manga_id"]
+    if hand_placed and reference is None:
+        return workflow.NeedsHuman("the series has no Suwayomi manga to check numbering against; no source tried")
     installed = {s["displayName"]: s["id"] for s in ctx.suwayomi.sources()}
     down = []
     for name in ctx.cfg["sources"]["ranking"]:
-        if name in state["tried"] or name == state["original"]["source"] or name not in installed:
+        if name in state["tried"] or name == original["source"] or name not in installed:
             continue
         try:
-            found = _match(ctx, chapter, series, state, installed[name])
+            found = _match(ctx, chapter, series, reference, installed[name])
         except suwayomi.SourceUnavailable as e:
             down.append(f"{name} ({str(e).splitlines()[0]})")  # Suwayomi appends the source's Java stack trace
             continue
@@ -137,7 +145,8 @@ def pick(ctx, chapter, series, state):
             return found
         state["tried"].append(name)
         save(ctx, chapter, state)
-    tried = ", ".join(dict.fromkeys([state["original"]["source"] or "the original source", *state["tried"]]))
+    first = original["source"] or ("the hand-placed file" if hand_placed else "the original source")
+    tried = ", ".join(dict.fromkeys([first, *state["tried"]]))
     if down:
         return workflow.Failed(f"every remaining source could not answer: {'; '.join(down)} (tried: {tried})")
     return workflow.NeedsHuman(
@@ -157,11 +166,28 @@ def held_elsewhere(ctx, chapter, found):
     )
 
 
-def _match(ctx, chapter, series, state, source_id):
-    """The target on another source matching the chapter (SPEC "Bad downloads"), or None."""
-    original = state["original"]
+def reference_manga(ctx, series_id):
+    """The Suwayomi manga linked to the series that a hand-placed chapter's numbering is checked against: of those
+    Suwayomi still holds with an installed source, the best ranked by sources.ranking, then the lowest id; else None."""
+    ranking = ctx.cfg["sources"]["ranking"]
+    best = None
+    rows = ctx.conn.execute("SELECT manga_id FROM suwayomi_manga WHERE series_id = %s ORDER BY manga_id", (series_id,))
+    for (manga_id,) in rows.fetchall():
+        manga = ctx.suwayomi.manga(manga_id)
+        if manga is None or manga["source"] is None:
+            continue
+        name = manga["source"]["displayName"]
+        rank = ranking.index(name) if name in ranking else len(ranking)
+        if best is None or rank < best[0]:
+            best = (rank, manga_id)
+    return None if best is None else best[1]
+
+
+def _match(ctx, chapter, series, reference, source_id):
+    """The target on another source matching the chapter (SPEC "Bad downloads"), or None; reference is the manga whose
+    chapters the source's numbering must agree with (None: no source agrees)."""
     known = [series["name"], series["localized_name"], series["original_name"]]
-    manga = original["manga_id"] and ctx.suwayomi.manga(original["manga_id"])
+    manga = reference and ctx.suwayomi.manga(reference)
     if manga:
         known.append(manga["title"])
     known = list(dict.fromkeys(n for n in known if n))
@@ -173,7 +199,7 @@ def _match(ctx, chapter, series, state, source_id):
     if found is None:
         return None
     other = ctx.suwayomi.fetch_manga_and_chapters(found["id"])["chapters"]
-    ours = ctx.suwayomi.chapters(original["manga_id"]) if original["manga_id"] else []
+    ours = ctx.suwayomi.chapters(reference) if reference else []
     row = pick_chapter(chapter["identity"], ours, other)
     return None if row is None else target(ctx, row["id"])
 

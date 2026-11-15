@@ -556,7 +556,7 @@ def test_a_renamed_series_folder_keeps_its_junk_decisions_and_sightings(site):
     world.kavita.files = {path.replace("/Alpha/", "/Beta/"): f for path, f in world.kavita.files.items()}
     ((kavita_id,),) = site.rows("SELECT kavita_series_id FROM series")
     with closing(db.connect(site.cfg)) as conn:
-        identify.link(site.cfg, conn, world.suwayomi, world.kavita, site.mangas["Alpha"], kavita_id)
+        identify.link(site.cfg, conn, world.suwayomi, world.kavita, kavita_id, manga_id=site.mangas["Alpha"])
     ((folder, key),) = site.rows("SELECT folder, rules_key FROM series")
     assert folder.endswith("Beta") and key == "Alpha", "the folder follows Kavita; the rules key stays"
     site.download("Alpha", 3, cbz(seed="r3", credit=True))

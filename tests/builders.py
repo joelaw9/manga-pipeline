@@ -1,5 +1,7 @@
 """Fixture builders: a config with its own folders and its file, series and chapter rows, fake downloads."""
 
+import os
+import time
 from contextlib import closing, contextmanager
 
 import yaml
@@ -85,6 +87,14 @@ def download(cfg, series, name, data=b"fake cbz"):
     path = config.abs_path(cfg["paths"]["downloads"]) / "mangas" / "Src (EN)" / series / f"{name}.cbz"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
+    settle(path)
+    return path
+
+
+def settle(path):
+    """Date the file's modified time an hour back: past intake.settle_minutes, so intake takes it."""
+    then = time.time() - 3600
+    os.utime(path, (then, then))
     return path
 
 

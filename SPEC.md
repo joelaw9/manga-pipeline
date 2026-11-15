@@ -45,11 +45,11 @@ Validation reads every page; a bad download is removed and downloaded again thro
 
 ## Suwayomi
 
-A download is taken only once Suwayomi flags its chapter downloaded; a completed series is refreshed by `intake` when its check is due. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#suwayomi)
+Any CBZ under the downloads folder is taken once its modified time has settled, Suwayomi's or placed by hand; a completed series is refreshed by `intake` when its check is due. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#suwayomi)
 
 ## Series identification
 
-A Suwayomi manga is matched to a series by a stored link, a source id, or exactly 1 Kavita name; a near or double hit is `needs_human`, fixed with `series link`. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#series-identification)
+A Suwayomi manga, or a hand-placed folder, is matched to a series by a stored link, a source id, or exactly 1 Kavita name (a folder: its name, else its files' ComicInfo Series); a near or double hit is `needs_human`, fixed with `series link`. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#series-identification)
 
 ## Services
 
