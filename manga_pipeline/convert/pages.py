@@ -77,8 +77,9 @@ class Page:
 
 
 def _pixels(page, mode):
-    """Pixels for comparison. Exact mode uses RGBA so a dropped fully-opaque alpha channel still matches."""
-    return np.asarray(page.image()[0].convert("L" if mode == "luma" else "RGBA"))
+    """Pixels for comparison: RGBA (exact) or LA (luma), so a changed alpha channel never matches and a dropped
+    fully-opaque one still does."""
+    return np.asarray(page.image()[0].convert("LA" if mode == "luma" else "RGBA"))
 
 
 def _native_luma(page):
@@ -96,7 +97,8 @@ def _native_luma(page):
 
 def pixels_match(original, output, mode):
     """Lossless check of 1 page (bytes or Page): exact (RGBA) or luma. Luma of a YCbCr JPEG source against a JPEG
-    output compares the stored Y planes exactly; other luma comparisons go through RGB->L within LUMA_TOLERANCE.
+    output compares the stored Y planes exactly; other luma comparisons go through RGB->L, alpha kept, within
+    LUMA_TOLERANCE.
     Returns (match, max difference or None on a shape mismatch)."""
     original = original if isinstance(original, Page) else Page(original)
     output = output if isinstance(output, Page) else Page(output)

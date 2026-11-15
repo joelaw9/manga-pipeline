@@ -1,10 +1,11 @@
 """Stage convert (SPEC "Chapter stages", "Conversion", "Calibration"): re-encode the download's pages as the bulk
 converter does and write the store-mode CBZ of pages at <paths.staging>/<database id, first 8 characters>-<chapter
-id>.cbz. The database id in the name keeps a file left in staging by another database from passing as this chapter's
-output.
+id>-<claim count>.cbz. The database id in the name keeps a file left in staging by another database from passing as
+this chapter's output; the claim count keeps 2 claims of 1 chapter from writing 1 file.
 
-Every work file is in <paths.scratch>/<chapter id>/, removed first when a killed run left it and removed when the stage
-ends, whatever the outcome. Nothing is written in the series folder.
+Every work file is in <paths.scratch>/<chapter id>-<claim count>/, removed when the stage ends, whatever the outcome;
+the folders a killed run left are removed by process at its start (process.clean_scratch), not here. Nothing is written
+in the series folder.
 """
 
 import functools
@@ -54,8 +55,13 @@ def _layout(conn, series_id):
 
 
 def _samples_wanted(row, chapter_id):
-    """Does this group take samples from this chapter: no row yet, or open and none from this chapter yet?"""
-    return row is None or not (row["fixed"] or any(s["chapter_id"] == chapter_id for s in row["samples"]))
+    """Does this group take samples from this chapter: no row yet, or open, short of calibrate.MAX_SAMPLES and none
+    from this chapter yet?"""
+    return row is None or not (
+        row["fixed"]
+        or len(row["samples"]) >= calibrate.MAX_SAMPLES
+        or any(s["chapter_id"] == chapter_id for s in row["samples"])
+    )
 
 
 def _calibrate(ctx, chapter, chapter_plan, x_dir, rendered, work, pool, scorer, tool_paths):

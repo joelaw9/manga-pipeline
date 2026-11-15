@@ -112,17 +112,6 @@ def test_a_converted_chapter_is_staged_and_recorded_and_its_scratch_is_gone(site
     assert sorted(p.relative_to(library) for p in library.rglob("*")) == before, "nothing is written in the library"
 
 
-@budget(load="pool")
-def test_a_scratch_folder_left_by_a_killed_run_is_replaced(site):
-    chapter_id = site.chapter(site.series(), pages(1))
-    left = site.scratch(chapter_id) / "x" / "999.jpg"
-    left.parent.mkdir(parents=True)
-    left.write_bytes(b"left over")
-    site.record(site.run(chapter_id))
-    assert json.loads(chapter(site.conn, chapter_id)["convert_result"])["pages_in"] == 1, "the leftover is not a page"
-    assert not site.scratch(chapter_id).exists()
-
-
 # ---------------------------------------------------------------- program errors and failures
 
 
@@ -481,6 +470,18 @@ def test_an_edit_dropping_every_page_needs_a_human(site):
 
 
 @budget(load="pool")
+def test_a_strip_edit_removing_every_row_needs_a_human(site):
+    members = [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=i))) for i in range(1, 4)]
+    edit = {**NO_EDIT, "strip_removed": [{"start": 0, "end": 4200, "why": "credits"}]}
+    chapter_id = site.chapter(site.series(layout="strip"), members, edit=edit)
+    outcome = site.run(chapter_id)
+    assert isinstance(outcome, workflow.NeedsHuman) and outcome.reason == "the chapter edit drops every page", (
+        "removed rows covering the whole strip leave no page: needs_human at once, no attempt spent"
+    )
+    assert not site.scratch(chapter_id).exists()
+
+
+@budget(load="pool")
 def test_a_post_check_that_raises_still_removes_the_staged_file(site, monkeypatch):
     def broken(*a):
         raise OSError("source page unreadable")
@@ -802,6 +803,86 @@ def test_a_blanked_rendered_chapter_of_a_fixed_series_is_rendered_once(site, mon
     }
     result, _ = staged_result(site, site.chapter(series_id, pages(2), edit=edit))
     assert renders == ["render-blanked"] and result["blanked"] == ["002.jpg"], "no group wants samples: 1 render"
+
+
+BLANKED_RENDER_EDIT = {
+    **NO_EDIT,
+    "bands": [{"page": 0, "box": [0, 0, 96, 100]}],
+    "blank": [{"page": 1, "box": [10, 10, 40, 30], "fill": [200, 30, 30]}],
+}
+
+
+@budget(load="pool")
+def test_a_blanked_rendered_chapter_of_a_series_whose_open_group_is_full_is_rendered_once(site, monkeypatch):
+    from manga_pipeline.convert import image
+
+    series_id = site.series()
+    full = [{"sha1": f"s{i}", "chapter_id": 999, "rendered": True, "bytes_in": 1, "scores": {}} for i in range(40)]
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples) "
+            "VALUES (%s, 'colour', 80, 0, 'computed', 'open: 40 samples', %s)",
+            (series_id, json.dumps(full)),
+        )
+    renders = []
+    real = image.render
+    monkeypatch.setattr(image, "render", lambda p, src, out: renders.append(out.name) or real(p, src, out))
+    staged_result(site, site.chapter(series_id, pages(2), edit=BLANKED_RENDER_EDIT))
+    assert renders == ["render-blanked"], "a group holding calibrate.MAX_SAMPLES takes no sample: no unblanked render"
+
+
+@budget(load="pool")
+def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(site, monkeypatch):
+    from manga_pipeline.convert import image
+
+    encoded = []
+    real = image.process_chapter
+
+    def spy(x_dir, rendered, *rest):
+        encoded.extend(p.parent.name for p in rendered)
+        return real(x_dir, rendered, *rest)
+
+    monkeypatch.setattr(image, "process_chapter", spy)
+    renders = []
+    real_render = image.render
+    monkeypatch.setattr(image, "render", lambda p, src, out: renders.append(out.name) or real_render(p, src, out))
+    result, _ = staged_result(site, site.chapter(site.series(), pages(2), edit=BLANKED_RENDER_EDIT))
+    assert renders == ["render", "render-blanked"], "an open group wants samples: the unblanked render is made too"
+    assert encoded and set(encoded) == {"render-blanked"}, "the staged pages are encoded from the blanked render"
+    assert result["blanked"] == ["002.jpg"]
+
+
+@budget(load="pool")
+@pytest.mark.parametrize("winerror", [53, None])
+def test_a_dropped_share_while_reading_a_cover_reaches_the_caller_and_a_missing_file_is_a_cover_error(
+    site, monkeypatch, winerror
+):
+    import hashlib
+    from pathlib import Path
+
+    from manga_pipeline import errors
+    from manga_pipeline.convert import covers
+
+    path = config.abs_path(site.cfg["paths"]["covers"]) / "vol" / "1.jpg"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(COVER)
+    error = FileNotFoundError(errno.ENOENT, "The network path was not found", str(path))
+    error.winerror = winerror
+
+    def gone(self):
+        raise error
+
+    monkeypatch.setattr(Path, "read_bytes", gone)
+    row = {"path": "vol/1.jpg", "sha256": hashlib.sha256(COVER).hexdigest()}
+    if winerror is None:
+        with pytest.raises(covers.CoverError, match="is missing"):
+            covers.load(site.cfg, row)
+        return
+    with pytest.raises(FileNotFoundError) as e:
+        covers.load(site.cfg, row)
+    assert e.value is error and errors.dropped_share(e.value), (
+        "a dropped share reaches workflow.share_errors as it is, to become Unreachable('share')"
+    )
 
 
 @budget(load="pool")
