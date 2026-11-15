@@ -20,6 +20,7 @@ dev = [
     "pytest-testmon",
     "pytest-xdist",
     "hypothesis",
+    "xmlschema",
     "coverage",
     "ruff",
 ]

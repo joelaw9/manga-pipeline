@@ -5,12 +5,18 @@ outcome. The scan itself is `export`'s 1 library scan, after all its publishes.
 
 import json
 import os
+from pathlib import PurePosixPath
 
 from manga_pipeline import config, measures, page_store, workflow
 
 
 def run(ctx, chapter):
-    staged, target = (config.to_local(ctx.cfg, chapter[k]) for k in ("staged_path", "library_path"))
+    # The series' folder as it is now (a person may have linked it again since comicinfo named the file): the name
+    # comicinfo settled, in that folder.
+    folder = ctx.conn.execute("SELECT folder FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()[0]
+    staged = config.to_local(ctx.cfg, chapter["staged_path"])
+    target = config.to_local(ctx.cfg, folder) / PurePosixPath(chapter["library_path"]).name
+    library_path = config.to_stored(ctx.cfg, target)
     if not workflow.exists(target.parent):
         raise FileNotFoundError(f"series folder {target.parent} does not exist")
     if workflow.exists(staged):
@@ -45,7 +51,7 @@ def run(ctx, chapter):
                 comicinfo_title = excluded.comicinfo_title, comicinfo_date = excluded.comicinfo_date,
                 origin = excluded.origin""",
             (
-                chapter["library_path"],
+                library_path,
                 chapter["series_id"],
                 chapter["identity"],
                 chapter["source"],
@@ -67,5 +73,6 @@ def run(ctx, chapter):
             (chapter["series_id"], chapter["identity"], chapter["content_digest"], workflow.now(conn)),
         )
         conn.execute("UPDATE series SET scan_due = 1 WHERE id = %s", (chapter["series_id"],))
+        conn.execute("UPDATE chapter SET library_path = %s WHERE id = %s", (library_path, chapter["id"]))
 
     return workflow.Done(record)

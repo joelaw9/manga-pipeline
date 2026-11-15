@@ -93,7 +93,7 @@ def remove(ctx, chapter, state):
 
 
 def target(ctx, chapter_id):
-    """{source, manga_id, chapter_id, path} of a Suwayomi chapter of any manga; None when Suwayomi has no such
+    """{source, manga_id, chapter_id, path, url} of a Suwayomi chapter of any manga; None when Suwayomi has no such
     chapter or no source for it."""
     row = ctx.suwayomi.chapter(chapter_id)
     manga = row and ctx.suwayomi.manga(row["mangaId"])
@@ -112,6 +112,7 @@ def target(ctx, chapter_id):
         "manga_id": manga["id"],
         "chapter_id": chapter_id,
         "path": config.to_stored(ctx.cfg, path),
+        "url": row["realUrl"] or None,  # the chapter's page at its source (SPEC "Metadata", ComicInfo)
     }
 
 

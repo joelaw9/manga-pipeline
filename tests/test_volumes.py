@@ -135,8 +135,8 @@ def test_without_a_volume_the_downloads_volume_is_dropped_and_the_title_falls_ba
         world.run(part)
     assert (world.library / "Solo Leveling" / "Ch.2.cbz").is_file()
     assert world.rows("SELECT comicinfo_volume, comicinfo_title FROM published_file WHERE origin = 'pipeline'") == [
-        (None, "Chapter 2")
-    ], "name and ComicInfo agree: no volume; an untitled chapter is titled Chapter <n>"
+        (None, None)
+    ], "name and ComicInfo agree: no volume; an untitled chapter is recorded with no title, as the baseline does"
 
 
 @budget(load="fs")
@@ -165,3 +165,27 @@ def test_a_published_file_of_the_key_is_another_chapter_only_under_another_file_
     """The bulk converter's rule: in a `filename` series a main chapter's volumes must not differ where both have
     one; a side story's volume is assigned, and another basis assigns every volume, so there the key decides."""
     assert volumes.same_chapter(basis, kind, ours, theirs) is same
+
+
+@budget(load="fs")
+@pytest.mark.parametrize(
+    ("text", "group"),
+    [
+        (None, None),
+        ("volumes: {1: '1-'}\n", None),
+        ("series_group: Hunters\n", "Hunters"),
+        ("series_group: [A, B]\n", "A, B"),
+    ],
+)
+def test_the_series_group_is_the_override_files_names_joined(tmp_path, text, group):
+    if text is not None:
+        write_override(tmp_path, "Solo Leveling", text)
+    assert volumes.series_group(tmp_path, "Solo Leveling") == group, "no file or no key: none"
+
+
+@budget(load="fs")
+@pytest.mark.parametrize("text", ["series_group: [A, 'B, C']\n", "series_group: []\n", "series_group: ['']\n"])
+def test_a_malformed_series_group_is_an_override_error(tmp_path, text):
+    write_override(tmp_path, "Solo Leveling", text)
+    with pytest.raises(volumes.OverrideError, match="series_group"):
+        volumes.series_group(tmp_path, "Solo Leveling")

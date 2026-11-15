@@ -162,16 +162,16 @@ def after(stamp, delta):
     return (datetime.fromisoformat(stamp) + delta).isoformat(timespec="seconds")
 
 
-def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, source):
+def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, source, source_url):
     """Record a discovered download as a chapter ready at the first stage; runs inside the caller's transaction."""
     if not db.in_transaction(conn):
         raise RuntimeError("add_chapter runs inside the caller's transaction")
     stamp = now(conn)
     conn.execute(
-        """INSERT INTO chapter (series_id, kind, identity, download_path, suwayomi_chapter_id, source, stage, status,
-            discovered_at, updated_at)
-        VALUES (%s, 'download', %s, %s, %s, %s, %s, 'ready', %s, %s)""",
-        (series_id, identity, download_path, suwayomi_chapter_id, source, STAGES[0], stamp, stamp),
+        """INSERT INTO chapter (series_id, kind, identity, download_path, suwayomi_chapter_id, source, source_url,
+            stage, status, discovered_at, updated_at)
+        VALUES (%s, 'download', %s, %s, %s, %s, %s, %s, 'ready', %s, %s)""",
+        (series_id, identity, download_path, suwayomi_chapter_id, source, source_url, STAGES[0], stamp, stamp),
     )
 
 

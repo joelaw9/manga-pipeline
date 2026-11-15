@@ -95,7 +95,7 @@ def write(ctx, series_id, rules):
     if kv.series(kid) is None:
         log.info("series %s (%s): not written: Kavita no longer holds series %s", series_id, series["name"], kid)
         return
-    fields = _fields(conn, series_id, rules)
+    fields = merge.stored(conn, series_id, rules)
     version = conn.execute("SELECT data_version FROM series_check WHERE series_id = %s", (series_id,)).fetchone()[0]
     before = conn.execute("SELECT * FROM series_written WHERE series_id = %s", (series_id,)).fetchone()
     if before is not None and before["kavita_series_id"] != kid:
@@ -145,18 +145,6 @@ def write(ctx, series_id, rules):
     state["cover"] = _cover(ctx, series, kid, state, imported, guard, record)
     record(final=True)
     log.info("series %s (%s): fields written to Kavita", series_id, series["name"])
-
-
-def _fields(conn, series_id, rules):
-    records = {
-        (r["source"], r["kind"]): r["payload"]
-        for r in conn.execute("SELECT source, kind, payload FROM fetched WHERE series_id = %s", (series_id,))
-    }
-    known = conn.execute(
-        "SELECT source, origin, source_id FROM series_source_id WHERE series_id = %s", (series_id,)
-    ).fetchall()
-    agreed, _ = ids.resolve([tuple(r) for r in known])
-    return merge.fields(records, agreed, rules)
 
 
 class _Guard:
