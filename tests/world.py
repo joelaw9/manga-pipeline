@@ -15,7 +15,7 @@ from manga_pipeline import archive, config, db, lock, workflow
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.junk import review
 
-from tests.builders import adopted
+from tests.builders import adopted, settle
 from tests.fakes.kavita import FakeKavita
 from tests.fakes.suwayomi import FakeSuwayomi
 from tests.fakes.suwayomi import page as fake_page
@@ -187,14 +187,16 @@ class World:
     def manga(self, title):
         return self.suwayomi.add_manga(title, self.source)
 
-    def download(self, manga_id, name, scanlator=None, data=None, flagged=True):
-        """A chapter of the manga whose CBZ is in the downloads folder, flagged downloaded unless flagged=False.
-        Returns (Suwayomi chapter id, path)."""
+    def download(self, manga_id, name, scanlator=None, data=None, settled=True):
+        """A chapter of the manga whose CBZ is in the downloads folder, flagged downloaded; settled (modified long
+        enough ago for intake to take it) unless settled=False. Returns (Suwayomi chapter id, path)."""
         chapter_id = self.suwayomi.add_chapter(manga_id, name, scanlator)
         path = self.suwayomi.path(chapter_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(cbz(seed=name) if data is None else data)
-        self.suwayomi.chapter_rows[chapter_id]["isDownloaded"] = flagged
+        if settled:
+            settle(path)
+        self.suwayomi.chapter_rows[chapter_id]["isDownloaded"] = settled
         return chapter_id, path
 
     def rows(self, sql, *params):

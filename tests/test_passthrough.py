@@ -13,6 +13,7 @@ from manga_pipeline import comicinfo, config, db, export, intake, process, workf
 from manga_pipeline.clients import http
 from manga_pipeline.stages import comicinfo as comicinfo_stage
 
+from tests.builders import settle
 from tests.timing import budget
 from tests.world import World, bulk_record, cbz
 from tests.world import comicinfo as ci
@@ -123,6 +124,7 @@ def test_a_second_download_of_a_handled_chapter_is_put_aside_not_published_twice
     world.kavita.run_scans()
     world.run(export)
     path.write_bytes(data)  # Suwayomi downloads the same chapter again
+    settle(path)
     through(world)
     assert world.rows("SELECT count(*) FROM published_file WHERE origin = 'pipeline'") == [(1,)]
     assert world.rows("SELECT stage, status FROM chapter ORDER BY id") == [("confirm", "done"), ("discover", "done")]

@@ -9,6 +9,7 @@ import pytest
 from manga_pipeline import archive, config, db, discovery, intake, workflow
 from manga_pipeline.stages import discover
 
+from tests.builders import settle
 from tests.timing import budget
 from tests.world import World, cbz, comicinfo
 
@@ -59,12 +60,15 @@ def test_a_complete_download_of_a_kavita_series_becomes_a_chapter_of_it(world):
 
 
 @budget(load="db")
-def test_an_unflagged_download_is_skipped_without_a_word(world):
+def test_a_download_is_taken_once_settled_whatever_suwayomi_flags(world):
     world.kavita_series("Solo Leveling")
-    world.download(world.manga("Solo Leveling"), "Chapter 2", flagged=False)
+    _, path = world.download(world.manga("Solo Leveling"), "Chapter 2", settled=False)
     scan(world)
-    assert world.rows("SELECT count(*) FROM chapter") == [(0,)], "Suwayomi is still writing it"
+    assert world.rows("SELECT count(*) FROM chapter") == [(0,)], "modified just now: it may still be written"
     assert world.rows("SELECT count(*) FROM unmatched_download") == [(0,)], "a download in progress is not listed"
+    settle(path)
+    scan(world)
+    assert world.rows("SELECT count(*) FROM chapter") == [(1,)], "settled: taken though Suwayomi never flagged it"
 
 
 @budget(load="db")
@@ -168,17 +172,18 @@ def test_2_sources_of_1_kavita_series_share_its_series_row(world):
 def test_files_that_cannot_be_matched_are_listed_with_their_first_sighting_kept(world):
     world.kavita_series("Solo Leveling")
     manga = world.manga("Solo Leveling")
-    stray = world.mangas / "Src (EN)" / "Solo Leveling" / "Not a chapter.cbz"
-    orphan = world.mangas / "Nowhere (EN)" / "Ghost" / "Chapter 1.cbz"
-    for path in (stray, orphan):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(cbz())
     world.download(manga, "Chapter 2")
+    twin = world.suwayomi.add_chapter(manga, "Chapter 2")  # a second chapter that rebuilds to the same file name
+    stray = world.suwayomi.path(twin)
+    orphan = world.mangas / "Nowhere (EN)" / "Ghost" / "Chapter 1.cbz"
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_bytes(cbz())
+    settle(orphan)
     scan(world)
     first = dict(world.rows("SELECT path, first_seen FROM unmatched_download"))
     reasons = dict(world.rows("SELECT path, reason FROM unmatched_download"))
-    assert "rebuilds to this file name" in reasons[config.to_stored(world.cfg, stray)]
-    assert reasons[config.to_stored(world.cfg, orphan)] == "no library manga maps to its folder"
+    assert "2 chapters of Suwayomi manga" in reasons[config.to_stored(world.cfg, stray)]
+    assert reasons[config.to_stored(world.cfg, orphan)].startswith("new series 'Ghost'"), "no Kavita series is Ghost"
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute("UPDATE unmatched_download SET first_seen = '2000-01-01'")
     scan(world)
@@ -264,7 +269,7 @@ def test_paths_open_chapters_hold_or_expect_are_neither_new_chapters_nor_not_tak
     scan(world)
     other = world.suwayomi.add_manga("Solo Leveling", world.suwayomi.add_source("Elsewhere"), in_library=False)
     _, expected = world.download(other, "Chapter 2")  # a re-download into a manga outside the library
-    _, stray = world.download(other, "Chapter 3")
+    _, placed = world.download(other, "Chapter 3")
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute(
             "UPDATE chapter SET redownload = jsonb_build_object('expected',"
@@ -272,12 +277,11 @@ def test_paths_open_chapters_hold_or_expect_are_neither_new_chapters_nor_not_tak
             (config.to_stored(world.cfg, expected),),
         )
     scan(world)
-    assert world.rows("SELECT download_path FROM chapter") == [(config.to_stored(world.cfg, held),)], (
-        "no new chapter for either path"
-    )
-    assert world.rows("SELECT path FROM unmatched_download") == [(config.to_stored(world.cfg, stray),)], (
-        "the expected re-download is not listed as not taken; another file of that folder is"
-    )
+    assert world.rows("SELECT download_path FROM chapter ORDER BY id") == [
+        (config.to_stored(world.cfg, held),),
+        (config.to_stored(world.cfg, placed),),
+    ], "no new chapter for the held or the expected path; another file of that folder is a hand-placed chapter"
+    assert world.rows("SELECT count(*) FROM unmatched_download") == [(0,)], "neither is listed as not taken"
 
 
 # --- the discover stage

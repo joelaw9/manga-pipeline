@@ -137,6 +137,7 @@ class FakeSuwayomi(suwayomi.Suwayomi):
                 yield self._manga(manga_id)
 
     def manga(self, manga_id):
+        _int_id(manga_id)
         return self._manga(manga_id) if manga_id in self.manga_rows else None
 
     def chapters(self, manga_id):
@@ -144,6 +145,7 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         return copy.deepcopy(sorted(rows, key=lambda c: c["sourceOrder"]))
 
     def chapter(self, chapter_id):
+        _int_id(chapter_id)
         row = self.chapter_rows.get(chapter_id)
         return copy.deepcopy(row)
 
@@ -232,3 +234,9 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         path = self.path(chapter_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+
+
+def _int_id(value):
+    """As Suwayomi: an id variable is Int!, so a missing one is a GraphQL error, not an empty answer."""
+    if not isinstance(value, int):
+        raise suwayomi.GraphQLError([{"message": f"Variable '$id' has an invalid value: {value!r}"}])

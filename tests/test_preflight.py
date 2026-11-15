@@ -364,14 +364,14 @@ def test_share_ownership_applies_no_schema_step(tmp_path, monkeypatch):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "key, value, want",
+    "section, key, value, want",
     [
-        ("rescan_after_minutes", 0, "kavita.rescan_after_minutes must be at least 1, got 0"),
-        ("retention_days", -1, "export.retention_days must be at least 0, got -1"),
+        ("kavita", "rescan_after_minutes", 0, "kavita.rescan_after_minutes must be at least 1, got 0"),
+        ("export", "retention_days", -1, "export.retention_days must be at least 0, got -1"),
+        ("intake", "settle_minutes", 0, "intake.settle_minutes must be at least 1, got 0"),
     ],
 )
-def test_workflow_settings_check_the_rescan_and_retention_periods(key, value, want):
-    section = "kavita" if key == "rescan_after_minutes" else "export"
+def test_workflow_settings_check_the_rescan_retention_and_settle_periods(section, key, value, want):
     cfg = {**config.cached(), section: {**config.cached()[section], key: value}}
     assert preflight.workflow_settings(cfg) == want, "a period below its floor is refused"
 

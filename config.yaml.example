@@ -32,6 +32,9 @@ paths:
 workflow:
   attempt_limit: 3   # failed attempts after which a chapter is needs_human
 
+intake:
+  settle_minutes: 5   # a download is taken once its modified time is this old (a file still being written is skipped)
+
 series:
   only: []   # names of the only series to work; empty = all
 

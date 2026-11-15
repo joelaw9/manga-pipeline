@@ -135,7 +135,13 @@ def chapter_drop(cfg, args):
 def series_link(cfg, args):
     with _database(cfg, "link") as conn:
         identify.link(
-            cfg, conn, suwayomi.from_config(cfg), kavita.from_config(cfg), args.manga_id, args.kavita_series_id
+            cfg,
+            conn,
+            suwayomi.from_config(cfg),
+            kavita.from_config(cfg),
+            args.kavita_series_id,
+            manga_id=args.manga_id,
+            folder=args.folder,
         )
 
 
@@ -256,9 +262,17 @@ def parser():
     link = (
         commands.add_parser("series", help="series identification")
         .add_subparsers(dest="series_command", required=True, metavar="ACTION")
-        .add_parser("link", help="link a Suwayomi manga to a Kavita series (or refresh that link's names and folder)")
+        .add_parser(
+            "link",
+            help="link a Suwayomi manga or a hand-placed download folder to a Kavita series (or refresh that link's "
+            "names and folder)",
+        )
     )
-    link.add_argument("manga_id", type=int, help="Suwayomi manga id")
+    linked = link.add_mutually_exclusive_group(required=True)
+    linked.add_argument("manga_id", nargs="?", type=int, help="Suwayomi manga id")
+    linked.add_argument(
+        "--folder", metavar="SOURCE_FOLDER/TITLE_FOLDER", help="a hand-placed folder under the downloads' mangas folder"
+    )
     link.add_argument("kavita_series_id", type=int, help="Kavita series id")
     link.set_defaults(command="series link")
     junk = commands.add_parser("junk", help="junk decisions").add_subparsers(

@@ -77,7 +77,8 @@ def judge(ctx, chapter):
     if width >= WIDER * their_width or (width >= SAME_WIDTH * their_width and ranks[0] < ranks[1]):
         return workflow.NeedsHuman(
             f"a better copy than the published {published['library_path']} (page width {width} against "
-            f"{their_width}, source {chapter['source']} against {published['source'] or published['origin']}); "
+            f"{their_width}, source {chapter['source'] or 'hand-placed'} against "
+            f"{published['source'] or ('hand-placed' if published['origin'] == 'pipeline' else published['origin'])}); "
             "replacing a published file comes with Phase 7e"
         )
     workflow.holds_claim(ctx, chapter)

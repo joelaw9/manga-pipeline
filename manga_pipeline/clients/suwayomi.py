@@ -183,6 +183,13 @@ def manga_folder(title):
     return valid_filename(title)
 
 
+def download_folders(manga):
+    """(source folder, manga folder) a manga's downloads lie in under MANGAS_FOLDER; None with no source installed."""
+    if manga["source"] is None:
+        return None
+    return source_folder(manga["source"]["displayName"]), manga_folder(manga["title"])
+
+
 def chapter_file(scanlator, name):
     """The CBZ of a chapter: "<scanlator>_<name>" when the chapter has a scanlator (an empty one counts), else its
     name."""

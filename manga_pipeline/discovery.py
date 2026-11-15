@@ -1,11 +1,13 @@
-"""Discovery (SPEC "Suwayomi", "Series identification"): `intake` lists the downloads, maps each to its library manga,
-series and Suwayomi chapter, and records each complete one as a chapter at discover. Opens no CBZ.
+"""Discovery (SPEC "Suwayomi", "Series identification"): `intake` lists the downloads, maps each to its series (by its
+library manga, else as a hand-placed folder) and to its Suwayomi chapter when it has one, and records each settled one
+as a chapter at discover. Opens no CBZ but to identify a hand-placed folder by its ComicInfo Series.
 
 What cannot be taken is collected and, once the listing is complete, replaces unmatched_download in 1 transaction.
 """
 
 import logging
 import os
+import time
 from pathlib import Path
 
 from manga_pipeline import config, db, identify, names, workflow
@@ -15,41 +17,56 @@ log = logging.getLogger(__name__)
 
 
 def scan(ctx):
-    """Record each new complete download as a chapter. A manga folder that cannot be listed is not taken (`_list`);
+    """Record each new settled download as a chapter. A manga folder that cannot be listed is not taken (`_list`);
     any other folder that cannot be read raises its OSError (the caller
     decides whether the share is unreachable); an unreachable service raises Unreachable before anything is written
     but the series rows identification settled."""
     root = config.abs_path(ctx.cfg["paths"]["downloads"]) / suwayomi.MANGAS_FOLDER
     held = _held(ctx)
     listed, unlistable = _list(root)
+    settled_by = time.time() - ctx.cfg["intake"]["settle_minutes"] * 60
     folders = {}
     for key, files in listed.items():
-        files = [n for n in files if config.to_stored(ctx.cfg, root / key[0] / key[1] / n) not in held]
+        files = [
+            n
+            for n in files
+            if config.to_stored(ctx.cfg, root / key[0] / key[1] / n) not in held
+            and _settled(root / key[0] / key[1] / n, settled_by)
+        ]
         if files:
             folders[key] = files
     unmatched, found = list(unlistable), []
     if folders:
         by_folder = {}
         for manga in ctx.suwayomi.library_manga():
-            if manga["source"] is not None:  # no extension installed: no folder name to rebuild
-                key = (suwayomi.source_folder(manga["source"]["displayName"]), suwayomi.manga_folder(manga["title"]))
+            key = suwayomi.download_folders(manga)
+            if key is not None:  # no extension installed: no folder name to rebuild
                 by_folder.setdefault(key, []).append(manga)
         kavita_series = identify.KavitaSeries(ctx)
         for key, files in sorted(folders.items()):
             paths = [root / key[0] / key[1] / name for name in files]
             mangas = by_folder.get(key, [])
-            if len(mangas) != 1:
-                why = (
-                    "no library manga maps to its folder"
-                    if not mangas
-                    else f"{len(mangas)} library manga map to its folder"
-                )
-                unmatched += [(p, why) for p in paths]
+            if len(mangas) > 1:
+                unmatched += [(p, f"{len(mangas)} library manga map to its folder") for p in paths]
                 continue
-            unmatched_here, found_here = _manga_downloads(ctx, mangas[0], paths, kavita_series)
+            if mangas:
+                unmatched_here, found_here = _manga_downloads(ctx, mangas[0], paths, kavita_series)
+            else:
+                unmatched_here, found_here = _folder_downloads(ctx, f"{key[0]}/{key[1]}", paths, kavita_series)
             unmatched += unmatched_here
             found += found_here
     _record(ctx, found, unmatched)
+
+
+def _settled(path, settled_by):
+    """Whether the file was last modified at or before settled_by (SPEC "Suwayomi": a file still being written is
+    skipped); a file gone since the listing is not."""
+    try:
+        return path.stat().st_mtime <= settled_by
+    except FileNotFoundError as e:
+        if workflow.dropped_share(e):
+            raise
+        return False
 
 
 def _held(ctx):
@@ -112,19 +129,27 @@ def _manga_downloads(ctx, manga, paths, kavita_series):
     unmatched, found = [], []
     for path in paths:
         hits = chapters.get(path.name, [])
-        if len(hits) != 1:
-            why = (
-                f"no chapter of Suwayomi manga {manga['id']} rebuilds to this file name"
-                if not hits
-                else (f"{len(hits)} chapters of Suwayomi manga {manga['id']} rebuild to this file name")
-            )
+        if len(hits) > 1:
+            why = f"{len(hits)} chapters of Suwayomi manga {manga['id']} rebuild to this file name"
             unmatched.append((path, why))
-        elif hits[0]["isDownloaded"]:  # not flagged: Suwayomi is still writing it
-            identity = names.identity(names.parse(path.stem))
-            found.append(
-                (series["id"], identity, config.to_stored(ctx.cfg, path), hits[0]["id"], manga["source"]["displayName"])
-            )
+        elif hits:
+            found.append(_found(ctx, series, path, hits[0]["id"], manga["source"]["displayName"]))
+        else:  # no chapter rebuilds to it: a hand-placed chapter of the manga's series
+            found.append(_found(ctx, series, path, None, None))
     return unmatched, found
+
+
+def _folder_downloads(ctx, folder, paths, kavita_series):
+    """([(path, reason)] not taken, [new chapter fields]) for a hand-placed folder's downloads."""
+    series = identify.series_for_folder(ctx, folder, paths, kavita_series)
+    if isinstance(series, identify.NotTaken):
+        return ([(p, series.reason) for p in paths] if series.listed else []), []
+    return [], [_found(ctx, series, path, None, None) for path in paths]
+
+
+def _found(ctx, series, path, chapter_id, source):
+    identity = names.identity(names.parse(path.stem))
+    return series["id"], identity, config.to_stored(ctx.cfg, path), chapter_id, source
 
 
 def _record(ctx, found, unmatched):
