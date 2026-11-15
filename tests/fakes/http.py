@@ -95,7 +95,7 @@ class CannedService(http.Service):
         self.sent = []
         self.options = []  # (timeout, retry_timeout) per request
 
-    def request(self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True):
+    def request(self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True, retries=None):
         if self._down is not None:
             raise Unreachable(self.name, self._down)
         parts = urllib.parse.urlsplit(url)

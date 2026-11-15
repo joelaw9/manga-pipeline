@@ -288,3 +288,22 @@ def test_from_config_reads_the_kavita_keys():
     k = kavita.from_config(cfg)
     assert k.base == "http://kavita.invalid"
     assert k.local_path("/kavita/library") == Path(cfg["paths"]["kavita_path_map"]["/kavita"], "library")
+
+
+@budget()
+def test_update_series_resends_the_series_whole_with_the_changes():
+    kv, service = client({"/api/Series/update": {}})
+    series = {"id": 7, "name": "N", "coverImageLocked": True, "aniListId": 1, "folderPath": "/x", "malId": 0}
+    kv.update_series(series, aniListId=2)
+    method, path, body = service.sent[-1]
+    assert (method, path) == ("POST", "/api/Series/update")
+    assert body == {"id": 7, "name": "N", "coverImageLocked": True, "aniListId": 2, "malId": 0}, (
+        "every field Kavita reads is resent (an omitted one is reset); fields it does not read are not"
+    )
+
+
+@budget()
+def test_an_upload_kavita_does_not_serve_is_a_cover_error():
+    kv, _ = client({"/api/Upload/series": {}, "/api/Series/7": {"id": 7, "coverImage": "v01.png"}})
+    with pytest.raises(kavita.CoverError):
+        kv.upload_cover(7, b"img")

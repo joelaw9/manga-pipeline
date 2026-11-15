@@ -1,11 +1,13 @@
 """Part export (SPEC "Parts", "Publishing"): empties expired retention files, adds ComicInfo.xml, publishes series by
-series, then does what needs Kavita: ends kavita_scan waits, confirms, and requests at most 1 library scan."""
+series, then does what needs Kavita: ends kavita_scan waits, confirms, writes series fields when no scan is awaited, and
+requests at most 1 library scan."""
 
 import logging
 from datetime import timedelta
 
 from manga_pipeline import db, retention, workflow
 from manga_pipeline.clients import http
+from manga_pipeline.metadata import kavita_write
 from manga_pipeline.stages import comicinfo, confirm, publish
 
 log = logging.getLogger(__name__)
@@ -29,7 +31,29 @@ def work(ctx):
     # Confirm before the request: every chapter this run published then waits on kavita_scan, so the awaited test
     # sees it.
     workflow.drain(ctx, {"confirm": confirm.run})
+    # Kavita holds series writes while its scan runs: written by a run when no scan is awaited
+    if scan_awaited(ctx) is None:
+        with workflow.share_errors():
+            kavita_write.run(ctx)
     request_scan(ctx)
+
+
+def scan_awaited(ctx):
+    """The time of the last library scan request while it is still awaited (less than kavita.rescan_after_minutes ago,
+    with chapters still waiting on kavita_scan), else None."""
+    previous = workflow.get_meta(ctx.conn, REQUESTED_AT)
+    if previous is None or not _waiting(ctx):
+        return None
+    cutoff = workflow.after(workflow.now(ctx.conn), -timedelta(minutes=ctx.cfg["kavita"]["rescan_after_minutes"]))
+    return previous if previous > cutoff else None
+
+
+def _waiting(ctx):
+    return ctx.conn.execute(
+        f"""SELECT COUNT(*) FROM chapter c JOIN series s ON s.id = c.series_id
+        WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {workflow.SCOPE}""",
+        workflow.scope_params(ctx.cfg),
+    ).fetchone()[0]
 
 
 def request_scan(ctx):
@@ -39,15 +63,10 @@ def request_scan(ctx):
     nothing and is decided again by the next run."""
     minutes = ctx.cfg["kavita"]["rescan_after_minutes"]
     previous = workflow.get_meta(ctx.conn, REQUESTED_AT)
-    waiting = ctx.conn.execute(
-        f"""SELECT COUNT(*) FROM chapter c JOIN series s ON s.id = c.series_id
-        WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {workflow.SCOPE}""",
-        workflow.scope_params(ctx.cfg),
-    ).fetchone()[0]
-    cutoff = workflow.after(workflow.now(ctx.conn), -timedelta(minutes=minutes))
-    if waiting and previous is not None and previous > cutoff:
+    waiting = _waiting(ctx)
+    if scan_awaited(ctx) is not None:
         log.info("%s: library scan requested at %s still awaited (%d chapter(s) wait)", ctx.part, previous, waiting)
-        return
+        return  # ponytail: scan_awaited reads the same 2 values again; 2 cheap queries
     due = ctx.conn.execute("SELECT EXISTS (SELECT 1 FROM series WHERE scan_due = 1)").fetchone()[0]
     if not (due or waiting):
         return
