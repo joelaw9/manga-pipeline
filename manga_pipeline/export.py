@@ -1,12 +1,14 @@
-"""Part export (SPEC "Parts", "Publishing"): empties expired retention files, adds ComicInfo.xml, publishes series by
-series, then does what needs Kavita: ends kavita_scan waits, confirms, writes series fields when no scan is awaited, and
-requests at most 1 library scan."""
+"""Part export (SPEC "Parts", "Publishing"): empties expired retention files, ends metadata_check waits, adds
+ComicInfo.xml, publishes series by series (each Kavita series only while its files lie in its recorded folder), then
+does what needs Kavita: ends kavita_scan waits, confirms, writes series fields when no scan is awaited, and requests at
+most 1 library scan."""
 
 import logging
 from datetime import timedelta
 
-from manga_pipeline import db, retention, workflow
+from manga_pipeline import config, db, identify, retention, workflow
 from manga_pipeline.clients import http
+from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.metadata import kavita_write
 from manga_pipeline.stages import comicinfo, confirm, publish
 
@@ -23,8 +25,11 @@ def run(cfg, conn):
 def work(ctx):
     with workflow.share_errors():
         retention.purge(ctx.cfg)
+    workflow.end_waits(ctx, "metadata_check", comicinfo.checked)
     workflow.drain(ctx, {"comicinfo": comicinfo.run})
     for series_id in workflow.series_with_ready(ctx, ("publish",)):
+        if folder_moved(ctx, series_id):
+            continue
         workflow.drain(ctx, {"publish": publish.run}, series_id)
     # Kavita unreachable here ends the run: what is left all needs Kavita.
     workflow.end_waits(ctx, "kavita_scan", confirm.wait_over)
@@ -36,6 +41,29 @@ def work(ctx):
         with workflow.share_errors():
             kavita_write.run(ctx)
     request_scan(ctx)
+
+
+def folder_moved(ctx, series_id):
+    """Whether a Kavita series' files lie elsewhere than its recorded folder (or in no single folder): then the series
+    is needs_human, naming both, and nothing is published into it. A new series (no Kavita id) is not checked, nor one
+    Kavita no longer holds (confirm reports that, with its fix)."""
+    series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone()
+    kid = series["kavita_series_id"]
+    if kid is None or ctx.kavita.series(kid) is None:
+        return False
+    try:
+        found = identify.library_folder(ctx.cfg, ctx.kavita.series_folder(kid))
+    except (kavita_client.FolderError, config.PathError, ValueError) as e:  # ValueError: a path under no map prefix
+        reason = f"its folder is {series['folder']}, but {e}"
+    else:
+        if found == series["folder"]:
+            return False
+        reason = f"its folder is {series['folder']}, but Kavita holds its files in {found}"
+    reason += ": nothing is published into it (series link, then retry --series)"
+    with db.transaction(ctx.conn):
+        workflow.needs_human(ctx.conn, "series", series_id, reason)
+    log.warning("%s: series %s (%s): %s", ctx.part, series_id, series["name"], reason)
+    return True
 
 
 def scan_awaited(ctx):

@@ -153,6 +153,7 @@ def _candidate(ctx, chapter, state):
         "download_path": expected["path"],
         "suwayomi_chapter_id": expected["chapter_id"],
         "source": expected["source"],
+        "source_url": expected.get("url"),  # a re-download queued before schema step 0053 recorded none
         "content_digest": archive.digest_or_none(config.to_local(ctx.cfg, expected["path"])),
     }
     if verdict.kind == "human":

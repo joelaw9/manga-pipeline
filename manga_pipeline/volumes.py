@@ -73,17 +73,49 @@ def same_as_published(series, download, published_volume):
 def override_volumes(overrides, folder_name):
     """The `volumes` mapping of the series' override file ({} when it has none). OverrideError when the file is
     missing or malformed."""
+    data = _override_file(overrides, folder_name)
+    if data is None:
+        path = Path(overrides) / f"{folder_name}.yaml"
+        raise OverrideError(f"the series' volume basis is its override file, and {path} does not exist")
+    return data.get("volumes") or {}
+
+
+def series_group(overrides, folder_name):
+    """ComicInfo SeriesGroup from the series' override file's `series_group` (a name, or a list joined with ", "),
+    None without the file or the key. OverrideError when the file is malformed."""
+    data = _override_file(overrides, folder_name) or {}
+    return data.get("series_group") and ", ".join(_group_names(data["series_group"]))
+
+
+def _override_file(overrides, folder_name):
+    """The series' override file as a checked mapping, None when it does not exist. OverrideError when malformed."""
     path = Path(overrides) / f"{folder_name}.yaml"
     if not path.is_file():
-        raise OverrideError(f"the series' volume basis is its override file, and {path} does not exist")
+        return None
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         if not isinstance(data, dict):
             raise ValueError(f"overrides must be a YAML mapping, not {type(data).__name__}")
         check_volumes(data.get("volumes"))
+        if "series_group" in data:
+            _group_names(data["series_group"])
     except (yaml.YAMLError, ValueError) as e:
         raise OverrideError(f"{path}: {e}") from None
-    return data.get("volumes") or {}
+    return data
+
+
+def _group_names(value):
+    """series_group's names: a non-empty name or a non-empty list of them, none holding a comma (Kavita splits
+    SeriesGroup on commas, 1 collection each). ValueError otherwise."""
+    items = [value] if isinstance(value, str) else value
+    if not isinstance(items, list) or not items:
+        raise ValueError(f"series_group must be a name or a non-empty list of names, not {value!r}")
+    for name in items:
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"series_group names must be non-empty strings, not {name!r}")
+        if "," in name:
+            raise ValueError(f"series_group name {name!r} has a comma: list the collections instead")
+    return [name.strip() for name in items]
 
 
 def check_volumes(volumes):

@@ -134,7 +134,7 @@ def _manga_downloads(ctx, manga, paths, kavita_series):
             why = f"{len(hits)} chapters of Suwayomi manga {manga['id']} rebuild to this file name"
             unmatched.append((path, why))
         elif hits:
-            found.append(_found(ctx, series, path, hits[0]["id"], manga["source"]["displayName"]))
+            found.append(_found(ctx, series, path, hits[0], manga["source"]["displayName"]))
         else:  # no chapter rebuilds to it: a hand-placed chapter of the manga's series
             found.append(_found(ctx, series, path, None, None))
     return unmatched, found
@@ -148,9 +148,11 @@ def _folder_downloads(ctx, folder, paths, kavita_series):
     return [], [_found(ctx, series, path, None, None) for path in paths]
 
 
-def _found(ctx, series, path, chapter_id, source):
+def _found(ctx, series, path, chapter, source):
+    """chapter: the Suwayomi chapter the file rebuilds to, None for a hand-placed one."""
     identity = names.identity(names.parse(path.stem))
-    return series["id"], identity, config.to_stored(ctx.cfg, path), chapter_id, source
+    chapter_id, url = (chapter["id"], chapter["realUrl"] or None) if chapter else (None, None)
+    return series["id"], identity, config.to_stored(ctx.cfg, path), chapter_id, source, url
 
 
 def _record(ctx, found, unmatched):
@@ -158,14 +160,14 @@ def _record(ctx, found, unmatched):
     stamp = workflow.now(ctx.conn)
     with db.transaction(ctx.conn):
         added = 0
-        for series_id, identity, path, chapter_id, source in found:
+        for series_id, identity, path, chapter_id, source, url in found:
             open_ = ctx.conn.execute(
                 "SELECT 1 FROM chapter WHERE download_path = %s AND status != 'done'", (path,)
             ).fetchone()
             # Checked after the row: confirm moves a download away before its chapter is done, so a file still here
             # once its chapter reads done is a new download, not one an export confirmed since the listing.
             if not open_ and workflow.exists(config.to_local(ctx.cfg, path)):
-                workflow.add_chapter(ctx.conn, series_id, identity, path, chapter_id, source)
+                workflow.add_chapter(ctx.conn, series_id, identity, path, chapter_id, source, url)
                 check.make_urgent(ctx.conn, series_id)  # a new chapter makes its series' check due at once
                 added += 1
         seen = dict(ctx.conn.execute("SELECT path, first_seen FROM unmatched_download").fetchall())

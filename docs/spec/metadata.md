@@ -25,6 +25,24 @@ A series' fields come from its stored records alone:
 
 A locked Kavita field is overwritten only when it holds the value the pipeline last wrote there, or, for a field the pipeline has never written to the series, a value the old metadata tool wrote (its summary, genres, tags, and the publication status it set). Any other locked value is a person's edit: it is kept, and reported once in the log.
 
+### ComicInfo
+
+The comicinfo stage writes every new chapter's `ComicInfo.xml`, valid for the ComicInfo v2.1 schema:
+
+| Element | From |
+|---|---|
+| `Series`, `LocalizedSeries`, `Title`, `Number`, `Volume` | SPEC "Publishing" |
+| `Summary`, `Genre`, `Tags`, `LanguageISO`, `AgeRating`, `Writer`, `Penciller` | the series' fields (above); lists joined with ", "; left out when the stored records give none, never taken from the download |
+| `Web` | the series' web links, then the chapter's page at its Suwayomi source (Suwayomi's `realUrl`), separated by spaces |
+| `Notes` | `Source: <source>` (the Suwayomi source's display name, as the chapter records it) |
+| `Manga` | `Yes` for a strip series (SPEC "Conversion", layout) or one whose genres or tags hold Manhwa, Manhua, Korean, Chinese, Webtoon, Long Strip or Web Comic; else `YesAndRightToLeft` |
+| `SeriesGroup` | the series' override file's `series_group` (a name, or a list of names joined with ", "; a name holds no comma), left out without one |
+| `Translator`, `ScanInformation`, `Year`, `Month`, `Day`, and any other element valid for the schema | the download's own `ComicInfo.xml` |
+| `PageCount`, `Pages` | the staged CBZ's pages as convert wrote them: per page its index, width, height and bytes, `FrontCover` on an inserted volume cover, and `DoublePage` on a page wider than tall in a page series |
+| `BlackAndWhite` | `Yes` when convert found every page gray, else `No` |
+
+The source and its page are those of the download the chapter goes out with: a re-download's (SPEC "Bad downloads") replace the first download's. A hand-placed chapter has no source: no chapter page in `Web`, no `Notes`. A chapter whose series has never completed a metadata check waits on `metadata_check` at no attempt; `export` ends the wait once the series' first check has completed, whatever it found.
+
 ## Source ids
 
 A series' metadata comes from 4 sources: AniList, MangaUpdates, MangaDex and MangaBaka; MyAnimeList ids are kept too (Kavita's `malId`), though MyAnimeList is never fetched. Each id a series holds is stored with its origin:

@@ -97,6 +97,9 @@ def test_a_second_bad_copy_goes_to_the_next_source_and_the_chapter_keeps_its_ide
     )
     assert world.rows("SELECT identity FROM chapter") == [(identity,)], "the identity never changes"
     assert world.rows("SELECT count(*) FROM handled_chapter WHERE outcome = 'rejected'") == [(2,)]
+    assert world.rows("SELECT source_url FROM chapter") == [
+        (world.suwayomi.chapter_rows[world.other_chapters[12]]["realUrl"],)
+    ], "the chapter's page is the replacement's, at its source"
 
 
 @budget(load="db")

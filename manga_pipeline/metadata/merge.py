@@ -1,5 +1,6 @@
 """A series' fields from its stored records (SPEC "Metadata"): what goes to Kavita through its API and into every
-`ComicInfo.xml` written. Pure: the same records, ids and rules give the same fields.
+`ComicInfo.xml` written. `fields` is pure: the same records, ids and rules give the same fields; `stored` reads them
+from the database.
 
 From the old metadata tool's build_metadata (summary order, links, status), with the fields it never wrote (decision
 D7.11): age rating from MangaBaka, language from MangaDex, writers and pencillers from AniList's staff.
@@ -10,7 +11,7 @@ from dataclasses import dataclass
 
 from markdown_it import MarkdownIt
 
-from manga_pipeline.metadata import tags
+from manga_pipeline.metadata import ids, tags
 
 # MangaBaka status -> Kavita's publication status (0 Ongoing, 1 Hiatus, 2 Completed, 3 Cancelled; Ended is never set)
 KAVITA_STATUS = {"releasing": 0, "upcoming": 0, "hiatus": 1, "completed": 2, "cancelled": 3}
@@ -66,6 +67,19 @@ def fields(records, agreed, rules):
             "mangaBakaId": _int(agreed.get("mangabaka")) if mb else None,
         },
     )
+
+
+def stored(conn, series_id, rules):
+    """The series' fields from its stored records and agreed ids."""
+    records = {
+        (r["source"], r["kind"]): r["payload"]
+        for r in conn.execute("SELECT source, kind, payload FROM fetched WHERE series_id = %s", (series_id,))
+    }
+    known = conn.execute(
+        "SELECT source, origin, source_id FROM series_source_id WHERE series_id = %s", (series_id,)
+    ).fetchall()
+    agreed, _ = ids.resolve([tuple(r) for r in known])
+    return fields(records, agreed, rules)
 
 
 def _edges(al):

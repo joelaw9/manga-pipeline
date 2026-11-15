@@ -21,7 +21,7 @@ Order of work:
 - `process` scans every ready junk-stage chapter of a series before it decides any of them, and runs the junk stage for all of them before it converts any, so what repeats across chapters is seen before a decision is made.
 - A part does not claim a chapter of a series in which any chapter is claimed at that part's stages, nor of a series sharing that series' rules key (SPEC "Junk decisions"): machines running `process` work different series at the same time. Between 2 chapters a machine holds no claim, so a series' next chapter may go to another machine; what carries over between a series' chapters (calibration, scans, sightings) is in the database.
 - A Windows machine does not claim a chapter whose series folder or download path holds a name Windows cannot use over the share (one with `<`, `>`, `:`, `"`, `|`, `?`, `*`, or ending in a dot or a space): a Linux machine works it.
-- `export` works in this order each run: it deletes expired retention files, adds `ComicInfo.xml` to the ready chapters, publishes series by series, then does what needs Kavita: ends `kavita_scan` waits, confirms, then requests at most 1 library scan (SPEC "Publishing").
+- `export` works in this order each run: it deletes expired retention files, ends `metadata_check` waits, adds `ComicInfo.xml` to the ready chapters, publishes series by series, then does what needs Kavita: ends `kavita_scan` waits, confirms, then requests at most 1 library scan (SPEC "Publishing").
 
 Every part works only the series in scope: a series Kavita holds in the library `kavita.library_id`, or a new series (Kavita does not hold it yet); with `series.only` set, only the series it names. Nothing else is read or written, except that a part frees the claims a run of it that died left, whatever their series (SPEC "State").
 
@@ -77,7 +77,7 @@ A chapter is at 1 stage and has 1 status: `ready`, `claimed`, `waiting`, `needs_
 | validate | `intake` | reads and measures every page; a bad download is re-downloaded, and its replacement validated here; other defects are `needs_human` or noted (SPEC "Bad downloads", "Validation") | `suwayomi_download` |
 | junk | `process` | takes the series' baseline (SPEC "State"); drops a download already handled; drops a duplicate of a published file, or holds a better or doubtful copy (SPEC "Bad downloads", "Library copies"); judges a numbered notice title once: kept with a note, or dropped (SPEC "Validation"); scans the chapter's junk units, applies the stored decisions and writes the chapter edit convert applies (SPEC "Junk decisions") | `bulk_conversion`, `junk_decision` |
 | convert | `process` | re-encodes the pages (AVIF where it passes the quality gates) and writes the CBZ of pages to the staging folder | |
-| comicinfo | `export` | adds `ComicInfo.xml` to the CBZ | |
+| comicinfo | `export` | adds `ComicInfo.xml` to the CBZ (SPEC "Metadata", ComicInfo) | `metadata_check` |
 | publish | `export` | renames the CBZ into the series folder | |
 | confirm | `export` | checks Kavita indexed the file, then removes the download (a rewrite has none) | `kavita_scan` |
 
