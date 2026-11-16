@@ -22,6 +22,7 @@ import shutil
 import time
 from collections import Counter
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -325,11 +326,37 @@ def render(chapter_plan, x_dir, out_dir):
     return strip.render(chapter_plan.render, x_dir, out_dir, st)
 
 
+@dataclass(frozen=True)
+class PageFiles:
+    """A chapter's page sources: its extracted download, the plan's rendered PNGs (in order, made from the blanked
+    sources; [] when it renders nothing) and its blanked PNGs (blank_pages: {page name: blanked PNG})."""
+
+    extracted: Path
+    rendered: list[Path]
+    blanked: dict
+
+    @classmethod
+    def of(cls, extracted, rendered, blanked):
+        """The PageFiles of the folder, rendered paths and blanked mapping as the plan's steps give them."""
+        return cls(Path(extracted), [Path(p) for p in rendered], blanked)
+
+    def original(self, name):
+        """The page as downloaded."""
+        return self.extracted / name
+
+    def is_blanked(self, name):
+        return name in self.blanked
+
+    def source(self, name):
+        """The file the page is encoded from: its blanked PNG (a new image), else the page as downloaded."""
+        return Path(self.blanked[name]) if self.is_blanked(name) else self.original(name)
+
+
 class _Chapter:
     """1 chapter plan executed into out_dir (the attempts of process_chapter)."""
 
-    def __init__(self, x_dir, rendered, blanked, out_dir, tmp, *, encoder, chapter_plan):
-        self.x, self.rendered, self.blanked, self.out, self.tmp = x_dir, rendered, blanked, out_dir, tmp
+    def __init__(self, pages: PageFiles, out_dir, tmp, *, encoder, chapter_plan):
+        self.pages, self.out, self.tmp = pages, out_dir, tmp
         self.encoder, self.plan = encoder, chapter_plan
         self.kept = chapter_plan.kept()
 
@@ -362,7 +389,7 @@ class _Chapter:
         ch = self.plan
         tasks = [
             self.task(p, r["class"], r["yuv"], RENDERED_FMT, jpeg_feed=False)
-            for p, r in zip(self.rendered, ch.render, strict=True)
+            for p, r in zip(self.pages.rendered, ch.render, strict=True)
         ]
         results, failed = self.encoder.avif_pages(tasks, stop_on_fail=True)
         rec["avif_pages"] = results
@@ -375,15 +402,16 @@ class _Chapter:
         for q in self.kept:
             cls = ch.classes[q["name"]]
             yuv = plan.yuv_for(cls, q["chroma"])
-            if q["name"] in self.blanked:  # a new image: encoded from its blanked PNG and scored against it
-                tasks.append(self.task(self.blanked[q["name"]], cls, yuv, RENDERED_FMT, jpeg_feed=False))
+            src = self.pages.source(q["name"])
+            if self.pages.is_blanked(q["name"]):  # a new image: encoded from its blanked PNG and scored against it
+                tasks.append(self.task(src, cls, yuv, RENDERED_FMT, jpeg_feed=False))
             else:
-                tasks.append(self.task(self.x / q["name"], cls, yuv, q["format"], plan.feeds_jpeg(q, yuv)))
+                tasks.append(self.task(src, cls, yuv, q["format"], plan.feeds_jpeg(q, yuv)))
         results, failed = self.encoder.avif_pages(tasks, stop_on_fail=True)
         by_stem = {Path(q["name"]).stem: q for q in self.kept}
         for r in results:  # a blanked page: record the page's own name and source bytes
             q = by_stem[Path(r["name"]).stem]
-            if q["name"] in self.blanked:
+            if self.pages.is_blanked(q["name"]):
                 r.update(name=q["name"], bytes_in=q["bytes"])
         rec["avif_pages"] = results
         return self.avif(results, failed, size_gate)
@@ -391,7 +419,7 @@ class _Chapter:
     def lossless(self, rec):
         tasks = [
             {
-                "src": str(self.x / q["name"]),
+                "src": str(self.pages.original(q["name"])),
                 "out": str(self.out / (Path(q["name"]).stem + images.EXTENSION[q["format"]])),
                 "tmp": str(self.tmp),
                 "fmt": q["format"],
@@ -404,7 +432,7 @@ class _Chapter:
 
     def untouched(self):
         for q in self.kept:
-            shutil.copyfile(self.x / q["name"], self.out / q["name"])
+            shutil.copyfile(self.pages.original(q["name"]), self.out / q["name"])
 
     def attempt(self, o, rec):
         """Run 1 outcome into out_dir. None when it stands, else why it was rejected."""
@@ -445,9 +473,8 @@ def output_gray(chapter_plan, outcome):
     return all(cls == images.GRAY for cls, _ in kept)
 
 
-def process_chapter(x_dir, rendered, blanked, cover, out_dir, *, work_dir, encoder, chapter_plan):
-    """Execute a chapter plan: pages in x_dir (the extraction), rendered (the plan's rendered PNGs, in order, made
-    from the blanked sources; [] when it renders nothing), blanked (blank_pages: {page name: blanked PNG}), cover
+def process_chapter(pages: PageFiles, cover, out_dir, *, work_dir, encoder, chapter_plan):
+    """Execute a chapter plan: pages (its PageFiles), cover
     (the volume cover: None, or {"data", "width", "avif": Encoder.cover's result}), output pages in out_dir, work
     files in work_dir; encoder: the run's Encoder. Tries the outcomes in order; the last one (untouched or lossless)
     always stands, and gets the cover in its planned format, in place of a page named 000_cover. Returns the record:
@@ -456,11 +483,11 @@ def process_chapter(x_dir, rendered, blanked, cover, out_dir, *, work_dir, encod
     outcome's only), "cover" (the inserted cover {"name", "format", "score", "bytes"} or None), "quality",
     "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else None), "gray", "output": [{"name",
     "sha1"}], "scores": {output name: score}, "lossless": {output name: {"source", "mode"}}}."""
-    x_dir, out_dir, tmp = Path(x_dir), Path(out_dir), Path(work_dir)
+    out_dir, tmp = Path(out_dir), Path(work_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     tmp.mkdir(parents=True, exist_ok=True)
     ch = chapter_plan
-    run = _Chapter(x_dir, [Path(p) for p in rendered], blanked, out_dir, tmp, encoder=encoder, chapter_plan=ch)
+    run = _Chapter(pages, out_dir, tmp, encoder=encoder, chapter_plan=ch)
     rec = {
         "route": ch.route,
         "pages": len(run.kept),
@@ -482,7 +509,7 @@ def process_chapter(x_dir, rendered, blanked, cover, out_dir, *, work_dir, encod
         msg = f"{ch.name}: no outcome stood"
         raise RuntimeError(msg)
     rec["quality"] = ch.quality
-    rec["blanked"] = sorted(blanked, key=archive.natural_key) if rec["outcome"] == "avif" else []
+    rec["blanked"] = sorted(pages.blanked, key=archive.natural_key) if rec["outcome"] == "avif" else []
     avif = rec["avif_pages"] if rec["outcome"] == "avif" else []
     rec["mean_score"] = round(sum(r["score"] for r in avif) / len(avif), 2) if avif else None
     rec["min_score"] = min((r["score"] for r in avif), default=None)

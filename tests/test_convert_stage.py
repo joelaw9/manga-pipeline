@@ -889,9 +889,9 @@ def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(sit
     encoded = []
     real = image.process_chapter
 
-    def spy(x_dir, rendered, *rest, **named):
-        encoded.extend(p.parent.name for p in rendered)
-        return real(x_dir, rendered, *rest, **named)
+    def spy(pages, *rest, **named):
+        encoded.extend(p.parent.name for p in pages.rendered)
+        return real(pages, *rest, **named)
 
     monkeypatch.setattr(image, "process_chapter", spy)
     renders = []

@@ -244,9 +244,7 @@ def _encode(ctx: workflow.Context, chapter, chapter_plan, cover, scratch):
         prepared = _pages(chapter_plan, scratch, sampling=sampling)
         chapter_plan.quality = _calibrate(ctx, chapter, prepared.units, encoder=enc, work=work)
         return image.process_chapter(
-            scratch / EXTRACTED,
-            prepared.encoded,
-            prepared.blanked,
+            image.PageFiles.of(scratch / EXTRACTED, prepared.encoded, prepared.blanked),
             cover,
             scratch / OUTPUT,
             work_dir=work / "encode",

@@ -90,9 +90,7 @@ class Chapter:
         rendered = image.render(chapter_plan, src, self.rendered_dir) if chapter_plan.render else []
         with ThreadPoolExecutor(2) as pool:
             return image.process_chapter(
-                self.x,
-                rendered,
-                blanked,
+                image.PageFiles.of(self.x, rendered, blanked),
                 None,
                 self.out,
                 work_dir=self.work,
