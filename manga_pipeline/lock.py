@@ -8,6 +8,7 @@ lock: parts and junk review hold it shared, the state commands exclusive.
 
 from contextlib import contextmanager
 
+from manga_pipeline import db
 from manga_pipeline.db import sql
 
 NAMESPACE = 0x6D70  # "mp"
@@ -35,7 +36,9 @@ def held(conn, cfg, names, idle=None):
     try:
         for name, shared in wanted:
             fn = "pg_try_advisory_lock_shared" if shared else "pg_try_advisory_lock"
-            if not conn.execute(f"SELECT {fn}(%s, hashtext(%s))", (NAMESPACE, name)).fetchone()[0]:
+            if not db.one_row(
+                conn, sql.SQL("SELECT {fn}(%s, hashtext(%s))").format(fn=sql.Identifier(fn)), (NAMESPACE, name)
+            )[0]:
                 what = "a running command holds" if name == IDLE else "another run holds"
                 msg = f"{what} the lock {name!r}"
                 raise LockHeld(msg)

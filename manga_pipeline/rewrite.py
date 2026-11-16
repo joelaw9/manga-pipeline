@@ -768,9 +768,9 @@ def charge_waits(ctx: workflow.Context, waited_since, at):
 
 def waiting(conn):
     """How many rewritten files wait for Kavita to re-read them."""
-    return conn.execute(
-        "SELECT count(*) FROM published_file WHERE indexed_since IS NOT NULL AND pending_error IS NULL"
-    ).fetchone()[0]
+    return db.one_row(
+        conn, "SELECT count(*) FROM published_file WHERE indexed_since IS NOT NULL AND pending_error IS NULL"
+    )[0]
 
 
 # --- naming diff

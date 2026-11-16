@@ -100,14 +100,10 @@ def _report(conn):
         FROM published_file
         WHERE pending_path IS NOT NULL OR indexed_since IS NOT NULL OR pending_error IS NOT NULL ORDER BY id"""
     ).fetchall()
-    open_rewrites = conn.execute(
-        sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(rewrite.OPEN_REWRITES)
-    ).fetchone()[0]
+    open_rewrites = db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(rewrite.OPEN_REWRITES))[0]
     if open_rewrites:
         lines.append(f"  rewrite chapters open: {open_rewrites}")
-    unknown = conn.execute("SELECT count(DISTINCT series_id) FROM published_file WHERE cover_state IS NULL").fetchone()[
-        0
-    ]
+    unknown = db.one_row(conn, "SELECT count(DISTINCT series_id) FROM published_file WHERE cover_state IS NULL")[0]
     if unknown:  # read by export's next comparison; a series whose files cannot be read stays here, logged
         lines.append(f"  series with published files whose cover is not known yet: {unknown}")
     limit = config.cached()["workflow"]["attempt_limit"]

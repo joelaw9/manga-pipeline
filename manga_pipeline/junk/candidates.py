@@ -183,12 +183,13 @@ def join(conn, series_key, picks, at):
             if "folder" not in p:
                 msg = f"junk candidate for {p['kind']} {p['key'][:40]} was cleaned up meanwhile"
                 raise Gone(msg)
-            new = conn.execute(
+            new = db.one_row(
+                conn,
                 """INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
                 (series_key, p["kind"], p["key"], p["reason"], p["folder"], at),
             )
-            ids.append(new.fetchone()[0])
+            ids.append(new[0])
         else:
             ids.append(row["id"])
     return sorted(set(ids))

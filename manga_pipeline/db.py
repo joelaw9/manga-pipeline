@@ -7,9 +7,10 @@ branches are both applied whatever order they merge in.
 
 import functools
 import os
+from collections.abc import Mapping, Sequence
 from contextlib import closing, contextmanager
 from pathlib import Path
-from typing import Any, SupportsIndex, overload
+from typing import Any, LiteralString, SupportsIndex, overload
 
 import psycopg
 from psycopg import sql
@@ -261,18 +262,19 @@ def executemany(conn, statement, rows):
         cur.executemany(statement, rows)
 
 
-def one_row(conn: Connection, query, params=()) -> Row:
+def one_row(conn: Connection, query: LiteralString | sql.SQL | sql.Composed, params: Sequence | Mapping = ()) -> Row:
     """The query's 1st row, where the caller's own data guarantees one; MissingRowError naming the query if none."""
     row = conn.execute(query, params).fetchone()
     if row is None:
-        msg = f"no row where one must be: {query!r} with {params!r}"
+        text = query.as_string(conn) if isinstance(query, sql.Composable) else query
+        msg = f"no row where one must be: {text!r} with {params!r}"
         raise MissingRowError(msg)
     return row
 
 
 def database_id(conn):
     """This database's random id (32 hex characters), made when step 0001 built it."""
-    return conn.execute("SELECT value FROM meta WHERE key = 'database_id'").fetchone()[0]
+    return one_row(conn, "SELECT value FROM meta WHERE key = 'database_id'")[0]
 
 
 def _create(cfg):
@@ -295,16 +297,17 @@ def _create(cfg):
 
 
 def _has_record(conn):
-    return conn.execute("SELECT to_regclass('schema_step') IS NOT NULL").fetchone()[0]
+    return one_row(conn, "SELECT to_regclass('schema_step') IS NOT NULL")[0]
 
 
 def now(conn):
     """The server's clock as the program stores a time: ISO 8601 in UTC to the second ('2026-11-14T17:00:00+00:00'),
     so times written from several machines compare (SPEC "State")."""
-    return conn.execute(
+    return one_row(
+        conn,
         """SELECT to_char(date_trunc('second', clock_timestamp()) AT TIME ZONE 'UTC',
-            'YYYY-MM-DD"T"HH24:MI:SS"+00:00"')"""
-    ).fetchone()[0]
+            'YYYY-MM-DD"T"HH24:MI:SS"+00:00"')""",
+    )[0]
 
 
 def apply_steps(conn):

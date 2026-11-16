@@ -307,7 +307,7 @@ def _store_kavita_series(ctx: workflow.Context, subject, found):
         else:
             series_id = existing[0]
         subject.write_link(conn, series_id)
-    return _with_folder(ctx, conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone())
+    return _with_folder(ctx, db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series_id,)))
 
 
 def _with_folder(ctx: workflow.Context, row):
@@ -335,10 +335,11 @@ def _folder(ctx: workflow.Context, kavita_series_id):
 def _store_new_series(conn, subject, alt_name):
     """A pending new series' row (origin new, status ok, not admitted) and the subject's link to it."""
     with db.transaction(conn):
-        series_id = conn.execute(
+        series_id = db.one_row(
+            conn,
             "INSERT INTO series (name, alt_name, origin) VALUES (%s, %s, 'new') RETURNING id",
             (subject.held_name, alt_name),
-        ).fetchone()[0]
+        )[0]
         subject.write_link(conn, series_id)
     log.info(
         "%s: new series %s (%s): admitted after its first metadata check", subject.label, series_id, subject.held_name
@@ -348,10 +349,11 @@ def _store_new_series(conn, subject, alt_name):
 def _store_held_series(conn, subject, reason, alt_name=None):
     """A needs_human series row for a manga or folder a person must link (no Kavita id: in scope as not yet known)."""
     with db.transaction(conn):
-        series_id = conn.execute(
+        series_id = db.one_row(
+            conn,
             "INSERT INTO series (name, alt_name, origin) VALUES (%s, %s, 'new') RETURNING id",
             (subject.held_name, alt_name),
-        ).fetchone()[0]
+        )[0]
         workflow.needs_human(
             conn,
             "series",
@@ -450,12 +452,13 @@ def link(cfg, conn, suwayomi, kavita, kavita_series_id, *, manga_id=None, folder
             found.get("originalName") or None,
         )
         if series_id is None:
-            series_id = conn.execute(
+            series_id = db.one_row(
+                conn,
                 """INSERT INTO series (name, kavita_series_id, kavita_library_id, folder, localized_name, original_name,
                     origin)
                 VALUES (%s, %s, %s, %s, %s, %s, 'kavita') RETURNING id""",
                 values,
-            ).fetchone()[0]
+            )[0]
         else:
             conn.execute(
                 """UPDATE series SET name = %s, kavita_series_id = %s, kavita_library_id = %s, folder = %s,

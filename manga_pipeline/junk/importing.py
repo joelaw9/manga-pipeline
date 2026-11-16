@@ -263,7 +263,7 @@ def run(conn, source):
                 VALUES (%s, %s, %s, %s, %s, %s)""",
                 seen,
             )
-        seen_now = conn.execute("SELECT count(*) FROM junk_seen WHERE origin = 'import'").fetchone()[0]
+        seen_now = db.one_row(conn, "SELECT count(*) FROM junk_seen WHERE origin = 'import'")[0]
     return {
         "added": len(after.keys() - before.keys()),
         "removed": len(before.keys() - after.keys()),

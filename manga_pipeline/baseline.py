@@ -32,10 +32,11 @@ def needed(conn, series):
         return False
     if series["baseline_at"] is None:
         return True
-    return conn.execute(
+    return db.one_row(
+        conn,
         "SELECT EXISTS (SELECT 1 FROM published_file WHERE series_id = %s AND origin = 'bulk' AND kind IS NULL)",
         (series["id"],),
-    ).fetchone()[0]
+    )[0]
 
 
 def record_problem(cfg, series):
