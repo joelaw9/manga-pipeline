@@ -17,6 +17,7 @@ import base64
 from collections import Counter
 from collections.abc import Mapping
 from types import MappingProxyType
+from typing import NamedTuple
 
 import numpy as np
 from PIL import Image
@@ -86,6 +87,101 @@ def _sharpest_row(g, y, step):
     return y0 + int(np.abs(np.diff(rows, axis=0)).mean(axis=1).argmax())
 
 
+class _Cut(NamedTuple):
+    """Where a band is cut off its page (source px), how ("gap" | "seam"), and for a gap cut the gutter's rows."""
+
+    at: int
+    how: str
+    run: tuple[int, int] | None
+
+
+def _gutters(uniform, step):
+    """(start, end) in source px of each run of uniform analysis rows (step source px each), in order."""
+    y, n = 0, len(uniform)
+    while y < n:
+        if not uniform[y]:
+            y += 1
+            continue
+        e = y
+        while e < n and uniform[e]:
+            e += 1
+        yield y * step, e * step
+        y = e
+
+
+def _nearest_gutter(gutters, naive, reach, h):
+    """(the point nearest the naive cut, the gutter's rows rounded) of the gutters overlapping naive +- reach, or
+    None. A page's own top or bottom margin (a gutter at row 0 or the page end h) is no seam."""
+    lo, hi = naive - reach, naive + reach
+    best = None
+    for ys, ye in gutters:
+        if ye >= lo and ys <= hi and ys > 0 and ye < h:
+            c = min(max(naive, ys), ye)
+            if best is None or abs(c - naive) < abs(best[0] - naive):
+                best = (c, (round(ys), round(ye)))
+    return best
+
+
+def _nearest_seam(a, step, naive, reach, max_seam_score):
+    """The analysis row within naive +- reach nearest the naive cut whose discontinuity (seam_score) is at least
+    max_seam_score, the higher score on a tie; None when there is none."""
+    lo, hi = naive - reach, naive + reach
+    best = None
+    for k in range(max(strip.SEAM_ROWS, int(lo / step)), min(len(a) - strip.SEAM_ROWS, int(hi / step) + 1) + 1):
+        score = strip.seam_score(a[k - strip.SEAM_ROWS : k], a[k : k + strip.SEAM_ROWS])
+        if score >= max_seam_score and (best is None or (abs(k * step - naive), -score) < best[0]):
+            best = ((abs(k * step - naive), -score), k)
+    return None if best is None else best[1]
+
+
+def _band_cut(im, page_h, where, cfg):
+    """Where to cut a band at `where` off a page whose own part is page_h tall: the gutter point nearest the naive
+    cut within band_search of page_h (moved to the gutter edge's sharpest row when it is not the naive cut itself),
+    else the seam nearest it at full resolution; None when neither (never cut through art)."""
+    w, h = im.size
+    aw = cfg["analysis_width"]
+    n = max(2 * strip.SEAM_ROWS + 2, round(h * aw / w))
+    step = h / n
+    g = im.convert("L")
+    a = np.asarray(g.resize((aw, n)), np.float32)
+    naive = h - page_h if where == "top" else page_h
+    reach = cfg["band_search"] * page_h
+    gap = _nearest_gutter(_gutters(strip.blank_rows(a, cfg), step), naive, reach, h)
+    if gap is not None:
+        cut, run = gap
+        if cut != naive:  # on the gutter's edge
+            at_end = cut < naive
+            cut = _sharpest_row(g, cut, step)
+            run = (run[0], cut) if at_end else (cut, run[1])
+        return _Cut(round(cut), "gap", run)
+    k = _nearest_seam(a, step, naive, reach, cfg["max_seam_score"])
+    if k is None:
+        return None
+    return _Cut(round(_sharpest_row(g, k * step, step)), "seam", None)
+
+
+def _band(im, where, cut, cfg):
+    """The band `cut` makes at `where`: {"where", "cut", "height", "how", "sig" (text), "box"}, or None when it is no
+    band (it or what it leaves under band_min_px, a seam band under band_seam_min_px, its content without the
+    gutter rows uniform or without ink). Its signature is of its ink box."""
+    w, h = im.size
+    box = (0, 0, w, cut.at) if where == "top" else (0, cut.at, w, h)
+    height = box[3] - box[1]
+    if height < cfg["band_min_px"] or h - height < cfg["band_min_px"]:
+        return None
+    if cut.how == "seam" and height < cfg["band_seam_min_px"]:
+        return None
+    run = cut.run
+    content = im.crop(box if run is None else (0, 0, w, run[0]) if where == "top" else (0, run[1], w, h))
+    if content.height < cfg["band_min_px"] or images.is_uniform(content):
+        return None
+    ink = ink_box(content)
+    if ink is None:
+        return None
+    sig = images.sig_to_str(images.signature(content.crop(ink)))
+    return {"where": where, "cut": cut.at, "height": height, "how": cut.how, "sig": sig, "box": list(box)}
+
+
 def find_band(im, aspect, where, cfg: Mapping[str, float] = BAND):
     """A credit band stitched onto the top or bottom of a page taller than the series shape: cut at the gutter nearest
     the naive cut within band_search of the page height, else at the strongest seam (seam_score >= max_seam_score)
@@ -96,59 +192,8 @@ def find_band(im, aspect, where, cfg: Mapping[str, float] = BAND):
     page_h = w * aspect
     if h <= page_h * (1 + cfg["band_tolerance"]):
         return None
-    aw = cfg["analysis_width"]
-    n = max(2 * strip.SEAM_ROWS + 2, round(h * aw / w))
-    step = h / n
-    g = im.convert("L")
-    a = np.asarray(g.resize((aw, n)), np.float32)
-    uniform = strip.blank_rows(a, cfg)
-    naive = h - page_h if where == "top" else page_h
-    lo, hi = naive - cfg["band_search"] * page_h, naive + cfg["band_search"] * page_h
-    cut, how, run, y = None, None, None, 0
-    while y < n:  # gutters overlapping the window: their point nearest the naive cut
-        if not uniform[y]:
-            y += 1
-            continue
-        e = y
-        while e < n and uniform[e]:
-            e += 1
-        ys, ye = y * step, e * step
-        if ye >= lo and ys <= hi and ys > 0 and ye < h:  # a page's own top/bottom margin is no seam
-            c = min(max(naive, ys), ye)
-            if cut is None or abs(c - naive) < abs(cut - naive):
-                cut, how, run = c, "gap", (round(ys), round(ye))
-        y = e
-    if how == "gap" and cut != naive:  # on the gutter's edge
-        if run is None:
-            msg = "a gap cut carries its run"
-            raise RuntimeError(msg)
-        at_end = cut < naive
-        cut = _sharpest_row(g, cut, step)
-        run = (run[0], cut) if at_end else (cut, run[1])
-    if cut is None:  # no gutter: the discontinuity nearest the naive cut
-        best = None
-        for k in range(max(strip.SEAM_ROWS, int(lo / step)), min(n - strip.SEAM_ROWS, int(hi / step) + 1) + 1):
-            score = strip.seam_score(a[k - strip.SEAM_ROWS : k], a[k : k + strip.SEAM_ROWS])
-            if score >= cfg["max_seam_score"] and (best is None or (abs(k * step - naive), -score) < best[0]):
-                best = ((abs(k * step - naive), -score), k)
-        if best is None:
-            return None
-        cut, how = _sharpest_row(g, best[1] * step, step), "seam"
-    cut = round(cut)
-    box = (0, 0, w, cut) if where == "top" else (0, cut, w, h)
-    height = box[3] - box[1]
-    if height < cfg["band_min_px"] or h - height < cfg["band_min_px"]:
-        return None
-    if how == "seam" and height < cfg["band_seam_min_px"]:
-        return None
-    content = im.crop(box if run is None else (0, 0, w, run[0]) if where == "top" else (0, run[1], w, h))
-    if content.height < cfg["band_min_px"] or images.is_uniform(content):
-        return None
-    ink = ink_box(content)
-    if ink is None:
-        return None
-    sig = images.sig_to_str(images.signature(content.crop(ink)))
-    return {"where": where, "cut": cut, "height": height, "how": how, "sig": sig, "box": list(box)}
+    cut = _band_cut(im, page_h, where, cfg)
+    return None if cut is None else _band(im, where, cut, cfg)
 
 
 def page_bands(im, aspect, cfg=BAND):
@@ -246,6 +291,55 @@ def _box_key(index, box):
     return f"{index}" if box is None else f"{index}:{','.join(map(str, box))}"
 
 
+class _OnePage:
+    """Download pages decoded as RGB, holding only the last one asked for (the scan reads 1 page at a time)."""
+
+    def __init__(self, paths):
+        self.paths = paths
+        self.opened = {}
+
+    def __call__(self, i):
+        if i not in self.opened:
+            self.opened.clear()
+            self.opened[i] = images.open_flat(self.paths[i])[0].convert("RGB")
+        return self.opened[i]
+
+
+def _edge_unit(i, im, uniform, *, tail):
+    """An edge page's unit: {"page", "sig" (whole page; None when uniform), "frame" (None when uniform or the frame
+    has no content), "text" (text_features; tail pages only)}."""
+    f = frames.frame(im)
+    unit = {
+        "page": i,
+        "sig": None if uniform else images.sig_to_str(images.signature(im)),
+        "frame": frames.key_text(f) if not uniform and frames.has_content(f) else None,
+    }
+    if tail:
+        unit["text"] = text_features(im)
+    return unit
+
+
+def _band_pages(names, content, csizes, shape, page):
+    """{download index (text): page_bands} of the content pages with a band (strip.band_pages); csizes: the content
+    pages' sizes; page(i) decodes."""
+    bands = {}
+    for k in strip.band_pages([names[i] for i in content], csizes, shape):
+        i = content[k]
+        found = page_bands(page(i), shape)
+        if found:
+            bands[str(i)] = found
+    return bands
+
+
+def _page_rows(i, im, found, size):
+    """{_box_key: packed edge rows} of a content page, whole and as each crop of its bands `found` leaves it: slice
+    repair runs on the pages decisions keep, cropped where cropped."""
+    rows = {_box_key(i, None): _pack_edges(strip.edge_rows(im))}
+    for box in _crop_boxes(found, size):
+        rows[_box_key(i, box)] = _pack_edges(strip.edge_rows(im.crop(tuple(box))))
+    return rows
+
+
 def scan(paths, names, sizes, uniform, aspects):
     """The scan of a page-format chapter. paths, names, sizes: every page of the download in archive order;
     uniform: per page, True when it has no junk signature (images.measure_pages); aspects: the series' page aspect
@@ -255,46 +349,20 @@ def scan(paths, names, sizes, uniform, aspects):
     if strip.is_stitched(csizes, aspects):
         return {"layout": "pages", "split": True, "marks": []}
     shape = strip.series_shape(aspects)
-    opened = {}
-
-    def page(i):
-        if i not in opened:
-            opened.clear()
-            opened[i] = images.open_flat(paths[i])[0].convert("RGB")
-        return opened[i]
-
-    edge_k = strip.edge_indexes(len(content))
+    page = _OnePage(paths)
     tail_k = range(max(0, len(content) - strip.END_TAIL), len(content))
-    edges = []
-    for k in edge_k:
-        i = content[k]
-        im = page(i)
-        f = frames.frame(im)
-        unit = {
-            "page": i,
-            "sig": None if uniform[i] else images.sig_to_str(images.signature(im)),
-            "frame": frames.key_text(f) if not uniform[i] and frames.has_content(f) else None,
-        }
-        if k in tail_k:
-            unit["text"] = text_features(im)
-        edges.append(unit)
+    edges = [
+        _edge_unit(content[k], page(content[k]), uniform[content[k]], tail=k in tail_k)
+        for k in strip.edge_indexes(len(content))
+    ]
     white = [i for i in content if uniform[i] and is_white(page(i))]
-    bands = {}
-    for k in strip.band_pages([names[i] for i in content], csizes, shape):
-        i = content[k]
-        found = page_bands(page(i), shape)
-        if found:
-            bands[str(i)] = found
-    # edge rows of every content page, and of every band page as each of its crops leaves it: slice repair runs on
-    # the pages decisions keep, cropped where cropped
+    bands = _band_pages(names, content, csizes, shape, page)
     rows, logos = {}, []
     for i in content:
-        rows[_box_key(i, None)] = _pack_edges(strip.edge_rows(page(i)))
+        rows |= _page_rows(i, page(i), bands.get(str(i), []), sizes[i])
         logo = logo_units.measure(i, page(i))
         if logo is not None:
             logos.append(logo)
-        for box in _crop_boxes(bands.get(str(i), []), sizes[i]):
-            rows[_box_key(i, box)] = _pack_edges(strip.edge_rows(page(i).crop(tuple(box))))
     return {
         "layout": "pages",
         "split": False,
@@ -339,34 +407,68 @@ def page_decision(unit, decide_unit):
     return store.in_lookup_order(hits)[0] if hits else None
 
 
-def decide(sc, decide_unit):
-    """Apply decisions to a page-format scan. decide_unit(kind, key text) -> the deciding row or None. Returns
-    {"edit": the page-layout keys of the chapter edit, "undecided": [{"kind", "key", "page", "where"?, "reasons"}]}."""
-    if sc["split"]:
-        return {"edit": {"split": True, "drop_pages": [], "bands": [], "join": []}, "undecided": []}
-    content, sizes = sc["content"], [tuple(s) for s in sc["sizes"]]
-    drops, framed, undecided_pages = set(), set(), {}
-    for u in sc["edges"]:
+class _EdgePass(NamedTuple):
+    """What decisions make of the edge pages: the pages dropped as junk, the pages a frame decision covers, and
+    {page: edge unit} of the signed ones no decision covers."""
+
+    drops: set[int]
+    framed: set[int]
+    undecided: dict[int, dict]
+
+
+def _edge_pass(edges, decide_unit):
+    """The page and frame decisions on the edge pages (page_decision)."""
+    drops, framed, undecided = set(), set(), {}
+    for u in edges:
         row = page_decision(u, decide_unit)
         if u["frame"] and decide_unit("frame", u["frame"]) is not None:
             framed.add(u["page"])
         if row is None:
             if u["sig"] is not None:
-                undecided_pages[u["page"]] = u
+                undecided[u["page"]] = u
         elif row["verdict"] == "junk":
             drops.add(u["page"])
-    rest = [i for i in content if i not in drops]
-    white = set(sc["white"])
+    return _EdgePass(drops, framed, undecided)
+
+
+def _white_ends(rest, white):
+    """The white pages at either end of the pages `rest` (in order), unless every page is white."""
     lead = next((n for n, i in enumerate(rest) if i not in white), len(rest))
-    if lead < len(rest):
-        trail = next(n for n in range(len(rest) - 1, -1, -1) if rest[n] not in white)
-        drops |= set(rest[:lead]) | set(rest[trail + 1 :])
-    crops, band_units, banded, too_much = {}, [], set(), set()
-    for key, listed in sc["bands"].items():
+    if lead == len(rest):
+        return set()
+    trail = next(n for n in range(len(rest) - 1, -1, -1) if rest[n] not in white)
+    return set(rest[:lead]) | set(rest[trail + 1 :])
+
+
+class _BandPass(NamedTuple):
+    """What band decisions make of the band pages: {page: kept box} of the cropped ones, the undecided band units,
+    the pages with a signable band, and the pages whose junk bands would leave almost nothing (kept whole)."""
+
+    crops: dict[int, list[int]]
+    units: list[dict]
+    banded: set[int]
+    too_much: set[int]
+
+
+def _band_unit(i, b):
+    return {
+        "kind": "band",
+        "key": b["sig"],
+        "page": i,
+        "where": b["where"],
+        "box": b["box"],
+        "reasons": ["band"],  # D5.16: an undecided band is a candidate at 1 chapter
+    }
+
+
+def _band_pass(bands, sizes, skip, decide_unit):
+    """The band decisions on the band pages (scan "bands") but those in `skip` (dropped or framed). An unsignable
+    band is no band (no decision could be written on it): the page is judged as a page."""
+    crops, units, banded, too_much = {}, [], set(), set()
+    for key, listed in bands.items():
         i = int(key)
-        if i in drops or i in framed:
+        if i in skip:
             continue
-        # An unsignable band is no band (no decision could be written on it): the page is judged as a page.
         found = [b for b in listed if not store.unsignable("band", b["sig"])]
         if not found:
             continue
@@ -375,16 +477,7 @@ def decide(sc, decide_unit):
         for b in found:
             row = decide_unit("band", b["sig"])
             if row is None:
-                band_units.append(
-                    {
-                        "kind": "band",
-                        "key": b["sig"],
-                        "page": i,
-                        "where": b["where"],
-                        "box": b["box"],
-                        "reasons": ["band"],  # D5.16: an undecided band is a candidate at 1 chapter
-                    }
-                )
+                units.append(_band_unit(i, b))
             elif row["verdict"] == "junk":
                 hits.append(b)
         box = _crop(hits, sizes[i]) if hits else None
@@ -392,16 +485,26 @@ def decide(sc, decide_unit):
             crops[i] = box
         elif hits:
             too_much.add(i)  # the bands would leave almost nothing: the page stays whole and is a candidate
-    keep = [i for i in content if i not in drops]
+    return _BandPass(crops, units, banded, too_much)
+
+
+def _joins(keep, sizes, crops, rows):
+    """Slice repair over the kept pages (in order), cropped where cropped: [[page, sliver]] of the joins it makes.
+    rows: the scan's packed edge rows."""
     ksizes = [(crops[i][2] - crops[i][0], crops[i][3] - crops[i][1]) if i in crops else sizes[i] for i in keep]
     edges = {
-        j: _unpack_edges(sc["rows"][_box_key(keep[j], crops.get(keep[j]))])
+        j: _unpack_edges(rows[_box_key(keep[j], crops.get(keep[j]))])
         for k in strip.slice_pairs(ksizes)
         for j in (k - 1, k)
     }
-    joins = [[keep[j["page"]], keep[j["sliver"]]] for j in strip.find_slices(ksizes, edges) if j["join"]]
-    joined = {i for pair in joins for i in pair}
-    # per-chapter candidate reasons of the edge pages (SPEC "Junk decisions", candidates)
+    return [[keep[j["page"]], keep[j["sliver"]]] for j in strip.find_slices(ksizes, edges) if j["join"]]
+
+
+def _reasons(sc, sizes, banded, joined, band_pages):
+    """{page: [reason]}: the per-chapter candidate reasons of the edge pages (SPEC "Junk decisions", candidates):
+    size, else text (end_text_page; never a banded or joined page), then "band" for an edge page in band_pages (an
+    undecided band, or junk bands that would leave too little)."""
+    content = sc["content"]
     position = {i: k for k, i in enumerate(content)}
     csizes = [sizes[i] for i in content]
     reasons = {
@@ -416,22 +519,36 @@ def decide(sc, decide_unit):
         if last is not None and content[last] not in banded | joined and content[last] not in reasons:
             reasons[content[last]] = ["text"]
     edge_pages = {u["page"] for u in sc["edges"]}
-    for i in sorted({b["page"] for b in band_units} | too_much):
+    for i in sorted(band_pages):
         if i in edge_pages:
             reasons.setdefault(i, []).append("band")
+    return reasons
+
+
+def decide(sc, decide_unit):
+    """Apply decisions to a page-format scan. decide_unit(kind, key text) -> the deciding row or None. Returns
+    {"edit": the page-layout keys of the chapter edit, "undecided": [{"kind", "key", "page", "where"?, "reasons"}]}."""
+    if sc["split"]:
+        return {"edit": {"split": True, "drop_pages": [], "bands": [], "join": []}, "undecided": []}
+    content, sizes = sc["content"], [tuple(s) for s in sc["sizes"]]
+    edge = _edge_pass(sc["edges"], decide_unit)
+    drops = edge.drops | _white_ends([i for i in content if i not in edge.drops], set(sc["white"]))
+    band = _band_pass(sc["bands"], sizes, drops | edge.framed, decide_unit)
+    joins = _joins([i for i in content if i not in drops], sizes, band.crops, sc["rows"])
+    joined = {i for pair in joins for i in pair}
+    reasons = _reasons(sc, sizes, band.banded, joined, {b["page"] for b in band.units} | band.too_much)
     undecided = []
-    for i, u in sorted(undecided_pages.items()):
+    for i, u in sorted(edge.undecided.items()):
         if i in drops:
             continue
         kind, key = ("frame", u["frame"]) if u["frame"] else ("page", u["sig"])
         undecided.append({"kind": kind, "key": key, "page": i, "reasons": reasons.get(i, [])})
-    undecided += band_units
     return {
         "edit": {
             "split": False,
             "drop_pages": sorted(drops),
-            "bands": [{"page": i, "box": crops[i]} for i in sorted(crops)],
+            "bands": [{"page": i, "box": band.crops[i]} for i in sorted(band.crops)],
             "join": joins,
         },
-        "undecided": undecided,
+        "undecided": undecided + band.units,
     }
