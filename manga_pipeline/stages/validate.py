@@ -234,7 +234,8 @@ def _volume_cover(ctx, chapter, download):
         """SELECT 1 FROM volume_cover v JOIN chapter c ON c.id = v.chapter_id
         WHERE c.series_id = %(series)s AND v.volume = %(volume)s AND c.status != 'done'
         UNION ALL SELECT 1 FROM published_file WHERE series_id = %(series)s
-            AND (cover_state = 'volume:' || %(volume)s OR pending_cover = 'volume:' || %(volume)s)""",
+            AND (cover_state IN ('volume:' || %(volume)s, 'stale:' || %(volume)s)
+                OR pending_cover IN ('volume:' || %(volume)s, 'stale:' || %(volume)s))""",
         {"series": chapter["series_id"], "volume": volume},
     ).fetchone()
     if taken:  # an open chapter of that volume, or a published file, took its cover first: it keeps it

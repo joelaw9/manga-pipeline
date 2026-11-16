@@ -1,6 +1,6 @@
 """A person's settlements of a series: `series set-id SERIES_ID SOURCE ID` (SPEC "Source ids"), an id for a source
 that wins over every other origin; `series new SERIES_ID [--name NAME]` (SPEC "Series identification"), a held new
-series made ready to be admitted."""
+series made ready to be admitted; `series refetch-covers SERIES_ID`, its check made due now."""
 
 from manga_pipeline import db, workflow
 from manga_pipeline.metadata import check, ids
@@ -23,6 +23,16 @@ def set_id(conn, series_id, source, value):
         )
         conn.execute("INSERT INTO series_source_id VALUES (%s, %s, 'human', %s)", (series_id, source, found))
     return found
+
+
+def refetch_covers(conn, series_id):
+    """`series refetch-covers SERIES_ID`: the series' check made due at once, so the next intake fetches its MangaDex
+    cover list and refreshes every stored volume cover image MangaDex now chooses another file for (SPEC "Retroactive
+    updates"). Refused for a series that does not exist."""
+    with db.transaction(conn):
+        if conn.execute("SELECT 1 FROM series WHERE id = %s", (series_id,)).fetchone() is None:
+            raise workflow.Refused(f"no series {series_id}")
+        check.make_urgent(conn, series_id)
 
 
 def new_series(conn, series_id, name=None):

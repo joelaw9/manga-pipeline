@@ -23,6 +23,10 @@ VOLUME_FOLDER = "volume"  # below paths.covers: covered volumes' covers
 UNNAMED_KEEP_S = 24 * 3600
 
 
+class NotAnImage(ValueError):
+    """MangaDex served something other than an image for a cover file (an error page)."""
+
+
 @dataclass(frozen=True)
 class Cover:
     source_url: str
@@ -131,15 +135,17 @@ def store(conn, series_id, cover):
 
 
 def volume_cover(ctx, series_id, volume):
-    """(path relative to paths.covers, sha256) of the series' cover of `volume`, fetched and stored the first time
-    (and again when its file is missing or holds other bytes); None when MangaDex has no cover of that volume or the
-    series has no MangaDex record."""
+    """(path relative to paths.covers, sha256) of the series' cover of `volume`, fetched and stored the first time,
+    again when its file is missing or holds other bytes, and again when MangaDex's choice for the volume is another
+    file than the stored one's (SPEC "Retroactive updates": a new image replaces the stored one, and the published
+    files holding the old one are marked stale); None when MangaDex has no cover of that volume or the series has no
+    MangaDex record, and nothing is stored."""
     row = ctx.conn.execute(
-        "SELECT path, sha256 FROM series_volume_cover WHERE series_id = %s AND volume = %s", (series_id, volume)
+        "SELECT source_url, path, sha256 FROM series_volume_cover WHERE series_id = %s AND volume = %s",
+        (series_id, volume),
     ).fetchone()
     root = config.abs_path(ctx.cfg["paths"]["covers"])
-    if row is not None and _holds(root / row["path"], row["sha256"]):
-        return row["path"], row["sha256"]
+    stored = row is not None and _holds(root / row["path"], row["sha256"])
     records = {
         r["kind"]: r["payload"]
         for r in ctx.conn.execute(
@@ -147,16 +153,21 @@ def volume_cover(ctx, series_id, volume):
         )
     }
     manga = records.get("manga")
-    file_name = volume_choice(manga, records.get("covers") or [], volume) if manga else None
-    if file_name is None:
+    choices = volume_choices(manga, records.get("covers") or [], volume) if manga else []
+    urls = [f"{sources.MANGADEX_UPLOADS}/covers/{manga['id']}/{f}" for f in choices]
+    if stored and (not urls or row["source_url"] in urls):  # still 1 of MangaDex's best: the stored image stays
+        return row["path"], row["sha256"]
+    if not choices:
         return None
-    url = f"{sources.MANGADEX_UPLOADS}/covers/{manga['id']}/{file_name}"
+    # a missing stored file is fetched again as the same file while it is still among the best: no tie flips it
+    k = urls.index(row["source_url"]) if row is not None and row["source_url"] in urls else 0
+    file_name, url = choices[k], urls[k]
     data = _gone_is_none(ctx.sources.mangadex.cover_image, manga["id"], file_name)
-    if data is None:  # MangaDex no longer serves the file: no cover
-        return None
+    if data is None:  # MangaDex no longer serves the file: no new cover
+        return (row["path"], row["sha256"]) if stored else None
     image = _image(url, data)
     if image is None:  # an error page served as the image: fails the attempt, a later run tries again
-        raise ValueError(f"the volume {volume} cover from {url} is not an image")
+        raise NotAnImage(f"the volume {volume} cover from {url} is not an image")
     _, data, (_, ext) = image
     sha256 = hashlib.sha256(data).hexdigest()
     rel = f"{VOLUME_FOLDER}/{sha256}.{ext}"
@@ -169,7 +180,38 @@ def volume_cover(ctx, series_id, volume):
                 sha256 = excluded.sha256""",
             (series_id, volume, url, rel, sha256),
         )
+        if row is not None and row["sha256"] != sha256:  # a new image: the files holding the old one take it
+            held, stale = f"volume:{names.fmt_num(volume)}", f"stale:{names.fmt_num(volume)}"
+            ctx.conn.execute(
+                """UPDATE published_file SET
+                    cover_state = CASE WHEN cover_state = %(held)s THEN %(stale)s ELSE cover_state END,
+                    pending_cover = CASE WHEN pending_cover = %(held)s THEN %(stale)s ELSE pending_cover END
+                WHERE series_id = %(series)s AND %(held)s IN (cover_state, pending_cover)""",
+                {"held": held, "stale": stale, "series": series_id},
+            )
+            log.info("%s: series %s volume %s cover: a new image at MangaDex (%s)", ctx.part, series_id, volume, url)
     return rel, sha256
+
+
+def refresh_volumes(ctx, series_id):
+    """Each stored volume cover image of the series again, where MangaDex's best choice for the volume no longer
+    includes the stored file (volume_cover), after the series' check stored its cover list. A file MangaDex refuses
+    (4xx) or serves as no image is logged and asked for again by the next check; MangaDex unreachable, timing out or
+    failing on its side ends the refresh and leaves the series' check due now (among the capped checks, not urgent)."""
+    for (volume,) in ctx.conn.execute(
+        "SELECT volume FROM series_volume_cover WHERE series_id = %s ORDER BY volume", (series_id,)
+    ).fetchall():
+        try:
+            volume_cover(ctx, series_id, volume)
+        except (NotAnImage, errors.Unreachable, http.Timeout, http.HttpError) as e:
+            log.warning("%s: series %s volume %s cover not refreshed: %s", ctx.part, series_id, volume, e)
+            if isinstance(e, NotAnImage) or isinstance(e, http.HttpError) and e.status < 500:
+                continue
+            with db.transaction(ctx.conn):  # MangaDex down: the next intake checks the series again
+                ctx.conn.execute(
+                    "UPDATE series_check SET next_check_at = checked_at WHERE series_id = %s", (series_id,)
+                )
+            return
 
 
 def fetch_wanted(ctx):
@@ -222,15 +264,22 @@ def store_volume_image(cfg, data):
 def volume_choice(manga, covers, volume):
     """The MangaDex cover file name of exactly `volume`: English, else the manga's original language, else any
     locale (the first listed wins a tie); None when MangaDex has none of that volume."""
+    choices = volume_choices(manga, covers, volume)
+    return choices[0] if choices else None
+
+
+def volume_choices(manga, covers, volume):
+    """The MangaDex cover file names of exactly `volume` at the best rank (English, else the manga's original
+    language, else any locale), in list order; [] when MangaDex has none of that volume. MangaDex lists a volume's
+    covers in no fixed order: a stored file still among them is kept, so a tie never flips the image."""
     original = (manga.get("attributes") or {}).get("originalLanguage")
-    best = None
-    for c in covers:
-        if names.to_volume(c.get("volume")) != volume or not c.get("fileName"):
-            continue
-        rank = 0 if c.get("locale") == "en" else 1 if c.get("locale") == original else 2
-        if best is None or rank < best[0]:
-            best = (rank, c["fileName"])
-    return best and best[1]
+    ranked = [
+        (0 if c.get("locale") == "en" else 1 if c.get("locale") == original else 2, c["fileName"])
+        for c in covers
+        if names.to_volume(c.get("volume")) == volume and c.get("fileName")
+    ]
+    best = min((rank for rank, _ in ranked), default=None)
+    return [f for rank, f in ranked if rank == best]
 
 
 def _holds(path, sha256):

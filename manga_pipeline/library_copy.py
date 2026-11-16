@@ -198,7 +198,7 @@ def _take(ctx, chapter, published):
     """The better copy names its file (its 1 open chapter) and takes the file's volume cover: the series' stored image
     of that volume, else the old file's own cover page. Returns None (the copy goes on), or NeedsHuman for a busy
     file."""
-    volume = rewrite_covers.held(published["cover_state"])
+    volume = rewrite_covers.cover_volume(published["cover_state"])  # an old image too: the copy takes the new one
     if published["cover_state"] is None:  # not read yet (export reads it): the file's own cover page says
         with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
             if any(rewrite_covers.is_cover(n) for n in archive.archive_pages(z.namelist())):

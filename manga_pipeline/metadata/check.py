@@ -153,6 +153,7 @@ def run(ctx, clients, series_id):
             RETURNING data_version""",
             {"id": series_id, "now": now, "next": _next_check(ctx.cfg, now, last, complete), "changed": changed},
         ).fetchone()[0]
+    covers.refresh_volumes(ctx, series_id)  # the cover list just stored may choose another file for a volume
     fetched = ", ".join(
         f"{source} {'found' if records[(source, KINDS[source][0])] is not None else 'not found'}" for source in KINDS
     )

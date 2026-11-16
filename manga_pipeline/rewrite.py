@@ -179,7 +179,7 @@ def _plan(ctx, series):
                     and cover_images.volume_choice(records["manga"], records.get("covers") or [], names.to_volume(v))
                 ):
                     wants.add(v)
-                if rewrite_covers.held(states[fid]) is not None:  # another volume's cover: dropped meanwhile
+                if rewrite_covers.cover_volume(states[fid]) is not None:  # another volume's cover: dropped meanwhile
                     cover[fid] = ("drop",)
     todo = {}
     for fid in sorted(set(moved) | set(cover) | set(edited)):
@@ -424,6 +424,7 @@ def publish_run(ctx, chapter):
         cover, shift = converted["cover_state"] if converted else None, new_pages - old_pages
 
     def record(c):
+        now = cover and rewrite_covers.current_state(c, chapter["id"], chapter["series_id"], cover)
         c.execute(
             """UPDATE published_file SET pending_path = %s, pending_staged = %s, pending_size = %s,
                 pending_volume = %s, pending_volume_source = %s, pending_cover = %s, pending_step = 0,
@@ -437,7 +438,7 @@ def publish_run(ctx, chapter):
                 chapter["staged_size"],
                 chapter["comicinfo_volume"],
                 chapter["naming_volume_source"],
-                cover,
+                now,
                 read,
                 seen[0]["pages"],
                 new_pages,

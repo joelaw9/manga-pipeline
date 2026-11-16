@@ -169,6 +169,12 @@ def series_set_id(cfg, args):
     log.info("series %s: %s id %s set by hand", args.series_id, args.source, found)
 
 
+def series_refetch_covers(cfg, args):
+    with _database(cfg, "refetch covers in") as conn:
+        human.refetch_covers(conn, args.series_id)
+    log.info("series %s: its check is due now: the next intake refreshes its volume covers", args.series_id)
+
+
 def series_new(cfg, args):
     with _database(cfg, "admit a series in") as conn:
         human.new_series(conn, args.series_id, args.name)
@@ -321,6 +327,7 @@ COMMANDS = {
     "series link": Command((), None, None, LINK_CHECKS, _unlocked(series_link)),
     "series set-id": Command((), None, None, (), _unlocked(series_set_id)),
     "series new": Command((), None, None, (), _unlocked(series_new)),
+    "series refetch-covers": Command((), None, None, (), _unlocked(series_refetch_covers)),
     "series edit": Command((), None, None, EDIT_CHECKS, _unlocked(series_edit)),
     "naming diff": Command((), None, None, (), _unlocked(naming_diff)),
     "rewrite drop": Command((), None, None, (), _unlocked(rewrite_drop)),
@@ -373,6 +380,9 @@ def parser():
     edit.add_argument("file", help='JSON: {"series": NAME, "chapters": {"10": {"title": ..., "volume": ...}}}')
     edit.add_argument("--series-id", type=int, help="the series id (as status shows it) when 2 series share NAME")
     edit.set_defaults(command="series edit")
+    refetch = series.add_parser("refetch-covers", help="refresh a series' MangaDex volume covers at its next check")
+    refetch.add_argument("series_id", type=int, help="series id (as status shows it)")
+    refetch.set_defaults(command="series refetch-covers")
     new = series.add_parser("new", help="admit a held series as a new series (a near hit or a name clash)")
     new.add_argument("series_id", type=int, help="series id (as status shows it)")
     new.add_argument("--name", help="the name to admit it under (default: its own, SPEC 'Series identification')")

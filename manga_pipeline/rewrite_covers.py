@@ -25,6 +25,30 @@ def held(state):
     return state.removeprefix("volume:") if state and state.startswith("volume:") else None
 
 
+def cover_volume(state):
+    """The volume (as text, "" for a file with no volume) whose cover page a cover_state says the file holds, the
+    volume's current image (volume:V) or an old one (stale:V: MangaDex had a new one since); None for none or unfit."""
+    for prefix in ("volume:", "stale:"):
+        if state and state.startswith(prefix):
+            return state.removeprefix(prefix)
+    return None
+
+
+def current_state(conn, chapter_id, series_id, state):
+    """A published chapter's cover_state (state: "volume:<V>" when it took volume V's cover): "stale:<V>" when the
+    image it took is no longer the series' stored image of V (MangaDex had a new one since). Read in the caller's
+    transaction, so a refresh marking the files of V is either before it or sees its file."""
+    volume = held(state)
+    v = names.to_volume(volume)
+    if v is None or v != int(v):  # no volume, or not a whole one: no stored image to follow
+        return state
+    took = conn.execute("SELECT sha256 FROM volume_cover WHERE chapter_id = %s", (chapter_id,)).fetchone()
+    now = conn.execute(
+        "SELECT sha256 FROM series_volume_cover WHERE series_id = %s AND volume = %s", (series_id, int(v))
+    ).fetchone()
+    return f"stale:{volume}" if took and now and took[0] != now[0] else state
+
+
 def is_cover(name):
     return PurePosixPath(name).stem.lower() == archive.COVER_STEM
 
@@ -94,7 +118,7 @@ def convert_run(ctx, chapter):
     dropped = next((i for i, n in enumerate(page_names) if is_cover(n)), None)
     holds = dropped is not None
     kept = [m for m in members if not is_cover(m[0])]
-    state = NONE if holds or held(file["cover_state"]) is not None else file["cover_state"]  # unfit stays
+    state = NONE if holds or cover_volume(file["cover_state"]) is not None else file["cover_state"]  # unfit stays
     inserted, why = None, None
     if cover_row is not None:
         scratch = config.abs_path(cfg["paths"]["scratch"]) / workflow.claim_name(chapter)
