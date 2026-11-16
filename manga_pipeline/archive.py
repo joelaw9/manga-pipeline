@@ -79,7 +79,7 @@ def comicinfo_member(names):
 
 
 def sha1(data):
-    return hashlib.sha1(data).hexdigest()
+    return hashlib.sha1(data, usedforsecurity=False).hexdigest()
 
 
 def pages_digest(cbz):

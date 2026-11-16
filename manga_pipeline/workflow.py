@@ -386,10 +386,8 @@ def end_waits(ctx, on, holds):
                 ended = holds(ctx, chapter)
         except Unreachable:
             raise
-        except Exception as e:
-            log.error(
-                "%s: checking the %s wait of %s failed: %s: %s", ctx.part, on, _name(chapter), type(e).__name__, e
-            )
+        except Exception:
+            log.exception("%s: checking the %s wait of %s failed", ctx.part, on, _name(chapter))
             continue
         if isinstance(ended, NeedsHuman):
             with db.transaction(ctx.conn):

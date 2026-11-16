@@ -69,7 +69,7 @@ class Template:
 
     def review_id(self):
         """Stable id from the pixels (not the PNG encoding, not a position)."""
-        h = hashlib.sha1(repr(self.size).encode() + self.mask.tobytes() + self.rgb.tobytes())
+        h = hashlib.sha1(repr(self.size).encode() + self.mask.tobytes() + self.rgb.tobytes(), usedforsecurity=False)
         return "m" + h.hexdigest()[:8]
 
 

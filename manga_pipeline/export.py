@@ -202,8 +202,8 @@ def request_scan(ctx):
         return
     try:
         ctx.kavita.scan_library(ctx.cfg["kavita"]["library_id"])
-    except http.HttpError as e:
-        log.error("%s: library scan request failed: %s", ctx.part, e)
+    except http.HttpError:
+        log.exception("%s: library scan request failed", ctx.part)
         return
     requested = workflow.now(ctx.conn)  # 1 stamp: a charged chapter must not count as waiting since after the request
     with db.transaction(ctx.conn):

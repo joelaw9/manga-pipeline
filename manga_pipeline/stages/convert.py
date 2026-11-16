@@ -118,6 +118,14 @@ def _output_pages(out_dir, rec):
     return out
 
 
+def _post_check(staged, rec, x_dir, chapter_plan):
+    """RuntimeError naming every failed post-check of the staged file."""
+    fails = check.check(staged, rec, x_dir, chapter_plan.kept())
+    if fails:
+        msg = f"post-check failed: {'; '.join(fails)}"
+        raise RuntimeError(msg)
+
+
 def run(ctx, chapter):
     cfg = ctx.cfg
     try:
@@ -193,10 +201,7 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
     staged = config.abs_path(cfg["paths"]["staging"]) / staged_name(ctx.conn, chapter)
     try:
         size = archive.write(staged, [(p["name"], (out_dir / p["name"]).read_bytes()) for p in rec["output"]])
-        fails = check.check(staged, rec, x_dir, chapter_plan.kept())
-        if fails:
-            msg = f"post-check failed: {'; '.join(fails)}"
-            raise RuntimeError(msg)
+        _post_check(staged, rec, x_dir, chapter_plan)
     except BaseException:
         staged.unlink(missing_ok=True)  # a staged file without its chapter's record is never left behind
         raise

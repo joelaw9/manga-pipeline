@@ -35,7 +35,7 @@ class Gone(RuntimeError):
 
 def folder_name(series_key, kind, key, chapter):
     """The folder of a new candidate: its unit (hashed) and the chapter claim that writes it (workflow.claim_name)."""
-    unit = hashlib.sha1(f"{series_key}|{kind}|{key}".encode()).hexdigest()[:16]
+    unit = hashlib.sha1(f"{series_key}|{kind}|{key}".encode(), usedforsecurity=False).hexdigest()[:16]
     return f"{unit}-{workflow.claim_name(chapter)}"
 
 
