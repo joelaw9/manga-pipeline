@@ -451,7 +451,6 @@ def jpeg_logo_cbz(seed):
 @budget(load="pool", seconds=60)
 @pytest.mark.parametrize("verdict", ["junk", "keep"])
 def test_a_badge_is_painted_over_in_the_published_chapter_only_when_junk(site, verdict):
-
     site.download("Alpha", 2, jpeg_logo_cbz("p2"))
     site.parts()
     kinds = decide_kinds(site.cfg, {"page": "keep", "frame": "keep", "logo": verdict})

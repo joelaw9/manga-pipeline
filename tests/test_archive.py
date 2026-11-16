@@ -228,7 +228,6 @@ def test_write_leaves_no_part_file_and_replaces_dest(tmp_path):
 
 @budget(load="fs")
 def test_a_write_that_fails_leaves_no_part_file_and_dest_untouched(tmp_path):
-
     def members():
         yield MEMBERS[0]
         raise OSError(errno.ENOSPC, "No space left on device")

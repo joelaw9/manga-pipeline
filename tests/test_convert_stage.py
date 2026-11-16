@@ -147,7 +147,6 @@ def test_a_series_without_a_layout_fails(site):
 
 @budget(load="pool")
 def test_an_exif_rotated_page_needs_a_human_and_leaves_no_scratch(site):
-
     exif = Image.Exif()
     exif[0x0112] = 6
 
@@ -407,7 +406,6 @@ def test_2_pages_whose_names_share_a_stem_need_a_human_through_the_stage(site):
 
 @budget(load="fs")
 def test_the_post_check_names_a_low_score_folders_and_an_ambiguous_order(tmp_path):
-
     buf = io.BytesIO()
     colour().save(buf, "AVIF", quality=80, speed=10)
     avif = buf.getvalue()
@@ -442,7 +440,6 @@ def test_a_repeated_page_is_sampled_once():
 
 @budget(load="pool")
 def test_lossless_and_untouched_chapters_through_the_stage(site):
-
     fake.SCORE[0] = lambda _ref, _dec: 50.0
     series_id = site.series()
     lossless = site.chapter(series_id, pages(2))
@@ -518,7 +515,6 @@ def test_cover_pages_are_never_samples(site):
 
 @budget(load="pool")
 def test_a_chapter_whose_first_outcome_is_not_avif_adds_no_samples(site):
-
     series_id = site.series()
     site.run(site.chapter(series_id, [("001.webp", webp(colour()))]))
     assert calibration(site, series_id) == {}
@@ -566,7 +562,6 @@ def test_1_scorer_serves_every_chapter_of_the_process(site):
 
 @budget(load="pool")
 def test_a_process_start_removes_chapter_scratch_folders_and_nothing_else(site):
-
     root = config.abs_path(site.cfg["paths"]["scratch"])
     for name in ("7-1", "7-2", "junk-review", "notes"):
         (root / name).mkdir(parents=True)
@@ -582,7 +577,6 @@ def test_a_process_start_removes_chapter_scratch_folders_and_nothing_else(site):
 
 @budget(load="db")
 def test_a_process_start_deletes_day_old_staged_files_no_chapter_names(site):
-
     root = config.abs_path(site.cfg["paths"]["staging"])
     chapter_id = site.chapter(site.series(), pages(1))
     named, orphan, fresh, other = (root / n for n in ("named.cbz", "orphan.cbz", "fresh.cbz", "notes.txt"))
@@ -606,7 +600,6 @@ def test_a_process_start_deletes_day_old_staged_files_no_chapter_names(site):
 
 @budget(load="db")
 def test_a_process_start_deletes_a_day_old_part_file(site):
-
     root = config.abs_path(site.cfg["paths"]["staging"])
     old, fresh = root / "old.cbz.part", root / "fresh.cbz.part"
     for path in (old, fresh):
@@ -620,7 +613,6 @@ def test_a_process_start_deletes_a_day_old_part_file(site):
 @budget(load="db")
 @pytest.mark.parametrize("winerror", [None, 53])
 def test_a_staged_file_that_vanishes_during_the_clean_up(site, monkeypatch, winerror):
-
     root = config.abs_path(site.cfg["paths"]["staging"])
     (root / "gone.cbz").write_bytes(b"x")
     real = pathlib.Path.stat
@@ -642,7 +634,6 @@ def test_a_staged_file_that_vanishes_during_the_clean_up(site, monkeypatch, wine
 
 @budget(load="pool")
 def test_output_pages_not_as_many_as_the_outcome_writes_fail(site, monkeypatch):
-
     real = image._Chapter.untouched
 
     def extra(self):
@@ -746,7 +737,6 @@ def test_a_lossless_chapter_takes_the_cover_as_jpeg(site):
 
 @budget(load="pool")
 def test_pages_of_2_formats_convert_to_avif_for_the_cover_without_the_size_gate(site, monkeypatch):
-
     monkeypatch.setattr(image, "MAX_SIZE_RATIO", 0.0)  # the size gate would reject any AVIF
     members = [("001.jpg", jpeg(colour(seed=1))), ("002.png", png(colour(seed=2)))]
     chapter_id = site.chapter(site.series(), members)
@@ -802,7 +792,6 @@ def test_pages_sharing_no_cover_format_go_out_without_it(site):
 def test_a_cover_that_is_not_as_handed_over_fails_the_attempt_naming_its_path(
     site, tmp_path, rel, sha256, write, match
 ):
-
     chapter_id = site.chapter(site.series(), pages(1))
     if rel == "ABSOLUTE":
         rel = str(tmp_path / "abs.jpg")
@@ -840,7 +829,6 @@ def test_a_lossless_png_chapter_replaces_its_cover_page_with_a_png_cover(site):
 
 @budget(load="pool")
 def test_a_blanked_rendered_chapter_of_a_fixed_series_is_rendered_once(site, monkeypatch):
-
     series_id = site.series()
     with db.transaction(site.conn):
         site.conn.execute(
@@ -870,7 +858,6 @@ BLANKED_RENDER_EDIT = {
 
 @budget(load="pool")
 def test_a_blanked_rendered_chapter_of_a_series_whose_open_group_is_full_is_rendered_once(site, monkeypatch):
-
     series_id = site.series()
     full = [{"sha1": f"s{i}", "chapter_id": 999, "rendered": True, "bytes_in": 1, "scores": {}} for i in range(40)]
     with db.transaction(site.conn):
@@ -888,7 +875,6 @@ def test_a_blanked_rendered_chapter_of_a_series_whose_open_group_is_full_is_rend
 
 @budget(load="pool")
 def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(site, monkeypatch):
-
     encoded = []
     real = image.process_chapter
 
@@ -912,7 +898,6 @@ def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(sit
 def test_a_dropped_share_while_reading_a_cover_reaches_the_caller_and_a_missing_file_is_a_cover_error(
     site, monkeypatch, winerror
 ):
-
     path = config.abs_path(site.cfg["paths"]["covers"]) / "vol" / "1.jpg"
     path.parent.mkdir(parents=True)
     path.write_bytes(COVER)

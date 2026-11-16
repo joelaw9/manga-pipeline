@@ -97,7 +97,6 @@ def test_an_equal_copy_is_a_duplicate_put_aside_whatever_its_source(world, sourc
 
 @budget(load="db")
 def test_a_lost_claim_puts_no_duplicate_aside(world, monkeypatch):
-
     events, real_junk, real_put = [], library_copy._junk, retention.put
 
     def junk(ctx, *args):

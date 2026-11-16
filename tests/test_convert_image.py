@@ -89,7 +89,6 @@ def test_jpeg_feed_and_gray_read_the_header():
 
 
 def jpeg_with_exif(im, exif):
-
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=92, exif=exif.tobytes())
     return buf.getvalue()
@@ -121,14 +120,12 @@ def jpeg_with_exif(im, exif):
     ],
 )
 def test_a_malformed_edit_is_refused_naming_what_is_wrong(edit, match):
-
     with pytest.raises(plan.EditError, match=match):
         plan.check_edit(json.dumps(edit))
 
 
 @budget(load="pure")
 def test_a_well_formed_edit_passes():
-
     edit = {**NO_EDIT, "drop_pages": [0], "bands": [{"page": 1, "box": [0, 2, 10, 20]}], "join": [[2, 3]]}
     assert plan.check_edit(json.dumps(edit)) == edit
 
@@ -157,7 +154,6 @@ def test_cover_names_are_kept_or_prefixed_to_keep_the_order():
 
 @budget(load="pool")
 def test_2_pages_whose_names_share_a_stem_are_not_extracted(tmp_path):
-
     cbz = tmp_path / "c.cbz"
     archive.write(cbz, [("cover.jpg", jpeg(colour())), ("cover.png", png(gray()))])
     paths, problems = pages.extract(cbz, tmp_path / "x")
@@ -574,7 +570,6 @@ def test_a_blanked_page_keeps_its_alpha(tmp_path):
 
 @budget(load="pure")
 def test_a_luma_check_refuses_pages_that_differ_only_in_alpha():
-
     page = gray()
     opaque = page.convert("LA")
     holed = page.convert("LA")
@@ -603,7 +598,6 @@ def _matrix_gray():
 
 
 def _gray16():
-
     a = np.asarray(_matrix_gray()).astype(np.uint16) * 257
     im = Image.fromarray(a)  # uint16 gray: Pillow's I;16
     assert im.mode == "I;16", im.mode
@@ -732,7 +726,6 @@ def test_a_page_mode_gets_the_bulk_converters_lossless_and_avif_decisions(tmp_pa
 
 @budget(load="pure")
 def test_the_cover_width_is_the_most_common_non_cover_width_first_seen_on_a_tie():
-
     def p(*pages):
         return SimpleNamespace(pages=[{"size": [w, 10], "cover": c} for w, c in pages])
 

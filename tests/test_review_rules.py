@@ -19,7 +19,6 @@ from tests.world import World
 
 @budget(load="db", seconds=3)
 def test_a_database_holding_old_absolute_paths_is_refused(tmp_path, monkeypatch):
-
     cfg = site_cfg(tmp_path, built=False)
     before = tmp_path / "schema"
     shutil.copytree(db.SCHEMA, before)

@@ -62,7 +62,6 @@ def test_ocr_device_check_passes_on_cpu():
 
 @budget(seconds=5.0)
 def test_ocr_device_check_fails_when_the_session_falls_back(monkeypatch):
-
     class FellBack:
         def __init__(self, *args, **kwargs):
             pass
@@ -78,6 +77,5 @@ def test_ocr_device_check_fails_when_the_session_falls_back(monkeypatch):
 
 @budget()
 def test_process_runs_the_ocr_device_check():
-
     assert preflight.OCR_DEVICE in cli.COMMANDS["process"].checks, "process checks its OCR device"
     assert preflight.OCR_DEVICE not in cli.COMMANDS["intake"].checks, "intake runs no OCR"

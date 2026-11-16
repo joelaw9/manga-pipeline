@@ -445,7 +445,6 @@ def test_suwayomi_unreachable_on_the_way_to_the_next_source_resumes(world, monke
 
 @budget(load="db")
 def test_a_replacement_repeating_another_published_chapter_is_mislabelled(world):
-
     bad_download(world)
     copy = _textured_cbz("a copy of chapter 30")  # the mislabel check compares page pHashes: pages need content
     probe = world.mangas / "probe.cbz"
@@ -468,7 +467,6 @@ def test_a_replacement_repeating_another_published_chapter_is_mislabelled(world)
 
 @budget(load="db")
 def test_status_lists_re_downloads_notes_and_the_commands_that_settle_a_chapter(world):
-
     bad_download(world)
     world.download(world.manga_id, "Chapter 23", data=_cbz_with(b"\x00 unknown format"))
     page = cbz(seed="dup")
@@ -508,7 +506,6 @@ def test_the_path_rebuilt_for_a_download_is_where_suwayomi_wrote_it(world):
 
 
 def _target(world, chapter_id):
-
     with closing(db.connect(world.cfg)) as conn:
         return redownload.target(world.context(conn, "intake"), chapter_id)
 
@@ -527,7 +524,6 @@ def _textured_cbz(seed, pages=3):
 
 
 def _cbz_with(page):
-
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         z.writestr("001.png", page)
@@ -538,7 +534,6 @@ class WorldConn:
     """A connection with an open transaction, for a test's direct changes."""
 
     def __init__(self, world):
-
         self.conn = db.connect(world.cfg)
         self.tx = db.transaction(self.conn)
 

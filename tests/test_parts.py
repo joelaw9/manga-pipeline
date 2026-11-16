@@ -247,7 +247,6 @@ def test_leftover_staged_files_are_not_taken_for_a_chapters_output(site):
 
 @budget(load="db", seconds=3)
 def test_an_export_stage_that_lost_its_claim_leaves_every_file_untouched(site):
-
     download = site.download("Alpha", 2)
     run_part(site.cfg, intake)
     run_part(site.cfg, process)

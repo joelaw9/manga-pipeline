@@ -81,7 +81,6 @@ class Chapter:
         return p
 
     def run(self, chapter_plan):
-
         avif_first = chapter_plan.outcomes[0]["outcome"] == "avif"
         blanked = image.blank_pages(chapter_plan, self.x, self.root / "blank") if avif_first else {}
         src = image.sources(chapter_plan, self.x, blanked, self.root / "sources")

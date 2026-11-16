@@ -65,6 +65,8 @@ def purge(cfg, now=None):
     for folder, _, files in root.walk(top_down=False, on_error=_raise):
         for name in files:
             path = folder / name
+            if path.is_dir():  # a link to a folder: Path.walk lists it as a file; never purged, its folder kept
+                continue
             if path.stat().st_mtime < cutoff:
                 path.unlink()
                 deleted += 1

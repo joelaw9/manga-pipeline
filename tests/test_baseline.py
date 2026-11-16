@@ -131,7 +131,6 @@ def test_the_baseline_imports_the_junk_decisions_the_record_carries(world):
 
 @budget(load="db")
 def test_the_baseline_stores_the_records_probed_calibration_groups_and_a_reset_keeps_them(world):
-
     at_junk(world)
     world.run(process)
     want = [("colour", 75, 1, "record")]

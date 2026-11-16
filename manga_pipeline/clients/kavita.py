@@ -226,7 +226,7 @@ class Kavita:
 
     def _call(self, method, path, json=None):
         """1 authenticated call. A 401 gets 1 new token and 1 more try; a second 401 makes Kavita unreachable."""
-        for attempt in (1, 2):
+        for _ in (1, 2):
             headers = {"Authorization": f"Bearer {self._get_token()}"}
             try:
                 return self._service.request(method, self.base + path, headers=headers, json=json)
@@ -234,10 +234,8 @@ class Kavita:
                 if e.status != 401:
                     raise
                 self._token = None
-                if attempt == 2:
-                    msg = "HTTP 401 after re-authentication"
-                    raise self._refused(msg) from None
-        return None
+        msg = "HTTP 401 after re-authentication"
+        raise self._refused(msg)
 
     def _get_token(self):
         if self._token is None:

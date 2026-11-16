@@ -360,7 +360,6 @@ def test_a_command_with_locks_on_no_database_exits_4_and_creates_none(tmp_path, 
 
 @budget(load="db")
 def test_state_reset_holds_its_lock_until_its_folders_are_emptied(tmp_path, monkeypatch):
-
     cfg = site_cfg(tmp_path)
     with closing(db.connect(cfg)) as conn:
         state.adopt(cfg, conn)

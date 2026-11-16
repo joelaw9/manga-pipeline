@@ -416,7 +416,6 @@ def test_junk_import_command_prints_counts_and_refuses_with_exit_2(cfg, tmp_path
 
 
 def record_with_rows(schema=4):
-
     rec = bulk_record("S", 7, [])
     rec["schema"] = schema
     vec = base64.b64encode(np.full(frames.CELLS * 3, 9, np.uint8).tobytes()).decode()
@@ -508,7 +507,6 @@ def _number_tiles(rows):
 @budget(load="pure")
 @pytest.mark.parametrize("damage", [_no_key, _not_a_row, _number_tiles])
 def test_a_malformed_decision_row_is_a_record_that_does_not_parse(damage):
-
     rec = record_with_rows()
     damage(rec["series"]["decisions"]["rows"]["junk"])
     with pytest.raises(record_reader.RecordError, match="malformed"):
@@ -530,7 +528,6 @@ def _wrong_size(decisions):
 @budget(load="pure")
 @pytest.mark.parametrize("damage", [_unknown_template, _not_a_png, _wrong_size])
 def test_a_malformed_marks_row_is_a_record_that_does_not_parse(damage):
-
     rec = record_with_rows()
     damage(rec["series"]["decisions"])
     with pytest.raises(record_reader.RecordError, match="malformed"):
@@ -563,7 +560,6 @@ def test_sig_text_round_trip():
 
 @budget(load="db")
 def test_the_stores_sightings_count_toward_recurrence_and_import_once(conn, tmp_path):
-
     bulk_store(tmp_path / "junk.sqlite3").close()
     counts = importing.run(conn, importing.read_store(tmp_path / "junk.sqlite3"))
     assert counts["seen"] == 2, "edge blocks, pages and bands come over; spans do not"
@@ -665,7 +661,6 @@ def test_a_candidate_id_and_folder_follow_its_key_not_the_order_it_is_offered_in
 
 @budget(3.0, load="db")
 def test_step_0021_keeps_decisions_and_candidate_ids_and_allows_logos(tmp_path, monkeypatch):
-
     cfg = site_cfg(tmp_path, built=False)
     before = tmp_path / "schema"
     shutil.copytree(db.SCHEMA, before)
