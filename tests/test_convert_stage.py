@@ -184,7 +184,7 @@ def test_a_failed_post_check_deletes_the_staged_file_and_fails(site, monkeypatch
 
 @budget(load="pool")
 def test_a_share_error_while_staging_reaches_the_workflow_as_an_oserror(site, monkeypatch):
-    def eio(*a):
+    def eio(*_a):
         raise OSError(errno.EIO, "Input/output error")
 
     chapter_id = site.chapter(site.series(), pages(1))
@@ -278,7 +278,7 @@ def test_the_post_check_refuses_a_deflated_archive(tmp_path):
 def q_scores(by_q):
     """Fake scores from the encode quality in the decode's name: by_q(q)."""
 
-    def f(ref, dec):
+    def f(_ref, dec):
         return by_q(int(re.search(r"\.q(\d+)\.png$", dec.name).group(1)))
 
     return f
@@ -498,7 +498,7 @@ def test_a_strip_edit_removing_every_row_needs_a_human(site):
 
 @budget(load="pool")
 def test_a_post_check_that_raises_still_removes_the_staged_file(site, monkeypatch):
-    def broken(*a):
+    def broken(*_a):
         msg = "source page unreadable"
         raise OSError(msg)
 
@@ -919,7 +919,7 @@ def test_a_dropped_share_while_reading_a_cover_reaches_the_caller_and_a_missing_
     error = FileNotFoundError(errno.ENOENT, "The network path was not found", str(path))
     error.winerror = winerror
 
-    def gone(self):
+    def gone(_self):
         raise error
 
     monkeypatch.setattr(Path, "read_bytes", gone)

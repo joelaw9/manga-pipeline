@@ -25,7 +25,7 @@ def returns(outcome):
 
 
 def raises(error):
-    def stage(ctx, chapter):
+    def stage(_ctx, _chapter):
         raise error
 
     return stage
@@ -107,8 +107,8 @@ SCOPE_CASES = [
 
 
 @budget(load="pure")
-@pytest.mark.parametrize(("case", "only", "library", "want"), SCOPE_CASES, ids=[c[0] for c in SCOPE_CASES])
-def test_in_scope_needs_the_configured_library_and_a_name_in_series_only(case, only, library, want):
+@pytest.mark.parametrize(("only", "library", "want"), [c[1:] for c in SCOPE_CASES], ids=[c[0] for c in SCOPE_CASES])
+def test_in_scope_needs_the_configured_library_and_a_name_in_series_only(only, library, want):
     cfg = {"kavita": {"library_id": 4}, "series": {"only": only}}
     assert workflow.in_scope(cfg, ["S"], library) is want, "SPEC 'Parts': its library or new, and named"
 
@@ -257,7 +257,7 @@ def test_other_os_error_is_a_failed_attempt(ctx):
 def test_outcome_does_not_overwrite_a_persons_change(ctx):
     row = claimed(ctx)
 
-    def stage(ctx, chapter):
+    def stage(ctx, _chapter):
         with db.transaction(ctx.conn):  # a person acts on the row while the stage works
             ctx.conn.execute(
                 "UPDATE chapter SET status = 'ready', claimed_by = NULL, attempts = 0 WHERE id = %s", (row["id"],)
@@ -355,7 +355,7 @@ def test_run_records_start_end_result_and_success(ctx):
 
 @budget(load="db")
 def test_unreachable_run_ends_with_its_result_and_no_success(ctx):
-    def body(ctx):
+    def body(_ctx):
         msg = "share"
         raise workflow.Unreachable(msg)
 
@@ -383,7 +383,7 @@ def test_failing_wait_check_is_logged_and_the_others_go_on(ctx, caplog):
     second = workflow.claim(ctx, ("junk",))
     workflow.work(ctx, second, returns(Waiting("junk_decision")))
 
-    def holds(ctx, chapter):
+    def holds(_ctx, chapter):
         if chapter["id"] == first["id"]:
             msg = "candidate image unreadable"
             raise ValueError(msg)
@@ -400,7 +400,7 @@ def test_failing_wait_check_is_logged_and_the_others_go_on(ctx, caplog):
 def test_dropped_outcome_is_neither_logged_nor_counted(ctx, caplog):
     row = claimed(ctx)
 
-    def stage(ctx, chapter):
+    def stage(ctx, _chapter):
         with db.transaction(ctx.conn):  # a person acts on the row while the stage works
             ctx.conn.execute("UPDATE chapter SET status = 'ready', claimed_by = NULL WHERE id = %s", (row["id"],))
         return Failed("bad page")

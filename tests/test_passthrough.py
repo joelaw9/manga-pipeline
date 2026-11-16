@@ -342,7 +342,7 @@ def test_a_failed_scan_request_is_logged_left_due_and_charges_nothing(world, sol
     world.download(manga, "Chapter 2")
     through(world, intake, process)
 
-    def refuse(library_id):
+    def refuse(_library_id):
         raise http.HttpError(500, "http://kavita/api/Library/scan", b"")
 
     monkeypatch.setattr(world.kavita, "scan_library", refuse)
@@ -364,7 +364,7 @@ def test_a_failed_repeat_request_keeps_the_earlier_request_and_charges_nothing(w
     world.kavita.pending.clear()
     an_hour_passes(world)
 
-    def refuse(library_id):
+    def refuse(_library_id):
         raise http.HttpError(500, "http://kavita/api/Library/scan", b"")
 
     monkeypatch.setattr(world.kavita, "scan_library", refuse)

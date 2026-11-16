@@ -28,7 +28,7 @@ def calls(tool):
 def score_by_q(scores):
     """A fake score from the encode quality in the decode's name (<stem>.q<Q>.png): scores[q], else 90."""
 
-    def f(ref, dec):
+    def f(_ref, dec):
         return scores.get(int(re.search(r"\.q(\d+)\.png$", dec.name).group(1)), 90.0)
 
     return f

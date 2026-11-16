@@ -82,7 +82,7 @@ def test_a_hand_placed_new_folder_is_named_by_its_files_comicinfo_series(world):
 def test_sources_down_at_the_first_check_leave_the_series_pending_until_a_run_reaches_them(world, monkeypatch):
     world.download(world.manga("Brand New Thing"), "Chapter 1")
 
-    def down(name):
+    def down(_name):
         msg = "AniList"
         raise workflow.Unreachable(msg, "down")
 
@@ -191,7 +191,7 @@ def test_a_held_new_series_chapters_wait_until_it_is_admitted(world, monkeypatch
     with closing(db.connect(world.cfg)) as conn:
         human.new_series(conn, sid)
 
-    def down(library_id):
+    def down(_library_id):
         msg = "Kavita"
         raise workflow.Unreachable(msg, "down")
 

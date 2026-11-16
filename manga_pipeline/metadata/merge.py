@@ -8,6 +8,7 @@ D7.11): age rating from MangaBaka, language from MangaDex, writers and penciller
 
 import html.parser
 from dataclasses import dataclass
+from typing import override
 
 from markdown_it import MarkdownIt
 
@@ -138,6 +139,7 @@ class _Text(html.parser.HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts = []
 
+    @override
     def handle_starttag(self, tag, attrs):
         if tag in self.BREAKS:
             self.parts.append("\n")

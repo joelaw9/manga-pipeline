@@ -107,7 +107,7 @@ def test_library_manga_follows_pages_until_the_last(monkeypatch):
 
 
 @budget(load="fs")
-def test_library_manga_asks_for_the_next_page_only_when_it_is_read(monkeypatch):
+def test_library_manga_asks_for_the_next_page_only_when_it_is_read():
     s, service = client(recorded("library_page_1"))
     assert next(s.library_manga())["id"] == 23
     assert len(service.sent) == 1

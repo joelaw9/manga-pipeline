@@ -248,7 +248,7 @@ def test_read_only_refuses_a_database_with_other_steps_or_none(tmp_path, monkeyp
 
 
 @budget(load="db")
-def test_a_missing_database_is_no_database_and_nothing_creates_it_but_connect(tmp_path):
+def test_a_missing_database_is_no_database_and_nothing_creates_it_but_connect():
     cfg = pg.cfg_for(f"{pg.PREFIX}missing_{secrets.token_hex(4)}")
     with pytest.raises(db.NoDatabase, match="no database"):
         db.read_only(cfg)
@@ -547,6 +547,7 @@ def test_pool_databases_that_cannot_be_made_right_stop_the_run_after_max_failed_
         return conn
 
     def failing(self, name, rebuild):
+        del self, name, rebuild  # Process._reset's parameters, rebuild passed by keyword
         msg = "this reset fails"
         raise RuntimeError(msg)
 

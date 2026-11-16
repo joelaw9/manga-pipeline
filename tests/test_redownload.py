@@ -170,7 +170,7 @@ def test_suwayomi_unreachable_at_any_step_resumes_on_the_next_run(world, monkeyp
     chapter_id, _ = world.download(world.manga_id, "Chapter 12", data=BAD)
     original = getattr(world.suwayomi, call)
 
-    def down(*args):
+    def down(*_args):
         monkeypatch.setattr(world.suwayomi, call, original)
         msg = "suwayomi"
         raise workflow.Unreachable(msg)
@@ -279,7 +279,7 @@ def test_an_interrupted_chapter_use_keeps_the_choice(world, monkeypatch):
     command(cli.chapter_use, world, chapter=1, suwayomi_chapter=chosen)
     original = world.suwayomi.enqueue
 
-    def down(ids):
+    def down(_ids):
         monkeypatch.setattr(world.suwayomi, "enqueue", original)
         msg = "suwayomi"
         raise workflow.Unreachable(msg)
@@ -431,7 +431,7 @@ def test_suwayomi_unreachable_on_the_way_to_the_next_source_resumes(world, monke
     world.suwayomi.fail_download(chapter_id)
     original = getattr(world.suwayomi, call)
 
-    def down(*args):
+    def down(*_args):
         monkeypatch.setattr(world.suwayomi, call, original)
         msg = "suwayomi"
         raise workflow.Unreachable(msg)

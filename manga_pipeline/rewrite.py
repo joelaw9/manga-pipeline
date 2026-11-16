@@ -255,7 +255,7 @@ def _queue_chapter(ctx, series, file_id, volume, source, cover, title, unedited)
     ).fetchone()
     if row is None:
         return 0
-    target = _target(ctx, series, row, volume, title)
+    target = _target(row, volume, title)
     now = workflow.now(conn)
     made = conn.execute(
         """INSERT INTO chapter (series_id, kind, identity, source, stage, status, published_file_id, library_path,
@@ -306,7 +306,7 @@ def _cover_text(cover):
     )
 
 
-def _target(ctx, series, row, volume, title):
+def _target(row, volume, title):
     """The stored path the rewritten file takes (D7.8): a pipeline file named for its new volume and title; a bulk file
     keeps its name."""
     if row["origin"] != "pipeline":
@@ -775,7 +775,7 @@ def diff(ctx, series):
             files[i]["library_path"],
             files[i]["comicinfo_volume"],
             None if v is None else names.fmt_num(v),
-            _target(ctx, series, files[i], v, title),
+            _target(files[i], v, title),
             _cover_text(cover).removeprefix(", ") or None,
             title if title != (files[i]["comicinfo_title"] or "") else None,
         )  # fmt: skip

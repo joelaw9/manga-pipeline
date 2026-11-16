@@ -23,7 +23,8 @@ def in_dir(folder):
 
 
 @budget(load="fs")
-def test_records_reach_the_commands_log_file(logger, tmp_path):
+@pytest.mark.usefixtures("logger")
+def test_records_reach_the_commands_log_file(tmp_path):
     path = logs.setup(in_dir(tmp_path), "intake")
     logging.getLogger("manga_pipeline.cli").info("hello")
     assert path == tmp_path / "intake.log"

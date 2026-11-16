@@ -106,7 +106,7 @@ def test_a_winerror_59_share_drop_costs_no_attempt(cfg):
         ctx = workflow.Context(cfg, conn, "process", suwayomi=object(), kavita=object())
         row = workflow.claim(ctx, ("junk",))
 
-        def stage(ctx, chapter):
+        def stage(_ctx, _chapter):
             error = OSError(22, "An unexpected network error occurred")
             error.winerror = 59
             raise error

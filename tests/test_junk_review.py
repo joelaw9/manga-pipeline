@@ -64,7 +64,7 @@ def world(tmp_path, monkeypatch):
     return w
 
 
-def review_cmd(tmp_path, cfg, exe, env=None):
+def review_cmd(tmp_path, cfg, exe):
     cfg = {**cfg, "junk": {**cfg["junk"], "claude_path": str(exe)}}
     path = config_file(tmp_path, cfg)
     return cli.main(["--config", str(path), "junk", "review"]), cfg

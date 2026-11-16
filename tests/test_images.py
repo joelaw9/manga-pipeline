@@ -454,7 +454,7 @@ def test_may_have_alpha_reads_only_the_header(tmp_path, monkeypatch, data, want)
     p = tmp_path / "page"
     p.write_bytes(data())
 
-    def no_decode(*args, **kw):
+    def no_decode(*_args, **_kw):
         msg = "may_have_alpha decoded pixels"
         raise AssertionError(msg)
 

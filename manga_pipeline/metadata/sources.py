@@ -9,6 +9,7 @@ per source per run, each on its own `http.Service` with the source's minimum gap
 import urllib.parse
 from datetime import UTC, datetime
 from html.parser import HTMLParser
+from typing import override
 
 from manga_pipeline.clients import http
 
@@ -275,6 +276,7 @@ class _MetaFinder(HTMLParser):
         super().__init__()
         self.prefix, self.found = prefix, None
 
+    @override
     def handle_starttag(self, tag, attrs):
         content = dict(attrs).get("content") or ""
         if tag == "meta" and self.found is None and content.startswith(self.prefix):
@@ -288,6 +290,7 @@ class _AttributeFinder(HTMLParser):
         super().__init__()
         self.name, self.found = name, False
 
+    @override
     def handle_starttag(self, tag, attrs):
         values = dict(attrs)
         if self.name in (values.get("class") or "").split() or values.get("id") == self.name:

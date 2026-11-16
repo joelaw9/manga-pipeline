@@ -131,7 +131,7 @@ def log_files(site):
 def test_each_command_runs_in_its_table_row(site, command, monkeypatch):
     seen = {}
 
-    def probe(cfg, args, conn):
+    def probe(cfg, _args, _conn):
         held = set()
         with closing(db.connect(cfg)) as other:  # another session asks for each lock
             tries = {name: ([workflow.owner(name)], None) for name in PARTS}
@@ -285,7 +285,7 @@ def test_hard_preflight_failure_exits_4(site, monkeypatch, capsys):
 
 @budget(load="db")
 def test_crash_inside_a_part_exits_1_with_1_traceback_in_its_log(site, monkeypatch):
-    def unreadable(ctx):
+    def unreadable(_ctx):
         raise PermissionError(errno.EACCES, "Permission denied", "downloads")
 
     adopt(site)
@@ -301,7 +301,7 @@ def test_crash_inside_a_part_exits_1_with_1_traceback_in_its_log(site, monkeypat
 
 @budget(load="fs")
 def test_unexpected_error_of_a_command_without_a_log_file_exits_1_with_its_traceback(site, capsys, monkeypatch):
-    def broken(conn):
+    def broken(_conn):
         msg = "an unexpected fault"
         raise RuntimeError(msg)
 

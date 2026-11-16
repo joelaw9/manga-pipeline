@@ -47,7 +47,7 @@ def owner_file(cfg):
     return config.abs_path(cfg["paths"]["staging"]) / OWNER_FILE
 
 
-def python_version(cfg, version=sys.version_info):
+def python_version(_cfg, version=sys.version_info):
     if version < (3, 13):
         return f"Python 3.13 or later is required, this is {version[0]}.{version[1]}"
     return None
@@ -289,7 +289,7 @@ def long_paths_value():
         return None
 
 
-def long_paths(cfg):
+def long_paths(_cfg):
     """On Windows, paths of 260 or more characters open (SPEC "Preflight"); elsewhere they always do."""
     if sys.platform != "win32":
         return None

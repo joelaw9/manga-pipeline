@@ -80,7 +80,7 @@ def test_a_dropped_smb_share_is_not_a_file_already_gone(tmp_path, monkeypatch):
     assert workflow.exists(present)
     assert not workflow.exists(tmp_path / "gone.cbz")
 
-    def dropped(path, *a, **k):
+    def dropped(_path, *_a, **_k):
         error = FileNotFoundError(errno.ENOENT, "The network name cannot be found")
         error.winerror = 67
         raise error
@@ -100,7 +100,7 @@ def test_a_dropped_smb_share_is_not_a_file_already_gone(tmp_path, monkeypatch):
 def test_junk_review_records_an_unreachable_share_and_exits_quietly(tmp_path, monkeypatch):
     cfg = adopted(tmp_path)
 
-    def unreachable(cfg, conn):
+    def unreachable(_cfg, _conn):
         raise OSError(errno.EIO, "share gone")
 
     monkeypatch.setattr(candidates, "cleanup", unreachable)

@@ -16,7 +16,7 @@ def cfg(tmp_path):
     return site_cfg(tmp_path)
 
 
-def held(cfg, conn, name):
+def held(_cfg, conn, name):
     """Whether some session holds the run lock `name` (lock.HELD_SQL), asked on conn."""
     return conn.execute(f"SELECT {lock.HELD_SQL.format(name='%s')}", (name,)).fetchone()[0]
 

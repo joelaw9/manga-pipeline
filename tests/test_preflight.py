@@ -22,7 +22,7 @@ if sys.platform == "win32":
     import _winapi
 
 
-def ok(cfg):
+def ok(_cfg):
     return None
 
 
@@ -117,7 +117,7 @@ def test_zero_skips_the_check_and_negative_is_a_problem(tmp_path):
 
 @budget(load="fs")
 def test_free_space_reports_an_unreadable_drive(tmp_path, monkeypatch):
-    def unreadable(path):
+    def unreadable(_path):
         raise OSError(5, "Input/output error")
 
     monkeypatch.setattr(shutil, "disk_usage", unreadable)
@@ -337,7 +337,7 @@ def test_share_folders_missing_is_a_problem(tmp_path):
 
 @budget(load="pure")
 def test_folder_checks_report_what_they_cannot_measure(tmp_path, monkeypatch):
-    def broken(self, *args, **kwargs):
+    def broken(_self, *_args, **_kwargs):
         raise OSError(5, "Input/output error")
 
     cfg = site(tmp_path)

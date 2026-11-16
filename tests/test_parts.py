@@ -174,7 +174,7 @@ def test_unreachable_share_is_the_runs_result_with_exit_0(site, tmp_path, monkey
             conn.execute("UPDATE chapter SET stage = 'junk'")
         before = ("junk", "ready", 0)
 
-    def eio(*args):
+    def eio(*_args):
         raise OSError(errno.EIO, "Input/output error")
 
     monkeypatch.setitem(process.STAGES, "junk", eio)
@@ -304,7 +304,7 @@ def test_unreachable_share_in_a_wait_check_ends_the_run(site, monkeypatch, error
     run_part(site.cfg, intake)
     run_part(site.cfg, process)
 
-    def wait_over(ctx, chapter):
+    def wait_over(_ctx, _chapter):
         raise error
 
     monkeypatch.setattr(junk, "junk_decision_over", wait_over)

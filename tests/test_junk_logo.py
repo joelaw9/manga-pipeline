@@ -50,7 +50,7 @@ def store_of(**decided):
     return decide_unit
 
 
-def every(logo):
+def every(_logo):
     """Every logo survives the rest of the edit."""
     return True
 

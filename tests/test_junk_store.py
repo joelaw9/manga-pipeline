@@ -231,7 +231,7 @@ def bulk_store(path):
 
 
 @budget(load="db")
-def test_bulk_store_import_maps_verdicts_scope_and_kinds_and_reads_the_wal(conn, cfg, tmp_path):
+def test_bulk_store_import_maps_verdicts_scope_and_kinds_and_reads_the_wal(conn, tmp_path):
     src = bulk_store(tmp_path / "junk.sqlite3")
     try:
         assert (tmp_path / "junk.sqlite3-wal").stat().st_size > 0, "the fixture's rows sit in the WAL"
@@ -262,7 +262,7 @@ def test_bulk_store_import_maps_verdicts_scope_and_kinds_and_reads_the_wal(conn,
 
 
 @budget(load="db")
-def test_a_second_import_changes_nothing_and_leaves_pipeline_decisions(conn, cfg, tmp_path):
+def test_a_second_import_changes_nothing_and_leaves_pipeline_decisions(conn, tmp_path):
     bulk_store(tmp_path / "junk.sqlite3").close()
     importing.run(conn, importing.read_store(tmp_path / "junk.sqlite3"))
     with db.transaction(conn):
@@ -287,7 +287,7 @@ def change_store(path, sql, *params):
 
 
 @budget(load="db")
-def test_a_decision_the_bulk_converter_deleted_or_changed_is_followed(conn, cfg, tmp_path):
+def test_a_decision_the_bulk_converter_deleted_or_changed_is_followed(conn, tmp_path):
     store_path = tmp_path / "junk.sqlite3"
     bulk_store(store_path).close()
     importing.run(conn, importing.read_store(store_path))
@@ -312,7 +312,7 @@ def test_a_decision_the_bulk_converter_deleted_or_changed_is_followed(conn, cfg,
 
 
 @budget(load="db")
-def test_the_logo_import_is_rebuilt_and_leaves_pipeline_logo_decisions(conn, cfg, tmp_path):
+def test_the_logo_import_is_rebuilt_and_leaves_pipeline_logo_decisions(conn, tmp_path):
     """A mark the bulk converter deleted disappears, a changed one changes, a logo decision the pipeline made on a
     store mark's key survives every rebuild (the source row is left out)."""
     store_path = tmp_path / "junk.sqlite3"
@@ -373,7 +373,7 @@ def test_a_pipeline_source_brings_its_deciders_and_a_later_store_import_leaves_t
 
 
 @budget(load="db")
-def test_import_refuses_its_own_database_and_a_foreign_one(conn, cfg, tmp_path):
+def test_import_refuses_its_own_database_and_a_foreign_one(cfg, tmp_path):
     with pytest.raises(importing.SourceError, match="own database"):
         importing.read_database(cfg, cfg["database"]["name"])
     with pytest.raises(importing.SourceError, match="no database"):
@@ -538,7 +538,7 @@ def test_a_malformed_marks_row_is_a_record_that_does_not_parse(damage):
 
 
 @budget(load="db")
-def test_a_store_marks_row_that_is_no_template_is_refused(conn, cfg, tmp_path):
+def test_a_store_marks_row_that_is_no_template_is_refused(conn, tmp_path):
     bulk_store(tmp_path / "junk.sqlite3").close()
     change_store(tmp_path / "junk.sqlite3", "UPDATE marks SET template = x'00' WHERE series IS NULL")
     with pytest.raises(importing.SourceError, match="marks row 1: template is not a logo template"):
@@ -562,7 +562,7 @@ def test_sig_text_round_trip():
 
 
 @budget(load="db")
-def test_the_stores_sightings_count_toward_recurrence_and_import_once(conn, cfg, tmp_path):
+def test_the_stores_sightings_count_toward_recurrence_and_import_once(conn, tmp_path):
 
     bulk_store(tmp_path / "junk.sqlite3").close()
     counts = importing.run(conn, importing.read_store(tmp_path / "junk.sqlite3"))

@@ -42,7 +42,8 @@ def test_reply_is_returned_with_status_headers_and_body(monkeypatch, clock):
 
 
 @budget(load="pure")
-def test_a_reply_that_is_not_json_fails_naming_service_status_and_content_type(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_a_reply_that_is_not_json_fails_naming_service_status_and_content_type(monkeypatch):
     page = b"<html><title>MangaDex - Browser verification</title></html>"
     scripted(monkeypatch, Reply(page, header_values={"Content-Type": "text/html"}))
     got = http.Service("svc").request("GET", URL)
@@ -52,7 +53,8 @@ def test_a_reply_that_is_not_json_fails_naming_service_status_and_content_type(m
 
 
 @budget(load="pure")
-def test_a_service_sends_its_own_user_agent_else_the_browser_one(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_a_service_sends_its_own_user_agent_else_the_browser_one(monkeypatch):
     urlopen = scripted(monkeypatch, Reply(), Reply())
     http.Service("named", user_agent="manga-pipeline").request("GET", URL)
     http.Service("plain").request("GET", URL)
@@ -61,7 +63,8 @@ def test_a_service_sends_its_own_user_agent_else_the_browser_one(monkeypatch, cl
 
 
 @budget(load="pure")
-def test_mangadex_is_asked_with_a_user_agent_naming_the_client(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_mangadex_is_asked_with_a_user_agent_naming_the_client(monkeypatch):
     urlopen = scripted(monkeypatch, Reply({"data": {}}), Reply(b"image"))
     client = sources.MangaDex()
     client.manga("abc")
@@ -108,14 +111,16 @@ def test_back_off_doubles_over_4_retries_then_the_service_is_unreachable(monkeyp
 
 @budget(load="pure")
 @pytest.mark.parametrize("status", [429, 502, 503, 504])
-def test_these_statuses_after_the_retries_are_unreachable(monkeypatch, clock, status):
+@pytest.mark.usefixtures("clock")
+def test_these_statuses_after_the_retries_are_unreachable(monkeypatch, status):
     scripted(monkeypatch, *[http_error(status) for _ in range(5)])
     with pytest.raises(Unreachable, match=f"HTTP {status}"):
         http.Service("svc").request("GET", URL)
 
 
 @budget(load="pure")
-def test_http_500_after_the_retries_is_a_failure_not_unreachable(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_http_500_after_the_retries_is_a_failure_not_unreachable(monkeypatch):
     urlopen = scripted(monkeypatch, *[http_error(500, b"boom") for _ in range(5)])
     service = http.Service("svc")
     with pytest.raises(http.HttpError) as e:
@@ -128,7 +133,8 @@ def test_http_500_after_the_retries_is_a_failure_not_unreachable(monkeypatch, cl
 
 @budget(load="pure")
 @pytest.mark.parametrize("status", [501, 505, 507])
-def test_other_statuses_of_500_or_above_fail_after_their_retries(monkeypatch, clock, status):
+@pytest.mark.usefixtures("clock")
+def test_other_statuses_of_500_or_above_fail_after_their_retries(monkeypatch, status):
     urlopen = scripted(monkeypatch, *[http_error(status) for _ in range(5)])
     with pytest.raises(http.HttpError) as e:
         http.Service("svc").request("GET", URL)
@@ -204,7 +210,8 @@ def test_retry_after_at_the_cap_is_waited(monkeypatch, clock):
 
 
 @budget(load="pure")
-def test_an_unreachable_service_is_not_asked_again(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_an_unreachable_service_is_not_asked_again(monkeypatch):
     urlopen = scripted(monkeypatch, *[TimeoutError("timed out")] * 5)
     service = http.Service("svc")
     with pytest.raises(Unreachable):
@@ -215,7 +222,8 @@ def test_an_unreachable_service_is_not_asked_again(monkeypatch, clock):
 
 
 @budget(load="pure")
-def test_another_service_object_is_asked(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_another_service_object_is_asked(monkeypatch):
     scripted(monkeypatch, *[TimeoutError("timed out")] * 5, Reply())
     with pytest.raises(Unreachable):
         http.Service("svc").request("GET", URL)
@@ -223,7 +231,8 @@ def test_another_service_object_is_asked(monkeypatch, clock):
 
 
 @budget(load="pure")
-def test_a_client_can_mark_the_service_unreachable(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_a_client_can_mark_the_service_unreachable(monkeypatch):
     urlopen = scripted(monkeypatch)
     service = http.Service("svc")
     error = service.mark_unreachable("HTTP 401 twice")
@@ -250,7 +259,8 @@ def test_a_timeout_not_to_be_retried_raises_timeout_and_marks_nothing(monkeypatc
 
 
 @budget(load="pure")
-def test_other_failures_are_still_retried_without_timeout_retry(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_other_failures_are_still_retried_without_timeout_retry(monkeypatch):
     urlopen = scripted(monkeypatch, ConnectionResetError("reset"), Reply())
     assert http.Service("svc").request("GET", URL, retry_timeout=False).status == 200
     assert len(urlopen.requests) == 2
@@ -297,7 +307,8 @@ def test_redact_url(url, want):
 
 
 @budget(load="pure")
-def test_requests_are_logged_at_debug_without_secrets(monkeypatch, clock, caplog):
+@pytest.mark.usefixtures("clock")
+def test_requests_are_logged_at_debug_without_secrets(monkeypatch, caplog):
     scripted(monkeypatch, http_error(503), Reply(b"12345"))
     with caplog.at_level(logging.DEBUG, logger="manga_pipeline"):
         http.Service("svc").request("GET", URL + "?apiKey=hunter2")

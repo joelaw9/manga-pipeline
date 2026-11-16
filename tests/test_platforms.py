@@ -287,7 +287,7 @@ def test_a_platform_series_chapter_waits_for_the_check_its_arrival_made_due(worl
     tapas_series(world)
     world.run(intake)
 
-    def blocked(series_id):
+    def blocked(_series_id):
         msg = "tapas"
         raise http.Unreachable(msg, "HTTP 403: blocked")
 

@@ -79,7 +79,8 @@ def test_kavita_is_checked_though_suwayomi_failed(services, capsys, monkeypatch)
 
 
 @budget(load="fs")
-def test_a_mapped_path_that_does_not_exist_fails_the_check(services, capsys, tmp_path):
+@pytest.mark.usefixtures("services")
+def test_a_mapped_path_that_does_not_exist_fails_the_check(capsys, tmp_path):
     (tmp_path / "library" / "Alpha" / "Ch.1.cbz").unlink()
     with pytest.raises(smoke.Failed, match="1 of 1 mapped paths do not exist"):
         smoke.run(config.cached())
@@ -87,7 +88,8 @@ def test_a_mapped_path_that_does_not_exist_fails_the_check(services, capsys, tmp
 
 
 @budget(load="fs")
-def test_a_library_id_kavita_does_not_have_fails_the_check(services):
+@pytest.mark.usefixtures("services")
+def test_a_library_id_kavita_does_not_have_fails_the_check():
     cfg = {**config.cached(), "kavita": {**config.cached()["kavita"], "library_id": 9}}
     with pytest.raises(smoke.Failed, match="kavita.library_id 9 is none of Kavita's libraries"):
         smoke.run(cfg)
