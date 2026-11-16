@@ -30,7 +30,7 @@ def flip(t, bits):
     return t ^ ((1 << bits) - 1)
 
 
-def decision(series_key, kind, key, verdict, decider="import", *, at="2026-11-01T00:00:00+00:00", source=None):
+def decision(series_key, kind, key, verdict, decider="import", *, at="2026-11-01T00:00:00+00:00", source=None):  # noqa: PLR0913  # 1 junk-decision row; callers vary all 7 columns
     return {
         "series_key": series_key,
         "kind": kind,

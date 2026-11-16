@@ -134,7 +134,7 @@ def apply_edit(row, edits):
     return row
 
 
-def resolve(basis, rows, overrides, mangadex, platform=None, *, fill=frozenset(), edits=None):
+def resolve(basis, rows, overrides, mangadex, platform=None, *, fill=frozenset(), edits=None):  # noqa: PLR0913  # 7 inputs the resolver itself uses
     """{row key: Naming} for the open rows of 1 series. basis: the record's series.naming.basis (None: no volume);
     overrides: the override file's mapping, or None when the series has none; mangadex: mangadex_volumes' map;
     platform: the stored platform list (metadata/platforms.py), or None; fill: keys of open rows that are published
@@ -219,7 +219,7 @@ def _past_finale(rows, main, seasons):
     return platforms.volumes(seasons, {i: rows[i].number for i in main if not rows[i].settled})[1]
 
 
-def choose(rows, overrides, mangadex, platform=None):
+def choose(rows, overrides, mangadex, platform=None):  # noqa: PLR0911  # 1 priority chain
     """A new series' volume basis (SPEC "Publishing"), chosen once over its chapters known then: the bulk converter's
     order for a series it meets first (`_main_volumes` with no record). Platform seasons (the stored platform list's
     season ranges) come after season markers. MangaDex is the basis only when it volumes half or more of the main

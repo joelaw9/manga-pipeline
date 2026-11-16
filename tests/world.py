@@ -93,7 +93,7 @@ CALIBRATION = {
 BULK = (("Ch.1.cbz", "Grp_Chapter 1", "1"),)  # a Kavita series' bulk chapters unless a test names them
 
 
-def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none", *, covers=None):
+def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none", *, covers=None):  # noqa: PLR0913  # 1 record's varied fields
     """A valid finished .optimizer.json: chapters = [(output, source file, number, source bytes[, volume])]; basis:
     its series.naming.basis (where a new chapter's volume comes from); covers: {volume: output holding its cover}."""
     volume_covers = {str(v): {"chapter": o, "url": f"https://covers/{v}", "sha256": "0" * 64}

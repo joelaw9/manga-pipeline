@@ -1,7 +1,6 @@
 """A download of a series Kavita holds, through intake, process and export into its series folder, indexed and
 confirmed (SPEC "Publishing", "Chapter stages", "Bad downloads"); PLAN Phase 3 "Done when" on the fakes."""
 
-import json
 import os
 import time
 import zipfile
@@ -291,7 +290,7 @@ def test_a_record_without_a_known_layout_keeps_the_chapter_waiting(world, layout
     kavita_id = world.series_without_record("Solo Leveling")
     record = bulk_record("Solo Leveling", kavita_id, [])
     record["series"]["layout"] = layout
-    (world.library / "Solo Leveling" / ".optimizer.json").write_text(json.dumps(record), encoding="utf-8")
+    world.write_record("Solo Leveling", record)
     world.download(world.manga("Solo Leveling"), "Chapter 2")
     through(world, intake, intake)
     assert world.rows("SELECT stage, status, waiting_on, attempts FROM chapter") == [

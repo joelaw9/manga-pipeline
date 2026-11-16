@@ -95,7 +95,9 @@ class Service:
         self._down = reason
         return Unreachable(self.name, reason)
 
-    def request(self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True, retries=RETRIES):
+    def request(  # noqa: PLR0913  # a request's own options, each passed by some caller
+        self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True, retries=RETRIES
+    ):
         """Send 1 request, retried as SPEC "Services" says, and return its Response. Raises Unreachable (and marks
         the service), HttpError, or HttpTimeoutError for a timeout when retry_timeout is false. retries=0 sends it
         once: a 5xx reply other than UNREACHABLE_STATUS is then an HttpError. ValueError for a URL that is

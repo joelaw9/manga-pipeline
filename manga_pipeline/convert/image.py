@@ -468,7 +468,7 @@ def output_gray(chapter_plan, outcome):
     return all(cls == images.GRAY for cls, _ in kept)
 
 
-def process_chapter(pages: PageFiles, cover, out_dir, *, work_dir, encoder, chapter_plan):
+def process_chapter(pages: PageFiles, cover, out_dir, *, work_dir, encoder, chapter_plan):  # noqa: PLR0913  # each a distinct input: PageFiles, cover, out_dir, work_dir, encoder, plan
     """Execute a chapter plan: pages (its PageFiles), cover (the volume cover: None, or {"data", "width", "avif":
     Encoder.cover's result}), output pages in out_dir, work files in work_dir; encoder: the run's Encoder. Tries the
     outcomes in order; the last one (untouched or lossless) always stands, and gets the cover in its planned format, in
