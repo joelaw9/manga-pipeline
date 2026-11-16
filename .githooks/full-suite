@@ -1,5 +1,7 @@
 #!/bin/sh
-# The merge gate pre-merge-commit and pre-commit run: lint, format, then the full test suite (CLAUDE.md "Merging").
+# The merge gate pre-merge-commit and pre-commit run: lint, format, types (Windows and Linux), then the full test suite (CLAUDE.md "Merging").
 python -m ruff check . || exit 1
 python -m ruff format --check . || exit 1
+python -m basedpyright --warnings || exit 1
+python -m basedpyright --warnings --pythonplatform Linux || exit 1
 exec python -m pytest -q -n auto

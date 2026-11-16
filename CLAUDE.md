@@ -46,6 +46,16 @@ python -m ruff check .
 python -m ruff format .
 ```
 
+Types (basedpyright, basic mode; must pass on both platforms before a change is done; a `# pyright: ignore[...]` needs the user's approval first):
+
+```bash
+python -m basedpyright --warnings
+```
+
+```bash
+python -m basedpyright --warnings --pythonplatform Linux
+```
+
 Run:
 
 ```bash
@@ -112,12 +122,12 @@ python -m manga_pipeline.cli --help
 - Tests stay offline and never read the live `config.yaml` (SPEC "Tests"). Test only situations that occur in real use.
 - Talk to Suwayomi and Kavita only through `clients/` (SPEC "Services"); a client never imports `workflow`, a stage or a part. Every path Kavita reports goes through `Kavita.local_path`; a series' folder is `Kavita.series_folder`, never Kavita's `folderPath`. A stage uses the run's clients, `ctx.suwayomi` and `ctx.kavita`, and never builds its own; `intake`'s metadata step uses `ctx.sources` (built by `check.new_sources` when None). Tests use `tests/fakes/`.
 - Module docstrings or header comments name the SPEC section they implement. Comment only where the reason isn't obvious.
-- Run the linter and formatter before finishing a change; both must pass.
+- Run the linter, the formatter and the type checker before finishing a change; all must pass.
 
 ## Merging
 
-- `main` changes only through a pull request; its required `tests` check runs lint, format and the full test suite (`.github/workflows/tests.yml`; the rule is `.github/rulesets/main.json`, applied as README "Merging" says).
-- Local merge commits and squash commits run lint, the format check and the full test suite first: `.githooks/pre-merge-commit`, and `.githooks/pre-commit` for a commit that concludes a merge or a squash, both run `.githooks/full-suite`. A fast-forward runs no hook: merge with a plain `git merge BRANCH`, never `--ff` / `--ff-only` or `git pull` of another branch into it. Never skip the hooks with `--no-verify`; fix the failing test instead.
+- `main` changes only through a pull request; its required `tests` check runs lint, format, types and the full test suite (`.github/workflows/tests.yml`; the rule is `.github/rulesets/main.json`, applied as README "Merging" says).
+- Local merge commits and squash commits run lint, the format check, the type check and the full test suite first: `.githooks/pre-merge-commit`, and `.githooks/pre-commit` for a commit that concludes a merge or a squash, both run `.githooks/full-suite`. A fast-forward runs no hook: merge with a plain `git merge BRANCH`, never `--ff` / `--ff-only` or `git pull` of another branch into it. Never skip the hooks with `--no-verify`; fix the failing test instead.
 
 ## Known gotchas
 

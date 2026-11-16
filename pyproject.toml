@@ -60,6 +60,12 @@ ignore = [
 [tool.ruff.lint.isort]
 known-local-folder = ["tests"]
 
+[tool.basedpyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.13"
+pythonPlatform = "Windows"  # CI's platform; CI and the merge hook also run --pythonplatform Linux (the LXC)
+include = ["manga_pipeline", "tests"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider"
