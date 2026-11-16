@@ -277,7 +277,7 @@ def render_rows(pages, width, start, end, cache=None):
             if len(cache) >= 3:
                 cache.pop(next(iter(cache)))
             im = _open(p["path"])
-            cache[p["path"]] = im if im.width == width else im.resize((width, p["th"]), Image.LANCZOS)
+            cache[p["path"]] = im if im.width == width else im.resize((width, p["th"]), Image.Resampling.LANCZOS)
         out.paste(cache[p["path"]].crop((0, lo - p["top"], width, hi - p["top"])), (0, lo - start))
     return out
 

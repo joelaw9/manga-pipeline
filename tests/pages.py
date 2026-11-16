@@ -49,7 +49,7 @@ def with_tint(im, tint=(12, 6, 0)):
 def blob(seed, size=(300, 426)):
     """Smooth colour art with a seed-specific layout."""
     small = np.random.default_rng(seed).integers(0, 255, (8, 3, 3)).astype(np.uint8)
-    return Image.fromarray(small).resize(size, Image.BICUBIC)
+    return Image.fromarray(small).resize(size, Image.Resampling.BICUBIC)
 
 
 def encode(im, fmt="JPEG", **kw):

@@ -87,7 +87,7 @@ def tiles(im):
 def scale(im, width=WIDTH):
     """im as RGB, `width` px wide (aspect kept)."""
     im = im.convert("RGB")
-    return im.resize((width, max(1, round(im.height * width / im.width))), Image.LANCZOS)
+    return im.resize((width, max(1, round(im.height * width / im.width))), Image.Resampling.LANCZOS)
 
 
 def text(im, device):

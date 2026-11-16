@@ -153,7 +153,7 @@ def page_bands(im, aspect, cfg=BAND):
 def text_features(im):
     """A page's share of plain, mid-tone and coloured pixels at TEXT_WIDTH: {"plain", "mid", "chroma"}."""
     im = im.convert("RGB")
-    im = im.resize((TEXT_WIDTH, max(1, round(im.height * TEXT_WIDTH / im.width))), Image.BOX)
+    im = im.resize((TEXT_WIDTH, max(1, round(im.height * TEXT_WIDTH / im.width))), Image.Resampling.BOX)
     a = np.asarray(im, np.int16)
     lum = a.mean(axis=2)
     b = TEXT_BORDER

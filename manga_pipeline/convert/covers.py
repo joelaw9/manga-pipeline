@@ -69,7 +69,7 @@ def scaled(data, page_width):
     im, alpha = images.open_image(data)
     im = im.convert("RGBA" if alpha else "RGB")
     if im.width > page_width:
-        im = im.resize((page_width, max(1, round(im.height * page_width / im.width))), Image.LANCZOS)
+        im = im.resize((page_width, max(1, round(im.height * page_width / im.width))), Image.Resampling.LANCZOS)
     return im
 
 

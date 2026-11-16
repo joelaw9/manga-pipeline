@@ -79,8 +79,8 @@ def same_variant(a, b):
     if abs(aw / ah - bw / bh) > ASPECT_TOL * max(aw / ah, bw / bh):
         return False
     if b.size != a.size:
-        rgb = np.asarray(Image.fromarray(b.rgb).resize(a.size, Image.BILINEAR))
-        mask = np.asarray(Image.fromarray(b.mask.astype(np.uint8) * 255).resize(a.size, Image.NEAREST)) > 127
+        rgb = np.asarray(Image.fromarray(b.rgb).resize(a.size, Image.Resampling.BILINEAR))
+        mask = np.asarray(Image.fromarray(b.mask.astype(np.uint8) * 255).resize(a.size, Image.Resampling.NEAREST)) > 127
     else:
         rgb, mask = b.rgb, b.mask
     if (a.mask & mask).sum() / (a.mask | mask).sum() < IOU_MIN:
