@@ -333,12 +333,12 @@ class PageFiles:
 
     extracted: Path
     rendered: list[Path]
-    blanked: dict
+    blanked: dict[str, Path]
 
     @classmethod
     def of(cls, extracted, rendered, blanked):
         """The PageFiles of the folder, rendered paths and blanked mapping as the plan's steps give them."""
-        return cls(Path(extracted), [Path(p) for p in rendered], blanked)
+        return cls(Path(extracted), [Path(p) for p in rendered], {name: Path(p) for name, p in blanked.items()})
 
     def original(self, name):
         """The page as downloaded."""
@@ -346,10 +346,6 @@ class PageFiles:
 
     def is_blanked(self, name):
         return name in self.blanked
-
-    def source(self, name):
-        """The file the page is encoded from: its blanked PNG (a new image), else the page as downloaded."""
-        return Path(self.blanked[name]) if self.is_blanked(name) else self.original(name)
 
 
 class _Chapter:
@@ -402,11 +398,10 @@ class _Chapter:
         for q in self.kept:
             cls = ch.classes[q["name"]]
             yuv = plan.yuv_for(cls, q["chroma"])
-            src = self.pages.source(q["name"])
             if self.pages.is_blanked(q["name"]):  # a new image: encoded from its blanked PNG and scored against it
-                tasks.append(self.task(src, cls, yuv, RENDERED_FMT, jpeg_feed=False))
+                tasks.append(self.task(self.pages.blanked[q["name"]], cls, yuv, RENDERED_FMT, jpeg_feed=False))
             else:
-                tasks.append(self.task(src, cls, yuv, q["format"], plan.feeds_jpeg(q, yuv)))
+                tasks.append(self.task(self.pages.original(q["name"]), cls, yuv, q["format"], plan.feeds_jpeg(q, yuv)))
         results, failed = self.encoder.avif_pages(tasks, stop_on_fail=True)
         by_stem = {Path(q["name"]).stem: q for q in self.kept}
         for r in results:  # a blanked page: record the page's own name and source bytes
@@ -474,15 +469,15 @@ def output_gray(chapter_plan, outcome):
 
 
 def process_chapter(pages: PageFiles, cover, out_dir, *, work_dir, encoder, chapter_plan):
-    """Execute a chapter plan: pages (its PageFiles), cover
-    (the volume cover: None, or {"data", "width", "avif": Encoder.cover's result}), output pages in out_dir, work
-    files in work_dir; encoder: the run's Encoder. Tries the outcomes in order; the last one (untouched or lossless)
-    always stands, and gets the cover in its planned format, in place of a page named 000_cover. Returns the record:
-    {"outcome", "edits", "route", "pages", "formats", "dropped", "bytes_in", "bytes_out", "avif_rejected"? (why the
-    first AVIF attempt failed), "avif_pages"?, "lossless_pages"?, "reshape"?, "blanked" (the pages blanked: an AVIF
-    outcome's only), "cover" (the inserted cover {"name", "format", "score", "bytes"} or None), "quality",
-    "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else None), "gray", "output": [{"name",
-    "sha1"}], "scores": {output name: score}, "lossless": {output name: {"source", "mode"}}}."""
+    """Execute a chapter plan: pages (its PageFiles), cover (the volume cover: None, or {"data", "width", "avif":
+    Encoder.cover's result}), output pages in out_dir, work files in work_dir; encoder: the run's Encoder. Tries the
+    outcomes in order; the last one (untouched or lossless) always stands, and gets the cover in its planned format, in
+    place of a page named 000_cover. Returns the record: {"outcome", "edits", "route", "pages", "formats", "dropped",
+    "bytes_in", "bytes_out", "avif_rejected"? (why the first AVIF attempt failed), "avif_pages"?, "lossless_pages"?,
+    "reshape"?, "blanked" (the pages blanked: an AVIF outcome's only), "cover" (the inserted cover {"name", "format",
+    "score", "bytes"} or None), "quality", "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else
+    None), "gray", "output": [{"name", "sha1"}], "scores": {output name: score}, "lossless": {output name: {"source",
+    "mode"}}}."""
     out_dir, tmp = Path(out_dir), Path(work_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     tmp.mkdir(parents=True, exist_ok=True)
