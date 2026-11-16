@@ -92,9 +92,10 @@ def _calibrate(ctx: workflow.Context, chapter, groups, *, encoder, work):
         row = stored.get(group)
         if not group_units or not _samples_wanted(row, chapter["id"]):
             continue
-        new = _new_samples(encoder, group_units, row, work / f"calibrate-{group}")
-        if not new:
+        picked = calibrate.pick(group_units, {s["sha1"] for s in row["samples"]} if row else set())
+        if not picked:
             continue
+        new = _samples(encoder, picked, work / f"calibrate-{group}")
         stored[group] = calibrate.add(
             ctx.conn, chapter, group, new, guard=lambda _conn: workflow.holds_claim(ctx, chapter)
         )
@@ -102,12 +103,8 @@ def _calibrate(ctx: workflow.Context, chapter, groups, *, encoder, work):
     return calibrate.quality(stored)
 
 
-def _new_samples(encoder, group_units, row, work_dir):
-    """The samples a chapter adds to a group (row: the group's stored row or None): the units calibrate.pick takes,
-    each probed; [] when it takes none."""
-    picked = calibrate.pick(group_units, {s["sha1"] for s in row["samples"]} if row else set())
-    if not picked:
-        return []
+def _samples(encoder, picked, work_dir):
+    """The picked units (calibrate.pick) probed, as the samples calibrate.add stores."""
     scores = calibrate.probe(encoder, picked, work_dir)
     return [
         {
