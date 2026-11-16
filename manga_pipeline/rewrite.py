@@ -177,8 +177,10 @@ def _plan(ctx: workflow.Context, series):
             )
         }
         shas = {v: r["sha256"] for v, r in images.items()}
+        now = rewrite_plan.moved_rows(rows, moved)
+        covered = naming.covered_volumes(basis, now, (overrides or {}).get("volumes") or {}, mangadex)
         for fid, (action, v) in rewrite_plan.cover_changes(
-            basis, rows, overrides, mangadex, moved, states=states, taken=taken, images=shas
+            now, covered, states=states, taken=taken, images=shas
         ).items():
             if action == "drop":
                 cover[fid] = ("drop",)

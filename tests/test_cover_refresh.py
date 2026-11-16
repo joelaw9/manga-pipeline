@@ -8,7 +8,7 @@ import pytest
 
 from manga_pipeline import db, export, intake, process, rewrite_covers, workflow
 from manga_pipeline.clients import http
-from manga_pipeline.metadata import covers, human, rewrite_plan
+from manga_pipeline.metadata import covers, human, naming, rewrite_plan
 
 from tests.test_cover_rewrites import library, members, png, row, states, store_image
 from tests.test_rewrites import override, scan
@@ -194,10 +194,8 @@ def test_refetch_covers_makes_the_check_due_and_refuses_an_unknown_series(world)
 def test_a_stale_file_of_its_volume_takes_the_new_image_and_one_of_another_volume_drops_it():
     rows = [row(1, 1, 1), row(2, 2, 1), row(3, 3, 2), row(4, 4, 2)]
     states_ = {1: "none", 2: "stale:2", 3: "stale:2", 4: "none"}
-    overrides = {"volumes": {1: "1-2", 2: "3-"}}
-    got = rewrite_plan.cover_changes(
-        "override", rows, overrides, {}, {}, states=states_, taken=set(), images={"1": "x", "2": "y"}
-    )
+    covered = naming.covered_volumes("override", rows, {1: "1-2", 2: "3-"}, {})
+    got = rewrite_plan.cover_changes(rows, covered, states=states_, taken=set(), images={"1": "x", "2": "y"})
     assert got == {1: ("insert", "1"), 2: ("drop", None), 3: ("insert", "2")}, (
         "the stale holder in volume 2 takes the new image (not file 4); the stale file in volume 1 drops it"
     )
