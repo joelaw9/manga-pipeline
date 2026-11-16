@@ -275,7 +275,7 @@ def created(cfg):
     """Whether the server has the database cfg names, with or without a schema."""
     try:
         db.peek_id(cfg)
-    except db.NoDatabase:
+    except db.NoDatabaseError:
         return False
     except db.Error:
         return True  # it exists, holding no meta table

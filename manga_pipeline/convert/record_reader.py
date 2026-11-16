@@ -32,7 +32,7 @@ class RecordError(ValueError):
     """The series record cannot be used."""
 
 
-class PartialRecord(RecordError):
+class PartialRecordError(RecordError):
     """A record written with partial --stages: the series is not finished."""
 
 
@@ -49,12 +49,12 @@ def load(folder):
 
 
 def parse(rec):
-    """Validate a record dict and return it. Raises PartialRecord or RecordError."""
+    """Validate a record dict and return it. Raises PartialRecordError or RecordError."""
     check(rec)
     missing = sorted(set(STAGES) - set(rec["stages"]))
     if missing:
         msg = f"record written without stage(s) {missing}"
-        raise PartialRecord(msg)
+        raise PartialRecordError(msg)
     return rec
 
 

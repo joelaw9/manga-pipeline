@@ -17,13 +17,13 @@ _rows, _tags = {}, {}
 TAG = "timing_budget"  # user_properties name carrying a test's budget tag from a worker to the controller
 
 
-class NetworkBlocked(AssertionError):
+class NetworkBlockedError(AssertionError):
     pass
 
 
 def _refuse(*_args, **_kwargs):
     msg = "tests are offline: a network connection was attempted"
-    raise NetworkBlocked(msg)
+    raise NetworkBlockedError(msg)
 
 
 @pytest.fixture(autouse=True)

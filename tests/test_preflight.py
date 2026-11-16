@@ -84,7 +84,7 @@ def test_hard_problems_stop_the_run_after_every_check_ran():
         Check("b", SOFT, lambda _cfg: seen.append("b")),
         Check("c", HARD, broken("second")),
     ]
-    with pytest.raises(preflight.PreflightFailed, match="a: first; c: second"):
+    with pytest.raises(preflight.PreflightError, match="a: first; c: second"):
         preflight.run(config.cached(), checks)
     assert seen == ["b"], "a hard failure must not skip the later checks"
 

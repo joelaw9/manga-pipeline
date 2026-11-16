@@ -143,7 +143,7 @@ def pick(ctx, chapter, series, state):
             continue
         try:
             found = _match(ctx, chapter, series, reference, installed[name])
-        except suwayomi.SourceUnavailable as e:
+        except suwayomi.SourceUnavailableError as e:
             down.append(f"{name} ({str(e).splitlines()[0]})")  # Suwayomi appends the source's Java stack trace
             continue
         if found and not held_elsewhere(ctx, chapter, found):

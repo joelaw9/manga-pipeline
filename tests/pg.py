@@ -48,7 +48,7 @@ def current():
     return process
 
 
-class LeakedConnection(AssertionError):
+class LeakedConnectionError(AssertionError):
     pass
 
 
@@ -168,7 +168,7 @@ class Process:
         return name
 
     def end_test(self):
-        """Empty every database the test used. Raises LeakedConnection after the reset when the test left a
+        """Empty every database the test used. Raises LeakedConnectionError after the reset when the test left a
         connection open; a database whose reset fails is retired (held, unused) and its slot takes another."""
         used, unbuilt = sorted(set(self.used.values())), self.unbuilt
         self.used, self.unbuilt = {}, set()
@@ -186,7 +186,7 @@ class Process:
             raise failed
         if leaks:
             msg = f"the test left database connections open (ended now): {', '.join(leaks)}"
-            raise LeakedConnection(msg)
+            raise LeakedConnectionError(msg)
 
     def _end_leaks(self, name):
         """End and return the test's connections still open: a connection dropped but not yet collected closes with

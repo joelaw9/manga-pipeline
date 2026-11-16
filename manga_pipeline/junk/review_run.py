@@ -33,7 +33,7 @@ WINDOWS_VARIABLES = ("USERPROFILE", "SYSTEMROOT", "TEMP", "TMP", "APPDATA", "LOC
 PATH_KEYS = (("logging", "dir"),)
 
 
-class ReviewFailed(RuntimeError):
+class ReviewError(RuntimeError):
     """Claude's run failed (non-zero exit, an error result, or the time limit)."""
 
 
@@ -109,7 +109,7 @@ def _meta(conn, values):
 
 
 def run(cfg, conn):
-    """Run 1 review. Raises ReviewFailed when Claude's run failed; the reviews are counted either way."""
+    """Run 1 review. Raises ReviewError when Claude's run failed; the reviews are counted either way."""
     _meta(conn, [("last_start", workflow.now(conn))])
     with db.transaction(conn):
         conn.execute("UPDATE junk_candidate SET review_open = 0 WHERE review_open = 1")  # left by a killed review
@@ -150,7 +150,7 @@ def run(cfg, conn):
         _meta(conn, [("last_end", end), ("last_result", result)] + ([("last_success", end)] if ok else []))
         log.info("junk review %s: %s; %d candidate(s) reviewed", review_id, result, counted)
     if not ok:
-        raise ReviewFailed(result)
+        raise ReviewError(result)
 
 
 def _claude(cfg, prefix, review_id):

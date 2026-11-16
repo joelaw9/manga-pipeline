@@ -51,7 +51,7 @@ def new_sources():
     )
 
 
-class Disagree(Exception):
+class Disagree(Exception):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     pass
 
 

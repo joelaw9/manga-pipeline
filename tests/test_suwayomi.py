@@ -251,7 +251,7 @@ def test_fetch_manga_and_chapters_returns_both():
 @pytest.mark.parametrize("call", [lambda s: s.search_source(7, "T"), lambda s: s.fetch_manga_and_chapters(9)])
 def test_an_error_raised_while_the_query_ran_means_the_source_is_unavailable(call):
     s, _ = client(PATH_ERROR)
-    with pytest.raises(suwayomi.SourceUnavailable, match="No route to host"):
+    with pytest.raises(suwayomi.SourceUnavailableError, match="No route to host"):
         call(s)
 
 
@@ -272,8 +272,8 @@ def test_errors_with_and_without_a_path_are_a_failure():
 
 @budget(load="pure")
 def test_a_source_call_that_times_out_while_suwayomi_answers_means_the_source_is_unavailable():
-    s, service = client(http.Timeout("POST http://suwayomi.invalid/api/graphql timed out after 120 s"), PING)
-    with pytest.raises(suwayomi.SourceUnavailable, match="timed out"):
+    s, service = client(http.HttpTimeoutError("POST http://suwayomi.invalid/api/graphql timed out after 120 s"), PING)
+    with pytest.raises(suwayomi.SourceUnavailableError, match="timed out"):
         s.search_source(7, "T")
     assert sent_query(service)[0] == "{ __typename }", "SPEC 'Services': Suwayomi is asked a trivial query"
     assert service.options[-1] == (60, True), "the ping is retried like any request"
@@ -281,7 +281,7 @@ def test_a_source_call_that_times_out_while_suwayomi_answers_means_the_source_is
 
 @budget(load="pure")
 def test_a_source_call_that_times_out_while_suwayomi_does_not_answer_is_unreachable():
-    s, _ = client(http.Timeout("timed out"), Unreachable("suwayomi", "timed out after 60 s"))
+    s, _ = client(http.HttpTimeoutError("timed out"), Unreachable("suwayomi", "timed out after 60 s"))
     with pytest.raises(Unreachable) as e:
         s.fetch_manga_and_chapters(9)
     assert e.value.service == "suwayomi"

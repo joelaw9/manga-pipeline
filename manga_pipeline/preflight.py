@@ -37,7 +37,7 @@ class Check:
     run: Callable[[dict], str | None]
 
 
-class PreflightFailed(RuntimeError):
+class PreflightError(RuntimeError):
     pass
 
 
@@ -222,9 +222,9 @@ def share_ownership(cfg):
         return f"cannot read {path}: {e}"
     try:
         mine = db.peek_id(cfg)  # applies nothing: a run refused here must not have upgraded the database
-    except db.NoDatabase as e:
+    except db.NoDatabaseError as e:
         return f"{path} holds database id {owner!r}, and there is {e}"
-    except (db.CannotConnect, db.Error) as e:
+    except (db.CannotConnectError, db.Error) as e:
         return f"cannot read the database id: {e}"
     if owner != mine:
         return f"{path} holds database id {owner!r}, this database is {mine!r} (state adopt --yes moves the share)"
@@ -338,7 +338,7 @@ LONG_PATHS = Check("long paths", HARD, long_paths)
 
 def run(cfg, checks):
     """Run every check. Logs each soft problem as a warning and returns them; when any check is hard and failed,
-    logs each and raises PreflightFailed naming all of them."""
+    logs each and raises PreflightError naming all of them."""
     unknown = [c.name for c in checks if c.level not in (HARD, SOFT)]
     if unknown:
         msg = f"preflight check level must be HARD or SOFT: {', '.join(unknown)}"
@@ -356,5 +356,5 @@ def run(cfg, checks):
             soft.append(f"{check.name}: {problem}")
     if hard:
         msg = f"preflight failed: {'; '.join(hard)}"
-        raise PreflightFailed(msg)
+        raise PreflightError(msg)
     return soft

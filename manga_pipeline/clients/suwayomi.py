@@ -26,7 +26,7 @@ class GraphQLError(Exception):
         self.errors = errors
 
 
-class SourceUnavailable(Exception):
+class SourceUnavailableError(Exception):
     """The download source a call went to cannot serve it now; Suwayomi itself answers."""
 
 
@@ -99,7 +99,7 @@ class Suwayomi:
                 retry_timeout=False,
                 retries=0,
             )
-        except http.Timeout:
+        except http.HttpTimeoutError:
             return None
         except http.HttpError as e:
             if e.status in (404, 500):
@@ -141,7 +141,7 @@ class Suwayomi:
 
     def search_source(self, source_id, title):
         """The first page of a source's search for a title. Suwayomi stores each hit as a manga outside the library.
-        SourceUnavailable when the source cannot serve it."""
+        SourceUnavailableError when the source cannot serve it."""
         query = (
             "mutation ($source: LongString!, $query: String!) { fetchSourceManga(input:"
             f" {{source: $source, type: SEARCH, page: 1, query: $query}}) {{ mangas {{ {MANGA} }} }} }}"
@@ -150,7 +150,7 @@ class Suwayomi:
 
     def fetch_manga_and_chapters(self, manga_id):
         """Refresh 1 manga's chapter list from its source (any manga, in the library or not; none of the updater's
-        filters apply) and return {manga, chapters}. SourceUnavailable when the source cannot serve it."""
+        filters apply) and return {manga, chapters}. SourceUnavailableError when the source cannot serve it."""
         query = (
             "mutation ($id: Int!) { fetchMangaAndChapters(input: {id: $id, fetchManga: false, fetchChapters: true})"
             f" {{ manga {{ {MANGA} }} chapters {{ {CHAPTER} }} }} }}"
@@ -169,14 +169,14 @@ class Suwayomi:
                 timeout=SOURCE_TIMEOUT,
                 retry_timeout=False,
             )
-        except http.Timeout as e:
+        except http.HttpTimeoutError as e:
             self.ping()
-            raise SourceUnavailable(str(e)) from None
+            raise SourceUnavailableError(str(e)) from None
         try:
             return _data(reply)
         except GraphQLError as e:
             if all("path" in error for error in e.errors):
-                raise SourceUnavailable(str(e)) from None
+                raise SourceUnavailableError(str(e)) from None
             raise
 
 

@@ -9,7 +9,7 @@ REVIEW_ID_VARIABLE = "MANGA_JUNK_REVIEW_ID"  # set by junk review in Claude's en
 VERDICTS = ("junk", "keep", "unsure")
 
 
-class Refused(ValueError):
+class Refused(ValueError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """The command refuses: the item is not in the state it needs."""
 
 

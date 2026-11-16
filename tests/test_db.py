@@ -259,12 +259,12 @@ def test_read_only_refuses_a_database_with_other_steps_or_none(tmp_path, monkeyp
 @budget(load="db")
 def test_a_missing_database_is_no_database_and_nothing_creates_it_but_connect():
     cfg = pg.cfg_for(f"{pg.PREFIX}missing_{secrets.token_hex(4)}")
-    with pytest.raises(db.NoDatabase, match="no database"):
+    with pytest.raises(db.NoDatabaseError, match="no database"):
         db.read_only(cfg)
-    with pytest.raises(db.NoDatabase):
+    with pytest.raises(db.NoDatabaseError):
         db.peek_id(cfg)
     assert not db.built(cfg), "a database that does not exist is not built"
-    with pytest.raises(db.NoDatabase):
+    with pytest.raises(db.NoDatabaseError):
         db.peek_id(cfg)  # built() created nothing
 
 
@@ -298,7 +298,7 @@ def test_bad_database_settings_are_config_errors(change, error):
 def test_a_refused_login_cannot_connect_and_never_shows_the_password():
     login = {"user": "mp_test_no_such_role", "password": "wrong-secret"}  # a role the test server does not have
     cfg = {**config.cached(), "database": {**config.cached()["database"], **login}}
-    with pytest.raises(db.CannotConnect) as e:
+    with pytest.raises(db.CannotConnectError) as e:
         db.connect(cfg)
     assert "localhost:5432" in str(e.value)
     assert "mp_test_no_such_role" in str(e.value)
@@ -308,7 +308,7 @@ def test_a_refused_login_cannot_connect_and_never_shows_the_password():
 @budget(load="db")
 def test_a_socket_folder_needs_no_password():
     cfg = {**config.cached(), "database": {**config.cached()["database"], "host": "/nowhere", "password": None}}
-    with pytest.raises(db.CannotConnect, match="/nowhere"):  # not a config error: the login is tried
+    with pytest.raises(db.CannotConnectError, match="/nowhere"):  # not a config error: the login is tried
         db.connect(cfg)
 
 
@@ -426,7 +426,7 @@ def test_a_database_left_with_a_fake_step_or_table_is_rebuilt(tmp_path, monkeypa
 def test_a_leaked_connection_fails_the_reset_and_is_ended(tmp_path):
     cfg = db_cfg(tmp_path)
     leaked = db.connect(cfg)
-    with pytest.raises(pg.LeakedConnection, match=cfg["database"]["name"]):
+    with pytest.raises(pg.LeakedConnectionError, match=cfg["database"]["name"]):
         pg.current().end_test()
     with pytest.raises(psycopg.OperationalError):
         leaked.execute("SELECT 1")

@@ -5,7 +5,7 @@ import pytest
 
 from manga_pipeline import config
 
-from tests import TMP, LiveConfigRead, real_load
+from tests import TMP, LiveConfigReadError, real_load
 from tests.timing import budget
 
 EXAMPLE = """\
@@ -70,7 +70,7 @@ def test_default_config_is_the_test_copy():
 
 @budget(load="fs")
 def test_live_config_is_refused():
-    with pytest.raises(LiveConfigRead):
+    with pytest.raises(LiveConfigReadError):
         config.load(config.ROOT / "config.yaml")
 
 

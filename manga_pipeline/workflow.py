@@ -67,7 +67,7 @@ def claim_name(chapter):
 CLAIM_NAME = r"\d+-\d+"  # what claim_name gives, for the start-of-run clean-ups
 
 
-class ClaimLost(RuntimeError):
+class ClaimLost(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """The run no longer holds the chapter's claim (it was freed while the run slept or lost its connection): the
     chapter ends with no outcome and no attempt (SPEC "State")."""
 
@@ -492,7 +492,7 @@ def needs_human(conn, kind, item_id, reason):
     log.warning("needs human: %s %s: %s", kind, item_id, reason)  # Phase 8 adds the Discord message
 
 
-class Refused(ValueError):
+class Refused(ValueError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """A person's command that does not apply to the item it names; nothing was changed."""
 
 

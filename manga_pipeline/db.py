@@ -37,12 +37,12 @@ class SchemaError(RuntimeError):
     pass
 
 
-class CannotConnect(RuntimeError):
+class CannotConnectError(RuntimeError):
     """The server cannot be reached, or refuses the login or the creation of the database (exit 4). The message never
     holds the password."""
 
 
-class NoDatabase(RuntimeError):
+class NoDatabaseError(RuntimeError):
     """The configured database does not exist on the server (or, for a caller that does not build it, holds no schema
     record)."""
 
@@ -137,13 +137,13 @@ def _open(cfg, dbname=None):
     # server's own list says which it is.
     if dbname != MAINTENANCE_DATABASE and not _exists(cfg, dbname):
         msg = f"no database {dbname} on {login['host']}:{login['port']}"
-        raise NoDatabase(msg)
+        raise NoDatabaseError(msg)
     msg = f"cannot use the database server {login['host']}:{login['port']} as {login['user']}: {failure}"
-    raise CannotConnect(msg) from None
+    raise CannotConnectError(msg) from None
 
 
 def _exists(cfg, dbname):
-    """Whether the server lists dbname; raises CannotConnect when the server cannot be used at all."""
+    """Whether the server lists dbname; raises CannotConnectError when the server cannot be used at all."""
     with closing(_open(cfg, MAINTENANCE_DATABASE)) as conn:
         return conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,)).fetchone() is not None
 
@@ -163,10 +163,10 @@ def connect(cfg):
 
 def open_database(cfg, builds):
     """Open database.name and apply nothing (SPEC "State"). A caller that builds gets the database created when the
-    server has none; for any other caller, a database that is missing or holds no schema record is NoDatabase."""
+    server has none; for any other caller, a database that is missing or holds no schema record is NoDatabaseError."""
     try:
         conn = _open(cfg)
-    except NoDatabase:
+    except NoDatabaseError:
         if not builds:
             raise
         _create(cfg)
@@ -178,14 +178,14 @@ def open_database(cfg, builds):
             f"no database {login['name']} on {login['host']}:{login['port']}: it holds no schema record (empty, or "
             "not built by this program)"
         )
-        raise NoDatabase(msg)
+        raise NoDatabaseError(msg)
     return conn
 
 
 def read_only(cfg):
     """Open the existing database for reading only: every transaction is read-only and repeatable-read, so 1
-    transaction reads 1 snapshot. Raises NoDatabase when there is none, and SchemaError unless it holds exactly this
-    program's steps."""
+    transaction reads 1 snapshot. Raises NoDatabaseError when there is none, and SchemaError unless it holds exactly
+    this program's steps."""
     conn = _open(cfg)
     try:
         conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
@@ -217,15 +217,15 @@ def built(cfg):
     """Whether the database exists and holds a schema record; builds nothing (SPEC "State")."""
     try:
         conn = _open(cfg)
-    except NoDatabase:
+    except NoDatabaseError:
         return False
     with closing(conn):
         return _has_record(conn)
 
 
 def peek_id(cfg):
-    """The id of the existing database, read without creating, applying or checking anything. Raises NoDatabase when
-    there is none, Error when the id cannot be read."""
+    """The id of the existing database, read without creating, applying or checking anything. Raises NoDatabaseError
+    when there is none, Error when the id cannot be read."""
     with closing(_open(cfg)) as conn:
         return database_id(conn)
 
@@ -258,7 +258,7 @@ def database_id(conn):
 
 def _create(cfg):
     """Create database.name as UTF-8 with bytewise text order; another run creating it at the same time is fine.
-    CannotConnect naming the database when the server refuses (a role that may not create one, for one)."""
+    CannotConnectError naming the database when the server refuses (a role that may not create one, for one)."""
     login = cfg["database"]
     name = login["name"]
     with closing(_open(cfg, MAINTENANCE_DATABASE)) as conn:
@@ -272,7 +272,7 @@ def _create(cfg):
             pass  # 2 creates racing: the loser gets either error (PostgreSQL's createdb checks the name racily)
         except psycopg.Error as e:
             msg = f"cannot create the database {name} on {login['host']}:{login['port']} as {login['user']}: {e}"
-            raise CannotConnect(msg) from None
+            raise CannotConnectError(msg) from None
 
 
 def _has_record(conn):

@@ -19,7 +19,13 @@ from manga_pipeline.metadata import admit, check, covers, library, sources
 
 log = logging.getLogger(__name__)
 # What a service's answer can raise: the check simply did not complete.
-CHECK_FAILURES = (workflow.Unreachable, http.HttpError, http.Timeout, sources.SourceError, suwayomi_client.GraphQLError)
+CHECK_FAILURES = (
+    workflow.Unreachable,
+    http.HttpError,
+    http.HttpTimeoutError,
+    sources.SourceError,
+    suwayomi_client.GraphQLError,
+)
 BASELINE_PASS_AT = "intake.baseline_pass_at"  # meta: when the last baseline pass completed
 
 
@@ -91,7 +97,7 @@ def baseline_pass(ctx):
         try:
             why = baseline.take(ctx, series)
         except Exception as e:
-            if isinstance(e, (db.Error, workflow.Unreachable, http.Timeout)) or (
+            if isinstance(e, (db.Error, workflow.Unreachable, http.HttpTimeoutError)) or (
                 isinstance(e, OSError) and (workflow.dropped_share(e) or e.errno in workflow.SHARE_ERRNOS)
             ):
                 raise  # the database, the share or a service down: the run's problem (the pass is tried again)

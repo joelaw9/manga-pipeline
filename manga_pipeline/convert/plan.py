@@ -29,7 +29,7 @@ class EditError(ValueError):
     """A chapter_edit whose keys or value types are wrong."""
 
 
-class NeedsHuman(ValueError):
+class NeedsHuman(ValueError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """The chapter cannot be planned and no attempt can change that (the stage makes it needs_human)."""
 
 

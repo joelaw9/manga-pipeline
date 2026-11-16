@@ -37,11 +37,11 @@ class HttpError(Exception):
         self.body = body
 
 
-class Timeout(Exception):
+class HttpTimeoutError(Exception):
     """A request sent with retry_timeout=False timed out; the service is not marked unreachable."""
 
 
-class NotJson(HttpError):
+class NotJsonError(HttpError):
     """A reply read as JSON is not JSON (SPEC "Services"): a bot check's HTML page, say. A failure of the request, as
     an HttpError is; its status is the reply's own."""
 
@@ -59,11 +59,11 @@ class Response:
     body: bytes
 
     def json(self):
-        """The body as JSON; NotJson naming the service, status and content type when it is not."""
+        """The body as JSON; NotJsonError naming the service, status and content type when it is not."""
         try:
             return jsonlib.loads(self.body)
         except ValueError:
-            raise NotJson(self.service, self.status, self.headers.get("Content-Type"), self.body) from None
+            raise NotJsonError(self.service, self.status, self.headers.get("Content-Type"), self.body) from None
 
 
 def redact_url(url):
@@ -96,8 +96,8 @@ class Service:
 
     def request(self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True, retries=RETRIES):
         """Send 1 request, retried as SPEC "Services" says, and return its Response. Raises Unreachable (and marks
-        the service), HttpError, or Timeout for a timeout when retry_timeout is false. retries=0 sends it once: a 5xx
-        reply other than UNREACHABLE_STATUS is then an HttpError. ValueError for a URL that is
+        the service), HttpError, or HttpTimeoutError for a timeout when retry_timeout is false. retries=0 sends it
+        once: a 5xx reply other than UNREACHABLE_STATUS is then an HttpError. ValueError for a URL that is
         not http or https: a wrong setting, never retried."""
         if self._down is not None:
             raise Unreachable(self.name, self._down)
@@ -131,7 +131,7 @@ class Service:
                 timed_out = isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError)
                 if timed_out and not retry_timeout:
                     msg = f"{method} {shown} timed out after {timeout} s"
-                    raise Timeout(msg) from None
+                    raise HttpTimeoutError(msg) from None
                 problem = f"timed out after {timeout} s" if timed_out else f"{type(e).__name__}: {e}"
             if attempt < retries:
                 retry = f"retry {attempt + 1} of {retries} in {wait} s"

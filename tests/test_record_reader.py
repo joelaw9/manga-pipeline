@@ -210,7 +210,7 @@ def test_unusable_file_is_refused(tmp_path, rec, msg):
         pytest.param(_without("sources"), record.RecordError, "'sources' missing or not a list", id="no-sources"),
         pytest.param(
             _set(("stages",), ["structure"]),
-            record.PartialRecord,
+            record.PartialRecordError,
             r"without stage\(s\) \['image', 'naming'\]",
             id="partial-stages",
         ),
@@ -269,7 +269,7 @@ def test_structural_refusals_name_the_broken_part(change, msg):
 def test_check_accepts_a_partial_stages_record_parse_does_not():
     partial = dict(pilot_record(), stages=["naming", "structure"])
     record.check(partial)
-    with pytest.raises(record.PartialRecord, match=r"without stage\(s\) \['image'\]"):
+    with pytest.raises(record.PartialRecordError, match=r"without stage\(s\) \['image'\]"):
         record.parse(partial)
 
 

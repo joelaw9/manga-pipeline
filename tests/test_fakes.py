@@ -116,9 +116,9 @@ def test_source_calls_find_manga_outside_the_library_and_fail_when_the_source_is
     assert [m["id"] for m in suw.search_source(source, "re:zero")] == [other]
     assert [c["id"] for c in suw.fetch_manga_and_chapters(other)["chapters"]] == [chapter]
     suw.unavailable.add(source)
-    with pytest.raises(suwayomi.SourceUnavailable):
+    with pytest.raises(suwayomi.SourceUnavailableError):
         suw.search_source(source, "re:zero")
-    with pytest.raises(suwayomi.SourceUnavailable):
+    with pytest.raises(suwayomi.SourceUnavailableError):
         suw.fetch_manga_and_chapters(other)
 
 

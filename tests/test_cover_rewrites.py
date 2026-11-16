@@ -421,7 +421,11 @@ def test_mangadex_down_with_a_wanted_cover_spends_no_attempt_and_intake_goes_on(
         """INSERT INTO volume_cover_wanted (series_id, volume) SELECT id, 2 FROM series WHERE origin = 'kavita'
         RETURNING series_id"""
     )
-    error = http.Timeout("slow") if failure == "timeout" else http.HttpError(503, "https://uploads.mangadex.org/x", b"")
+    error = (
+        http.HttpTimeoutError("slow")
+        if failure == "timeout"
+        else http.HttpError(503, "https://uploads.mangadex.org/x", b"")
+    )
     monkeypatch.setattr(cover_images, "volume_cover", lambda *_a: (_ for _ in ()).throw(error))
     manga = next(i for i, m in world.suwayomi.manga_rows.items() if m["title"] == SERIES)
     world.download(manga, "Chapter 4", data=cbz(pages=4, seed="4"))
