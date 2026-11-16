@@ -19,6 +19,8 @@ from manga_pipeline import archive, config, db, images, page_store, workflow
 from manga_pipeline.convert import calibrate, check, covers, image, pages, plan, tools, vship
 
 log = logging.getLogger(__name__)
+# A chapter's scratch folders: its extracted download and the pages it writes (process_chapter, then the staged file).
+EXTRACTED, OUTPUT = "x", "out"
 
 
 @functools.cache
@@ -166,7 +168,7 @@ def run(ctx: workflow.Context, chapter):
 
 
 def _convert(ctx: workflow.Context, chapter, edit, layout, *, scratch):
-    x_dir, out_dir = scratch / "x", scratch / "out"
+    x_dir, out_dir = scratch / EXTRACTED, scratch / OUTPUT
     try:
         chapter_plan = _plan(ctx, chapter, edit, layout, x_dir)
     except (plan.NeedsHuman, plan.EditError) as e:
@@ -242,11 +244,11 @@ def _encode(ctx: workflow.Context, chapter, chapter_plan, cover, scratch):
         prepared = _pages(chapter_plan, scratch, sampling=sampling)
         chapter_plan.quality = _calibrate(ctx, chapter, prepared.units, encoder=enc, work=work)
         return image.process_chapter(
-            scratch / "x",
+            scratch / EXTRACTED,
             prepared.encoded,
             prepared.blanked,
             cover,
-            scratch / "out",
+            scratch / OUTPUT,
             work_dir=work / "encode",
             encoder=enc,
             chapter_plan=chapter_plan,
@@ -279,7 +281,7 @@ def _pages(chapter_plan, scratch, *, sampling):
     """The pages the encode and the calibration read. Logo blanks apply to the AVIF outcomes only; calibration samples
     take the unblanked pages (as the bulk converter), so a rendered chapter with blanks is rendered unblanked too when
     a group wants its samples (sampling)."""
-    x_dir = scratch / "x"
+    x_dir = scratch / EXTRACTED
     avif_first = chapter_plan.outcomes[0]["outcome"] == "avif"
     blanked = image.blank_pages(chapter_plan, x_dir, scratch / "blank") if avif_first else {}
     rendered = encoded = []

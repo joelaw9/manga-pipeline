@@ -637,7 +637,7 @@ def test_output_pages_not_as_many_as_the_outcome_writes_fail(site):
     chapter_id = site.chapter(site.series(), [("001.webp", webp(colour()))])
     row = chapter(site.conn, chapter_id)
     claim = workflow.claim_name({"id": chapter_id, "claim_count": row["claim_count"] + 1})  # the claim site.run takes
-    out_dir = config.abs_path(site.cfg["paths"]["scratch"]) / claim / "out"
+    out_dir = config.abs_path(site.cfg["paths"]["scratch"]) / claim / convert.OUTPUT
     out_dir.mkdir(parents=True)
     (out_dir / "999.webp").write_bytes(b"stray")  # an output page the outcome did not write
     with pytest.raises(RuntimeError, match="2 output pages, the outcome writes 1"):

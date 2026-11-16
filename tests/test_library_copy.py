@@ -37,7 +37,6 @@ def world(tmp_path):
 
 def published_copy(
     world,
-    number="5",
     source=BEST,
     pages_in=3,
     width=16,
@@ -50,8 +49,8 @@ def published_copy(
     junk=None,
 ):
     """A pipeline-published file of the series with its stored original measurements."""
-    path = world.library / "Solo Leveling" / (name or f"Ch.{number}.cbz")
-    path.write_bytes(data or cbz(seed=f"published {number}"))
+    path = world.library / "Solo Leveling" / (name or "Ch.5.cbz")
+    path.write_bytes(data or cbz(seed="published 5"))
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute(
             """INSERT INTO published_file (library_path, series_id, identity, source, state, pages_in,
@@ -59,7 +58,7 @@ def published_copy(
             VALUES (%s, 1, %s, %s, 'confirmed', %s, %s, %s, 'pipeline', %s, %s, 'none')""",
             (
                 config.to_stored(world.cfg, path),
-                json.dumps(["grp", season, "", number, ""]),
+                json.dumps(["grp", season, "", "5", ""]),
                 source,
                 pages_in,
                 width,
