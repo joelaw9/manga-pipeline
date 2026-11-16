@@ -10,6 +10,7 @@ with one matches no decision, and no decision is written on one.
 """
 
 from manga_pipeline import db, images
+from manga_pipeline.db import sql
 from manga_pipeline.junk import frames, marks
 
 GLOBAL = ""
@@ -122,8 +123,8 @@ def near(conn, series_key_, sig, threshold=images.NEAR_THRESHOLD, aspect_tol=ima
         return None
     best = None
     rows = conn.execute(
-        f"""SELECT * FROM junk_decision WHERE verdict = 'junk' AND kind IN ({", ".join(["%s"] * len(NEAR_KINDS))})
-        ORDER BY decided_at, id""",
+        sql.SQL("""SELECT * FROM junk_decision WHERE verdict = 'junk' AND kind IN ({kinds})
+        ORDER BY decided_at, id""").format(kinds=sql.SQL(", ").join([sql.Placeholder()] * len(NEAR_KINDS))),
         NEAR_KINDS,
     )
     for row in rows:

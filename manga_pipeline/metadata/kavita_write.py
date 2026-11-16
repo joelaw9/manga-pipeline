@@ -20,6 +20,7 @@ from manga_pipeline import config, db, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients.kavita_match import normalize
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import ids, merge, tags
 
 log = logging.getLogger(__name__)
@@ -59,12 +60,12 @@ def due(ctx, rules):
     """Ids of the in-scope Kavita series with a completed check whose written fields or cover are out of date, or
     written to another Kavita series (Kavita recreated it)."""
     rows = ctx.conn.execute(
-        f"""SELECT s.id FROM series s JOIN series_check k ON k.series_id = s.id
+        sql.SQL("""SELECT s.id FROM series s JOIN series_check k ON k.series_id = s.id
         LEFT JOIN series_written w ON w.series_id = s.id LEFT JOIN series_cover c ON c.series_id = s.id
-        WHERE s.status = 'ok' AND s.kavita_series_id IS NOT NULL AND k.data_version > 0 AND {workflow.SCOPE}
+        WHERE s.status = 'ok' AND s.kavita_series_id IS NOT NULL AND k.data_version > 0 AND {scope}
             AND (w.series_id IS NULL OR w.inputs <> k.data_version || ':' || %(tags)s || ':' || %(merge)s
                 OR w.kavita_series_id <> s.kavita_series_id OR c.sha256 IS DISTINCT FROM w.cover_sha256)
-        ORDER BY s.id""",
+        ORDER BY s.id""").format(scope=workflow.SCOPE),
         {**workflow.scope_params(ctx.cfg), "tags": rules.fingerprint, "merge": CODE},
     ).fetchall()
     return [r[0] for r in rows]

@@ -8,6 +8,8 @@ lock: parts and junk review hold it shared, the state commands exclusive.
 
 from contextlib import contextmanager
 
+from manga_pipeline.db import sql
+
 NAMESPACE = 0x6D70  # "mp"
 IDLE = "nothing-else-running"
 SHARED, EXCLUSIVE = "shared", "exclusive"
@@ -46,8 +48,12 @@ def held(conn, cfg, names, idle=None):
                 conn.execute(f"SELECT {fn}(%s, hashtext(%s))", (NAMESPACE, name))
 
 
-# The sessions holding lock `name` exclusive in this database, in SQL: 1 parameter, the name.
-HELD_SQL = f"""EXISTS (SELECT 1 FROM pg_locks l
+def held_sql(name):
+    """Whether some session holds the run lock `name` exclusive in this database, in SQL; name is the SQL expression
+    (a Composable) giving the lock's name: sql.Placeholder() for a parameter, sql.Identifier for a column."""
+    return sql.SQL("""EXISTS (SELECT 1 FROM pg_locks l
     WHERE l.locktype = 'advisory' AND l.granted AND l.mode = 'ExclusiveLock' AND l.objsubid = 2
         AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
-        AND l.classid = {NAMESPACE} AND l.objid::bigint = (hashtext({{name}})::bigint & 4294967295))"""
+        AND l.classid = {namespace} AND l.objid::bigint = (hashtext({name})::bigint & 4294967295))""").format(
+        namespace=sql.Literal(NAMESPACE), name=name
+    )

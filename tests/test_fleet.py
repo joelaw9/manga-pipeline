@@ -11,6 +11,7 @@ import yaml
 
 from manga_pipeline import cli, config, db, handled, images, lock, notices, page_store, state, workflow
 from manga_pipeline.convert import calibrate
+from manga_pipeline.db import sql
 from manga_pipeline.workflow import Failed, Waiting
 
 from tests.builders import add_chapter, add_series, chapter, one, site_cfg
@@ -41,7 +42,7 @@ class Fleet:
         """The machine's session ends (it died, or slept until the server ended it)."""
         self.machines[name][0].conn.close()
         for _ in range(50):  # until the server has seen the session end
-            if not one(self.conn, f"SELECT {lock.HELD_SQL.format(name='%s')}", (f"process@{name}",)):
+            if not one(self.conn, sql.SQL("SELECT {}").format(lock.held_sql(sql.Placeholder())), (f"process@{name}",)):
                 return
         msg = f"the server still holds {name}'s lock"
         raise AssertionError(msg)

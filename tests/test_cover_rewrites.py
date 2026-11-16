@@ -454,7 +454,7 @@ def test_a_failed_cover_refresh_leaves_the_file_waiting_and_a_volume_only_rewrit
     )
     assert progress(world, kid)["Vol.1 Ch.2.cbz"][0] == 2, "its progress was restored once"
     read(world, kid, "Vol.1 Ch.2.cbz", 3)  # read on before the next run
-    world.rows(f"UPDATE meta SET value = '2000-01-01T00:00:00+00:00' WHERE key = '{export.REQUESTED_AT}' RETURNING key")
+    world.rows("UPDATE meta SET value = '2000-01-01T00:00:00+00:00' WHERE key = %s RETURNING key", export.REQUESTED_AT)
     scans = [w for w in world.kavita.writes if w[0] == "scan_library"]
     world.run(export)
     assert refreshes(world) == [("refresh_covers", world.cfg["kavita"]["library_id"], kid)]

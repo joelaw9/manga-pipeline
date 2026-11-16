@@ -10,6 +10,7 @@ from pathlib import PurePosixPath
 from manga_pipeline import config, db, kavita_link, retention, rewrite, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import kavita_write
 from manga_pipeline.stages import comicinfo, confirm, publish
 
@@ -179,8 +180,10 @@ def _waiting(ctx):
     return (
         rewrite.waiting(ctx.conn)
         + ctx.conn.execute(
-            f"""SELECT COUNT(*) FROM chapter c JOIN series s ON s.id = c.series_id
-        WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {workflow.SCOPE}""",
+            sql.SQL("""SELECT COUNT(*) FROM chapter c JOIN series s ON s.id = c.series_id
+        WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {scope}""").format(
+                scope=workflow.SCOPE
+            ),
             workflow.scope_params(ctx.cfg),
         ).fetchone()[0]
     )

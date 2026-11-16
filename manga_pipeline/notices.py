@@ -10,6 +10,7 @@ import statistics
 from pathlib import Path
 
 from manga_pipeline import archive, comicinfo, config, db, handled, names, page_store, retention, validation, workflow
+from manga_pipeline.db import sql
 
 KEPT = "a numbered notice title kept as a chapter"
 
@@ -44,12 +45,15 @@ def median(conn, series_id):
     if row is None:
         msg = f"series {series_id} has no layout (series_conversion): its page counts cannot be compared"
         raise ValueError(msg)
-    count = "pages_in" if row["layout"] == "strip" else "coalesce(pages_in, pages_out)"
-    origin = "AND origin = 'pipeline'" if row["layout"] == "strip" else ""
+    count = sql.SQL("pages_in") if row["layout"] == "strip" else sql.SQL("coalesce(pages_in, pages_out)")
+    origin = sql.SQL("AND origin = 'pipeline'") if row["layout"] == "strip" else sql.SQL("")
     counts = [
         r[0]
         for r in conn.execute(
-            f"SELECT {count} FROM published_file WHERE series_id = %s AND {count} IS NOT NULL {origin}", (series_id,)
+            sql.SQL("SELECT {count} FROM published_file WHERE series_id = %s AND {count} IS NOT NULL {origin}").format(
+                count=count, origin=origin
+            ),
+            (series_id,),
         )
     ]
     return statistics.median(counts) if len(counts) >= validation.MIN_PUBLISHED else None

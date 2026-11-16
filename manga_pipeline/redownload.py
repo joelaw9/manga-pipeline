@@ -15,6 +15,7 @@ from rapidfuzz import fuzz
 
 from manga_pipeline import config, db, names, retention, workflow
 from manga_pipeline.clients import suwayomi
+from manga_pipeline.db import sql
 
 log = logging.getLogger(__name__)
 EXACT_TITLE_MIN = 90  # fuzzy ratio a lone near-title hit needs
@@ -38,10 +39,12 @@ def save(ctx, chapter, state):
 def save_in(ctx, chapter, state, **columns):
     """Write the state (None clears it) and other chapter columns inside the caller's transaction, while this part
     holds the chapter's claim; raises when a person changed the row meanwhile."""
-    sets = "".join(f", {name} = %s" for name in columns)
+    sets = sql.SQL("").join(sql.SQL(", {} = %s").format(sql.Identifier(name)) for name in columns)
     changed = ctx.conn.execute(
-        f"UPDATE chapter SET redownload = %s{sets} WHERE id = %s AND claimed_by = %s AND claim_count = %s"
-        " AND status = 'claimed'",
+        sql.SQL(
+            "UPDATE chapter SET redownload = %s{sets} WHERE id = %s AND claimed_by = %s AND claim_count = %s"
+            " AND status = 'claimed'"
+        ).format(sets=sets),
         (
             None if state is None else json.dumps(state),
             *columns.values(),

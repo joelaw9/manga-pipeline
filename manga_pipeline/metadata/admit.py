@@ -11,6 +11,7 @@ import logging
 
 from manga_pipeline import config, db, names, workflow
 from manga_pipeline.clients.kavita_match import normalize, series_names
+from manga_pipeline.db import sql
 
 log = logging.getLogger(__name__)
 ANILIST_SUFFIX = " @COMIC"  # AniList's mark on a title also used by an anime, dropped as the old tool did
@@ -22,10 +23,10 @@ def run(ctx, listing):
     `series_in_library`, unfiltered)."""
     conn, cfg = ctx.conn, ctx.cfg
     pending = conn.execute(
-        f"""SELECT s.* FROM series s JOIN series_check k ON k.series_id = s.id
+        sql.SQL("""SELECT s.* FROM series s JOIN series_check k ON k.series_id = s.id
         WHERE s.origin = 'new' AND s.admitted_at IS NULL AND s.status = 'ok' AND k.data_version > 0 AND NOT k.urgent
-            AND {workflow.SCOPE}
-        ORDER BY s.id""",
+            AND {scope}
+        ORDER BY s.id""").format(scope=workflow.SCOPE),
         workflow.scope_params(cfg),
     ).fetchall()
     if not pending:

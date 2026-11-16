@@ -31,6 +31,7 @@ from manga_pipeline import (
     volumes,
     workflow,
 )
+from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates, logo_units, ocr, page_units, store, strip_units
 
 WORDS = ("keywords", "weak", "paired", "suppress")
@@ -57,9 +58,9 @@ def run(ctx, chapter):
 def current_scan(conn, chapter):
     """The chapter's junk_scan row when it is current (same series, same content digest, holding logos: a scan made
     before logo detection holds none), else None."""
-    current = workflow.SCANNED.format(c="c")
-    sql = f"SELECT s.* FROM chapter c JOIN junk_scan s ON s.chapter_id = c.id WHERE c.id = %s AND {current}"
-    return conn.execute(sql, (chapter["id"],)).fetchone()
+    current = workflow.SCANNED.format(c=sql.Identifier("c"))
+    query = sql.SQL("SELECT s.* FROM chapter c JOIN junk_scan s ON s.chapter_id = c.id WHERE c.id = %s AND {}")
+    return conn.execute(query.format(current), (chapter["id"],)).fetchone()
 
 
 # ---------------------------------------------------------------- pages on local disk

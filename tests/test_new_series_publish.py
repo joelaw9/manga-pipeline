@@ -160,7 +160,7 @@ def test_after_the_rescan_window_a_published_series_still_waits_for_its_id(world
     world.download(manga, "Chapter 4", data=cbz(seed="4", pages=4))
     world.run(intake)
     world.run(process)
-    world.rows(f"UPDATE meta SET value = '2000-01-01T00:00:00+00:00' WHERE key = '{export.REQUESTED_AT}' RETURNING key")
+    world.rows("UPDATE meta SET value = '2000-01-01T00:00:00+00:00' WHERE key = %s RETURNING key", export.REQUESTED_AT)
     world.run(export)  # the scan is no longer awaited: only the closed batch keeps Ch.4 out
     assert "Ch.4.cbz" not in files(world, "Brand New Thing"), "nothing more until the id is found"
     assert ("publish", "ready") in stages(world, sid)

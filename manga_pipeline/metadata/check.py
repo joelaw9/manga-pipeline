@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from manga_pipeline import db, workflow
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import covers, ids, platforms, refresh, search, sources
 
 log = logging.getLogger(__name__)
@@ -73,11 +74,11 @@ def due(ctx):
     then at most metadata.checks_per_run others, the longest due first. A series is checked when Kavita holds it, or
     when it is a new series Kavita does not hold yet (admitted or not)."""
     rows = ctx.conn.execute(
-        f"""SELECT s.id, k.series_id IS NULL OR k.urgent OR k.data_version = 0 AS always
+        sql.SQL("""SELECT s.id, k.series_id IS NULL OR k.urgent OR k.data_version = 0 AS always
         FROM series s LEFT JOIN series_check k ON k.series_id = s.id
-        WHERE s.status = 'ok' AND (s.kavita_series_id IS NOT NULL OR s.origin = 'new') AND {workflow.SCOPE}
+        WHERE s.status = 'ok' AND (s.kavita_series_id IS NOT NULL OR s.origin = 'new') AND {scope}
             AND (k.series_id IS NULL OR k.urgent OR k.data_version = 0 OR k.next_check_at <= %(now)s)
-        ORDER BY k.next_check_at NULLS FIRST, s.id""",
+        ORDER BY k.next_check_at NULLS FIRST, s.id""").format(scope=workflow.SCOPE),
         {**workflow.scope_params(ctx.cfg), "now": workflow.now(ctx.conn)},
     ).fetchall()
     always = [r[0] for r in rows if r[1]]

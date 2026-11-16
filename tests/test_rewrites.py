@@ -60,7 +60,7 @@ def override(world, volumes):
 def scan(world):
     """The next export requests a library scan (the last request older than kavita.rescan_after_minutes, SPEC
     "Publishing"), and Kavita runs it."""
-    world.rows(f"UPDATE meta SET value = '2000-01-01T00:00:00+00:00' WHERE key = '{export.REQUESTED_AT}' RETURNING key")
+    world.rows("UPDATE meta SET value = '2000-01-01T00:00:00+00:00' WHERE key = %s RETURNING key", export.REQUESTED_AT)
     world.run(export)
     world.kavita.run_scans()
 
@@ -256,8 +256,8 @@ def test_a_rewrite_kavita_never_re_reads_is_charged_to_the_limit(world):
     world.run(export)
     for _ in range(3):  # 3 repeat requests, Kavita running none
         old = "2000-01-01T00:00:00+00:00"
-        world.rows(f"UPDATE meta SET value = '{old}' WHERE key = '{export.REQUESTED_AT}' RETURNING key")
-        world.rows(f"UPDATE published_file SET indexed_since = '{old}' WHERE indexed_since IS NOT NULL RETURNING id")
+        world.rows("UPDATE meta SET value = %s WHERE key = %s RETURNING key", old, export.REQUESTED_AT)
+        world.rows("UPDATE published_file SET indexed_since = %s WHERE indexed_since IS NOT NULL RETURNING id", old)
         world.run(export)
     errors = world.rows("SELECT pending_error FROM published_file WHERE pending_error IS NOT NULL")
     assert len(errors) == 2, "past the limit: listed for a person"

@@ -10,6 +10,7 @@ import yaml
 
 from manga_pipeline import db, identify, workflow
 from manga_pipeline.clients.kavita_match import normalize
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import ids, library
 
 log = logging.getLogger(__name__)
@@ -60,7 +61,9 @@ def run(ctx, state, overrides):
     rows = {
         str(r["kavita_series_id"]): r["id"]
         for r in conn.execute(
-            f"SELECT id, kavita_series_id FROM series s WHERE kavita_series_id IS NOT NULL AND {workflow.SCOPE}",
+            sql.SQL("SELECT id, kavita_series_id FROM series s WHERE kavita_series_id IS NOT NULL AND {}").format(
+                workflow.SCOPE
+            ),
             workflow.scope_params(ctx.cfg),
         )
     }
@@ -68,13 +71,16 @@ def run(ctx, state, overrides):
     with db.transaction(conn):
         # A series the state file no longer names keeps no id imported from an earlier one
         stale = {**workflow.scope_params(ctx.cfg), "named": list(state["ids"])}
-        not_named = f"NOT (s.kavita_series_id::text = ANY(%(named)s::text[])) AND {workflow.SCOPE}"
+        not_named = sql.SQL("NOT (s.kavita_series_id::text = ANY(%(named)s::text[])) AND {}").format(workflow.SCOPE)
         conn.execute(
-            f"""DELETE FROM series_source_id i USING series s WHERE s.id = i.series_id AND i.origin = 'import'
-            AND {not_named}""",
+            sql.SQL("""DELETE FROM series_source_id i USING series s WHERE s.id = i.series_id AND i.origin = 'import'
+            AND {}""").format(not_named),
             stale,
         )
-        conn.execute(f"DELETE FROM series_import i USING series s WHERE s.id = i.series_id AND {not_named}", stale)
+        conn.execute(
+            sql.SQL("DELETE FROM series_import i USING series s WHERE s.id = i.series_id AND {}").format(not_named),
+            stale,
+        )
         for kavita_id, entry in state["ids"].items():
             if kavita_id in rows:
                 _import_series(conn, rows[kavita_id], kavita_id, entry or {}, state)

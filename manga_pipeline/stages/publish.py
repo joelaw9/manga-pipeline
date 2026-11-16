@@ -7,6 +7,7 @@ import json
 from pathlib import PurePosixPath
 
 from manga_pipeline import config, measures, page_store, rewrite_covers, workflow
+from manga_pipeline.db import sql
 
 
 def row_values(conn, chapter):
@@ -80,9 +81,15 @@ def run(ctx, chapter):
         values["unedited"] = None if chapter["naming_unedited"] is None else json.dumps(chapter["naming_unedited"])
         # A row already at the target describes a file that is gone (the target was free): the new file replaces it.
         conn.execute(
-            f"""INSERT INTO published_file ({", ".join(values)}) VALUES ({", ".join(["%s"] * len(values))})
+            sql.SQL("""INSERT INTO published_file ({columns}) VALUES ({places})
             ON CONFLICT (library_path) DO UPDATE SET
-                {", ".join(f"{c} = excluded.{c}" for c in values if c != "library_path")}""",
+                {updates}""").format(
+                columns=sql.SQL(", ").join(map(sql.Identifier, values)),
+                places=sql.SQL(", ").join([sql.Placeholder()] * len(values)),
+                updates=sql.SQL(", ").join(
+                    sql.SQL("{c} = excluded.{c}").format(c=sql.Identifier(c)) for c in values if c != "library_path"
+                ),
+            ),
             tuple(values.values()),
         )
         conn.execute(

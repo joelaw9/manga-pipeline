@@ -6,6 +6,7 @@ from contextlib import closing
 from datetime import datetime
 
 from manga_pipeline import config, db, kavita_link, rewrite, workflow
+from manga_pipeline.db import sql
 
 
 def run(cfg):
@@ -87,9 +88,9 @@ def _report(conn):
 
     lines.append("New series published, waiting for Kavita to list them:")
     rows = conn.execute(
-        f"""SELECT s.id, s.comicinfo_series, MIN(h.handled_at) AS since FROM series s
+        sql.SQL("""SELECT s.id, s.comicinfo_series, MIN(h.handled_at) AS since FROM series s
         JOIN handled_chapter h ON h.series_id = s.id AND h.outcome = 'published'
-        WHERE {kavita_link.UNATTACHED} GROUP BY s.id ORDER BY s.id"""
+        WHERE {} GROUP BY s.id ORDER BY s.id""").format(kavita_link.UNATTACHED)
     ).fetchall()
     lines += [f"  {r['comicinfo_series']} (series {r['id']}): published {r['since']}" for r in rows] or ["  none"]
 
@@ -99,7 +100,9 @@ def _report(conn):
         FROM published_file
         WHERE pending_path IS NOT NULL OR indexed_since IS NOT NULL OR pending_error IS NOT NULL ORDER BY id"""
     ).fetchall()
-    open_rewrites = conn.execute(f"SELECT count(*) FROM chapter WHERE {rewrite.OPEN_REWRITES}").fetchone()[0]
+    open_rewrites = conn.execute(
+        sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(rewrite.OPEN_REWRITES)
+    ).fetchone()[0]
     if open_rewrites:
         lines.append(f"  rewrite chapters open: {open_rewrites}")
     unknown = conn.execute("SELECT count(DISTINCT series_id) FROM published_file WHERE cover_state IS NULL").fetchone()[

@@ -7,13 +7,14 @@ import logging
 from manga_pipeline import config, db, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
+from manga_pipeline.db import sql
 
 log = logging.getLogger(__name__)
 
 # An admitted new series published into its folder whose Kavita id is not found yet (series s), whatever its status:
 # a needs_human one still owns its name and folder
-UNATTACHED = """s.origin = 'new' AND s.admitted_at IS NOT NULL AND s.kavita_series_id IS NULL
-    AND EXISTS (SELECT 1 FROM published_file p WHERE p.series_id = s.id)"""
+UNATTACHED = sql.SQL("""s.origin = 'new' AND s.admitted_at IS NOT NULL AND s.kavita_series_id IS NULL
+    AND EXISTS (SELECT 1 FROM published_file p WHERE p.series_id = s.id)""")
 
 
 def library_folder(cfg, folder):
@@ -36,8 +37,8 @@ def attach(ctx, series_id, rows):
     """The series' Kavita id: the stored one, else the one found among rows (the library's listing) and stored, else
     None (not an unattached series, or Kavita does not list it yet)."""
     conn = ctx.conn
-    sql = f"SELECT s.*, {UNATTACHED} AS unattached FROM series s WHERE s.id = %s"
-    series = conn.execute(sql, (series_id,)).fetchone()
+    query = sql.SQL("SELECT s.*, {} AS unattached FROM series s WHERE s.id = %s").format(UNATTACHED)
+    series = conn.execute(query, (series_id,)).fetchone()
     if series["kavita_series_id"] is not None or not series["unattached"]:
         return series["kavita_series_id"]
     tried = ctx.kavita_cache.setdefault("attach", {})
@@ -61,13 +62,17 @@ def attach_all(ctx, rows):
     """attach every unattached series in scope; returns the normalised names of those still unattached: a listed
     series so named may be one of them, and is not a series of its own."""
     ids = ctx.conn.execute(
-        f"SELECT s.id FROM series s WHERE {UNATTACHED} AND {workflow.SCOPE} ORDER BY s.id",
+        sql.SQL("SELECT s.id FROM series s WHERE {unattached} AND {scope} ORDER BY s.id").format(
+            unattached=UNATTACHED, scope=workflow.SCOPE
+        ),
         workflow.scope_params(ctx.cfg),
     ).fetchall()
     for (series_id,) in ids:
         attach(ctx, series_id, rows)
     left = ctx.conn.execute(
-        f"SELECT s.comicinfo_series FROM series s WHERE {UNATTACHED} AND {workflow.SCOPE}",
+        sql.SQL("SELECT s.comicinfo_series FROM series s WHERE {unattached} AND {scope}").format(
+            unattached=UNATTACHED, scope=workflow.SCOPE
+        ),
         workflow.scope_params(ctx.cfg),
     ).fetchall()
     return {normalize(r[0]) for r in left if normalize(r[0])}

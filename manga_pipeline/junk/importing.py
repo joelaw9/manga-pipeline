@@ -11,12 +11,14 @@ refers to a decision's id.
 """
 
 import base64
+import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
 
 from manga_pipeline import db, images, names
 from manga_pipeline.convert import record_reader
+from manga_pipeline.db import sql
 from manga_pipeline.junk import frames, marks, store
 
 SOURCE_TIMEOUT_S = 30  # how long the store's SQLite file may stay locked by its writer
@@ -193,10 +195,10 @@ def bulk_seen(src):
     """junk_seen rows of a bulk-converter store's sightings of edge blocks, pages and bands: (series key, kind, key,
     chapter identity, IMPORTED_SEEN_AT, 'import'). The chapter is the identity of its archive name, as the baseline
     names sources."""
-    rows = src.execute(
-        f"""SELECT DISTINCT series, chapter, kind, tiles, aspect FROM junk_seen
-        WHERE kind IN ({", ".join("?" * len(SEEN_KINDS))})""",
-        SEEN_KINDS,
+    rows = src.execute(  # an SQLite query: the kinds as 1 JSON array parameter
+        """SELECT DISTINCT series, chapter, kind, tiles, aspect FROM junk_seen
+        WHERE kind IN (SELECT value FROM json_each(?))""",
+        (json.dumps(SEEN_KINDS),),
     )
     out = []
     for r in rows:
@@ -213,7 +215,7 @@ def tables(src):
 
 
 DECISION_COLUMNS = ("series_key", "kind", "key", "verdict", "decider", "decided_at", "source")
-PLACES = ", ".join(["%s"] * len(DECISION_COLUMNS))
+PLACES = sql.SQL(", ").join([sql.Placeholder()] * len(DECISION_COLUMNS))
 
 
 def read_store(path):
@@ -247,7 +249,9 @@ def run(conn, source):
         kept = [r for r in rows if _ident(r) not in own]
         db.executemany(
             conn,
-            f"INSERT INTO junk_decision ({', '.join(DECISION_COLUMNS)}) VALUES ({PLACES})",
+            sql.SQL("INSERT INTO junk_decision ({columns}) VALUES ({places})").format(
+                columns=sql.SQL(", ").join(map(sql.Identifier, DECISION_COLUMNS)), places=PLACES
+            ),
             [tuple(r[c] for c in DECISION_COLUMNS) for r in kept],
         )
         after = {_ident(r): _value(r) for r in kept if r["decider"] == "import"}

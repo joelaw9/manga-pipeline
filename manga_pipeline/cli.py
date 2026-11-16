@@ -36,6 +36,7 @@ from manga_pipeline import (
     workflow,
 )
 from manga_pipeline.clients import kavita, suwayomi
+from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates, importing, review, review_run
 from manga_pipeline.metadata import audit, check, human, importer, naming
 
@@ -195,9 +196,11 @@ def naming_diff(cfg, args):
     updates")."""
     with db.read_only(cfg) as conn:
         ctx = workflow.Context(cfg, conn, "export")
-        where = "s.id = %(series)s" if args.series_id else "s.kavita_series_id IS NOT NULL"
+        where = sql.SQL("s.id = %(series)s") if args.series_id else sql.SQL("s.kavita_series_id IS NOT NULL")
         series_rows = conn.execute(
-            f"SELECT s.* FROM series s WHERE {where} AND {workflow.SCOPE} ORDER BY s.id",
+            sql.SQL("SELECT s.* FROM series s WHERE {where} AND {scope} ORDER BY s.id").format(
+                where=where, scope=workflow.SCOPE
+            ),
             {**workflow.scope_params(cfg), "series": args.series_id},
         ).fetchall()
         for series in series_rows:
