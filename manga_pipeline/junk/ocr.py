@@ -46,7 +46,7 @@ def provider_problem(device):
     if device not in PROVIDERS:
         return f"junk.ocr_device {device!r} is not one of {sorted(PROVIDERS)}"
     try:
-        import onnxruntime
+        import onnxruntime  # noqa: PLC0415  # lazy: only process loads onnxruntime/RapidOCR; every command imports junk.ocr
 
         if device == "cuda":
             onnxruntime.preload_dlls()
@@ -65,9 +65,9 @@ def provider_problem(device):
 @functools.cache
 def _engine(device):
     """A reader of 1 tile: its text lines (RapidOCR on the device's onnxruntime provider)."""
-    import onnxruntime
-    from rapidocr import RapidOCR
-    from rapidocr.utils.output import RapidOCROutput
+    import onnxruntime  # noqa: PLC0415  # lazy: only process loads onnxruntime/RapidOCR; every command imports junk.ocr
+    from rapidocr import RapidOCR  # noqa: PLC0415  # lazy: only process loads onnxruntime/RapidOCR; every command imports junk.ocr
+    from rapidocr.utils.output import RapidOCROutput  # noqa: PLC0415  # lazy: only process loads onnxruntime/RapidOCR; every command imports junk.ocr
 
     if device == "cuda":
         onnxruntime.preload_dlls()
