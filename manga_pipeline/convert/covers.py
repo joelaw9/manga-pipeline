@@ -3,7 +3,7 @@
 the chapter and fetching the image are intake's).
 
 The cover is scaled down to the chapter's page width (most common width of its non-cover pages). Its AVIF is encoded
-and scored before the route is chosen (image.encode_cover): an AVIF cover that passed lets a chapter whose pages share
+and scored before the route is chosen (image.Encoder.cover): an AVIF cover that passed lets a chapter whose pages share
 no cover format convert to AVIF (plan.routes, force_avif). Each outcome takes the cover in the format its pages share
 (plan.cover_format); insert writes it.
 """
@@ -75,7 +75,7 @@ def scaled(data, page_width):
 
 def insert(out_dir, data, fmt, page_width, avif):
     """Write 000_cover.<ext> in format fmt into out_dir, in place of any page of that stem there. AVIF: the encoded
-    cover (avif: image.encode_cover's result), copied; JPEG (q92), PNG, lossy WebP (q90): encoded here from the cover
+    cover (avif: image.Encoder.cover's result), copied; JPEG (q92), PNG, lossy WebP (q90): encoded here from the cover
     scaled to page_width. Returns {"name", "format", "score" (AVIF only), "bytes"}."""
     if fmt not in plan.COVER_FORMATS:
         msg = f"no volume cover encoding for {fmt}"

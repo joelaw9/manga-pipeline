@@ -83,9 +83,9 @@ def pick(group_units, sampled):
     return _spaced(fresh, room) if room > 0 else []
 
 
-def probe(pool, scorer, picked, work_dir, tool_paths):
+def probe(encoder, picked, work_dir):
     """Each picked unit encoded at CEILING and at every LADDER step, no retry, and scored: {sha1: {"<q>": [score,
-    bytes_out]}}. Work files in work_dir/q<q>/."""
+    bytes_out]}}. Work files in work_dir/q<q>/. encoder: the run's image.Encoder."""
     scores = {u["sha1"]: {} for u in picked}
     for q in (CEILING, *LADDER):
         tmp = Path(work_dir) / f"q{q}"
@@ -101,11 +101,10 @@ def probe(pool, scorer, picked, work_dir, tool_paths):
                 "jpeg_feed": u["jpeg_feed"],
                 "q": q,
                 "retry_q": None,
-                "tools": tool_paths,
             }
             for u in picked
         ]
-        recs, _ = image.encode_avif_pages(pool, scorer, tasks)
+        recs, _ = encoder.avif_pages(tasks)
         for u, r in zip(picked, recs, strict=True):
             scores[u["sha1"]][str(q)] = [r["score"], r["bytes_out"]]
     return scores
@@ -133,11 +132,12 @@ def choose(samples):
     return q, f"ladder floor q{q} passes ({len(counted)} samples)"
 
 
-def add(conn, series_id, group, chapter_id, new, *, guard):
-    """Store a chapter's samples of an open group ([{"sha1", "rendered", "bytes_in", "scores"}]) and fix the group
-    when choose allows, in 1 transaction that reads the row again: nothing is added when the group is fixed by now or
-    the chapter has added samples before (a retried chapter, a second run). guard(conn) runs first in it and raises
-    to add nothing (the stage's claim check). Returns the group's row as stored."""
+def add(conn, chapter, group, new, *, guard):
+    """Store a chapter's samples of its series' open group ([{"sha1", "rendered", "bytes_in", "scores"}]) and fix the
+    group when choose allows, in 1 transaction that reads the row again: nothing is added when the group is fixed by
+    now or the chapter has added samples before (a retried chapter, a second run). guard(conn) runs first in it and
+    raises to add nothing (the stage's claim check). Returns the group's row as stored."""
+    series_id, chapter_id = chapter["series_id"], chapter["id"]
     with db.transaction(conn):
         guard(conn)
         row = conn.execute(

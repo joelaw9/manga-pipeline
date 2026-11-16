@@ -96,10 +96,8 @@ class Chapter:
                 None,
                 self.out,
                 work_dir=self.work,
-                pool=pool,
-                scorer=scorer(),
+                encoder=image.Encoder(pool, scorer(), tool_paths()),
                 chapter_plan=chapter_plan,
-                tool_paths=tool_paths(),
             )
 
 

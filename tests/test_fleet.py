@@ -198,9 +198,7 @@ def test_a_lost_claim_puts_no_download_aside_and_adds_no_calibration_sample(flee
         handled.put_aside(a, stale, "d")
     assert download.exists(), "no download is put aside under a lost claim"
     with pytest.raises(workflow.ClaimLost):
-        calibrate.add(
-            a.conn, stale["series_id"], "colour", stale["id"], [], guard=lambda _conn: workflow.holds_claim(a, stale)
-        )
+        calibrate.add(a.conn, stale, "colour", [], guard=lambda _conn: workflow.holds_claim(a, stale))
     assert one(fleet.conn, "SELECT count(*) FROM series_calibration") == 0
 
 

@@ -1,6 +1,6 @@
 """Execute a chapter plan (SPEC "Conversion"). Copied from the bulk converter's optimizer/image.py without the
-post-check fallback; settings are constants (they must not drift from the bulk converter's), tool paths and the scorer
-are passed in.
+post-check fallback; settings are constants (they must not drift from the bulk converter's), the page workers, the
+scorer and the tool paths are the caller's Encoder.
 
 process_chapter tries the plan's outcomes in order; a measured failure (the SSIMULACRA2 floor after the q90 retry, the
 AVIF size gate) moves to the next:
@@ -90,106 +90,131 @@ def _cancel(jobs):
     wait([g for g in jobs if not g.cancelled()])
 
 
-def encode_avif_pages(pool, scorer, tasks, *, stop_on_fail=False):
-    """Encode and score AVIF pages. Workers in pool encode and decode each page (encode_page); scorer threads in this
-    process score each decode against its reference (scorer.score_files); a page under SCORE_FLOOR (its score rounded
-    to 2 decimals) is encoded once more at task["retry_q"] (None: no retry, a calibration probe). With stop_on_fail,
-    once a page fails after its retry the queued work is cancelled and the running work waited for. An exception
-    cancels the rest, waits for the running work and is raised.
-    task: {"src", "out", "tmp", "fmt", "cls", "yuv", "jpeg_feed", "q", "retry_q", "tools"}.
-    Returns (the finished pages' records in task order, the failing page's record or None): {"name", "fmt", "class",
-    "yuv", "jpeg_feed", "bytes_in", "q", "score", "bytes_out", "ok", "retried", "sec"}."""
-    jobs, recs, failed = {}, {}, None
-    qs = [[] for _ in tasks]
-    secs = [0.0] * len(tasks)
-
-    scorers = scorer.threads  # the scorer's own threads: their GPU handles live as long as it does
-
-    def encode(i, q):
-        qs[i].append(q)
-        jobs[pool.submit(encode_page, (tasks[i], q))] = (i, q, None)
-
-    def score(ref, dec):
-        t0 = time.perf_counter()
-        return scorer.score_files(ref, dec), time.perf_counter() - t0
-
-    for i, t in enumerate(tasks):
-        encode(i, t["q"])
-    try:
-        while jobs:
-            done, _ = wait(jobs, return_when=FIRST_COMPLETED)
-            for f in done:
-                i, q, enc = jobs.pop(f)
-                r = f.result()
-                if enc is None:  # encoded: score it
-                    secs[i] += r["sec"]
-                    jobs[scorers.submit(score, r["ref"], r["dec"])] = (i, q, r)
-                    continue
-                task = tasks[i]
-                s = round(r[0], 2)
-                secs[i] += r[1]
-                if s < SCORE_FLOOR and task["retry_q"] is not None and len(qs[i]) == 1:
-                    if failed is None:
-                        encode(i, task["retry_q"])
-                    else:
-                        _cleanup(task, qs[i])
-                    continue
-                _cleanup(task, qs[i])
-                src = Path(task["src"])
-                recs[i] = {
-                    "name": src.name,
-                    "fmt": task["fmt"],
-                    "class": task["cls"],
-                    "yuv": task["yuv"],
-                    "jpeg_feed": task["jpeg_feed"],
-                    "bytes_in": src.stat().st_size,
-                    "q": q,
-                    "score": s,
-                    "bytes_out": enc["bytes_out"],
-                    "ok": s >= SCORE_FLOOR,
-                    "retried": len(qs[i]) > 1,
-                    "sec": round(secs[i], 2),
-                }
-                if stop_on_fail and failed is None and not recs[i]["ok"]:
-                    failed = recs[i]
-                    for g in [g for g in jobs if g.cancel()]:
-                        jobs.pop(g)
-    except BaseException:
-        _cancel(jobs)
-        raise
-    return [recs[i] for i in sorted(recs)], failed
+def _retries(task, score, tried):
+    """Is a page scored under SCORE_FLOOR at its first quality (tried: the qualities encoded) encoded once more?"""
+    return score < SCORE_FLOOR and task["retry_q"] is not None and len(tried) == 1
 
 
-def encode_cover(pool, scorer, data, page_width, work_dir, *, tool_paths):
-    """A volume cover's AVIF (covers) at page_width, through the AVIF gate at q80 (q90 retry), at its own class and
-    chroma. Returns {"path" (in work_dir; None when it failed), "score", "bytes", "ok", "class", "yuv"}."""
-    work_dir = Path(work_dir)
-    work_dir.mkdir(parents=True)
-    cls, yuv = covers.cover_class(data)
-    src = work_dir / f"{archive.COVER_STEM}.png"
-    covers.scaled(data, page_width).save(src, "PNG")
-    task = {
-        "src": str(src),
-        "out": str(work_dir / f"{archive.COVER_STEM}.avif"),
-        "tmp": str(work_dir),
-        "fmt": RENDERED_FMT,
-        "cls": cls,
-        "yuv": yuv,
-        "jpeg_feed": False,
-        "q": AVIF_QUALITY,
-        "retry_q": RETRY_QUALITY,
-        "tools": tool_paths,
-    }
-    (r,), _ = encode_avif_pages(pool, scorer, [task])
-    out = Path(task["out"])
+def _drop_queued(jobs):
+    """Cancel the queued jobs and forget them; the running ones stay."""
+    for g in [g for g in jobs if g.cancel()]:
+        jobs.pop(g)
+
+
+def _page_record(task, tried, score, bytes_out, sec):
+    """A finished AVIF page's record; tried: the qualities encoded, the last the one scored."""
+    src = Path(task["src"])
     return {
-        "path": out if r["ok"] else None,
-        "score": r["score"],
-        "bytes": r["bytes_out"] if r["ok"] else None,
-        "ok": r["ok"],
-        "class": cls,
-        "yuv": yuv,
+        "name": src.name,
+        "fmt": task["fmt"],
+        "class": task["cls"],
+        "yuv": task["yuv"],
+        "jpeg_feed": task["jpeg_feed"],
+        "bytes_in": src.stat().st_size,
+        "q": tried[-1],
+        "score": score,
+        "bytes_out": bytes_out,
+        "ok": score >= SCORE_FLOOR,
+        "retried": len(tried) > 1,
+        "sec": round(sec, 2),
     }
+
+
+class Encoder:
+    """The page encodes of a run: its page workers (pool), the GPU scorer and the image tools' paths, which every encode
+    needs. A task names no tools: the Encoder gives each its own."""
+
+    def __init__(self, pool, scorer, tool_paths):
+        self.pool, self.scorer, self.tool_paths = pool, scorer, tool_paths
+
+    def _score(self, ref, dec):
+        t0 = time.perf_counter()
+        return self.scorer.score_files(ref, dec), time.perf_counter() - t0
+
+    def avif_pages(self, tasks, *, stop_on_fail=False):
+        """Encode and score AVIF pages. Workers in the pool encode and decode each page (encode_page); scorer threads in
+        this process score each decode against its reference (scorer.score_files); a page under SCORE_FLOOR (its score
+        rounded to 2 decimals) is encoded once more at task["retry_q"] (None: no retry, a calibration probe). With
+        stop_on_fail, once a page fails after its retry the queued work is cancelled and the running work waited for.
+        An exception cancels the rest, waits for the running work and is raised.
+        task: {"src", "out", "tmp", "fmt", "cls", "yuv", "jpeg_feed", "q", "retry_q"}.
+        Returns (the finished pages' records in task order, the failing page's record or None): {"name", "fmt",
+        "class", "yuv", "jpeg_feed", "bytes_in", "q", "score", "bytes_out", "ok", "retried", "sec"}."""
+        jobs, recs, failed = {}, {}, None
+        qs = [[] for _ in tasks]
+        secs = [0.0] * len(tasks)
+
+        scorers = self.scorer.threads  # the scorer's own threads: their GPU handles live as long as it does
+
+        def encode(i, q):
+            qs[i].append(q)
+            jobs[self.pool.submit(encode_page, (tasks[i] | {"tools": self.tool_paths}, q))] = (i, q, None)
+
+        for i, t in enumerate(tasks):
+            encode(i, t["q"])
+        try:
+            while jobs:
+                done, _ = wait(jobs, return_when=FIRST_COMPLETED)
+                for f in done:
+                    i, q, enc = jobs.pop(f)
+                    r = f.result()
+                    if enc is None:  # encoded: score it
+                        secs[i] += r["sec"]
+                        jobs[scorers.submit(self._score, r["ref"], r["dec"])] = (i, q, r)
+                        continue
+                    task = tasks[i]
+                    s = round(r[0], 2)
+                    secs[i] += r[1]
+                    if _retries(task, s, qs[i]):
+                        if failed is None:
+                            encode(i, task["retry_q"])
+                        else:
+                            _cleanup(task, qs[i])
+                        continue
+                    _cleanup(task, qs[i])
+                    recs[i] = _page_record(task, qs[i], s, enc["bytes_out"], secs[i])
+                    if stop_on_fail and failed is None and not recs[i]["ok"]:
+                        failed = recs[i]
+                        _drop_queued(jobs)
+        except BaseException:
+            _cancel(jobs)
+            raise
+        return [recs[i] for i in sorted(recs)], failed
+
+    def cover(self, data, page_width, work_dir):
+        """A volume cover's AVIF (covers) at page_width, through the AVIF gate at q80 (q90 retry), at its own class and
+        chroma. Returns {"path" (in work_dir; None when it failed), "score", "bytes", "ok", "class", "yuv"}."""
+        work_dir = Path(work_dir)
+        work_dir.mkdir(parents=True)
+        cls, yuv = covers.cover_class(data)
+        src = work_dir / f"{archive.COVER_STEM}.png"
+        covers.scaled(data, page_width).save(src, "PNG")
+        task = {
+            "src": str(src),
+            "out": str(work_dir / f"{archive.COVER_STEM}.avif"),
+            "tmp": str(work_dir),
+            "fmt": RENDERED_FMT,
+            "cls": cls,
+            "yuv": yuv,
+            "jpeg_feed": False,
+            "q": AVIF_QUALITY,
+            "retry_q": RETRY_QUALITY,
+        }
+        (r,), _ = self.avif_pages([task])
+        out = Path(task["out"])
+        return {
+            "path": out if r["ok"] else None,
+            "score": r["score"],
+            "bytes": r["bytes_out"] if r["ok"] else None,
+            "ok": r["ok"],
+            "class": cls,
+            "yuv": yuv,
+        }
+
+    def lossless_pages(self, tasks):
+        """Each page through lossless_page in the workers (task: lossless_page's, without "tools"); an exception cancels
+        the rest, waits for what runs and is raised."""
+        return _run_all(self.pool, lossless_page, [t | {"tools": self.tool_paths} for t in tasks])
 
 
 def grays_losslessly(cls, entry):
@@ -303,9 +328,9 @@ def render(chapter_plan, x_dir, out_dir):
 class _Chapter:
     """1 chapter plan executed into out_dir (the attempts of process_chapter)."""
 
-    def __init__(self, x_dir, rendered, blanked, out_dir, tmp, *, pool, scorer, chapter_plan, tool_paths):
+    def __init__(self, x_dir, rendered, blanked, out_dir, tmp, *, encoder, chapter_plan):
         self.x, self.rendered, self.blanked, self.out, self.tmp = x_dir, rendered, blanked, out_dir, tmp
-        self.pool, self.scorer, self.plan, self.tools = pool, scorer, chapter_plan, tool_paths
+        self.encoder, self.plan = encoder, chapter_plan
         self.kept = chapter_plan.kept()
 
     def task(self, src, cls, yuv, fmt, jpeg_feed):
@@ -319,7 +344,6 @@ class _Chapter:
             "jpeg_feed": jpeg_feed,
             "q": self.plan.quality[plan.quality_group(yuv)],
             "retry_q": RETRY_QUALITY,
-            "tools": self.tools,
         }
 
     def avif(self, results, failed, size_gate):
@@ -340,7 +364,7 @@ class _Chapter:
             self.task(p, r["class"], r["yuv"], RENDERED_FMT, jpeg_feed=False)
             for p, r in zip(self.rendered, ch.render, strict=True)
         ]
-        results, failed = encode_avif_pages(self.pool, self.scorer, tasks, stop_on_fail=True)
+        results, failed = self.encoder.avif_pages(tasks, stop_on_fail=True)
         rec["avif_pages"] = results
         rec["reshape"] = {"kind": reshape_kind(ch.edits), "pages_in": len(self.kept), "pages_out": len(tasks)}
         return self.avif(results, failed, size_gate=False)
@@ -355,7 +379,7 @@ class _Chapter:
                 tasks.append(self.task(self.blanked[q["name"]], cls, yuv, RENDERED_FMT, jpeg_feed=False))
             else:
                 tasks.append(self.task(self.x / q["name"], cls, yuv, q["format"], plan.feeds_jpeg(q, yuv)))
-        results, failed = encode_avif_pages(self.pool, self.scorer, tasks, stop_on_fail=True)
+        results, failed = self.encoder.avif_pages(tasks, stop_on_fail=True)
         by_stem = {Path(q["name"]).stem: q for q in self.kept}
         for r in results:  # a blanked page: record the page's own name and source bytes
             q = by_stem[Path(r["name"]).stem]
@@ -373,11 +397,10 @@ class _Chapter:
                 "fmt": q["format"],
                 "cls": self.plan.classes[q["name"]],
                 "jpeg_gray": q["jpeg_gray"],
-                "tools": self.tools,
             }
             for q in self.kept
         ]
-        rec["lossless_pages"] = _run_all(self.pool, lossless_page, tasks)
+        rec["lossless_pages"] = self.encoder.lossless_pages(tasks)
 
     def untouched(self):
         for q in self.kept:
@@ -422,32 +445,22 @@ def output_gray(chapter_plan, outcome):
     return all(cls == images.GRAY for cls, _ in kept)
 
 
-def process_chapter(x_dir, rendered, blanked, cover, out_dir, *, work_dir, pool, scorer, chapter_plan, tool_paths):
+def process_chapter(x_dir, rendered, blanked, cover, out_dir, *, work_dir, encoder, chapter_plan):
     """Execute a chapter plan: pages in x_dir (the extraction), rendered (the plan's rendered PNGs, in order, made
-    from the blanked sources; [] when it renders nothing), blanked (blank_pages: {page name: blanked PNG}), cover (the
-    volume cover: None, or {"data", "width", "avif": encode_cover's result}), output pages in out_dir, work files in
-    work_dir. Tries the outcomes in order; the last one (untouched or lossless) always stands, and gets the cover in its
-    planned format, in place of a page named 000_cover. Returns the record: {"outcome", "edits", "route", "pages",
-    "formats", "dropped", "bytes_in", "bytes_out", "avif_rejected"? (why the first AVIF attempt failed), "avif_pages"?,
-    "lossless_pages"?, "reshape"?, "blanked" (the pages blanked: an AVIF outcome's only), "cover" (the inserted cover
-    {"name", "format", "score", "bytes"} or None), "quality", "mean_score", "min_score" (the AVIF pages', when an AVIF
-    outcome stood, else None), "gray", "output": [{"name", "sha1"}], "scores": {output name: score}, "lossless":
-    {output name: {"source", "mode"}}}."""
+    from the blanked sources; [] when it renders nothing), blanked (blank_pages: {page name: blanked PNG}), cover
+    (the volume cover: None, or {"data", "width", "avif": Encoder.cover's result}), output pages in out_dir, work
+    files in work_dir; encoder: the run's Encoder. Tries the outcomes in order; the last one (untouched or lossless)
+    always stands, and gets the cover in its planned format, in place of a page named 000_cover. Returns the record:
+    {"outcome", "edits", "route", "pages", "formats", "dropped", "bytes_in", "bytes_out", "avif_rejected"? (why the
+    first AVIF attempt failed), "avif_pages"?, "lossless_pages"?, "reshape"?, "blanked" (the pages blanked: an AVIF
+    outcome's only), "cover" (the inserted cover {"name", "format", "score", "bytes"} or None), "quality",
+    "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else None), "gray", "output": [{"name",
+    "sha1"}], "scores": {output name: score}, "lossless": {output name: {"source", "mode"}}}."""
     x_dir, out_dir, tmp = Path(x_dir), Path(out_dir), Path(work_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     tmp.mkdir(parents=True, exist_ok=True)
     ch = chapter_plan
-    run = _Chapter(
-        x_dir,
-        [Path(p) for p in rendered],
-        blanked,
-        out_dir,
-        tmp,
-        pool=pool,
-        scorer=scorer,
-        chapter_plan=ch,
-        tool_paths=tool_paths,
-    )
+    run = _Chapter(x_dir, [Path(p) for p in rendered], blanked, out_dir, tmp, encoder=encoder, chapter_plan=ch)
     rec = {
         "route": ch.route,
         "pages": len(run.kept),
