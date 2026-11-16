@@ -540,7 +540,7 @@ def test_a_chapter_feeds_both_groups_and_a_rendered_chapter_samples_its_rendered
 
 @budget(load="pool")
 def test_1_scorer_serves_every_chapter_of_the_process(site):
-    convert._scorer.cache_clear()
+    convert.loaded_scorer.cache_clear()
     fake.FakeScorer.made.clear()
     series_id = site.series()
     for n in range(2):

@@ -9,11 +9,18 @@ import re
 import shutil
 import time
 
-from manga_pipeline import config, errors, workflow
+from manga_pipeline import config, errors, rewrite_covers, workflow
 from manga_pipeline.stages import convert, junk
 
 log = logging.getLogger(__name__)
-STAGES = {"junk": junk.run, "convert": convert.run}
+
+
+def _convert(ctx, chapter):
+    """A rewrite chapter's convert changes its file's cover (SPEC "Retroactive updates")."""
+    return (rewrite_covers.convert_run if chapter["kind"] == "rewrite" else convert.run)(ctx, chapter)
+
+
+STAGES = {"junk": junk.run, "convert": _convert}
 STAGED_KEEP_S = 24 * 3600  # a staged file no chapter names is deleted once this old
 
 

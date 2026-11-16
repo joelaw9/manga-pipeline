@@ -90,9 +90,11 @@ CALIBRATION = {
 }
 
 
-def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none"):
+def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none", covers=None):
     """A valid finished .optimizer.json: chapters = [(output, source file, number, source bytes[, volume])]; basis:
-    its series.naming.basis (where a new chapter's volume comes from)."""
+    its series.naming.basis (where a new chapter's volume comes from); covers: {volume: output holding its cover}."""
+    volume_covers = {str(v): {"chapter": o, "url": f"https://covers/{v}", "sha256": "0" * 64}
+                     for v, o in (covers or {}).items()}  # fmt: skip
     sources, rows = [], []
     for output, file, number, data, *volume in chapters:
         digest = hashlib.sha256("\n".join(archive.sha1(b) for _, b in _pages_of(data)).encode()).hexdigest()
@@ -123,7 +125,8 @@ def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none"):
         "folders": [{"name": series_name, "from_run": "r1"}], "runs": [{"run_id": "r1", "written": "2026-11-01"}],
         "errors": [], "flags": [],
         "series": {"layout": {"layout": layout, "page_aspect": [1.4]}, "naming": {"series_name": series_name,
-                   "restart": False, "basis": basis}, "calibration": CALIBRATION, "covers": {},
+                   "restart": False, "basis": basis}, "calibration": CALIBRATION,
+                   "covers": {"series": {}, "volumes": volume_covers, "missing": []},
                    "decisions": {"checks": [], "templates": {}, "frames": {},
                                  "rows": {"junk": [], "frames": [], "marks": []}}},
         "sources": sources, "chapters": rows,
@@ -165,6 +168,7 @@ class World:
         bulk=(("Ch.1.cbz", "Grp_Chapter 1", "1"),),
         basis="none",
         layout="pages",
+        covers=None,
         **names,
     ):
         """A series Kavita holds in <library>/<folder or name> with bulk-converted chapters [(output, source file
@@ -180,12 +184,13 @@ class World:
         series_id = self.kavita.add_series(name, folder, LIBRARY_ID, **names)
         self.kavita_specs.append((series_id, name, folder, names))
         if record:
-            self.write_record(name, series_id, folder, chapters, basis, layout)
+            self.write_record(name, series_id, folder, chapters, basis, layout, covers)
         return series_id
 
-    def write_record(self, name, series_id, folder, chapters, basis="none", layout="pages"):
+    def write_record(self, name, series_id, folder, chapters, basis="none", layout="pages", covers=None):
         (self.library / folder / ".optimizer.json").write_text(
-            json.dumps(bulk_record(name, series_id, chapters, layout=layout, basis=basis)), encoding="utf-8"
+            json.dumps(bulk_record(name, series_id, chapters, layout=layout, basis=basis, covers=covers)),
+            encoding="utf-8",
         )
 
     def manga(self, title):

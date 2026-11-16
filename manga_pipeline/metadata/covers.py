@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from PIL import Image, UnidentifiedImageError
 
-from manga_pipeline import config, db, errors, names
+from manga_pipeline import config, db, errors, names, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.metadata import sources
 
@@ -170,6 +170,44 @@ def volume_cover(ctx, series_id, volume):
             (series_id, volume, url, rel, sha256),
         )
     return rel, sha256
+
+
+def fetch_wanted(ctx):
+    """Fetch the volume cover images the retroactive comparison wants (SPEC "Retroactive updates"): each row below
+    workflow.attempt_limit attempts, of an in-scope ok series, goes once it is fetched or MangaDex has none; a fetch
+    whose answer is wrong counts 1 attempt and records its error. A share or database error, or MangaDex down,
+    timing out or failing on its side (5xx), is raised: the caller's problem, no attempt spent."""
+    rows = ctx.conn.execute(
+        f"""SELECT w.series_id, w.volume FROM volume_cover_wanted w JOIN series s ON s.id = w.series_id
+        WHERE w.attempts < %(limit)s AND s.status = 'ok' AND {workflow.SCOPE} ORDER BY w.series_id, w.volume""",
+        {**workflow.scope_params(ctx.cfg), "limit": ctx.cfg["workflow"]["attempt_limit"]},
+    ).fetchall()
+    for r in rows:
+        try:
+            found = volume_cover(ctx, r["series_id"], r["volume"])
+        except Exception as e:
+            if (
+                isinstance(e, (db.Error, errors.Unreachable, http.Timeout))
+                or (isinstance(e, http.HttpError) and e.status >= 500)
+                or (isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS))
+            ):
+                raise
+            with db.transaction(ctx.conn):
+                ctx.conn.execute(
+                    """UPDATE volume_cover_wanted SET attempts = attempts + 1, last_error = %s
+                    WHERE series_id = %s AND volume = %s""",
+                    (f"{type(e).__name__}: {e}", r["series_id"], r["volume"]),
+                )
+            log.warning("%s: series %s volume %s cover not fetched: %s", ctx.part, r["series_id"], r["volume"], e)
+            continue
+        with db.transaction(ctx.conn):
+            ctx.conn.execute(
+                "DELETE FROM volume_cover_wanted WHERE series_id = %s AND volume = %s", (r["series_id"], r["volume"])
+            )
+        log.info(
+            "%s: series %s volume %s cover %s", ctx.part, r["series_id"], r["volume"],
+            "fetched" if found else "not on MangaDex",
+        )  # fmt: skip
 
 
 def volume_choice(manga, covers, volume):

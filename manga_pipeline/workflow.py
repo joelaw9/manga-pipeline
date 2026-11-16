@@ -229,7 +229,9 @@ def claim(ctx, stages, series_id=None):
                     AND s.status = 'ok' AND {SCOPE} AND {ADMITTED}
                     AND (%(series_id)s::bigint IS NULL OR c.series_id = %(series_id)s::bigint)
                     AND c.id <> ALL(%(failed)s::bigint[]) AND {NOT_PAUSED.format(c="c")}
-                    AND NOT (%(windows)s AND (coalesce(c.download_path, '') ~ %(unusable)s
+                    AND NOT (%(windows)s AND (coalesce(c.download_path, (
+                            SELECT f.library_path FROM published_file f WHERE f.id = c.published_file_id), '')
+                            ~ %(unusable)s
                         OR coalesce(s.folder, '') ~ %(unusable)s))
                     AND NOT EXISTS (
                         SELECT 1 FROM chapter o JOIN series os ON os.id = o.series_id

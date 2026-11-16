@@ -13,7 +13,8 @@ It models what the pipeline must cope with (local library `kavita-scanning.md`):
   is unchanged; a changed volume, like a new name, gets a new chapter with no progress; every file a scan re-reads
   (new, or modified since) gets a later chapter lastModifiedUtc (measured 2026-11-15: local library
   kavita-scanning.md);
-- reading progress is written for the API key's user: save_progress, mark_read.
+- reading progress is written for the API key's user: save_progress, mark_read;
+- refresh_covers is recorded in writes (cover images are not modelled).
 
 Simpler than Kavita: every file is its own chapter in 1 volume per series, and a file with no ComicInfo Series takes
 its folder's name (Kavita parses the file name first).
@@ -128,6 +129,9 @@ class FakeKavita(kavita.Kavita):
         for file in self.files.values():
             if file["chapter"] in chapter_ids:
                 file["pagesRead"] = file["pages"]
+
+    def refresh_covers(self, library_id, series_id):
+        self.writes.append(("refresh_covers", library_id, series_id))
 
     # --- the scan model
 
