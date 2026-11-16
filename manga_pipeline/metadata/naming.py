@@ -43,7 +43,7 @@ class Row:
     number: float
     season: int | None
     src_volume: str | None
-    volume: int | None
+    volume: float | None  # an int for a whole volume; a published file may hold one like 2.5
     volume_source: str | None
     marker_title: str
     title: str
@@ -54,7 +54,7 @@ class Row:
 @dataclass(frozen=True)
 class Naming:
     kind: str
-    volume: int | None
+    volume: float | None  # an int for a whole volume; a published file may hold one like 2.5
     number: float
     title: str  # "" = untitled
     volume_source: str
@@ -67,7 +67,7 @@ class Edit:
     chapter's title, or a side story's text after "Side Story <n>: "."""
 
     title: str | None
-    volume: int | None
+    volume: float | None  # an int for a whole volume; a published file may hold one like 2.5
 
 
 def edit_key(kind, season, number):

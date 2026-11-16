@@ -98,7 +98,7 @@ def compare(ctx):
             for v in sorted(wants):
                 conn.execute(
                     "INSERT INTO volume_cover_wanted (series_id, volume) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                    (series["id"], int(names.to_volume(v))),
+                    (series["id"], int(v)),  # a wanted volume is whole (_plan)
                 )
             made = 0
             for file_id, change in todo.items():
@@ -174,9 +174,10 @@ def _plan(ctx, series):
             else:
                 if (
                     v not in given_up
-                    and names.to_volume(v) == int(names.to_volume(v))
+                    and (number := names.to_volume(v)) is not None
+                    and number == int(number)
                     and records.get("manga")
-                    and cover_images.volume_choice(records["manga"], records.get("covers") or [], names.to_volume(v))
+                    and cover_images.volume_choice(records["manga"], records.get("covers") or [], number)
                 ):
                     wants.add(v)
                 if rewrite_covers.cover_volume(states[fid]) is not None:  # another volume's cover: dropped meanwhile

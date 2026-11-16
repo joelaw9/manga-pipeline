@@ -154,6 +154,7 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
         return workflow.NeedsHuman("the chapter edit drops every page")
     cover_row = ctx.conn.execute("SELECT * FROM volume_cover WHERE chapter_id = %s", (chapter["id"],)).fetchone()
     cover = None
+    cover_volume = None if cover_row is None else cover_row["volume"]
     if cover_row is not None:
         cover = {"data": covers.load(cfg, cover_row), "width": covers.width(chapter_plan)}
     tool_paths = {name: str(config.abs_path(cfg["tools"][name])) for name in tools.NAMES}
@@ -210,7 +211,7 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
         "dropped": rec["dropped"],
         "reshape": rec.get("reshape"),
         "blanked": rec["blanked"],
-        "cover": rec["cover"] and rec["cover"] | {"volume": cover_row["volume"]},
+        "cover": rec["cover"] and rec["cover"] | {"volume": cover_volume},
         "cover_skipped": _cover_skipped(chapter_plan, rec, cover),
         "gray": rec["gray"],
         "avif_rejected": rec.get("avif_rejected"),
@@ -220,7 +221,7 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
     output_pages = _output_pages(out_dir, rec)
     if result["cover_skipped"]:
         log.warning(
-            "chapter %s: volume %s cover not inserted: %s", chapter["id"], cover_row["volume"], result["cover_skipped"]
+            "chapter %s: volume %s cover not inserted: %s", chapter["id"], cover_volume, result["cover_skipped"]
         )
 
     def record(conn):
