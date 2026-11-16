@@ -17,7 +17,7 @@ from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.junk import review, review_run
 from manga_pipeline.metadata import check
 
-from tests.builders import config_file, run_part
+from tests.builders import config_file, problem_text, run_part
 from tests.timing import budget
 from tests.world import World, cbz
 
@@ -170,10 +170,10 @@ def test_review_checks_need_claude_and_its_token(tmp_path):
         "junk": {**config.cached()["junk"], "claude_path": str(tmp_path / "none"), "claude_token": None},
     }
     problem = preflight.claude_settings(cfg)
-    assert "claude_path" in problem, "both are needed to start Claude"
-    assert "claude_token" in problem, "both are needed to start Claude"
+    assert "claude_path" in problem_text(problem), "both are needed to start Claude"
+    assert "claude_token" in problem_text(problem), "both are needed to start Claude"
     blank = {**cfg, "junk": {**cfg["junk"], "claude_token": "  "}}
-    assert "claude_token" in preflight.claude_settings(blank), "a blank token is no token"
+    assert "claude_token" in problem_text(preflight.claude_settings(blank)), "a blank token is no token"
     assert preflight.CLAUDE_SETTINGS in cli.COMMANDS["junk review"].checks
 
 

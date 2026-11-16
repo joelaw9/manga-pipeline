@@ -12,7 +12,7 @@ import pytest
 from manga_pipeline import archive, config, db, discovery, kavita_link, retention, workflow
 from manga_pipeline.junk import candidates, review_run
 
-from tests.builders import add_chapter, add_series, adopted, site_cfg
+from tests.builders import add_chapter, add_series, adopted, one, site_cfg
 from tests.timing import budget
 from tests.world import World
 
@@ -105,7 +105,7 @@ def test_junk_review_records_an_unreachable_share_and_exits_quietly(tmp_path, mo
     monkeypatch.setattr(candidates, "cleanup", unreachable)
     with closing(db.connect(cfg)) as conn:
         review_run.run(cfg, conn)
-        result = conn.execute("SELECT value FROM meta WHERE key = 'junk-review.last_result'").fetchone()[0]
+        result = one(conn, "SELECT value FROM meta WHERE key = 'junk-review.last_result'")
     assert result == "unreachable: share"
 
 

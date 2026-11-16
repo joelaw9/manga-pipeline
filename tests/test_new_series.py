@@ -10,7 +10,7 @@ import pytest
 from manga_pipeline import config, db, discovery, identify, intake, process, workflow
 from manga_pipeline.metadata import human, naming
 
-from tests.builders import settle
+from tests.builders import one, settle
 from tests.timing import budget
 from tests.world import World, cbz, comicinfo
 
@@ -245,11 +245,12 @@ def test_linking_a_held_new_series_moves_its_human_ids(world):
 @pytest.mark.parametrize("column", ["name", "alt_name", "comicinfo_series", "localized_name", "original_name"])
 def test_series_only_names_a_series_by_any_of_its_names_in_sql_and_python(world, column):
     with closing(db.connect(world.cfg)) as conn:
-        sid = conn.execute(
+        sid = one(
+            conn,
             f"INSERT INTO series (name, origin, {column}) VALUES ('Base', 'new', 'Wanted') RETURNING id"
             if column != "name"
-            else "INSERT INTO series (name, origin) VALUES ('Wanted', 'new') RETURNING id"
-        ).fetchone()[0]
+            else "INSERT INTO series (name, origin) VALUES ('Wanted', 'new') RETURNING id",
+        )
         cfg = {"kavita": {"library_id": 4}, "series": {"only": ["Wanted"]}}
         row = conn.execute("SELECT * FROM series WHERE id = %s", (sid,)).fetchone()
         sql = conn.execute(

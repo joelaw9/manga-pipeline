@@ -7,6 +7,7 @@ from PIL import Image, ImageDraw, ImageFont
 from manga_pipeline import cli, config, preflight
 from manga_pipeline.junk import ocr
 
+from tests.builders import problem_text
 from tests.timing import budget
 
 
@@ -52,7 +53,7 @@ def test_cpu_ocr_reads_a_rendered_notice():
 
 @budget()
 def test_ocr_device_check_names_an_unknown_device():
-    assert "not one of" in ocr.provider_problem("tpu"), "an unknown device is a problem"
+    assert "not one of" in problem_text(ocr.provider_problem("tpu")), "an unknown device is a problem"
 
 
 @budget(seconds=5.0)
@@ -72,7 +73,7 @@ def test_ocr_device_check_fails_when_the_session_falls_back(monkeypatch):
     monkeypatch.setattr(onnxruntime, "InferenceSession", FellBack)
     monkeypatch.setattr(onnxruntime, "preload_dlls", lambda: None, raising=False)
     problem = ocr.provider_problem("cuda")
-    assert "not CUDAExecutionProvider" in problem, "a session that fell back to CPU fails the check"
+    assert "not CUDAExecutionProvider" in problem_text(problem), "a session that fell back to CPU fails the check"
 
 
 @budget()

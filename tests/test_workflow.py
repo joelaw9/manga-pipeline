@@ -9,7 +9,7 @@ import pytest
 from manga_pipeline import db, workflow
 from manga_pipeline.workflow import Done, Dropped, Failed, NeedsHuman, Waiting
 
-from tests.builders import add_chapter, add_series, chapter, site_cfg
+from tests.builders import add_chapter, add_series, chapter, one, site_cfg
 from tests.timing import budget
 
 
@@ -117,11 +117,12 @@ def test_in_scope_needs_the_configured_library_and_a_name_in_series_only(only, l
 def test_the_sql_scope_agrees_with_in_scope_on_every_case(ctx):
     with db.transaction(ctx.conn):
         ids = {
-            library: ctx.conn.execute(
+            library: one(
+                ctx.conn,
                 "INSERT INTO series (name, kavita_series_id, kavita_library_id, origin) VALUES ('S', %s, %s, 'kavita')"
                 " RETURNING id",
                 (library, library),
-            ).fetchone()[0]
+            )
             for library in {c[2] for c in SCOPE_CASES}
         }
     for case, only, library, want in SCOPE_CASES:
@@ -173,7 +174,7 @@ def test_done_at_the_last_stage_is_done(ctx):
 def test_done_record_runs_with_the_outcome(ctx):
     row = claimed(ctx)
     workflow.work(ctx, row, returns(Done(lambda conn: conn.execute("INSERT INTO meta VALUES ('rec', 'x')"))))
-    assert ctx.conn.execute("SELECT value FROM meta WHERE key = 'rec'").fetchone()[0] == "x"
+    assert one(ctx.conn, "SELECT value FROM meta WHERE key = 'rec'") == "x"
 
 
 @budget(load="db")

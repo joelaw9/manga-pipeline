@@ -40,6 +40,14 @@ UNASSIGNED = "mp_test_unassigned"  # tests/test_config.yaml's database.name: no 
 process = None  # this test process's Process, made by tests/conftest.py when the process starts
 
 
+def current():
+    """This test process's Process: conftest makes it when the process starts."""
+    if process is None:
+        msg = "no test database pool: tests/conftest.py makes it when the process starts"
+        raise RuntimeError(msg)
+    return process
+
+
 class LeakedConnection(AssertionError):
     pass
 
@@ -82,10 +90,17 @@ def _relations(conn):
     return hashlib.sha256("\n".join(r[0] for r in rows).encode()).hexdigest()
 
 
+def _value(conn, sql, params=()):
+    """The first column of the query's 1st row; the query always returns 1."""
+    row = conn.execute(sql, params).fetchone()
+    if row is None:
+        msg = f"no row from: {sql}"
+        raise RuntimeError(msg)
+    return row[0]
+
+
 def _print_of(conn, name):
-    return conn.execute(
-        "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = %s", (name,)
-    ).fetchone()[0]
+    return _value(conn, "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = %s", (name,))
 
 
 def _set_print(conn, name, value):
@@ -114,7 +129,7 @@ class Process:
             n += 1
             if n in self.held:  # a session lock is re-entrant: the numbers held are skipped here, not by the lock
                 continue
-            if not self.owner.execute("SELECT pg_try_advisory_lock(%s, %s)", (self.lock_space, n)).fetchone()[0]:
+            if not _value(self.owner, "SELECT pg_try_advisory_lock(%s, %s)", (self.lock_space, n)):
                 continue
             self.held.add(n)
             name = f"{self.pool}{n}"
@@ -215,7 +230,7 @@ class Process:
 
     def _intact(self, conn, name):
         """Built from these step files, holding exactly their steps and the relations its build made."""
-        if not conn.execute("SELECT to_regclass('schema_step') IS NOT NULL").fetchone()[0]:
+        if not _value(conn, "SELECT to_regclass('schema_step') IS NOT NULL"):
             return False
         steps = {row[0] for row in conn.execute("SELECT name FROM schema_step")}
         return steps == SHIPPED_STEPS and _print_of(self.owner, name) == f"{STEPS_PRINT}:{_relations(conn)}"

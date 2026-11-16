@@ -12,7 +12,7 @@ from manga_pipeline import cli, db, images, names
 from manga_pipeline.convert import record_reader
 from manga_pipeline.junk import candidates, frames, importing, marks, store
 
-from tests.builders import config_file, site_cfg
+from tests.builders import config_file, one, site_cfg
 from tests.timing import budget
 from tests.world import bulk_record
 
@@ -148,9 +148,9 @@ def test_a_pipeline_decision_is_never_overwritten_by_an_import(conn):
 def test_an_older_import_never_undoes_a_newer_one(conn):
     put(conn, decision("S", "block", sig(), "keep", at="2026-11-05T00:00:00+00:00"))
     put(conn, decision("S", "block", sig(), "junk", at="2026-11-01T00:00:00+00:00"))
-    assert conn.execute("SELECT verdict FROM junk_decision").fetchone()[0] == "keep", "the newer import stays"
+    assert one(conn, "SELECT verdict FROM junk_decision") == "keep", "the newer import stays"
     put(conn, decision("S", "block", sig(), "junk", at="2026-11-06T00:00:00+00:00"))
-    assert conn.execute("SELECT verdict FROM junk_decision").fetchone()[0] == "junk", "a newer import replaces it"
+    assert one(conn, "SELECT verdict FROM junk_decision") == "junk", "a newer import replaces it"
 
 
 # ---------------------------------------------------------------- import from the bulk converter's store
@@ -711,7 +711,7 @@ def test_a_unit_with_an_unsignable_key_matches_no_decision_and_is_near_none(conn
 def test_a_decision_on_an_unsignable_key_is_refused(conn):
     with pytest.raises(ValueError, match="unsignable"):
         put(conn, decision("S", "band", sig((FLAT, 0x8000000000000000)), "junk", decider="human"))
-    assert conn.execute("SELECT count(*) FROM junk_decision").fetchone()[0] == 0, "nothing is written"
+    assert one(conn, "SELECT count(*) FROM junk_decision") == 0, "nothing is written"
 
 
 @budget(load="db")

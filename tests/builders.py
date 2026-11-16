@@ -11,6 +11,19 @@ from manga_pipeline import config, db, fleet, lock, state, workflow
 from tests import pg
 
 
+def one(conn, sql, params=()):
+    """The first column of the query's 1st row, asserting there is one."""
+    row = conn.execute(sql, params).fetchone()
+    assert row is not None, f"a row from: {sql}"
+    return row[0]
+
+
+def problem_text(problem):
+    """A check's problem text, asserting it names one."""
+    assert problem is not None, "the check names a problem"
+    return problem
+
+
 def site_cfg(tmp_path, *, built=True, **changes):
     """The test config with every path in tmp_path and this process's database for tmp_path (built, or with no
     schema when not built: tests/pg.py); changes replace whole sections, and a replaced database section takes none."""
@@ -20,7 +33,7 @@ def site_cfg(tmp_path, *, built=True, **changes):
     (tmp_path / "overrides").mkdir(exist_ok=True)
     cfg = {
         **config.cached(),
-        "database": changes.get("database") or pg.cfg_for(pg.process.database(tmp_path.resolve(), built))["database"],
+        "database": changes.get("database") or pg.cfg_for(pg.current().database(tmp_path.resolve(), built))["database"],
         "paths": {
             "downloads": str(share / "downloads"),
             "library": str(share / "library"),
@@ -57,10 +70,11 @@ def add_series(conn, name, origin="new", status="ok", kavita_library_id=None):
     """A series row; kavita_library_id None = Kavita does not hold it. A new series is an admitted one (SPEC "Series
     identification": only those have chapters)."""
     with db.transaction(conn):
-        series_id = conn.execute(
+        series_id = one(
+            conn,
             "INSERT INTO series (name, origin, status, kavita_library_id) VALUES (%s, %s, %s, %s) RETURNING id",
             (name, origin, status, kavita_library_id),
-        ).fetchone()[0]
+        )
         if origin == "new":
             conn.execute("UPDATE series SET admitted_at = '2026-01-01T00:00:00+00:00' WHERE id = %s", (series_id,))
     return series_id
@@ -70,11 +84,12 @@ def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None,
     """A ready chapter at stage (discovered_at defaults to now); columns set other chapter columns as given."""
     stamp = discovered_at or workflow.now(conn)
     with db.transaction(conn):
-        chapter_id = conn.execute(
+        chapter_id = one(
+            conn,
             """INSERT INTO chapter (series_id, kind, identity, download_path, stage, status, discovered_at, updated_at)
             VALUES (%s, 'download', %s, %s, %s, 'ready', %s, %s) RETURNING id""",
             (series_id, identity, download_path, stage, stamp, stamp),
-        ).fetchone()[0]
+        )
         if columns:
             assignments = ", ".join(f"{name} = %s" for name in columns)
             conn.execute(f"UPDATE chapter SET {assignments} WHERE id = %s", (*columns.values(), chapter_id))

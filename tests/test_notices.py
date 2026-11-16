@@ -13,12 +13,19 @@ from tests.timing import budget
 from tests.world import World, cbz, decide_junk
 from tests.world import comicinfo as ci
 
+
+class NoticeWorld(World):
+    """A World with the series' manga on its source."""
+
+    manga_id: int
+
+
 NAMES = ["Notice", "Hiatus Notice", "Hiatus", "Author's Note"]
 
 
 @pytest.fixture
 def world(tmp_path):
-    w = World(tmp_path, validate={"non_chapter_names": NAMES})
+    w = NoticeWorld(tmp_path, validate={"non_chapter_names": NAMES})
     w.kavita_series("Solo Leveling")  # the bulk converter's Ch.1: 3 pages
     w.manga_id = w.manga("Solo Leveling")
     return w

@@ -7,7 +7,7 @@ import pytest
 
 from manga_pipeline import config, db, lock
 
-from tests.builders import site_cfg
+from tests.builders import one, site_cfg
 from tests.timing import budget
 
 
@@ -18,7 +18,7 @@ def cfg(tmp_path):
 
 def held(_cfg, conn, name):
     """Whether some session holds the run lock `name` (lock.HELD_SQL), asked on conn."""
-    return conn.execute(f"SELECT {lock.HELD_SQL.format(name='%s')}", (name,)).fetchone()[0]
+    return one(conn, f"SELECT {lock.HELD_SQL.format(name='%s')}", (name,))
 
 
 @budget(load="db")

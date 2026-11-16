@@ -18,7 +18,7 @@ from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.metadata import check
 
 from tests import pg
-from tests.builders import running
+from tests.builders import one, running
 from tests.fakes.kavita import FakeKavita
 from tests.fakes.sources import fake_sources
 from tests.fakes.suwayomi import FakeSuwayomi
@@ -98,7 +98,7 @@ def site(tmp_path):
     (tmp_path / "overrides").mkdir()
     return [
         f"logging.dir={tmp_path / 'logs'}",
-        f"database.name={pg.process.database(tmp_path.resolve(), built=True)}",
+        f"database.name={pg.current().database(tmp_path.resolve(), built=True)}",
         *(f"paths.{key}={tmp_path / 'share' / key}" for key in preflight.SHARE_FOLDERS),
         f"paths.scratch={tmp_path / 'scratch'}",
         f"paths.naming_overrides={tmp_path / 'overrides'}",
@@ -296,7 +296,7 @@ def test_crash_inside_a_part_exits_1_with_1_traceback_in_its_log(site, monkeypat
     assert text.count("Traceback") == 1, "logged with its traceback, once"
     assert "PermissionError" in text, "logged with its traceback, once"
     with closing(db.connect(site_cfg(site))) as conn:
-        result = conn.execute("SELECT value FROM meta WHERE key = 'intake.last_result'").fetchone()[0]
+        result = one(conn, "SELECT value FROM meta WHERE key = 'intake.last_result'")
     assert result == "error"
 
 

@@ -17,12 +17,19 @@ from tests.fakes.suwayomi import page as fake_page
 from tests.timing import budget
 from tests.world import World, cbz
 
+
+class CopyWorld(World):
+    """A World with the series' manga on its source."""
+
+    manga_id: int
+
+
 BEST = "Best (EN)"
 
 
 @pytest.fixture
 def world(tmp_path):
-    w = World(tmp_path, sources={"ranking": [BEST, "Src (EN)"], "download_timeout_hours": 24})
+    w = CopyWorld(tmp_path, sources={"ranking": [BEST, "Src (EN)"], "download_timeout_hours": 24})
     w.kavita_series("Solo Leveling")  # bulk Ch.1.cbz: 3 pages of 16 x 24
     w.manga_id = w.manga("Solo Leveling")
     return w
@@ -234,7 +241,7 @@ def test_a_library_file_whose_pages_are_bigger_than_a_header_read_is_measured(wo
 @pytest.fixture
 def by_filename(tmp_path):
     """A series whose volume basis is `filename`, holding the bulk converter's Vol.1 Ch.3."""
-    w = World(tmp_path, sources={"ranking": [BEST, "Src (EN)"], "download_timeout_hours": 24})
+    w = CopyWorld(tmp_path, sources={"ranking": [BEST, "Src (EN)"], "download_timeout_hours": 24})
     w.kavita_series("Solo Leveling", bulk=(("Vol.1 Ch.3.cbz", "Grp_Vol.1 Chapter 3", "3", 1),), basis="filename")
     w.manga_id = w.manga("Solo Leveling")
     return w

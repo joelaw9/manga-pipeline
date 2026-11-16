@@ -13,7 +13,7 @@ from manga_pipeline import cli, config, db, handled, images, lock, notices, page
 from manga_pipeline.convert import calibrate
 from manga_pipeline.workflow import Failed, Waiting
 
-from tests.builders import add_chapter, add_series, chapter, site_cfg
+from tests.builders import add_chapter, add_series, chapter, one, site_cfg
 from tests.timing import budget
 from tests.world import cbz
 
@@ -41,7 +41,7 @@ class Fleet:
         """The machine's session ends (it died, or slept until the server ended it)."""
         self.machines[name][0].conn.close()
         for _ in range(50):  # until the server has seen the session end
-            if not self.conn.execute(f"SELECT {lock.HELD_SQL.format(name='%s')}", (f"process@{name}",)).fetchone()[0]:
+            if not one(self.conn, f"SELECT {lock.HELD_SQL.format(name='%s')}", (f"process@{name}",)):
                 return
         msg = f"the server still holds {name}'s lock"
         raise AssertionError(msg)
@@ -199,7 +199,7 @@ def test_a_lost_claim_puts_no_download_aside_and_adds_no_calibration_sample(flee
         calibrate.add(
             a.conn, stale["series_id"], "colour", stale["id"], [], lambda _conn: workflow.holds_claim(a, stale)
         )
-    assert fleet.conn.execute("SELECT count(*) FROM series_calibration").fetchone()[0] == 0
+    assert one(fleet.conn, "SELECT count(*) FROM series_calibration") == 0
 
 
 @budget(load="db", seconds=2)

@@ -15,7 +15,7 @@ from manga_pipeline.convert import vship
 from manga_pipeline.preflight import HARD, SOFT, Check
 
 from tests import pg, real_load
-from tests.builders import site_cfg
+from tests.builders import problem_text, site_cfg
 from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
@@ -105,7 +105,9 @@ def test_python_version_refuses_older_than_3_13():
 def test_free_space_compares_mib(tmp_path):
     free = shutil.disk_usage(tmp_path).free // preflight.MIB
     # 2% margins: other writers may change the free space meanwhile; MB instead of MiB would be 4.9% off.
-    assert "below preflight.min_free_mb" in preflight.free_space(with_min_free(int(free * 1.02) + 1, tmp_path))
+    assert "below preflight.min_free_mb" in problem_text(
+        preflight.free_space(with_min_free(int(free * 1.02) + 1, tmp_path))
+    )
     assert preflight.free_space(with_min_free(int(free * 0.98), tmp_path)) is None
 
 
@@ -122,7 +124,7 @@ def test_free_space_reports_an_unreadable_drive(tmp_path, monkeypatch):
         raise OSError(5, "Input/output error")
 
     monkeypatch.setattr(shutil, "disk_usage", unreadable)
-    assert preflight.free_space(with_min_free(1, tmp_path)).startswith("cannot read free space at")
+    assert problem_text(preflight.free_space(with_min_free(1, tmp_path))).startswith("cannot read free space at")
 
 
 @budget(load="fs")
@@ -145,7 +147,7 @@ def site(tmp_path, database=pg.UNASSIGNED):
 
 def adopted(tmp_path, owner=None):
     """A database and an owner file holding owner (default: that database's id)."""
-    cfg = site(tmp_path, pg.process.database(tmp_path.resolve(), built=True))
+    cfg = site(tmp_path, pg.current().database(tmp_path.resolve(), built=True))
     with closing(db.connect(cfg)) as conn:
         mine = db.database_id(conn)
     path = preflight.owner_file(cfg)
@@ -161,13 +163,13 @@ def test_share_owned_by_this_database_passes(tmp_path):
 
 @budget(load="db")
 def test_share_owned_by_another_database_is_a_problem(tmp_path):
-    assert "holds database id 'other'" in preflight.share_ownership(adopted(tmp_path, owner="other"))
+    assert "holds database id 'other'" in problem_text(preflight.share_ownership(adopted(tmp_path, owner="other")))
 
 
 @budget(load="fs")
 def test_missing_owner_file_is_a_problem(tmp_path):
     problem = preflight.share_ownership(site(tmp_path))
-    assert "is missing: the share is not mounted" in problem
+    assert "is missing: the share is not mounted" in problem_text(problem)
 
 
 @budget(load="fs")
@@ -175,7 +177,7 @@ def test_owner_file_without_a_database_is_a_problem_and_creates_none(tmp_path):
     cfg = site(tmp_path, f"{pg.PREFIX}missing_{secrets.token_hex(4)}")
     preflight.owner_file(cfg).parent.mkdir(parents=True)
     preflight.owner_file(cfg).write_text("abc", encoding="utf-8")
-    assert "there is no database" in preflight.share_ownership(cfg)
+    assert "there is no database" in problem_text(preflight.share_ownership(cfg))
     assert not db.built(cfg), "a check never creates the database"
 
 
@@ -221,7 +223,7 @@ def test_staging_linked_into_the_library_is_a_problem(tmp_path):
     (library / "Series").mkdir(parents=True)
     dir_link(tmp_path / "staging-link", library / "Series")
     text = preflight.folder_layout(layout(tmp_path, staging=tmp_path / "staging-link"))
-    assert "lies inside paths.library" in text, "a link is judged by where it leads"
+    assert "lies inside paths.library" in problem_text(text), "a link is judged by where it leads"
 
 
 @budget(load="pure")
@@ -249,7 +251,7 @@ def test_folder_layout_compares_resolved_paths(tmp_path, paths, problem):
 def test_folder_layout_on_windows_ignores_letter_case(tmp_path):
     library = str(tmp_path / "share" / "library")
     cfg = layout(tmp_path, staging=library.upper())
-    assert "contains paths.library" in preflight.folder_layout(cfg)
+    assert "contains paths.library" in problem_text(preflight.folder_layout(cfg))
 
 
 @budget(load="pure")
@@ -321,9 +323,11 @@ def test_service_settings_name_what_is_missing(change, problem):
 def test_service_settings_report_every_problem_and_never_show_a_value():
     cfg = services(suwayomi__url="nope", kavita__api_key=None, paths__kavita_path_map={})
     got = preflight.service_settings(cfg)
-    assert got.count(";") == 2, "every problem is named"
+    assert problem_text(got).count(";") == 2, "every problem is named"
     cfg = services(kavita__url="secret-looking-value", kavita__api_key=0)
-    assert "secret-looking-value" not in preflight.service_settings(cfg), "a setting's value is never shown"
+    assert "secret-looking-value" not in problem_text(preflight.service_settings(cfg)), (
+        "a setting's value is never shown"
+    )
 
 
 @budget(load="fs")
@@ -331,9 +335,9 @@ def test_share_folders_missing_is_a_problem(tmp_path):
     cfg = site(tmp_path)
     (tmp_path / "share" / "library").mkdir(parents=True)
     text = preflight.share_folders(cfg)
-    assert "paths.downloads" in text
-    assert "is not an existing folder" in text
-    assert "paths.library" not in text
+    assert "paths.downloads" in problem_text(text)
+    assert "is not an existing folder" in problem_text(text)
+    assert "paths.library" not in problem_text(text)
 
 
 @budget(load="pure")
@@ -343,16 +347,16 @@ def test_folder_checks_report_what_they_cannot_measure(tmp_path, monkeypatch):
 
     cfg = site(tmp_path)
     monkeypatch.setattr(type(tmp_path), "resolve", broken)
-    assert preflight.folder_layout(cfg).startswith("cannot resolve a configured folder")
+    assert problem_text(preflight.folder_layout(cfg)).startswith("cannot resolve a configured folder")
     monkeypatch.setattr(type(tmp_path), "is_dir", broken)
-    assert preflight.staging_folder(cfg).startswith("cannot read paths.staging")
+    assert problem_text(preflight.staging_folder(cfg)).startswith("cannot read paths.staging")
 
 
 @budget(load="fs")
 def test_unreadable_owner_file_is_a_problem(tmp_path):
     cfg = site(tmp_path)
     preflight.owner_file(cfg).mkdir(parents=True)  # a folder where the file should be: reading it fails
-    assert preflight.share_ownership(cfg).startswith(f"cannot read {preflight.owner_file(cfg)}")
+    assert problem_text(preflight.share_ownership(cfg)).startswith(f"cannot read {preflight.owner_file(cfg)}")
 
 
 @budget(load="db")
@@ -390,11 +394,11 @@ def test_share_folders_need_the_mangas_folder_and_retention(tmp_path):
     (tmp_path / "share" / "candidates").rmdir()
     (tmp_path / "overrides").rmdir()
     text = preflight.share_folders(cfg)
-    assert "the mangas folder of paths.downloads" in text, "downloads lie under mangas (SPEC Suwayomi)"
-    assert "paths.retention" in text, "removed downloads go to the retention folder"
-    assert "paths.candidates" in text, "the candidates folder is on the share: every machine writes it"
-    assert "paths.naming_overrides" not in text, "the overrides have a check of their own"
-    assert "paths.naming_overrides" in preflight.naming_overrides(cfg), "the overrides' own check"
+    assert "the mangas folder of paths.downloads" in problem_text(text), "downloads lie under mangas (SPEC Suwayomi)"
+    assert "paths.retention" in problem_text(text), "removed downloads go to the retention folder"
+    assert "paths.candidates" in problem_text(text), "the candidates folder is on the share: every machine writes it"
+    assert "paths.naming_overrides" not in problem_text(text), "the overrides have a check of their own"
+    assert "paths.naming_overrides" in problem_text(preflight.naming_overrides(cfg)), "the overrides' own check"
 
 
 @budget(load="pure")
@@ -409,7 +413,7 @@ def test_share_folders_need_retention_on_the_downloads_filesystem(tmp_path, monk
         return os.stat_result((*st[:2], st.st_dev + 1, *st[3:])) if str(path) == retention else st
 
     monkeypatch.setattr(os, "stat", other_device)  # Path.stat calls os.stat
-    assert "same filesystem" in preflight.share_folders(cfg), "a download moves to retention by rename"
+    assert "same filesystem" in problem_text(preflight.share_folders(cfg)), "a download moves to retention by rename"
 
 
 @budget(load="pure")
@@ -417,7 +421,9 @@ def test_share_folders_need_retention_on_the_downloads_filesystem(tmp_path, monk
 def test_folder_layout_refuses_retention_overlapping_a_share_folder(tmp_path, inside):
     cfg = site_cfg(tmp_path)
     cfg["paths"]["retention"] = str(tmp_path / "share" / inside / "kept")
-    assert "paths.retention" in preflight.folder_layout(cfg), "retention lies outside downloads and every library"
+    assert "paths.retention" in problem_text(preflight.folder_layout(cfg)), (
+        "retention lies outside downloads and every library"
+    )
     assert preflight.folder_layout(site_cfg(tmp_path)) is None
 
 
@@ -435,9 +441,9 @@ def test_image_tools_names_every_missing_tool(tmp_path):
         (tmp_path / name).touch()
     assert preflight.image_tools(with_tools(tmp_path)) is None
     problem = preflight.image_tools(with_tools(tmp_path, oxipng=tmp_path / "gone", vship=tmp_path))
-    assert "tools.oxipng" in problem, "a missing file and a folder are both problems"
-    assert "tools.vship" in problem, "a missing file and a folder are both problems"
-    assert "tools.avifenc" not in problem, "a present tool is not named"
+    assert "tools.oxipng" in problem_text(problem), "a missing file and a folder are both problems"
+    assert "tools.vship" in problem_text(problem), "a missing file and a folder are both problems"
+    assert "tools.avifenc" not in problem_text(problem), "a present tool is not named"
 
 
 @budget(load="fs")
@@ -460,7 +466,9 @@ def test_scratch_space_measures_the_scratch_drive(tmp_path):
             "convert": {**config.cached()["convert"], "min_scratch_free_mb": mb},
         }
 
-    assert "below convert.min_scratch_free_mb" in preflight.scratch_space(cfg(int(free * 1.02) + 1, tmp_path))
+    assert "below convert.min_scratch_free_mb" in problem_text(
+        preflight.scratch_space(cfg(int(free * 1.02) + 1, tmp_path))
+    )
     assert preflight.scratch_space(cfg(int(free * 0.98), tmp_path / "not" / "yet")) is None, "nearest existing folder"
     assert preflight.scratch_space(cfg(-1, tmp_path)) == "convert.min_scratch_free_mb must be 0 or more, got -1"
 
@@ -474,7 +482,9 @@ def test_long_paths_on_windows_need_the_registry_value_1(monkeypatch, value, pro
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(preflight, "long_paths_value", lambda: value)
     got = preflight.long_paths(config.cached())
-    assert got == problem or got.startswith(problem), "a path of 260+ characters opens only with the value 1"
+    assert got == problem or problem_text(got).startswith(problem), (
+        "a path of 260+ characters opens only with the value 1"
+    )
 
 
 @budget(load="pure")
@@ -482,7 +492,7 @@ def test_long_paths_absent_is_a_problem(monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(preflight, "long_paths_value", lambda: None)
     assert "LongPathsEnabled under HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem is absent: set it to 1" in (
-        preflight.long_paths(config.cached())
+        problem_text(preflight.long_paths(config.cached()))
     ), "Windows' default (no value) is off"
 
 

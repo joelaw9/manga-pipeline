@@ -29,7 +29,7 @@ from manga_pipeline.clients import http
 from manga_pipeline.metadata import covers as cover_images
 from manga_pipeline.metadata import naming, rewrite_plan
 
-from tests.builders import claimed
+from tests.builders import claimed, one
 from tests.test_rewrites import SERIES, files, override, progress, read, scan
 from tests.timing import budget
 from tests.world import World, bulk_record, cbz, comicinfo
@@ -404,7 +404,7 @@ def test_comicinfo_run_again_after_convert_shifts_the_page_entries_once(world):
     world.run(process)
     with closing(db.connect(world.cfg)) as conn:  # comicinfo twice, as after a crash before its outcome
         ctx = world.context(conn, "export")
-        chapter = claimed(conn, ctx, conn.execute("SELECT id FROM chapter WHERE drop_cover").fetchone()[0])
+        chapter = claimed(conn, ctx, one(conn, "SELECT id FROM chapter WHERE drop_cover"))
         for _ in range(2):
             assert isinstance(rewrite.comicinfo_run(ctx, chapter), workflow.Done)
         staged = config.to_local(world.cfg, chapter["staged_path"])

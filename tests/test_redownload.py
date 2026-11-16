@@ -17,13 +17,23 @@ from manga_pipeline import cli, config, db, images, intake, measures, redownload
 from tests.timing import budget
 from tests.world import World, cbz
 
+
+class RedownloadWorld(World):
+    """A World whose series' manga is on its source and, with every chapter, on a 2nd source (Other)."""
+
+    manga_id: int
+    other_source: str
+    other: int
+    other_chapters: dict[int, int]
+
+
 BAD = b"PK\x03\x04 truncated download"
 OTHER = "Other (EN)"
 
 
 @pytest.fixture
 def world(tmp_path):
-    w = World(tmp_path, sources={"ranking": [OTHER], "download_timeout_hours": 24})
+    w = RedownloadWorld(tmp_path, sources={"ranking": [OTHER], "download_timeout_hours": 24})
     w.kavita_series("Solo Leveling")
     w.manga_id = w.manga("Solo Leveling")
     for n in [*range(1, 12), *range(13, 21)]:  # the original source lists chapters 1-20 (12 is the download)
@@ -45,9 +55,15 @@ def chapter(world):
     return row
 
 
-def state(world):
+def stored_state(world):
     ((text,),) = world.rows("SELECT redownload FROM chapter")
     return None if text is None else json.loads(text)
+
+
+def state(world):
+    got = stored_state(world)
+    assert got is not None, "the chapter has a re-download state"
+    return got
 
 
 def writes(world, *kinds):
@@ -77,7 +93,7 @@ def test_a_bad_download_is_removed_and_downloaded_again_from_the_same_chapter_fi
     assert chapter(world) == ("junk", "ready", None, config.to_stored(world.cfg, path), chapter_id, "Src (EN)"), (
         "the replacement passes"
     )
-    assert state(world) is None, "the re-download state is cleared"
+    assert stored_state(world) is None, "the re-download state is cleared"
     assert world.rows("SELECT count(*) FROM page") == [(3,)], "the replacement's pages are measured and stored"
 
 
@@ -507,7 +523,9 @@ def test_the_path_rebuilt_for_a_download_is_where_suwayomi_wrote_it(world):
 
 def _target(world, chapter_id):
     with closing(db.connect(world.cfg)) as conn:
-        return redownload.target(world.context(conn, "intake"), chapter_id)
+        found = redownload.target(world.context(conn, "intake"), chapter_id)
+    assert found is not None, "the chapter is found"
+    return found
 
 
 def _textured_cbz(seed, pages=3):

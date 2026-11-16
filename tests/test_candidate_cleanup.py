@@ -10,7 +10,7 @@ import pytest
 from manga_pipeline import config, db
 from manga_pipeline.junk import candidates
 
-from tests.builders import add_chapter, add_series, adopted
+from tests.builders import add_chapter, add_series, adopted, one
 from tests.timing import budget
 
 HOUR_AGO_2 = "2000-01-01T00:00:00+00:00"
@@ -28,11 +28,12 @@ def candidate(conn, cfg, folder, key="123456789abcdef0|0.7", closed_at=None, rev
     (config.abs_path(cfg["paths"]["candidates"]) / folder).mkdir(parents=True)
     (config.abs_path(cfg["paths"]["candidates"]) / folder / "unit.png").write_bytes(b"png")
     with db.transaction(conn):
-        cid = conn.execute(
+        cid = one(
+            conn,
             """INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at, closed_at, review_open)
             VALUES ('S', 'page', %s, 'r', %s, '2026-01-01T00:00:00+00:00', %s, %s) RETURNING id""",
             (key, folder, closed_at, review_open),
-        ).fetchone()[0]
+        )
     if waited_on_by is not None:
         with db.transaction(conn):
             conn.execute(
@@ -110,4 +111,4 @@ def test_joining_a_candidate_cleaned_up_meanwhile_fails_and_writes_nothing(site)
     pick = {"kind": "page", "key": "123456789abcdef0|0.7", "reason": "r"}  # its images were never written
     with db.transaction(conn), pytest.raises(candidates.Gone, match="cleaned up meanwhile"):
         candidates.join(conn, "S", [pick], "2026-01-01T00:00:00+00:00")
-    assert conn.execute("SELECT count(*) FROM junk_candidate").fetchone()[0] == 0
+    assert one(conn, "SELECT count(*) FROM junk_candidate") == 0
