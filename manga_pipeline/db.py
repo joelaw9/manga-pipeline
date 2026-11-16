@@ -48,6 +48,10 @@ class NoDatabaseError(RuntimeError):
     record)."""
 
 
+class MissingRowError(LookupError):
+    """A query returned no row where the caller's own data guarantees one (a row named by a stored id, an aggregate)."""
+
+
 class Row(tuple):
     """A row that reads as sqlite3.Row does: by position (negative and sliced too), by column name (case-insensitive,
     the first column of a repeated name), as a sequence of values, with keys(); equal to a row of the same columns
@@ -255,6 +259,15 @@ def in_transaction(conn):
 def executemany(conn, statement, rows):
     with conn.cursor() as cur:
         cur.executemany(statement, rows)
+
+
+def one_row(conn: Connection, query, params=()) -> Row:
+    """The query's 1st row, where the caller's own data guarantees one; MissingRowError naming the query if none."""
+    row = conn.execute(query, params).fetchone()
+    if row is None:
+        msg = f"no row where one must be: {query!r} with {params!r}"
+        raise MissingRowError(msg)
+    return row
 
 
 def database_id(conn):
