@@ -15,13 +15,13 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
 
 from manga_pipeline import db, lock
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.db import sql
 from manga_pipeline.errors import SHARE_ERRNOS, SHARE_WINERRORS, Unreachable
+from manga_pipeline.metadata import sources as metadata_sources
 
 log = logging.getLogger(__name__)
 STAGES = ("discover", "validate", "junk", "convert", "comicinfo", "publish", "confirm")
@@ -74,45 +74,52 @@ class ClaimLost(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: t
 
 @dataclass(frozen=True)
 class Context:
+    """A run's state: context builds it from the config; a caller that holds its clients (a test's fakes) gives
+    every field."""
+
     cfg: dict
-    conn: Any  # the command's connection (cli.main), holding its run lock
+    conn: db.Connection  # the command's connection (cli.main), holding its run lock
     part: str
-    # Who this run's claims name (owner(part) when None).
-    owner: str | None = None
+    owner: str  # who this run's claims name
+    # The run's 1 client of each service (SPEC "Services"): what it learns holds for the run.
+    suwayomi: suwayomi_client.Suwayomi
+    kavita: kavita_client.Kavita
+    # The metadata sources' clients: intake's check and validate's volume covers.
+    sources: metadata_sources.Sources
     # Chapters that failed in this run: tried again by a later run, so 1 run never spends all their attempts.
     failed: set = field(default_factory=set)
     # {stage: service} for the stages whose service was unreachable in this run: not claimed again until a later run.
     unreachable: dict = field(default_factory=dict)
     # Outcomes of this run by kind: done, waiting, failed.
     counts: Counter = field(default_factory=Counter)
-    # The run's 1 client of each service (SPEC "Services"): what it learns holds for the run. None = built from cfg.
-    suwayomi: Any = None
-    kavita: Any = None
-    # The metadata sources' clients (metadata.check.Sources); intake builds them when None.
-    sources: Any = None
     # What the run learnt from Kavita once: the library listing, each new series' id search (SPEC "Publishing").
     kavita_cache: dict = field(default_factory=dict)
 
-    def __post_init__(self):
-        if self.owner is None:
-            object.__setattr__(self, "owner", owner(self.part))
-        if self.suwayomi is None:
-            object.__setattr__(self, "suwayomi", suwayomi_client.from_config(self.cfg))
-        if self.kavita is None:
-            object.__setattr__(self, "kavita", kavita_client.from_config(self.cfg))
+
+def context(cfg: dict, conn: db.Connection, part: str):
+    """The part's run state: its owner and its 1 client of each service and metadata source, built from cfg."""
+    return Context(
+        cfg,
+        conn,
+        part,
+        owner=owner(part),
+        suwayomi=suwayomi_client.from_config(cfg),
+        kavita=kavita_client.from_config(cfg),
+        sources=metadata_sources.new_sources(),
+    )
 
 
 @dataclass(frozen=True)
 class Done:
     # Writes that belong with the outcome (e.g. the published_file row of a rename): run in the outcome's transaction.
-    record: Callable[[Any], None] | None = None
+    record: Callable[[db.Connection], object] | None = None  # its result is ignored
 
 
 @dataclass(frozen=True)
 class Waiting:
     on: str
     data: dict = field(default_factory=dict)
-    record: Callable[[Any], None] | None = None
+    record: Callable[[db.Connection], object] | None = None  # its result is ignored
 
 
 @dataclass(frozen=True)
@@ -120,7 +127,7 @@ class Ready:
     """The chapter stays ready at its stage, with no attempt, and may be claimed again in this run (the junk stage
     after a scan, SPEC "Chapter stages")."""
 
-    record: Callable[[Any], None] | None = None
+    record: Callable[[db.Connection], object] | None = None  # its result is ignored
 
 
 @dataclass(frozen=True)
@@ -133,7 +140,7 @@ class Dropped:
     """The chapter leaves the pipeline where it stands, never published (status done at its stage)."""
 
     reason: str
-    record: Callable[[Any], None] | None = None
+    record: Callable[[db.Connection], object] | None = None  # its result is ignored
 
 
 @dataclass(frozen=True)
@@ -141,7 +148,7 @@ class NeedsHuman:
     """No further attempt can change the result: the chapter is needs_human at once."""
 
     reason: str
-    record: Callable[[Any], None] | None = None
+    record: Callable[[db.Connection], object] | None = None  # its result is ignored
 
 
 OUTCOMES = Done | Waiting | Failed | Dropped | NeedsHuman | Ready

@@ -152,7 +152,15 @@ class World:
         self.kavita_specs = []  # [(id, name, folder, add_series keywords)]: rebuilds the FakeKavita in another process
 
     def context(self, conn, part):
-        return workflow.Context(self.cfg, conn, part, suwayomi=self.suwayomi, kavita=self.kavita, sources=self.sources)
+        return workflow.Context(
+            self.cfg,
+            conn,
+            part,
+            owner=workflow.owner(part),
+            suwayomi=self.suwayomi,
+            kavita=self.kavita,
+            sources=self.sources,
+        )
 
     def run(self, part_module):
         """Run a part (intake, process or export module) as cli.main and its run() do: under its run lock and the

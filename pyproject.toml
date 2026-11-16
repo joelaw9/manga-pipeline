@@ -21,7 +21,7 @@ dev = [
     "pytest-xdist",
     "hypothesis",
     "xmlschema",
-    "coverage",
+    "coverage>=7.10",  # [tool.coverage.run] patch = ["subprocess"]
     # Exact pins: select = ["ALL"] takes in every rule a new ruff release adds; upgrading is a deliberate change.
     "ruff==0.17.3",
     "basedpyright==1.40.2",
@@ -63,6 +63,12 @@ typeCheckingMode = "basic"
 pythonVersion = "3.13"
 pythonPlatform = "Windows"  # CI's platform; CI and the merge hook also run --pythonplatform Linux (the LXC)
 include = ["manga_pipeline", "tests"]
+
+[tool.coverage.run]
+branch = true
+parallel = true
+patch = ["subprocess"]
+source = ["manga_pipeline"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

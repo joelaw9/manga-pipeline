@@ -10,12 +10,10 @@ STAGES = {"discover": discover.run, "validate": validate.run}
 
 def run(cfg, conn):
     """conn: the command's connection, holding its run lock (cli.main)."""
-    workflow.run_part(workflow.Context(cfg, conn, "intake"), work)
+    workflow.run_part(workflow.context(cfg, conn, "intake"), work)
 
 
 def work(ctx):
-    if ctx.sources is None:  # the run's 1 client of each metadata source: the check and validate's volume covers
-        object.__setattr__(ctx, "sources", check.new_sources())
     # Before discovery, so a re-download that ended is judged by validate, not listed as a new download.
     workflow.end_waits(ctx, "suwayomi_download", redownload.wait_over)
     with workflow.share_errors():

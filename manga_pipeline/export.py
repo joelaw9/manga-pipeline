@@ -21,7 +21,7 @@ REQUESTED_AT = "export.kavita_scan_requested_at"  # meta: when the last library 
 
 def run(cfg, conn):
     """conn: the command's connection, holding its run lock (cli.main)."""
-    workflow.run_part(workflow.Context(cfg, conn, "export"), work)
+    workflow.run_part(workflow.context(cfg, conn, "export"), work)
 
 
 def work(ctx):

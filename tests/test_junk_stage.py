@@ -16,7 +16,7 @@ from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import plan
 from manga_pipeline.junk import candidates, importing, logo_units, ocr, review, store
-from manga_pipeline.metadata import check
+from manga_pipeline.metadata import sources
 
 from tests import pages as fx
 from tests.builders import config_file, present, run_part
@@ -33,7 +33,7 @@ class Site:
         self.mangas = {}
         monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: self.world.suwayomi)
         monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: self.world.kavita)
-        monkeypatch.setattr(check, "new_sources", lambda: self.world.sources)
+        monkeypatch.setattr(sources, "new_sources", lambda: self.world.sources)
 
     def download(self, series, number, data):
         if series not in self.mangas:

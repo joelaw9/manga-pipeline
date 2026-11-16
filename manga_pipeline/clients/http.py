@@ -4,6 +4,7 @@ unreachable, and logging without secrets.
 A client owns 1 Service per run. The Service remembers that it was found unreachable, so the run asks it no more.
 """
 
+import email.message
 import http.client
 import json as jsonlib
 import logging
@@ -13,7 +14,6 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any
 
 from manga_pipeline.errors import Unreachable
 
@@ -56,7 +56,7 @@ class NotJsonError(HttpError):
 class Response:
     service: str  # the name of the Service that got it
     status: int
-    headers: Any  # the reply's headers: get(name) ignores case
+    headers: email.message.Message  # the reply's headers: get(name) ignores case
     body: bytes
 
     def json(self):

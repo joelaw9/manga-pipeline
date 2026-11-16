@@ -7,6 +7,7 @@ per source per run, each on its own `http.Service` with the source's minimum gap
 """
 
 import urllib.parse
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from http import HTTPStatus
@@ -270,6 +271,22 @@ class Webtoons:
         finder = _AttributeFinder("detail_install_app")
         finder.feed(reply.body.decode("utf-8", "replace"))
         return finder.found
+
+
+@dataclass
+class Sources:
+    """The run's source clients: the 4 metadata sources and the 2 platforms."""
+
+    mangabaka: MangaBaka
+    mangaupdates: MangaUpdates
+    mangadex: MangaDex
+    anilist: AniList
+    tapas: Tapas
+    webtoons: Webtoons
+
+
+def new_sources():
+    return Sources(MangaBaka(), MangaUpdates(), MangaDex(), AniList(), Tapas(), Webtoons())
 
 
 class _MetaFinder(HTMLParser):

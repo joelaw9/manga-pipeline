@@ -10,7 +10,7 @@ from pathlib import Path
 
 from manga_pipeline import cli
 from manga_pipeline.clients import kavita, suwayomi
-from manga_pipeline.metadata import check
+from manga_pipeline.metadata import sources as metadata_sources
 
 from tests.fakes import convert as fake_convert
 from tests.fakes.sources import fake_sources
@@ -20,7 +20,7 @@ if __name__ == "__main__":
     fake_suwayomi, fake_kavita = fakes_from(Path(sys.argv[1]))
     suwayomi.from_config = lambda _cfg: fake_suwayomi
     kavita.from_config = lambda _cfg: fake_kavita
-    sources = fake_sources()
-    check.new_sources = lambda: sources
+    fakes = fake_sources()
+    metadata_sources.new_sources = lambda: fakes
     fake_convert.install(setattr)
     sys.exit(cli.main(sys.argv[2:]))

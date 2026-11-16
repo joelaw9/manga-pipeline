@@ -2,6 +2,7 @@
 machine here is its own connection holding its own run lock, with its own claim owner."""
 
 import ast
+import dataclasses
 from contextlib import ExitStack, closing
 from datetime import datetime as real_datetime
 from pathlib import Path
@@ -33,7 +34,7 @@ class Fleet:
         owner = f"process@{name}"
         held = lock.held(conn, cfg, [owner], lock.SHARED)
         held.__enter__()
-        ctx = workflow.Context(cfg, conn, "process", owner=owner, suwayomi=object(), kavita=object())
+        ctx = dataclasses.replace(workflow.context(cfg, conn, "process"), owner=owner)
         self.machines[name] = (ctx, held)
         self.stack.callback(self._close, name)
         return ctx

@@ -8,12 +8,11 @@ nothing and stays due; one whose ids disagree stores the ids and makes the serie
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from manga_pipeline import db, workflow
 from manga_pipeline.db import sql
-from manga_pipeline.metadata import covers, ids, platforms, refresh, search, sources
+from manga_pipeline.metadata import covers, ids, platforms, refresh, search
 
 log = logging.getLogger(__name__)
 FETCHED_ORIGINS = ("suwayomi", "kavita", "anilist", "mangabaka", "mangadex")  # replaced by every completed check
@@ -26,29 +25,6 @@ KINDS = {
     "mangadex": ("manga", "aggregate", "covers"),
     "anilist": ("media",),
 }
-
-
-@dataclass
-class Sources:
-    """The run's source clients: the 4 metadata sources and the 2 platforms."""
-
-    mangabaka: sources.MangaBaka
-    mangaupdates: sources.MangaUpdates
-    mangadex: sources.MangaDex
-    anilist: sources.AniList
-    tapas: sources.Tapas
-    webtoons: sources.Webtoons
-
-
-def new_sources():
-    return Sources(
-        sources.MangaBaka(),
-        sources.MangaUpdates(),
-        sources.MangaDex(),
-        sources.AniList(),
-        sources.Tapas(),
-        sources.Webtoons(),
-    )
 
 
 class Disagree(Exception):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)

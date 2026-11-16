@@ -12,7 +12,7 @@ import pytest
 from manga_pipeline import config, db, fleet, intake, process, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
-from manga_pipeline.metadata import check
+from manga_pipeline.metadata import sources
 
 from tests.builders import config_file, run_part
 from tests.timing import budget
@@ -45,7 +45,7 @@ def world(tmp_path, monkeypatch):
     world = World(tmp_path)
     monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: world.suwayomi)
     monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: world.kavita)
-    monkeypatch.setattr(check, "new_sources", lambda: world.sources)
+    monkeypatch.setattr(sources, "new_sources", lambda: world.sources)
     return world
 
 

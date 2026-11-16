@@ -11,7 +11,7 @@ import pytest
 from manga_pipeline import cli, config, db, export, intake, process, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
-from manga_pipeline.metadata import check
+from manga_pipeline.metadata import sources
 from manga_pipeline.stages import comicinfo, confirm, junk, publish
 
 from tests.builders import add_chapter, add_series, config_file, run_part
@@ -28,7 +28,7 @@ class Site:
         self.mangas = {}
         monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: self.world.suwayomi)
         monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: self.world.kavita)
-        monkeypatch.setattr(check, "new_sources", lambda: self.world.sources)
+        monkeypatch.setattr(sources, "new_sources", lambda: self.world.sources)
 
     def download(self, series, number, data=None):
         """A complete download "Chapter <number>" of series (a Kavita series with bulk Ch.1 and a record)."""
@@ -251,11 +251,12 @@ def test_an_export_stage_that_lost_its_claim_leaves_every_file_untouched(site):
     run_part(site.cfg, intake)
     run_part(site.cfg, process)
     with closing(db.connect(site.cfg)) as conn:
-        ctx = workflow.Context(site.cfg, conn, "export")
+        ctx = workflow.context(site.cfg, conn, "export")
 
         def lost(stage, run):
             """The chapter's claim at stage, freed and taken by another run before the stage's act."""
             row = workflow.claim(ctx, (stage,))
+            assert row is not None, f"the chapter is ready at {stage}"
             with db.transaction(conn):
                 conn.execute(
                     "UPDATE chapter SET claimed_by = 'export@elsewhere', claim_count = claim_count + 1 WHERE id = %s",

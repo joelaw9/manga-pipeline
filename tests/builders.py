@@ -118,7 +118,9 @@ def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None,
 
 
 def chapter(conn, chapter_id):
-    return conn.execute("SELECT * FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
+    row = conn.execute("SELECT * FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
+    assert row is not None, f"chapter {chapter_id} exists"
+    return row
 
 
 def download(cfg, series, name, data=b"fake cbz"):

@@ -15,7 +15,7 @@ import yaml
 from manga_pipeline import cli, config, db, discovery, fleet, lock, preflight, status, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
-from manga_pipeline.metadata import check
+from manga_pipeline.metadata import sources
 
 from tests import pg
 from tests.builders import one, running
@@ -159,7 +159,7 @@ def test_part_logs_that_it_ran(site, tmp_path, monkeypatch):
     # intake asks Kavita and Suwayomi for the library each run: empty fakes
     monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: FakeSuwayomi(tmp_path / "share" / "downloads"))
     monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: FakeKavita({}, {"/kavita": str(tmp_path)}))
-    monkeypatch.setattr(check, "new_sources", fake_sources)
+    monkeypatch.setattr(sources, "new_sources", fake_sources)
     assert run(site, "intake") == 0
     log_file = config.abs_path(site_cfg(site)["logging"]["dir"]) / "intake.log"
     assert "intake: run ended: ok" in log_file.read_text(encoding="utf-8")

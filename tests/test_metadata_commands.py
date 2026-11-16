@@ -10,7 +10,7 @@ import yaml
 from manga_pipeline import cli, db, intake, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
-from manga_pipeline.metadata import audit, check, human, importer
+from manga_pipeline.metadata import audit, human, importer, sources
 
 from tests.timing import budget
 from tests.world import World
@@ -109,8 +109,7 @@ def test_audit_lists_disagreements_missing_ids_and_unmatched_manga(world, capsys
     world.kavita.metadata_rows[kavita_id] = {"webLinks": "https://anilist.co/manga/1"}
     world.suwayomi.add_tracker(world.manga("Solo Leveling"), 2, 2)
     world.manga("Nobody's Manga")
-    with closing(db.connect(world.cfg)) as conn:
-        audit.run(world.context(conn, "intake"), world.sources)
+    audit.run(world.cfg, world.kavita, world.suwayomi, world.sources)
     out = capsys.readouterr().out
     assert "series whose ids disagree: 1\n  Solo Leveling" in out
     assert "1 (kavita), 2 (suwayomi)" in out
@@ -134,7 +133,7 @@ def test_audit_opens_no_database(world, monkeypatch, capsys):
     cfg = {**world.cfg, "database": {**world.cfg["database"], "name": "mp_test_never_built_audit"}}
     monkeypatch.setattr(suwayomi_client, "from_config", lambda _c: world.suwayomi)
     monkeypatch.setattr(kavita_client, "from_config", lambda _c: world.kavita)
-    monkeypatch.setattr(check, "new_sources", lambda: world.sources)
+    monkeypatch.setattr(sources, "new_sources", lambda: world.sources)
     world.kavita_series("Solo Leveling")
     cli.metadata_audit(cfg, argparse.Namespace(state=None))
     assert "series whose ids disagree: 0" in capsys.readouterr().out
