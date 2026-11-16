@@ -155,8 +155,13 @@ def chapter_drop(cfg, args):
 
 def series_link(cfg, args):
     with _database(cfg, "link") as conn:
-        subject = identify.link_subject(cfg, suwayomi.from_config(cfg), manga_id=args.manga_id, folder=args.folder)
-        identify.link(cfg, conn, kavita.from_config(cfg), args.kavita_series_id, subject)
+        identify.link(
+            cfg,
+            conn,
+            kavita.from_config(cfg),
+            args.kavita_series_id,
+            identify.link_subject(cfg, suwayomi.from_config(cfg), manga_id=args.manga_id, folder=args.folder),
+        )
 
 
 def series_set_id(cfg, args):

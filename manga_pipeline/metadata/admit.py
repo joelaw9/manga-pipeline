@@ -102,9 +102,11 @@ def _clash(conn, series, name, safe, library):
     key = normalize(name)
     if not key:
         return "its name has no letter or digit Kavita keeps"
-    clash = library.series_clash(key)
-    if clash:
-        return clash
+    return library.series_clash(key) or _new_series_clash(conn, series, key) or library.folder_clash(key, safe)
+
+
+def _new_series_clash(conn, series, key):
+    """Why another new series Kavita does not hold yet has the name of normalised key, or None."""
     others = conn.execute(
         """SELECT id, comicinfo_series FROM series
         WHERE origin = 'new' AND kavita_series_id IS NULL AND comicinfo_series IS NOT NULL AND id <> %s""",
@@ -113,4 +115,4 @@ def _clash(conn, series, name, safe, library):
     for other in others:
         if normalize(other["comicinfo_series"]) == key:
             return f"new series {other['id']} ({other['comicinfo_series']}) has that name"
-    return library.folder_clash(key, safe)
+    return None

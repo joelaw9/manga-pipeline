@@ -19,6 +19,7 @@ MD = "2bdf5af2-7d55-4c03-8a1b-8b6b1b9a2b4c"
         ("https://www.mangaupdates.com/series/04gtb06/solo-leveling", ("mangaupdates", str(int("04gtb06", 36)))),
         ("https://www.mangaupdates.com/series.html?id=151025", None),
         ("https://www.mangaupdates.com/series/151025", None),
+        ("https://www.mangaupdates.com/authors/4kfx6u7/oh-yeong", None),  # a MangaUpdates page that is no series'
         (f"https://mangadex.org/title/{MD.upper()}/solo", ("mangadex", MD)),
         ("https://myanimelist.net/manga/121496/Na_Honjaman_Level_Up", ("myanimelist", "121496")),
         ("https://mangabaka.org/2034", ("mangabaka", "2034")),
