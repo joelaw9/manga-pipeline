@@ -21,7 +21,7 @@ dev = [
     "pytest-xdist",
     "hypothesis",
     "xmlschema",
-    "coverage",
+    "coverage>=7.10",  # [tool.coverage.run] patch = ["subprocess"]
     # Exact pins: select = ["ALL"] takes in every rule a new ruff release adds; upgrading is a deliberate change.
     "ruff==0.17.3",
     "basedpyright==1.40.2",

@@ -22,15 +22,6 @@ def ctx(tmp_path):
         yield workflow.context(cfg, conn, "process")
 
 
-def executes(statement):
-    """An outcome's record: runs statement on the outcome's connection."""
-
-    def record(conn):
-        conn.execute(statement)
-
-    return record
-
-
 def returns(outcome):
     return lambda _ctx, _chapter: outcome
 
@@ -184,14 +175,14 @@ def test_done_at_the_last_stage_is_done(ctx):
 @budget(load="db")
 def test_done_record_runs_with_the_outcome(ctx):
     row = claimed(ctx)
-    workflow.work(ctx, row, returns(Done(executes("INSERT INTO meta VALUES ('rec', 'x')"))))
+    workflow.work(ctx, row, returns(Done(lambda conn: conn.execute("INSERT INTO meta VALUES ('rec', 'x')"))))
     assert one(ctx.conn, "SELECT value FROM meta WHERE key = 'rec'") == "x"
 
 
 @budget(load="db")
 def test_failing_record_is_a_failed_attempt(ctx):
     row = claimed(ctx)
-    workflow.work(ctx, row, returns(Done(executes("INSERT INTO meta VALUES ('database_id', 'x')"))))
+    workflow.work(ctx, row, returns(Done(lambda conn: conn.execute("INSERT INTO meta VALUES ('database_id', 'x')"))))
     after = chapter(ctx.conn, row["id"])
     assert (after["stage"], after["status"], after["attempts"]) == ("junk", "ready", 1), "the whole outcome rolls back"
     assert after["last_error"].startswith("recording the outcome: UniqueViolation")

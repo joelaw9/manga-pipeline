@@ -96,7 +96,7 @@ class Context:
     kavita_cache: dict = field(default_factory=dict)
 
 
-def context(cfg, conn: db.Connection, part):
+def context(cfg: dict, conn: db.Connection, part: str):
     """The part's run state: its owner and its 1 client of each service and metadata source, built from cfg."""
     return Context(
         cfg,
@@ -112,14 +112,14 @@ def context(cfg, conn: db.Connection, part):
 @dataclass(frozen=True)
 class Done:
     # Writes that belong with the outcome (e.g. the published_file row of a rename): run in the outcome's transaction.
-    record: Callable[[db.Connection], None] | None = None
+    record: Callable[[db.Connection], object] | None = None  # its result is ignored
 
 
 @dataclass(frozen=True)
 class Waiting:
     on: str
     data: dict = field(default_factory=dict)
-    record: Callable[[db.Connection], None] | None = None
+    record: Callable[[db.Connection], object] | None = None  # its result is ignored
 
 
 @dataclass(frozen=True)
@@ -127,7 +127,7 @@ class Ready:
     """The chapter stays ready at its stage, with no attempt, and may be claimed again in this run (the junk stage
     after a scan, SPEC "Chapter stages")."""
 
-    record: Callable[[db.Connection], None] | None = None
+    record: Callable[[db.Connection], object] | None = None  # its result is ignored
 
 
 @dataclass(frozen=True)
@@ -140,7 +140,7 @@ class Dropped:
     """The chapter leaves the pipeline where it stands, never published (status done at its stage)."""
 
     reason: str
-    record: Callable[[db.Connection], None] | None = None
+    record: Callable[[db.Connection], object] | None = None  # its result is ignored
 
 
 @dataclass(frozen=True)
@@ -148,7 +148,7 @@ class NeedsHuman:
     """No further attempt can change the result: the chapter is needs_human at once."""
 
     reason: str
-    record: Callable[[db.Connection], None] | None = None
+    record: Callable[[db.Connection], object] | None = None  # its result is ignored
 
 
 OUTCOMES = Done | Waiting | Failed | Dropped | NeedsHuman | Ready
