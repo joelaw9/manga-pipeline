@@ -242,9 +242,8 @@ def parse_name(stem, ci=None, non_chapter_names=()):
         if item.label == "prologue" and item.number is None:
             item.number, item.notes = "0", ["prologue without number -> chapter 0"]
         if m.groupdict().get("num") and "-" in m.group("num"):
-            if item.number is not None and not CI_NUMBER.fullmatch(
-                item.number
-            ):  # the num group set it  # "045.5-1": a decimal with a hyphen part
+            # "045.5-1": a decimal with a hyphen part (the num group set item.number)
+            if item.number is not None and not CI_NUMBER.fullmatch(item.number):
                 item.bad_number, item.number = m.group("num"), None
             else:
                 item.notes.append(f"hyphen part {m.group('num')} -> {item.number}")

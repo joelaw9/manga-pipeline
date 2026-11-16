@@ -79,15 +79,16 @@ def test_settings_are_in_effect(tmp_path):
 @budget(load="db")
 def test_a_database_that_opens_at_once_needs_no_login_to_postgres(tmp_path, monkeypatch):
     cfg = db_cfg(tmp_path)
-    real, logins = psycopg.connect, []
+    real, logins = psycopg.Connection.connect.__func__, []
 
-    def spy(*args, **kwargs):
+    def spy(cls, *args, **kwargs):
         logins.append(kwargs["dbname"])
-        return real(*args, **kwargs)
+        return real(cls, *args, **kwargs)
 
-    monkeypatch.setattr(psycopg, "connect", spy)
+    monkeypatch.setattr(psycopg.Connection, "connect", classmethod(spy))
     db.connect(cfg).close()
     db.open_database(cfg, builds=False).close()
+    assert logins, "the spy sees every login"
     assert db.MAINTENANCE_DATABASE not in logins, f"only the configured database is logged in to: {logins}"
 
 
