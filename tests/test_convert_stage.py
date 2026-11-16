@@ -3,19 +3,25 @@ errors that need a human, scratch life, the post-check, and the calibration of a
 time. Tools and scorer are the fakes; each test inserts its own chapter_edit row."""
 
 import errno
+import hashlib
+import io
 import json
+import os
+import pathlib
 import re
 import zipfile
 from contextlib import closing
+from pathlib import Path
 
 import pytest
+from PIL import Image
 
-from manga_pipeline import archive, config, db, page_store, workflow
-from manga_pipeline.convert import calibrate, check
+from manga_pipeline import archive, config, db, errors, images, page_store, process, workflow
+from manga_pipeline.convert import calibrate, check, covers, image
 from manga_pipeline.stages import convert
 
 from tests.builders import add_chapter, add_series, adopted, chapter, claimed, download
-from tests.convert_pages import NO_EDIT, colour, gray, jpeg, png, webp
+from tests.convert_pages import NO_EDIT, colour, encoded, gray, jpeg, png, webp
 from tests.fakes import convert as fake
 from tests.timing import budget
 
@@ -141,11 +147,9 @@ def test_a_series_without_a_layout_fails(site):
 
 @budget(load="pool")
 def test_an_exif_rotated_page_needs_a_human_and_leaves_no_scratch(site):
-    from PIL import Image
 
     exif = Image.Exif()
     exif[0x0112] = 6
-    import io
 
     buf = io.BytesIO()
     colour().save(buf, "JPEG", exif=exif.tobytes())
@@ -159,7 +163,6 @@ def test_an_exif_rotated_page_needs_a_human_and_leaves_no_scratch(site):
 @budget(load="pool")
 def test_a_stale_stored_measurement_fails_the_chapter(site):
     chapter_id = site.chapter(site.series(), pages(1))
-    from manga_pipeline import images
 
     stale = images.measure_pages(config.to_local(site.cfg, chapter(site.conn, chapter_id)["download_path"]))
     stale[0]["sha1"] = "0" * 40
@@ -404,7 +407,6 @@ def test_2_pages_whose_names_share_a_stem_need_a_human_through_the_stage(site):
 
 @budget(load="fs")
 def test_the_post_check_names_a_low_score_folders_and_an_ambiguous_order(tmp_path):
-    import io
 
     buf = io.BytesIO()
     colour().save(buf, "AVIF", quality=80, speed=10)
@@ -440,7 +442,6 @@ def test_a_repeated_page_is_sampled_once():
 
 @budget(load="pool")
 def test_lossless_and_untouched_chapters_through_the_stage(site):
-    from tests.convert_pages import webp
 
     fake.SCORE[0] = lambda ref, dec: 50.0
     series_id = site.series()
@@ -517,7 +518,6 @@ def test_cover_pages_are_never_samples(site):
 
 @budget(load="pool")
 def test_a_chapter_whose_first_outcome_is_not_avif_adds_no_samples(site):
-    from tests.convert_pages import webp
 
     series_id = site.series()
     site.run(site.chapter(series_id, [("001.webp", webp(colour()))]))
@@ -566,7 +566,6 @@ def test_1_scorer_serves_every_chapter_of_the_process(site):
 
 @budget(load="pool")
 def test_a_process_start_removes_chapter_scratch_folders_and_nothing_else(site):
-    from manga_pipeline import process
 
     root = config.abs_path(site.cfg["paths"]["scratch"])
     for name in ("7-1", "7-2", "junk-review", "notes"):
@@ -583,9 +582,6 @@ def test_a_process_start_removes_chapter_scratch_folders_and_nothing_else(site):
 
 @budget(load="db")
 def test_a_process_start_deletes_day_old_staged_files_no_chapter_names(site):
-    import os
-
-    from manga_pipeline import process
 
     root = config.abs_path(site.cfg["paths"]["staging"])
     chapter_id = site.chapter(site.series(), pages(1))
@@ -610,9 +606,6 @@ def test_a_process_start_deletes_day_old_staged_files_no_chapter_names(site):
 
 @budget(load="db")
 def test_a_process_start_deletes_a_day_old_part_file(site):
-    import os
-
-    from manga_pipeline import process
 
     root = config.abs_path(site.cfg["paths"]["staging"])
     old, fresh = root / "old.cbz.part", root / "fresh.cbz.part"
@@ -627,9 +620,6 @@ def test_a_process_start_deletes_a_day_old_part_file(site):
 @budget(load="db")
 @pytest.mark.parametrize("winerror", [None, 53])
 def test_a_staged_file_that_vanishes_during_the_clean_up(site, monkeypatch, winerror):
-    import pathlib
-
-    from manga_pipeline import process
 
     root = config.abs_path(site.cfg["paths"]["staging"])
     (root / "gone.cbz").write_bytes(b"x")
@@ -652,7 +642,6 @@ def test_a_staged_file_that_vanishes_during_the_clean_up(site, monkeypatch, wine
 
 @budget(load="pool")
 def test_output_pages_not_as_many_as_the_outcome_writes_fail(site, monkeypatch):
-    from manga_pipeline.convert import image
 
     real = image._Chapter.untouched
 
@@ -661,7 +650,6 @@ def test_output_pages_not_as_many_as_the_outcome_writes_fail(site, monkeypatch):
         (self.out / "999.webp").write_bytes(b"stray")
 
     monkeypatch.setattr(image._Chapter, "untouched", extra)
-    from tests.convert_pages import webp
 
     chapter_id = site.chapter(site.series(), [("001.webp", webp(colour()))])
     with pytest.raises(RuntimeError, match="2 output pages, the outcome writes 1"):
@@ -697,7 +685,6 @@ def test_a_blanked_rendered_chapter_samples_its_unblanked_render_and_records_the
 
 def add_cover(site, chapter_id, data, rel="vol/1.jpg", sha256=None, volume="1"):
     """Hand chapter_id a volume cover as intake does: the file under paths.covers and its volume_cover row."""
-    import hashlib
 
     path = config.abs_path(site.cfg["paths"]["covers"]) / rel
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -759,7 +746,6 @@ def test_a_lossless_chapter_takes_the_cover_as_jpeg(site):
 
 @budget(load="pool")
 def test_pages_of_2_formats_convert_to_avif_for_the_cover_without_the_size_gate(site, monkeypatch):
-    from manga_pipeline.convert import image
 
     monkeypatch.setattr(image, "MAX_SIZE_RATIO", 0.0)  # the size gate would reject any AVIF
     members = [("001.jpg", jpeg(colour(seed=1))), ("002.png", png(colour(seed=2)))]
@@ -816,7 +802,6 @@ def test_pages_sharing_no_cover_format_go_out_without_it(site):
 def test_a_cover_that_is_not_as_handed_over_fails_the_attempt_naming_its_path(
     site, tmp_path, rel, sha256, write, match
 ):
-    from manga_pipeline.convert import covers
 
     chapter_id = site.chapter(site.series(), pages(1))
     if rel == "ABSOLUTE":
@@ -832,7 +817,6 @@ def test_a_cover_that_is_not_as_handed_over_fails_the_attempt_naming_its_path(
 @budget(load="pool")
 def test_an_avif_only_chapter_whose_avif_cover_fails_names_the_floor(site):
     fake.SCORE[0] = lambda ref, dec: 50.0
-    from tests.convert_pages import encoded
 
     chapter_id = site.chapter(site.series(), [("001.avif", encoded(colour(seed=1), "AVIF"))])
     add_cover(site, chapter_id, COVER)
@@ -856,7 +840,6 @@ def test_a_lossless_png_chapter_replaces_its_cover_page_with_a_png_cover(site):
 
 @budget(load="pool")
 def test_a_blanked_rendered_chapter_of_a_fixed_series_is_rendered_once(site, monkeypatch):
-    from manga_pipeline.convert import image
 
     series_id = site.series()
     with db.transaction(site.conn):
@@ -887,7 +870,6 @@ BLANKED_RENDER_EDIT = {
 
 @budget(load="pool")
 def test_a_blanked_rendered_chapter_of_a_series_whose_open_group_is_full_is_rendered_once(site, monkeypatch):
-    from manga_pipeline.convert import image
 
     series_id = site.series()
     full = [{"sha1": f"s{i}", "chapter_id": 999, "rendered": True, "bytes_in": 1, "scores": {}} for i in range(40)]
@@ -906,7 +888,6 @@ def test_a_blanked_rendered_chapter_of_a_series_whose_open_group_is_full_is_rend
 
 @budget(load="pool")
 def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(site, monkeypatch):
-    from manga_pipeline.convert import image
 
     encoded = []
     real = image.process_chapter
@@ -931,11 +912,6 @@ def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(sit
 def test_a_dropped_share_while_reading_a_cover_reaches_the_caller_and_a_missing_file_is_a_cover_error(
     site, monkeypatch, winerror
 ):
-    import hashlib
-    from pathlib import Path
-
-    from manga_pipeline import errors
-    from manga_pipeline.convert import covers
 
     path = config.abs_path(site.cfg["paths"]["covers"]) / "vol" / "1.jpg"
     path.parent.mkdir(parents=True)

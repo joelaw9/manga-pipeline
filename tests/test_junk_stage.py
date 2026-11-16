@@ -11,14 +11,16 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import cli, config, db, identify, intake, process, state, workflow
+from manga_pipeline import cli, config, db, export, identify, intake, process, state, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import plan
 from manga_pipeline.junk import candidates, importing, logo_units, ocr, review, store
 from manga_pipeline.metadata import check
 
+from tests import pages as fx
 from tests.builders import config_file, run_part
+from tests.convert_pages import gray, jpeg
 from tests.fakes.suwayomi import page as fake_page
 from tests.timing import budget
 from tests.world import World, cbz, decide_junk, logo_cbz, logo_page
@@ -433,7 +435,6 @@ def test_a_badge_in_a_strip_chapter_is_offered_and_blanked_on_its_page(site, mon
 
 def jpeg_logo_cbz(seed):
     """6 gray JPEG pages of 1200 x 1800 (AVIF outcome: a blank applies), the third a white page with the badge."""
-    from tests.convert_pages import gray, jpeg
 
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:
@@ -450,7 +451,6 @@ def jpeg_logo_cbz(seed):
 @budget(load="pool", seconds=60)
 @pytest.mark.parametrize("verdict", ["junk", "keep"])
 def test_a_badge_is_painted_over_in_the_published_chapter_only_when_junk(site, verdict):
-    from manga_pipeline import export
 
     site.download("Alpha", 2, jpeg_logo_cbz("p2"))
     site.parts()
@@ -484,7 +484,6 @@ def band_cbz(seed, on, pages=8):
     """A page-format chapter of 600 x 852 art pages; page `on` (a download index) has the same WARNING band stacked
     over it behind a gutter in every chapter (as tests/test_junk_page.banded_chapter). 8 pages: 3 middle pages, so the
     edge pages have middle pages of their size beside them."""
-    from tests import pages as fx
 
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:

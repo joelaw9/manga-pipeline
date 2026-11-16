@@ -19,6 +19,9 @@ from manga_pipeline.clients import suwayomi
 from manga_pipeline.convert import tools, vship
 from manga_pipeline.junk import ocr
 
+if sys.platform == "win32":
+    import winreg
+
 log = logging.getLogger(__name__)
 HARD, SOFT = "hard", "soft"
 MIB = 1024 * 1024
@@ -276,8 +279,9 @@ def naming_overrides(cfg):
 
 def long_paths_value():
     """Windows' LongPathsEnabled registry value, or None when it is absent."""
-    import winreg
-
+    if sys.platform != "win32":
+        msg = "LongPathsEnabled is a Windows registry value"
+        raise RuntimeError(msg)
     try:
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, LONG_PATHS_KEY) as key:
             return winreg.QueryValueEx(key, "LongPathsEnabled")[0]

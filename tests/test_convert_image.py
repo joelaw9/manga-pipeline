@@ -2,14 +2,18 @@
 retries, the lossless path, drops, rendered pages, and the record. Tools and scorer are the fakes
 (tests/fakes/convert.py): avifenc writes a real AVIF with Pillow, jpegtran and oxipng copy."""
 
+import io
+import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import images
-from manga_pipeline.convert import image, pages, plan, tools
+from manga_pipeline import archive, images
+from manga_pipeline.convert import covers, image, pages, plan, tools
 
 from tests import pages as fx
 from tests.convert_pages import NO_EDIT, Chapter, colour, gray, jpeg, png, webp
@@ -85,7 +89,6 @@ def test_jpeg_feed_and_gray_read_the_header():
 
 
 def jpeg_with_exif(im, exif):
-    import io
 
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=92, exif=exif.tobytes())
@@ -118,7 +121,6 @@ def jpeg_with_exif(im, exif):
     ],
 )
 def test_a_malformed_edit_is_refused_naming_what_is_wrong(edit, match):
-    import json
 
     with pytest.raises(plan.EditError, match=match):
         plan.check_edit(json.dumps(edit))
@@ -126,7 +128,6 @@ def test_a_malformed_edit_is_refused_naming_what_is_wrong(edit, match):
 
 @budget(load="pure")
 def test_a_well_formed_edit_passes():
-    import json
 
     edit = {**NO_EDIT, "drop_pages": [0], "bands": [{"page": 1, "box": [0, 2, 10, 20]}], "join": [[2, 3]]}
     assert plan.check_edit(json.dumps(edit)) == edit
@@ -156,7 +157,6 @@ def test_cover_names_are_kept_or_prefixed_to_keep_the_order():
 
 @budget(load="pool")
 def test_2_pages_whose_names_share_a_stem_are_not_extracted(tmp_path):
-    from manga_pipeline import archive
 
     cbz = tmp_path / "c.cbz"
     archive.write(cbz, [("cover.jpg", jpeg(colour())), ("cover.png", png(gray()))])
@@ -465,7 +465,6 @@ BLANK = {**NO_EDIT, "blank": [{"page": 0, "box": BOX, "fill": FILL}]}
 
 def filled(path, box=BOX, fill=FILL):
     """Is box of the PNG at path exactly fill?"""
-    import numpy as np
 
     with Image.open(path) as im:
         a = np.asarray(im.convert("RGB"))
@@ -575,7 +574,6 @@ def test_a_blanked_page_keeps_its_alpha(tmp_path):
 
 @budget(load="pure")
 def test_a_luma_check_refuses_pages_that_differ_only_in_alpha():
-    import numpy as np
 
     page = gray()
     opaque = page.convert("LA")
@@ -605,7 +603,6 @@ def _matrix_gray():
 
 
 def _gray16():
-    import numpy as np
 
     a = np.asarray(_matrix_gray()).astype(np.uint16) * 257
     im = Image.fromarray(a)  # uint16 gray: Pillow's I;16
@@ -615,7 +612,6 @@ def _gray16():
 
 def _transparent(im):
     """im with rows 0-31 fully transparent over black and rows 32-47 half transparent (the matrix's with_alpha)."""
-    import numpy as np
 
     a = np.full(im.size[::-1], 255, np.uint8)
     rgb = np.asarray(im).copy()
@@ -736,9 +732,6 @@ def test_a_page_mode_gets_the_bulk_converters_lossless_and_avif_decisions(tmp_pa
 
 @budget(load="pure")
 def test_the_cover_width_is_the_most_common_non_cover_width_first_seen_on_a_tie():
-    from types import SimpleNamespace
-
-    from manga_pipeline.convert import covers
 
     def p(*pages):
         return SimpleNamespace(pages=[{"size": [w, 10], "cover": c} for w, c in pages])

@@ -9,8 +9,8 @@ from contextlib import closing
 import pytest
 from PIL import Image
 
+from manga_pipeline import cli, config, db, export, intake, process, retention, rewrite
 from manga_pipeline import comicinfo as comicinfo_xml
-from manga_pipeline import config, db, export, intake, process, retention, rewrite
 
 from tests.test_cover_rewrites import bulk_file, recorded_covers, refreshes
 from tests.test_rewrites import SERIES, crash_after, files, progress, read, scan
@@ -157,7 +157,6 @@ def test_a_busy_file_holds_the_copy_and_chapter_drop_lets_it_go(world):
     ((chapter_id, status, error),) = world.rows("SELECT id, status, last_error FROM chapter WHERE kind = 'download'")
     assert status == "needs_human"
     assert "busy" in error
-    from manga_pipeline import cli
 
     cli.chapter_drop(world.cfg, argparse.Namespace(chapter=chapter_id))
     assert not download.exists()

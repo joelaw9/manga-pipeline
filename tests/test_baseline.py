@@ -6,7 +6,7 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import config, db, intake, process
+from manga_pipeline import config, db, intake, process, state
 
 from tests.timing import budget
 from tests.world import World, cbz
@@ -131,7 +131,6 @@ def test_the_baseline_imports_the_junk_decisions_the_record_carries(world):
 
 @budget(load="db")
 def test_the_baseline_stores_the_records_probed_calibration_groups_and_a_reset_keeps_them(world):
-    from manga_pipeline import state
 
     at_junk(world)
     world.run(process)

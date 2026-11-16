@@ -10,7 +10,7 @@ from contextlib import closing
 import pytest
 from PIL import Image
 
-from manga_pipeline import config, db, export, images, intake, measures, process
+from manga_pipeline import config, db, export, images, intake, library_copy, measures, process, retention, workflow
 
 from tests import pages as fx
 from tests.fakes.suwayomi import page as fake_page
@@ -97,7 +97,6 @@ def test_an_equal_copy_is_a_duplicate_put_aside_whatever_its_source(world, sourc
 
 @budget(load="db")
 def test_a_lost_claim_puts_no_duplicate_aside(world, monkeypatch):
-    from manga_pipeline import library_copy, retention, workflow
 
     events, real_junk, real_put = [], library_copy._junk, retention.put
 

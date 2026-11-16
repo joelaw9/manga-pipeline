@@ -18,6 +18,9 @@ from tests.builders import site_cfg
 from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
+if sys.platform == "win32":
+    import _winapi
+
 
 def ok(cfg):
     return None
@@ -205,9 +208,7 @@ def test_example_folder_layout_passes():
 
 def dir_link(link, target):
     """A link to a folder that needs no privilege: a junction on Windows, a symlink elsewhere."""
-    if os.name == "nt":
-        import _winapi
-
+    if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:
         os.symlink(target, link, target_is_directory=True)

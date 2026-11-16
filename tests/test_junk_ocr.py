@@ -1,9 +1,10 @@
 """OCR of strip units and the keyword test (SPEC "Junk decisions", candidates; "Preflight", OCR device)."""
 
+import onnxruntime
 import pytest
 from PIL import Image, ImageDraw, ImageFont
 
-from manga_pipeline import config, preflight
+from manga_pipeline import cli, config, preflight
 from manga_pipeline.junk import ocr
 
 from tests.timing import budget
@@ -61,7 +62,6 @@ def test_ocr_device_check_passes_on_cpu():
 
 @budget(seconds=5.0)
 def test_ocr_device_check_fails_when_the_session_falls_back(monkeypatch):
-    import onnxruntime
 
     class FellBack:
         def __init__(self, *args, **kwargs):
@@ -78,7 +78,6 @@ def test_ocr_device_check_fails_when_the_session_falls_back(monkeypatch):
 
 @budget()
 def test_process_runs_the_ocr_device_check():
-    from manga_pipeline import cli
 
     assert preflight.OCR_DEVICE in cli.COMMANDS["process"].checks, "process checks its OCR device"
     assert preflight.OCR_DEVICE not in cli.COMMANDS["intake"].checks, "intake runs no OCR"

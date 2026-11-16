@@ -2,16 +2,19 @@
 
 import base64
 import secrets
+import shutil
 import sqlite3
 
 import numpy as np
 import pytest
 
 from manga_pipeline import cli, db, images, names
+from manga_pipeline.convert import record_reader
 from manga_pipeline.junk import candidates, frames, importing, marks, store
 
 from tests.builders import config_file, site_cfg
 from tests.timing import budget
+from tests.world import bulk_record
 
 T = 0x0123456789ABCDEF
 PIPELINE_SIGHTING = ("S", "block", "x", "a pipeline chapter", "2026-11-12T00:00:00+00:00", "pipeline")
@@ -413,7 +416,6 @@ def test_junk_import_command_prints_counts_and_refuses_with_exit_2(cfg, tmp_path
 
 
 def record_with_rows(schema=4):
-    from tests.world import bulk_record
 
     rec = bulk_record("S", 7, [])
     rec["schema"] = schema
@@ -506,7 +508,6 @@ def _number_tiles(rows):
 @budget(load="pure")
 @pytest.mark.parametrize("damage", [_no_key, _not_a_row, _number_tiles])
 def test_a_malformed_decision_row_is_a_record_that_does_not_parse(damage):
-    from manga_pipeline.convert import record_reader
 
     rec = record_with_rows()
     damage(rec["series"]["decisions"]["rows"]["junk"])
@@ -529,7 +530,6 @@ def _wrong_size(decisions):
 @budget(load="pure")
 @pytest.mark.parametrize("damage", [_unknown_template, _not_a_png, _wrong_size])
 def test_a_malformed_marks_row_is_a_record_that_does_not_parse(damage):
-    from manga_pipeline.convert import record_reader
 
     rec = record_with_rows()
     damage(rec["series"]["decisions"])
@@ -563,8 +563,6 @@ def test_sig_text_round_trip():
 
 @budget(load="db")
 def test_the_stores_sightings_count_toward_recurrence_and_import_once(conn, cfg, tmp_path):
-    from manga_pipeline import names
-    from manga_pipeline.junk import candidates
 
     bulk_store(tmp_path / "junk.sqlite3").close()
     counts = importing.run(conn, importing.read_store(tmp_path / "junk.sqlite3"))
@@ -667,7 +665,6 @@ def test_a_candidate_id_and_folder_follow_its_key_not_the_order_it_is_offered_in
 
 @budget(3.0, load="db")
 def test_step_0021_keeps_decisions_and_candidate_ids_and_allows_logos(tmp_path, monkeypatch):
-    import shutil
 
     cfg = site_cfg(tmp_path, built=False)
     before = tmp_path / "schema"
@@ -760,7 +757,6 @@ def test_a_unit_matching_a_decided_candidate_but_no_decision_gets_its_own_candid
 
 def schema_without(tmp_path, monkeypatch, step):
     """db.SCHEMA replaced by a copy without `step` (monkeypatch.undo() brings the program's back)."""
-    import shutil
 
     before = tmp_path / "schema"
     shutil.copytree(db.SCHEMA, before)

@@ -6,12 +6,12 @@ import os
 import shutil
 import sys
 from contextlib import closing
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 import yaml
 
-from manga_pipeline import cli, config, db, fleet, intake, process
+from manga_pipeline import cli, config, db, fleet, intake, preflight, process
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.junk import review, review_run
@@ -165,7 +165,6 @@ def test_claude_may_read_only_the_candidates_folder_and_run_3_junk_commands(worl
 
 @budget(load="pure")
 def test_review_checks_need_claude_and_its_token(tmp_path):
-    from manga_pipeline import preflight
 
     cfg = {
         **config.cached(),
@@ -218,7 +217,6 @@ def test_the_review_child_sees_the_reviews_set_values(world, tmp_path):
     [(r"F:\data\candidates", "//f/data/candidates"), ("/srv/manga/candidates", "//srv/manga/candidates")],
 )
 def test_an_absolute_rule_path_starts_with_two_slashes(path, want):
-    from pathlib import PurePosixPath, PureWindowsPath
 
     p = PureWindowsPath(path) if ":" in path else PurePosixPath(path)
     assert review_run.rule_path(p) == want, "Claude Code reads //path as absolute; F: becomes //f"

@@ -7,8 +7,9 @@ from datetime import datetime as real_datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
-from manga_pipeline import cli, config, db, handled, images, lock, notices, page_store, workflow
+from manga_pipeline import cli, config, db, handled, images, lock, notices, page_store, state, workflow
 from manga_pipeline.convert import calibrate
 from manga_pipeline.workflow import Failed, Waiting
 
@@ -330,7 +331,6 @@ def test_2_claims_of_1_chapter_never_share_a_scratch_folder_or_staged_file():
 
 def argv(cfg, tmp_path, *command):
     path = tmp_path / "config.yaml"
-    import yaml
 
     path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
     return ["--config", str(path), *command]
@@ -360,7 +360,6 @@ def test_a_command_with_locks_on_no_database_exits_4_and_creates_none(tmp_path, 
 
 @budget(load="db")
 def test_state_reset_holds_its_lock_until_its_folders_are_emptied(tmp_path, monkeypatch):
-    from manga_pipeline import state
 
     cfg = site_cfg(tmp_path)
     with closing(db.connect(cfg)) as conn:

@@ -16,7 +16,7 @@ import psycopg
 import pytest
 import yaml
 
-from manga_pipeline import config, db
+from manga_pipeline import cli, config, db
 
 from tests import pg
 from tests.timing import budget
@@ -603,7 +603,6 @@ def test_a_cli_run_with_a_production_config_fails_to_log_in(tmp_path, login):
 
 @budget(load="db")
 def test_a_bad_database_setting_exits_2_and_a_refused_login_exits_4(tmp_path, capsys):
-    from manga_pipeline import cli
 
     base = config.cached()  # cli.main replaces the cached config with the file's
 

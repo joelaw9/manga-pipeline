@@ -12,7 +12,7 @@ from manga_pipeline import cli, config, db, export, intake, process, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.metadata import check
-from manga_pipeline.stages import junk
+from manga_pipeline.stages import comicinfo, confirm, junk, publish
 
 from tests.builders import add_chapter, add_series, config_file, run_part
 from tests.timing import budget
@@ -247,7 +247,6 @@ def test_leftover_staged_files_are_not_taken_for_a_chapters_output(site):
 
 @budget(load="db", seconds=3)
 def test_an_export_stage_that_lost_its_claim_leaves_every_file_untouched(site):
-    from manga_pipeline.stages import comicinfo, confirm, publish
 
     download = site.download("Alpha", 2)
     run_part(site.cfg, intake)

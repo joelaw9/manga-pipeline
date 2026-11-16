@@ -14,6 +14,7 @@ Layout (classify_layout): `layout:` in the series overrides, else page geometry 
 disagreement.
 """
 
+import itertools
 import statistics
 from collections import Counter
 from dataclasses import dataclass
@@ -25,7 +26,6 @@ from numpy.lib.stride_tricks import sliding_window_view
 from PIL import Image
 
 from manga_pipeline import archive, db, images, volumes
-import itertools
 
 # The bulk converter's config.yaml.example `restitch:` and `slice_repair:` values (frozen: plans and tests depend on
 # them). A caller passes its own mapping to override them.

@@ -16,12 +16,12 @@ is its own unit). The watermark rule reads this chapter and the watermark keys t
 Constants are the bulk converter's, frozen: the stored decisions were made with them.
 """
 
+import itertools
 from collections import Counter
 
 import numpy as np
 
 from manga_pipeline import images, strip
-import itertools
 
 EDGE_PX = 6000  # edge region: the first and last rows of a strip whose blocks are junk units (old junk_edge_px)
 MAX_SEAM = strip.SLICE_REPAIR["max_seam_score"]  # hard-join threshold (slice_repair.max_seam_score)

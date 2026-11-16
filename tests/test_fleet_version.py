@@ -8,7 +8,8 @@ import yaml
 
 from manga_pipeline import config, db, fleet, preflight, workflow
 
-from tests.builders import adopted
+from tests.builders import add_chapter, add_series, adopted
+from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
 
@@ -74,7 +75,6 @@ def test_another_program_or_package_or_tool_version_stops_the_machine(cfg, monke
     monkeypatch.setattr(fleet, "_packages", lambda: {"pillow": "12.3.0"})
     assert "runtime packages" in problem(cfg), "an older Pillow changes junk scans"
     monkeypatch.undo()
-    from tests.fakes import convert as fake_convert
 
     monkeypatch.setattr(fleet, "_tools", lambda cfg: {**fake_convert.FAKE_TOOL_VERSIONS, "avifenc": "Version: 1.2.1"})
     assert "tools" in problem(cfg), "another avifenc version output"
@@ -99,7 +99,6 @@ def test_jpegtran_s_build_date_is_left_out_and_package_names_are_read_from_requi
 
 @budget(load="db")
 def test_a_winerror_59_share_drop_costs_no_attempt(cfg):
-    from tests.builders import add_chapter, add_series
 
     with closing(db.connect(cfg)) as conn:
         series_id = add_series(conn, "S")

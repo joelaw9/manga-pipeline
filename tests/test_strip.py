@@ -5,6 +5,7 @@ chapters (tests/fixtures_pages/junk/). Ported from the bulk converter's tests/te
 tests/test_segmentation.py (the tests of its junk modules are not ported)."""
 
 import base64
+import itertools
 import json
 import shutil
 from contextlib import closing
@@ -19,7 +20,6 @@ from manga_pipeline import db, images, strip
 from tests import pages as fx
 from tests.builders import add_series, site_cfg
 from tests.timing import budget
-import itertools
 
 RC, SC = strip.RESTITCH, strip.SLICE_REPAIR
 MAX_SEAM = SC["max_seam_score"]

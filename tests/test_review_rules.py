@@ -4,6 +4,7 @@ share is not "a file already gone", and junk review records an unreachable share
 
 import errno
 import os
+import shutil
 from contextlib import closing
 
 import pytest
@@ -18,7 +19,6 @@ from tests.world import World
 
 @budget(load="db", seconds=3)
 def test_a_database_holding_old_absolute_paths_is_refused(tmp_path, monkeypatch):
-    import shutil
 
     cfg = site_cfg(tmp_path, built=False)
     before = tmp_path / "schema"

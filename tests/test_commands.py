@@ -4,6 +4,7 @@
 import logging
 import os
 import shutil
+import sys
 from contextlib import closing
 
 import psycopg
@@ -19,6 +20,9 @@ from tests import pg
 from tests.builders import add_chapter, add_series, adopted, config_file, download, run_part, running, site_cfg
 from tests.timing import budget
 from tests.world import World, cbz
+
+if sys.platform == "win32":
+    import _winapi
 
 PARTS = ("intake", "process", "export", "junk-review")
 
@@ -217,9 +221,7 @@ def test_share_sentinel_stops_a_part_before_any_work(tmp_path, owner):
 
 def dir_link(link, target):
     """A link to a folder that needs no privilege: a junction on Windows, a symlink elsewhere."""
-    if os.name == "nt":
-        import _winapi
-
+    if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:
         os.symlink(target, link, target_is_directory=True)

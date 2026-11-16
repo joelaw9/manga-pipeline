@@ -9,11 +9,11 @@ chapter gets the volume the converter would give it (flat text heuristics, not a
 """
 
 import dataclasses
+import itertools
 from dataclasses import dataclass
 
 from manga_pipeline import names, volumes
 from manga_pipeline.metadata import episodes, platforms
-import itertools
 
 FILENAME, SEASON_TAGS, OVERRIDE, SIDE_DEFAULT = (
     volumes.FILENAME,

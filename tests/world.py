@@ -20,6 +20,7 @@ from tests.fakes.kavita import FakeKavita
 from tests.fakes.sources import fake_sources
 from tests.fakes.suwayomi import FakeSuwayomi
 from tests.fakes.suwayomi import page as fake_page
+from tests.pages import PAGE_FIX
 
 LIBRARY_ID = 4  # tests/test_config.yaml kavita.library_id
 
@@ -50,7 +51,6 @@ def cbz(pages=3, comicinfo=None, seed="", credit=False):
 def logo_page(badge="marks_scans_plain.png", size=(1200, 1800), at=(100, 100)):
     """A white page (PNG bytes) with a real scanlator badge crop (tests/fixtures_pages) pasted at `at`: a gray-mark
     page. 1200 x 1800 has the fake pages' aspect, so it is no other page size."""
-    from tests.pages import PAGE_FIX
 
     im = Image.new("RGB", size, "white")
     im.paste(Image.open(PAGE_FIX / badge).convert("RGB"), at)

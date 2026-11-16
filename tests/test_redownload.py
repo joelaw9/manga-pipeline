@@ -2,11 +2,17 @@
 suwayomi_download wait, against FakeSuwayomi."""
 
 import argparse
+import io
 import json
+import zipfile
+import zlib
+from contextlib import closing
 
+import numpy as np
 import pytest
+from PIL import Image
 
-from manga_pipeline import cli, config, intake, workflow
+from manga_pipeline import cli, config, db, images, intake, measures, redownload, status, workflow
 
 from tests.timing import budget
 from tests.world import World, cbz
@@ -439,7 +445,6 @@ def test_suwayomi_unreachable_on_the_way_to_the_next_source_resumes(world, monke
 
 @budget(load="db")
 def test_a_replacement_repeating_another_published_chapter_is_mislabelled(world):
-    from manga_pipeline import images, measures
 
     bad_download(world)
     copy = _textured_cbz("a copy of chapter 30")  # the mislabel check compares page pHashes: pages need content
@@ -463,9 +468,6 @@ def test_a_replacement_repeating_another_published_chapter_is_mislabelled(world)
 
 @budget(load="db")
 def test_status_lists_re_downloads_notes_and_the_commands_that_settle_a_chapter(world):
-    from contextlib import closing
-
-    from manga_pipeline import db, status
 
     bad_download(world)
     world.download(world.manga_id, "Chapter 23", data=_cbz_with(b"\x00 unknown format"))
@@ -483,8 +485,6 @@ def test_status_lists_re_downloads_notes_and_the_commands_that_settle_a_chapter(
 
 def _cbz_with_pages(*cbzs):
     """A CBZ whose pages are the first page of each of cbzs."""
-    import io
-    import zipfile
 
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
@@ -508,9 +508,6 @@ def test_the_path_rebuilt_for_a_download_is_where_suwayomi_wrote_it(world):
 
 
 def _target(world, chapter_id):
-    from contextlib import closing
-
-    from manga_pipeline import db, redownload
 
     with closing(db.connect(world.cfg)) as conn:
         return redownload.target(world.context(conn, "intake"), chapter_id)
@@ -518,12 +515,6 @@ def _target(world, chapter_id):
 
 def _textured_cbz(seed, pages=3):
     """A CBZ of noise pages (16 x 24): unlike the world's 1-colour pages, they have pHashes."""
-    import io
-    import zipfile
-    import zlib
-
-    import numpy as np
-    from PIL import Image
 
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
@@ -536,8 +527,6 @@ def _textured_cbz(seed, pages=3):
 
 
 def _cbz_with(page):
-    import io
-    import zipfile
 
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
@@ -549,7 +538,6 @@ class world_conn:
     """A connection with an open transaction, for a test's direct changes."""
 
     def __init__(self, world):
-        from manga_pipeline import db
 
         self.conn = db.connect(world.cfg)
         self.tx = db.transaction(self.conn)

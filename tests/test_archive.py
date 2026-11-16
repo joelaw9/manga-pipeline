@@ -2,6 +2,7 @@
 page order, page and ComicInfo members, sha1, the pages digest, and the store-mode writer with its member replace and
 test. Ported from the bulk converter's tests/test_formats.py and tests/test_record.py (pages digest)."""
 
+import errno
 import hashlib
 import zipfile
 
@@ -227,7 +228,6 @@ def test_write_leaves_no_part_file_and_replaces_dest(tmp_path):
 
 @budget(load="fs")
 def test_a_write_that_fails_leaves_no_part_file_and_dest_untouched(tmp_path):
-    import errno
 
     def members():
         yield MEMBERS[0]

@@ -4,12 +4,14 @@ every library series, storing ids, records and covers, holding a series whose id
 import io
 import json
 from contextlib import closing
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from PIL import Image
 
 from manga_pipeline import db, intake
 from manga_pipeline.clients import http
+from manga_pipeline.metadata import check
 
 from tests.timing import budget
 from tests.world import World
@@ -313,9 +315,6 @@ def test_the_sweep_never_links_a_series_out_of_scope(tmp_path):
     [(10, False, 7), (200, False, 30), (200, True, 30), (400, True, 365), (400, False, 30), (None, True, 365)],
 )
 def test_the_next_check_follows_the_last_published_update(tmp_path, last_days, complete, days):
-    from datetime import UTC, datetime, timedelta
-
-    from manga_pipeline.metadata import check
 
     cfg = World(tmp_path).cfg
     now = datetime(2026, 11, 1, tzinfo=UTC)

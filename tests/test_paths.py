@@ -4,6 +4,7 @@ another that mounts the share elsewhere and writes its roots otherwise."""
 
 import json
 import os
+import sys
 from contextlib import closing
 from pathlib import Path
 
@@ -17,6 +18,9 @@ from manga_pipeline.metadata import check
 from tests.builders import run_part
 from tests.timing import budget
 from tests.world import World
+
+if sys.platform == "win32":
+    import _winapi
 
 # Every stored path of the step 0 inventory (agent-workspace/progress/step0e-path-inventory.md, items 1-8).
 STORED = [
@@ -69,9 +73,7 @@ def test_a_path_under_no_root_and_a_stored_text_naming_none_are_refused(tmp_path
 
 def mount(target, link):
     """A second name for the share, as another machine mounts it."""
-    if os.name == "nt":
-        import _winapi
-
+    if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:
         os.symlink(target, link, target_is_directory=True)
