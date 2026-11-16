@@ -54,7 +54,8 @@ def test_every_library_series_gets_a_row_and_a_first_check_finding_nothing_compl
     sid = series_id(world, kavita_id)
     assert checks(world) == [(sid, 1, False)], "a check that found nothing completes: data version 0 -> 1"
     stored = world.rows("SELECT source, kind, payload IS NULL FROM fetched WHERE series_id = %s ORDER BY 1, 2", sid)
-    assert all(none for _, _, none in stored) and len(stored) == 6, "each source's kinds stored as not found"
+    assert all(none for _, _, none in stored), "each source's kinds stored as not found"
+    assert len(stored) == 6, "each source's kinds stored as not found"
     names = [c[2] for c in world.sources.calls if c[1] == "search"]
     assert "Solo Leveling" in names, "a source with no id is searched by the series' name"
     world.run(intake)
@@ -199,9 +200,8 @@ def test_the_cover_is_a_wide_thumbnail_else_mangadex_volume_1_in_english(world):
     world.run(intake)
     sid = series_id(world, kavita_id)
     url, path = world.rows("SELECT source_url, path FROM series_cover WHERE series_id = %s", sid)[0]
-    assert url == f"mangadex:{MD}/v1.png" and path.startswith("covers/series/"), (
-        "English volume 1 beats a thin thumbnail"
-    )
+    assert url == f"mangadex:{MD}/v1.png", "English volume 1 beats a thin thumbnail"
+    assert path.startswith("covers/series/"), "English volume 1 beats a thin thumbnail"
     world.suwayomi.thumbnails[manga] = png(1600)
     execute(world, "UPDATE series_check SET next_check_at = '2000-01-01T00:00:00+00:00'")
     world.run(intake)

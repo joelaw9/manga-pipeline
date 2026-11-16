@@ -33,7 +33,8 @@ def test_a_second_session_is_refused_a_held_lock_naming_it(cfg):
 def test_different_locks_are_held_at_once_and_freed_after_the_block(cfg):
     with closing(db.connect(cfg)) as a, closing(db.connect(cfg)) as b:
         with lock.held(a, cfg, ["process@one"]), lock.held(b, cfg, ["process@two"]):
-            assert held(cfg, a, "process@one") and held(cfg, a, "process@two"), "both machines' locks are seen"
+            assert held(cfg, a, "process@one"), "both machines' locks are seen"
+            assert held(cfg, a, "process@two"), "both machines' locks are seen"
         assert not held(cfg, a, "process@one"), "freed when the block ends"
         with lock.held(b, cfg, ["process@one"]):
             pass

@@ -94,11 +94,13 @@ def test_a_volume_edit_opening_a_covered_volume_inserts_its_cover_and_its_remova
     through(world)
     assert files(world) == ["Vol.1 Ch.1.cbz", "Vol.1 Ch.2.cbz", "Vol.2 Ch.3.cbz"]
     got, fields, _ = members(world, "Vol.2 Ch.3.cbz")
-    assert got[0].startswith("000_cover") and fields["Volume"] == "2", "a hand-given volume is covered"
+    assert got[0].startswith("000_cover"), "a hand-given volume is covered"
+    assert fields["Volume"] == "2", "a hand-given volume is covered"
     edit(world, {"3": {"volume": None}})
     through(world)
     got, fields, _ = members(world, "Ch.3.cbz")
-    assert not got[0].startswith("000_cover") and "Volume" not in fields, "back to no volume, its cover dropped"
+    assert not got[0].startswith("000_cover"), "back to no volume, its cover dropped"
+    assert "Volume" not in fields, "back to no volume, its cover dropped"
 
 
 @budget(load="db", seconds=60)
@@ -129,7 +131,8 @@ def test_a_malformed_edit_file_changes_nothing_and_names_every_problem(world):
         edit(world, {"9": {"title": "x"}, "S 3": {}, "2": {"volume": 1.5, "colour": "red"}, "1": {"title": " "}})
     problems = str(refused.value).splitlines()
     want = ("'S 3'", "colour", "1.5", "' '", "'9': no chapters")
-    assert len(problems) == 5 and all(any(w in p for p in problems) for w in want), problems
+    assert len(problems) == 5, problems
+    assert all(any(w in p for p in problems) for w in want), problems
     with pytest.raises(workflow.Refused) as refused:
         edit(world, {"9": {"title": "x"}})
     assert "'9': no chapters of the series match" in str(refused.value)

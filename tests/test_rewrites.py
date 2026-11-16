@@ -113,7 +113,8 @@ def test_a_rewrite_keeps_the_old_files_own_fields_and_pages_and_carries_the_seri
         assert all(new.read(n) == old.read(n) for n in pages), "pages copied byte for byte"
         fields = comicinfo_xml.read_all(new.read("ComicInfo.xml"))
     assert (fields["Volume"], fields["Number"], fields["Translator"]) == ("2", "2", "Grp"), "new volume, own fields"
-    assert fields["Manga"] and fields["Series"] == SERIES, "the series-level fields now"
+    assert fields["Manga"], "the series-level fields now"
+    assert fields["Series"] == SERIES, "the series-level fields now"
 
 
 def crash_after(monkeypatch, step, name):
@@ -172,7 +173,8 @@ def test_state_reset_mid_rewrite_loses_neither_the_file_nor_the_progress(world, 
         state.reset(world.cfg, conn)
     assert world.rows("SELECT count(*) FROM chapter") == [(0,)], "the rewrite chapters are gone"
     world.run(export)
-    assert "Vol.2 Ch.3.cbz" in files(world) and "Ch.3.cbz" not in files(world), "finished from its row"
+    assert "Vol.2 Ch.3.cbz" in files(world), "finished from its row"
+    assert "Ch.3.cbz" not in files(world), "finished from its row"
     scan(world)
     world.run(export)
     assert progress(world, kid)["Vol.2 Ch.3.cbz"][0] == 2, "the progress is restored"
@@ -257,7 +259,8 @@ def test_a_rewrite_kavita_never_re_reads_is_charged_to_the_limit(world):
         world.rows(f"UPDATE published_file SET indexed_since = '{old}' WHERE indexed_since IS NOT NULL RETURNING id")
         world.run(export)
     errors = world.rows("SELECT pending_error FROM published_file WHERE pending_error IS NOT NULL")
-    assert len(errors) == 2 and all("not re-read" in e for (e,) in errors), "past the limit: listed for a person"
+    assert len(errors) == 2, "past the limit: listed for a person"
+    assert all("not re-read" in e for (e,) in errors), "past the limit: listed for a person"
 
 
 @budget(load="db", seconds=30)
@@ -273,7 +276,8 @@ def test_naming_diff_lists_the_rewrites_and_the_differences_apart(world):
         (f"library/{SERIES}/Ch.3.cbz", None, "2", f"library/{SERIES}/Vol.2 Ch.3.cbz", None, None),
     ]
     assert (wants, unknown) == ([], False), "export's comparisons read the files' covers; no image to want"
-    assert apart == [] and edits == [], "no source volume to read again in a filename series; no hand edits"
+    assert apart == [], "no source volume to read again in a filename series; no hand edits"
+    assert edits == [], "no source volume to read again in a filename series; no hand edits"
     assert world.rows("SELECT count(*) FROM chapter WHERE kind = 'rewrite'") == [(0,)], "it writes nothing"
 
 

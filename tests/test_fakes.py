@@ -184,7 +184,8 @@ def test_a_requested_scan_changes_nothing_until_kavita_runs_it(kav, tmp_path):
     put(tmp_path, "Alpha/Ch.2.cbz", "Alpha")
     put(tmp_path, "Beta/Ch.1.cbz", "Beta")
     kav.scan_library(4)
-    assert names(kav, sid) == ["Ch.1.cbz"] and len(kav.series_in_library(4)) == 1, "SPEC 'Services': never awaited"
+    assert names(kav, sid) == ["Ch.1.cbz"], "SPEC 'Services': never awaited"
+    assert len(kav.series_in_library(4)) == 1, "SPEC 'Services': never awaited"
     assert kav.writes == [("scan_library", 4)]
     kav.run_scans()
     assert names(kav, sid) == ["Ch.1.cbz", "Ch.2.cbz"]
@@ -211,7 +212,8 @@ def test_a_series_whose_files_all_carry_another_name_is_deleted_and_recreated(ka
     sid = kav.add_series("Alpha", "Alpha")
     kav.scan_library(4)
     kav.run_scans()
-    assert kav.series(sid) is None and kav.volumes(sid) == [], "the series id is gone"
+    assert kav.series(sid) is None, "the series id is gone"
+    assert kav.volumes(sid) == [], "the series id is gone"
     [new] = kav.series_in_library(4)
     assert new["id"] != sid
     assert new["name"] == "Source Title"

@@ -112,7 +112,8 @@ def test_a_dead_machines_claims_are_freed_by_another_machines_next_claim(fleet):
     assert fleet.row(c1)["claimed_by"] == "process@a"
     fleet.vanish("a")
     taken = workflow.claim(b, ("junk",))
-    assert taken["id"] == c1 and taken["claimed_by"] == "process@b", "freed within the next claim, then taken"
+    assert taken["id"] == c1, "freed within the next claim, then taken"
+    assert taken["claimed_by"] == "process@b", "freed within the next claim, then taken"
     assert taken["attempts"] == 0, "freeing a dead claim costs no attempt"
 
 
@@ -123,9 +124,8 @@ def test_with_locks_off_no_claim_is_freed(fleet):
     a, b = fleet.machine("a", off), fleet.machine("b", off)
     workflow.claim(a, ("junk",))
     workflow.release_own_claims(b)
-    assert workflow.claim(b, ("junk",)) is None and fleet.row(c1)["claimed_by"] == "process@a", (
-        "with no run locks every owner would look dead: nothing is freed"
-    )
+    assert workflow.claim(b, ("junk",)) is None, "with no run locks every owner would look dead: nothing is freed"
+    assert fleet.row(c1)["claimed_by"] == "process@a", "with no run locks every owner would look dead: nothing is freed"
 
 
 @budget(load="db")

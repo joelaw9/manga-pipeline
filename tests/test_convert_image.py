@@ -74,8 +74,10 @@ def test_only_a_colour_encode_of_a_feedable_jpeg_feeds_the_jpeg():
 def test_jpeg_feed_and_gray_read_the_header():
     rgb = jpeg(colour())
     cmyk = jpeg(colour().convert("CMYK"))
-    assert pages.jpeg_feed(rgb) and pages.jpeg_gray(rgb), "a plain YCbCr JPEG is fed as is and can be grayed"
-    assert not pages.jpeg_feed(cmyk) and not pages.jpeg_gray(cmyk), "avifenc refuses CMYK; jpegtran cannot gray it"
+    assert pages.jpeg_feed(rgb), "a plain YCbCr JPEG is fed as is and can be grayed"
+    assert pages.jpeg_gray(rgb), "a plain YCbCr JPEG is fed as is and can be grayed"
+    assert not pages.jpeg_feed(cmyk), "avifenc refuses CMYK; jpegtran cannot gray it"
+    assert not pages.jpeg_gray(cmyk), "avifenc refuses CMYK; jpegtran cannot gray it"
     exif = Image.Exif()
     exif[0x0112] = 6
     turned = jpeg_with_exif(colour(), exif)
@@ -194,7 +196,8 @@ def test_gray_png_chapter_encodes_400_from_the_gray_reference(tmp_path):
     ch = Chapter(tmp_path, [("001.png", png(gray().convert("RGB")))])
     rec = ch.run(ch.plan())
     a = calls("avifenc")[0]
-    assert a[a.index("--yuv") + 1] == "400" and a[-2].endswith(".gray.png"), "gray pages: 4:0:0 of the gray version"
+    assert a[a.index("--yuv") + 1] == "400", "gray pages: 4:0:0 of the gray version"
+    assert a[-2].endswith(".gray.png"), "gray pages: 4:0:0 of the gray version"
     assert rec["gray"] is True
 
 
@@ -357,7 +360,8 @@ def test_strip_chapter_restitches_and_keeps_a_cover_page_first(tmp_path):
     assert names[0] == "000_cover.avif"
     assert names[1:] == [f"{n:03d}.avif" for n in range(1, len(names))]
     heights = [Image.open(ch.rendered_dir / f"{n:03d}.png").height for n in range(1, len(names))]
-    assert sum(heights) == 4200 and all(1500 <= h <= 5000 for h in heights), "cut into 1500-5000 px pages"
+    assert sum(heights) == 4200, "cut into 1500-5000 px pages"
+    assert all(1500 <= h <= 5000 for h in heights), "cut into 1500-5000 px pages"
 
 
 @budget(load="pool")
@@ -380,7 +384,8 @@ def test_a_split_chapter_is_cut_at_the_series_page_aspect(tmp_path):
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour((100, 280)))), ("002.jpg", jpeg(colour((100, 280), seed=3)))])
     p = ch.plan({**NO_EDIT, "split": True}, page_aspect=[1.4])
     rec = ch.run(p)
-    assert rec["reshape"]["kind"] == "split" and len(rec["output"]) == 4, "2 stitched pages of 2 pages each"
+    assert rec["reshape"]["kind"] == "split", "2 stitched pages of 2 pages each"
+    assert len(rec["output"]) == 4, "2 stitched pages of 2 pages each"
 
 
 @budget(load="pure")
@@ -388,7 +393,8 @@ def test_a_cover_inside_the_chapter_is_a_name_problem():
     names = pages.target_names([("a.jpg", images.JPEG), ("Ch1_cover.jpg", images.JPEG), ("b.jpg", images.JPEG)])
     assert pages.name_problems(names) == ["the renamed pages sort differently by natural and by plain order"]
     leading = pages.target_names([("cover.jpg", images.JPEG), ("a.jpg", images.JPEG)])
-    assert leading == ["000-cover.jpg", "001.jpg"] and pages.name_problems(leading) == [], "a leading cover is fine"
+    assert leading == ["000-cover.jpg", "001.jpg"], "a leading cover is fine"
+    assert pages.name_problems(leading) == [], "a leading cover is fine"
 
 
 @budget(load="fs")
@@ -501,7 +507,8 @@ def test_a_blanked_page_is_encoded_from_its_blanked_pixels_and_keeps_its_name_an
     blanked = ch.root / "blank" / "001.png"
     assert filled(blanked), "the box is filled with the fill colour"
     by_page = {Path(a[-1]).stem: a for a in calls("avifenc")}
-    assert by_page["001"][-2].endswith("001.ref.png") and "--ignore-exif" not in by_page["001"], "no JPEG feed"
+    assert by_page["001"][-2].endswith("001.ref.png"), "no JPEG feed"
+    assert "--ignore-exif" not in by_page["001"], "no JPEG feed"
     assert by_page["002"][-2].endswith("002.jpg"), "an unblanked page keeps its JPEG feed"
     first = rec["avif_pages"][0]
     assert (first["name"], first["bytes_in"], first["fmt"]) == ("001.jpg", len(data), image.RENDERED_FMT)
@@ -561,7 +568,8 @@ def test_a_blanked_page_keeps_its_alpha(tmp_path):
     p = ch.plan({**NO_EDIT, "blank": [{"page": 0, "box": BOX, "fill": FILL}]})
     blanked = image.blank_pages(p, ch.x, tmp_path / "blank")
     with Image.open(blanked["001.png"]) as out:
-        assert out.mode == "RGBA" and out.getchannel("A").getextrema() == (128, 128), "alpha kept"
+        assert out.mode == "RGBA", "alpha kept"
+        assert out.getchannel("A").getextrema() == (128, 128), "alpha kept"
     assert filled(blanked["001.png"])
 
 
@@ -705,7 +713,8 @@ def test_a_page_mode_gets_the_bulk_converters_lossless_and_avif_decisions(tmp_pa
     rec = ch.run(p)
     [enc] = calls("avifenc")
     fed = Path(enc[-2]).name
-    assert rec["outcome"] == "avif" and enc[enc.index("--yuv") + 1] == yuv, f"{mode}: AVIF at --yuv {yuv}"
+    assert rec["outcome"] == "avif", f"{mode}: AVIF at --yuv {yuv}"
+    assert enc[enc.index("--yuv") + 1] == yuv, f"{mode}: AVIF at --yuv {yuv}"
     assert fed == {"jpeg": name, "ref": "001.ref.png", "gray": "001.gray.png"}[reads], f"{mode}: avifenc reads {reads}"
     assert ("--ignore-exif" in enc) == (reads == "jpeg"), f"{mode}: only a fed JPEG has its EXIF ignored"
 

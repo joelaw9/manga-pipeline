@@ -85,11 +85,13 @@ def outcome(world):
 def test_an_equal_copy_is_a_duplicate_put_aside_whatever_its_source(world, source):
     path = through_junk(world, copies=[{"source": source}])
     stage, status, error = outcome(world)
-    assert (stage, status) == ("junk", "done") and error.startswith("dropped: a duplicate of the published"), (
+    assert (stage, status) == ("junk", "done"), "width, bits per pixel and junk decide; the source's rank does not"
+    assert error.startswith("dropped: a duplicate of the published"), (
         "width, bits per pixel and junk decide; the source's rank does not"
     )
     kept = config.abs_path(world.cfg["paths"]["retention"]) / "Src (EN)" / "Solo Leveling" / path.name
-    assert not path.exists() and kept.exists(), "removed the retention way"
+    assert not path.exists(), "removed the retention way"
+    assert kept.exists(), "removed the retention way"
     assert world.rows("SELECT outcome FROM handled_chapter WHERE outcome = 'duplicate'") == [("duplicate",)]
 
 
@@ -149,7 +151,8 @@ def test_a_better_copy_takes_its_file_and_goes_on(world, published, why):
 def test_a_copy_worse_on_any_measure_is_a_duplicate(world, published, why):
     through_junk(world, copies=[published])
     stage, status, error = outcome(world)
-    assert (stage, status) == ("junk", "done") and "a duplicate" in error, why
+    assert (stage, status) == ("junk", "done"), why
+    assert "a duplicate" in error, why
 
 
 @budget(load="db")
@@ -178,7 +181,10 @@ def test_another_season_with_the_same_number_is_no_copy(world):
 def test_an_equal_copy_of_a_bulk_file_leaves_it(world):
     through_junk(world, "Chapter 1")  # the bulk Ch.1.cbz: 3 pages of the same width, no stored measurements
     stage, status, error = outcome(world)
-    assert (stage, status) == ("junk", "done") and "a duplicate" in error, (
+    assert (stage, status) == ("junk", "done"), (
+        "measured from the library file; a bulk file is not ranked and its bits per pixel are not compared"
+    )
+    assert "a duplicate" in error, (
         "measured from the library file; a bulk file is not ranked and its bits per pixel are not compared"
     )
 
@@ -193,7 +199,10 @@ def test_a_published_file_gone_from_the_library_is_no_copy(world):
 def test_a_pipeline_copy_with_no_stored_original_is_measured_from_the_library_file(world):
     path = through_junk(world, copies=[{"pages_in": None, "width": None, "strip": None}])
     stage, status, error = outcome(world)
-    assert (stage, status) == ("junk", "done") and "a duplicate" in error, (
+    assert (stage, status) == ("junk", "done"), (
+        "3 pages of 16 px read from the file's headers: an equal copy from a lower-ranked source"
+    )
+    assert "a duplicate" in error, (
         "3 pages of 16 px read from the file's headers: an equal copy from a lower-ranked source"
     )
     assert not path.exists()
@@ -213,7 +222,10 @@ def test_a_library_file_whose_pages_are_bigger_than_a_header_read_is_measured(wo
     copy = {"pages_in": None, "width": None, "strip": None, "data": library_file.getvalue()}
     through_junk(world, copies=[copy])
     stage, status, error = outcome(world)
-    assert (stage, status) == ("junk", "done") and "a duplicate" in error, (
+    assert (stage, status) == ("junk", "done"), (
+        "the bulk converter's big AVIF pages are sized from their whole bytes: 3 pages, wider than the download's"
+    )
+    assert "a duplicate" in error, (
         "the bulk converter's big AVIF pages are sized from their whole bytes: 3 pages, wider than the download's"
     )
 
@@ -247,7 +259,8 @@ def test_the_same_volume_or_none_is_the_same_chapter(by_filename, name):
     by_filename.run(intake)
     by_filename.run(process)
     _stage, status, error = outcome(by_filename)
-    assert status == "done" and "a duplicate of the published" in error, "judged against Vol.1 Ch.3"
+    assert status == "done", "judged against Vol.1 Ch.3"
+    assert "a duplicate of the published" in error, "judged against Vol.1 Ch.3"
 
 
 def pages_cbz(path, seed):
@@ -278,7 +291,8 @@ def test_a_download_under_another_volume_with_that_chapters_pages_is_mislabelled
     world.download(world.manga_id, "Vol.2 Chapter 3", data=pages_cbz(tmp_path / "d.cbz", 200))
     world.run(intake)
     (status, error) = world.rows("SELECT status, last_error FROM chapter ORDER BY id")[1]
-    assert status == "needs_human" and error.startswith("mislabelled"), "Vol.2 Ch.3 holding Vol.1 Ch.3's pages"
+    assert status == "needs_human", "Vol.2 Ch.3 holding Vol.1 Ch.3's pages"
+    assert error.startswith("mislabelled"), "Vol.2 Ch.3 holding Vol.1 Ch.3's pages"
 
 
 @budget(load="db")
@@ -286,7 +300,8 @@ def test_a_volume_that_is_not_whole_needs_a_human_at_validate(by_filename):
     by_filename.download(by_filename.manga_id, "Vol.2.5 Chapter 3")
     by_filename.run(intake)
     stage, status, error = outcome(by_filename)
-    assert (stage, status) == ("validate", "needs_human") and "not a whole number" in error, "a person, not an error"
+    assert (stage, status) == ("validate", "needs_human"), "a person, not an error"
+    assert "not a whole number" in error, "a person, not an error"
 
 
 @budget(load="db")

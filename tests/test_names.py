@@ -460,10 +460,13 @@ def test_identity_agrees_across_spellings(a, b):
 
 @budget(load="pure")
 def test_a_number_with_2_readings_keeps_its_digits_in_the_identity():
-    assert '"26.10"' in identity("Chapter 26.10") and '"26.10"' in identity("Chapter 026-10"), "as written, not 26.1"
+    assert '"26.10"' in identity("Chapter 26.10"), "as written, not 26.1"
+    assert '"26.10"' in identity("Chapter 026-10"), "as written, not 26.1"
     assert identity("Chapter 26.10") != identity("Chapter 26.1"), "never the identity of the shorter decimal"
-    assert '"3"' in identity("Chapter 3.0") and '"26.5"' in identity("Chapter 26.5"), "numbers with 1 reading as before"
-    assert names.two_readings("26.10") and names.two_readings("17.50"), "a decimal part ending in 0"
+    assert '"3"' in identity("Chapter 3.0"), "numbers with 1 reading as before"
+    assert '"26.5"' in identity("Chapter 26.5"), "numbers with 1 reading as before"
+    assert names.two_readings("26.10"), "a decimal part ending in 0"
+    assert names.two_readings("17.50"), "a decimal part ending in 0"
     assert [names.two_readings(n) for n in ("26.1", "3.0", "10", "100.5", None)] == [None] * 5
 
 

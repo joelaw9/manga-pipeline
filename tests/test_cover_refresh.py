@@ -73,7 +73,8 @@ def test_a_new_image_at_mangadex_replaces_the_stored_one_and_the_files_cover(wor
     mangadex(world, "b.png", png(900, colour=(20, 160, 60)))
     check_now(world)
     ((_, url, second),) = stored(world)
-    assert url.endswith("/b.png") and second != first, "the check fetched MangaDex's new choice"
+    assert url.endswith("/b.png"), "the check fetched MangaDex's new choice"
+    assert second != first, "the check fetched MangaDex's new choice"
     assert states(world)["library/Solo Leveling/Vol.2 Ch.3.cbz"] == "stale:2", "the file holds the old image"
     world.run(export)
     world.run(process)
@@ -157,7 +158,8 @@ def test_the_stored_image_stays_unless_mangadex_serves_a_new_choice(world, monke
         else:
             answer(world, 404 if case == "not-served" else 503)
     check_now(world)
-    assert lists_read(world) > lists and refreshed == [series_id(world)], "the check read the list and refreshed"
+    assert lists_read(world) > lists, "the check read the list and refreshed"
+    assert refreshed == [series_id(world)], "the check read the list and refreshed"
     assert stored(world) == before, "the stored image stays"
     assert ("volume 2 cover not refreshed" in caplog.text) is tried, "b.png tried only when it is the new choice"
     assert due_now(world) is due, "MangaDex down: the series' check is due again; a refused file waits for the next"

@@ -122,7 +122,8 @@ def test_frames_match_by_their_own_rule(conn):
 def test_near_finds_an_approved_signature_of_any_series_but_not_one_that_decides(conn):
     put(conn, decision("Other", "block", sig(), "junk"))
     hit = store.near(conn, "S", ((flip(T, 8),), 1.05))
-    assert hit is not None and hit[1] == 8, "another series' approval 8 bits away is near"
+    assert hit is not None, "another series' approval 8 bits away is near"
+    assert hit[1] == 8, "another series' approval 8 bits away is near"
     assert store.near(conn, "S", ((flip(T, 9),), 1.0)) is None, "9 bits is not near"
     put(conn, decision("S", "block", sig((flip(T, 8),)), "junk"))
     assert store.near(conn, "S", ((flip(T, 8),), 1.0)) is None, "a decision that applies and matches decides: no near"
@@ -136,7 +137,8 @@ def test_a_pipeline_decision_is_never_overwritten_by_an_import(conn):
     put(conn, decision("S", "block", sig(), "keep", decider="claude", at="2026-11-01T00:00:00+00:00"))
     counts = put(conn, decision("S", "block", sig(), "junk", at="2026-12-01T00:00:00+00:00"))
     row = conn.execute("SELECT verdict, decider FROM junk_decision").fetchone()
-    assert tuple(row) == ("keep", "claude") and counts["unchanged"] == 1, "a newer import leaves claude's row"
+    assert tuple(row) == ("keep", "claude"), "a newer import leaves claude's row"
+    assert counts["unchanged"] == 1, "a newer import leaves claude's row"
 
 
 @budget(load="db")
@@ -238,7 +240,8 @@ def test_bulk_store_import_maps_verdicts_scope_and_kinds_and_reads_the_wal(conn,
         (r["series_key"], r["kind"]): r
         for r in conn.execute("SELECT * FROM junk_decision WHERE key != %s", (chained_key,))
     }
-    assert counts["added"] == 8 and counts["skipped"] == {"cut": 1, "chain": 1, "unsignable": 0}, counts
+    assert counts["added"] == 8, counts
+    assert counts["skipped"] == {"cut": 1, "chain": 1, "unsignable": 0}, counts
     chained = conn.execute("SELECT verdict FROM junk_decision WHERE key = %s", (chained_key,)).fetchone()
     assert chained["verdict"] == "junk", "a chained block approve comes over as a plain decision, its chain dropped"
     assert rows[("S", "block")]["verdict"] == "junk", "approve -> junk"
@@ -250,7 +253,8 @@ def test_bulk_store_import_maps_verdicts_scope_and_kinds_and_reads_the_wal(conn,
     assert rows[("", "logo")]["verdict"] == "junk", "a global mark approval comes over as a global logo junk"
     assert rows[("S", "logo")]["verdict"] == "keep", "a series mark keep stays the series'"
     back = store.parse_key("logo", rows[("", "logo")]["key"])
-    assert back.size == (40, 20) and marks.same_variant(back, logo()), "the key is the stored template"
+    assert back.size == (40, 20), "the key is the stored template"
+    assert marks.same_variant(back, logo()), "the key is the stored template"
     assert all(r["decider"] == "import" for r in rows.values()), "decider import"
 
 
@@ -296,8 +300,10 @@ def test_a_decision_the_bulk_converter_deleted_or_changed_is_followed(conn, cfg,
         (r["series_key"], r["kind"]): r["verdict"]
         for r in conn.execute("SELECT * FROM junk_decision WHERE key != %s", (sig((flip(T, 50),)),))
     }
-    assert ("", "probe") not in rows and counts["removed"] == 1, "a decision the bulk converter dropped disappears"
-    assert rows[("S", "block")] == "keep" and counts["changed"] == 1, "a changed one changes"
+    assert ("", "probe") not in rows, "a decision the bulk converter dropped disappears"
+    assert counts["removed"] == 1, "a decision the bulk converter dropped disappears"
+    assert rows[("S", "block")] == "keep", "a changed one changes"
+    assert counts["changed"] == 1, "a changed one changes"
     origins = sorted(r[0] for r in conn.execute("SELECT origin FROM junk_seen"))
     assert origins == ["import", "import", "pipeline"], "the pipeline's own sightings survive the rebuild"
 
@@ -318,10 +324,10 @@ def test_the_logo_import_is_rebuilt_and_leaves_pipeline_logo_decisions(conn, cfg
         (r["series_key"], r["key"]): (r["verdict"], r["decider"])
         for r in conn.execute("SELECT * FROM junk_decision WHERE kind = 'logo'")
     }
-    assert ("", global_key) not in rows and counts["removed"] == 1, "a mark the bulk converter dropped disappears"
-    assert rows[("S", logo(90, 60).key_text())] == ("junk", "import") and counts["changed"] == 1, (
-        "a changed one changes"
-    )
+    assert ("", global_key) not in rows, "a mark the bulk converter dropped disappears"
+    assert counts["removed"] == 1, "a mark the bulk converter dropped disappears"
+    assert rows[("S", logo(90, 60).key_text())] == ("junk", "import"), "a changed one changes"
+    assert counts["changed"] == 1, "a changed one changes"
     assert rows[("S", global_key)] == ("keep", "claude"), "the pipeline's own logo decision survives"
     change_store(store_path, "UPDATE marks SET superseded = NULL WHERE series IS NULL")
     change_store(
@@ -332,7 +338,8 @@ def test_the_logo_import_is_rebuilt_and_leaves_pipeline_logo_decisions(conn, cfg
     )
     counts = importing.run(conn, importing.read_store(store_path))
     row = conn.execute("SELECT * FROM junk_decision WHERE series_key = 'S' AND key = %s", (global_key,)).fetchone()
-    assert row["decider"] == "claude" and counts["pipeline_kept"] == 1, "a source row on the pipeline's key stays out"
+    assert row["decider"] == "claude", "a source row on the pipeline's key stays out"
+    assert counts["pipeline_kept"] == 1, "a source row on the pipeline's key stays out"
 
 
 @budget(load="db")
@@ -569,7 +576,8 @@ def test_the_stores_sightings_count_toward_recurrence_and_import_once(conn, cfg,
     )
     first = sorted(map(tuple, conn.execute("SELECT * FROM junk_seen")))
     again = importing.run(conn, importing.read_store(tmp_path / "junk.sqlite3"))
-    assert again["seen"] == 2 and sorted(map(tuple, conn.execute("SELECT * FROM junk_seen"))) == first, (
+    assert again["seen"] == 2, "a second import rebuilds the same sightings, first seen before any pipeline scan"
+    assert sorted(map(tuple, conn.execute("SELECT * FROM junk_seen"))) == first, (
         "a second import rebuilds the same sightings, first seen before any pipeline scan"
     )
 
@@ -648,7 +656,8 @@ def test_a_candidate_id_and_folder_follow_its_key_not_the_order_it_is_offered_in
             [{**pick, "key": other, "folder": "f-2"}, {**pick, "key": sig((flip(T, 2),)), "folder": "f-3"}],
             "2026-11-02T00:00:00+00:00",
         )
-    assert first in both and len(both) == 2, "a matching key joins its candidate, wherever it is listed"
+    assert first in both, "a matching key joins its candidate, wherever it is listed"
+    assert len(both) == 2, "a matching key joins its candidate, wherever it is listed"
     row = conn.execute("SELECT folder FROM junk_candidate WHERE id = %s", (first,)).fetchone()
     assert row[0] == "f-1", "the row names the folder its images were written to"
     assert candidates.folder_name("S", "block", a, {"id": 7, "claim_count": 2}).endswith("-7-2"), (
@@ -717,7 +726,8 @@ def test_a_decision_on_an_unsignable_key_is_refused(conn):
 def test_an_import_leaves_out_a_decision_on_an_unsignable_key_and_counts_it(conn):
     rows = [decision("S", "block", sig((FLAT,)), "junk"), decision("S", "block", sig(), "junk")]
     counts = importing.run(conn, (rows, {}, None))
-    assert counts["added"] == 1 and counts["skipped"] == {"unsignable": 1}, counts
+    assert counts["added"] == 1, counts
+    assert counts["skipped"] == {"unsignable": 1}, counts
     assert [r[0] for r in conn.execute("SELECT key FROM junk_decision")] == [sig()], "only the signable one is stored"
 
 
@@ -784,7 +794,8 @@ def test_step_0042_deletes_decisions_and_candidates_on_unsignable_keys(tmp_path,
     conn.close()
     step = (db.SCHEMA / "0042_unsignable_keys.sql").read_text(encoding="utf-8")
     tiles = images.uniform_tiles()
-    assert len(tiles) == 2 and all(f"{t:016x}" in step for t in tiles), "the step names the computed uniform tiles"
+    assert len(tiles) == 2, "the step names the computed uniform tiles"
+    assert all(f"{t:016x}" in step for t in tiles), "the step names the computed uniform tiles"
 
 
 @budget(3.0, load="db")

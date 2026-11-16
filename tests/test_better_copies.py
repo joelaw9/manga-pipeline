@@ -129,7 +129,8 @@ def test_a_lower_rated_copy_of_an_uncensored_file_is_a_duplicate(world, name):
     copy(world, name=name, width=40)
     through(world)
     ((stage, status, error),) = world.rows("SELECT stage, status, last_error FROM chapter WHERE kind = 'download'")
-    assert (stage, status) == ("junk", "done") and "a duplicate" in error, "wider, but a lower rating"
+    assert (stage, status) == ("junk", "done"), "wider, but a lower rating"
+    assert "a duplicate" in error, "wider, but a lower rating"
     assert row(world)["origin"] == "bulk"
 
 
@@ -143,7 +144,8 @@ def test_a_copy_takes_its_files_own_cover_page_when_no_image_is_stored(world):
     assert row(world)["origin"] == "pipeline", "replaced by the copy"
     with zipfile.ZipFile(world.library / SERIES / "Vol.1 Ch.2.cbz") as z:
         names = z.namelist()
-    assert names[0].startswith("000_cover.") and row(world)["cover_state"] == "volume:1", "a chapter keeps its cover"
+    assert names[0].startswith("000_cover."), "a chapter keeps its cover"
+    assert row(world)["cover_state"] == "volume:1", "a chapter keeps its cover"
 
 
 @budget(load="db", seconds=10)
@@ -199,7 +201,8 @@ def test_a_dropped_copy_replacement_leaves_the_file_and_records_the_copy_dropped
     ((file_id,),) = world.rows("SELECT id FROM published_file WHERE pending_copy IS NOT NULL")
     with closing(db.connect(world.cfg)) as conn:
         rewrite.drop(conn, file_id, world.cfg["workflow"]["attempt_limit"])
-    assert row(world)["origin"] == "bulk" and row(world)["pending_copy"] is None, "the file stays as it is"
+    assert row(world)["origin"] == "bulk", "the file stays as it is"
+    assert row(world)["pending_copy"] is None, "the file stays as it is"
     assert world.rows(
         "SELECT outcome FROM handled_chapter WHERE identity = (SELECT identity FROM chapter WHERE kind = 'download')"
     ) == [("dropped",)], "the copy is recorded dropped, not published"

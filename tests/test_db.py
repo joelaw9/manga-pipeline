@@ -54,7 +54,8 @@ def test_new_database_has_every_table_and_an_id(tmp_path):
         assert want <= tables(conn), "step 0001 builds the skeleton's tables"
         assert set(db.WORKFLOW_TABLES) <= tables(conn), "state reset empties tables that exist"
         identity = db.database_id(conn)
-        assert len(identity) == 32 and set(identity) <= set("0123456789abcdef"), "the id is 32 hex characters"
+        assert len(identity) == 32, "the id is 32 hex characters"
+        assert set(identity) <= set("0123456789abcdef"), "the id is 32 hex characters"
         assert not db.in_transaction(conn), "no transaction is left open after connect"
 
 
@@ -354,7 +355,8 @@ def test_rows_are_equal_as_sqlite3_rows_are(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
         one, same = (conn.execute("SELECT 1 AS a, 2 AS b").fetchone() for _ in range(2))
         renamed = conn.execute("SELECT 1 AS a, 2 AS c").fetchone()
-    assert one == same and hash(one) == hash(same), "same columns and values: equal"
+    assert one == same, "same columns and values: equal"
+    assert hash(one) == hash(same), "same columns and values: equal"
     assert one != renamed, "other column names: not equal"
     assert one != (1, 2), "a row is not equal to a tuple"
 
@@ -458,7 +460,8 @@ def test_a_database_left_dirty_by_a_dead_process_is_made_right_by_the_next(own_p
     try:
         assert nxt.slots == [name], "the freed database is taken again"
         with closing(db.connect(pg.cfg_for(name))) as conn:
-            assert "stray" not in tables(conn) and step_names(conn) == SHIPPED_STEPS, "rebuilt"
+            assert "stray" not in tables(conn), "rebuilt"
+            assert step_names(conn) == SHIPPED_STEPS, "rebuilt"
             assert conn.execute("SELECT count(*) FROM series").fetchone()[0] == 0
             assert db.database_id(conn) != old_id
     finally:
@@ -579,7 +582,8 @@ def _cli_status(tmp_path, cfg):
 @budget(load="subprocess")
 def test_a_cli_run_with_no_config_reaches_no_database(tmp_path):
     done = _cli_status(tmp_path, None)
-    assert done.returncode == 2 and "config" in done.stderr, "no config: a config error before any login"
+    assert done.returncode == 2, "no config: a config error before any login"
+    assert "config" in done.stderr, "no config: a config error before any login"
 
 
 @budget(load="subprocess")

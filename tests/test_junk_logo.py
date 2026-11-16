@@ -58,10 +58,15 @@ def every(logo):
 @budget(0.5, load="pure")
 def test_a_gray_mark_page_gives_its_logo_and_a_colour_page_none():
     got = logo_units.measure(3, page_rgb())
-    assert got["page"] == 3 and got["ring_frac"] >= marks.RING_FRAC, "the plain-margin badge is a blankable logo"
+    assert got["page"] == 3, "the plain-margin badge is a blankable logo"
+    assert got["ring_frac"] >= marks.RING_FRAC, "the plain-margin badge is a blankable logo"
     (x0, y0, x1, y1), (tx0, ty0, tx1, ty1) = got["box"], got["tight"]
-    assert 100 <= tx0 < tx1 <= 337 and 100 <= ty0 < ty1 <= 197, "the tight box lies in the pasted crop (237 x 97)"
-    assert x0 < tx0 and y0 < ty0 and tx1 < x1 and ty1 < y1, "the padded box surrounds it"
+    assert 100 <= tx0 < tx1 <= 337, "the tight box lies in the pasted crop (237 x 97)"
+    assert 100 <= ty0 < ty1 <= 197, "the tight box lies in the pasted crop (237 x 97)"
+    assert x0 < tx0, "the padded box surrounds it"
+    assert y0 < ty0, "the padded box surrounds it"
+    assert tx1 < x1, "the padded box surrounds it"
+    assert ty1 < y1, "the padded box surrounds it"
     assert marks.Template.from_key(got["template"]).size == tuple(np.subtract(got["tight"][2:], got["tight"][:2])), (
         "the template is the tight box"
     )
@@ -149,8 +154,10 @@ def test_review_images_show_the_badge_before_and_after_its_blank_and_the_page():
     page = page_rgb()
     g = logo_units.measure(3, page)
     unit, context = logo_units.review_images(page, g)
-    assert unit.height == logo_units.UNIT_HEIGHT and context is page, "the unit image, then the page"
+    assert unit.height == logo_units.UNIT_HEIGHT, "the unit image, then the page"
+    assert context is page, "the unit image, then the page"
     half = (unit.width - logo_units.GAP) // 2
     before, after = np.asarray(unit)[:, :half], np.asarray(unit)[:, half + logo_units.GAP :]
     spread = lambda a: (a.max(axis=2).astype(int) - a.min(axis=2)).max()  # noqa: E731
-    assert spread(before) > marks.STRONG and spread(after) <= marks.STRONG, "the badge is gone after its blank"
+    assert spread(before) > marks.STRONG, "the badge is gone after its blank"
+    assert spread(after) <= marks.STRONG, "the badge is gone after its blank"

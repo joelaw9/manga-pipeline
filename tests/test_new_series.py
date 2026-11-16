@@ -100,7 +100,8 @@ def test_a_fuzzy_near_hit_is_held_and_series_new_admits_it(world):
     world.download(world.manga("Solo Levelling"), "Chapter 1")
     world.run(intake)
     ((sid, status, reason),) = world.rows("SELECT id, status, status_reason FROM series WHERE origin = 'new'")
-    assert status == "needs_human" and "nearly matches: Solo Leveling" in reason, "ratio >= 90 is a near hit (D7.18)"
+    assert status == "needs_human", "ratio >= 90 is a near hit (D7.18)"
+    assert "nearly matches: Solo Leveling" in reason, "ratio >= 90 is a near hit (D7.18)"
     assert world.rows("SELECT status FROM chapter") == [("ready",)], "its chapter is recorded and held"
     with closing(db.connect(world.cfg)) as conn, pytest.raises(workflow.Refused, match="series new"):
         workflow.retry_series(conn, sid)

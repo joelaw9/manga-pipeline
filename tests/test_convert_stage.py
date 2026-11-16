@@ -320,7 +320,8 @@ def test_samples_failing_at_q80_are_not_counted(site):
     for n in range(3):
         site.record(site.run(site.chapter(series_id, pages(7, seed=n))))
     row = calibration(site, series_id)["colour"]
-    assert len(row["samples"]) == 21 and row["fixed"] == 0, "18 counted samples are not enough to fix the group"
+    assert len(row["samples"]) == 21, "18 counted samples are not enough to fix the group"
+    assert row["fixed"] == 0, "18 counted samples are not enough to fix the group"
 
 
 @budget(load="pure")
@@ -372,7 +373,8 @@ def test_a_strip_chapter_is_restitched_with_its_removed_rows_cut_out(site):
     out = json.loads(chapter(site.conn, chapter_id)["output_pages"])
     assert result["route"] == "rendered-avif"
     assert result["reshape"]["kind"] == "restitch"
-    assert out[0]["name"] == "000_cover.avif" and out[0]["height"] == 300, "the cover page stays a page of its own"
+    assert out[0]["name"] == "000_cover.avif", "the cover page stays a page of its own"
+    assert out[0]["height"] == 300, "the cover page stays a page of its own"
     assert sum(p["height"] for p in out[1:]) == 3900, "the strip without its removed 300 rows"
 
 
@@ -484,7 +486,10 @@ def test_a_strip_edit_removing_every_row_needs_a_human(site):
     edit = {**NO_EDIT, "strip_removed": [{"start": 0, "end": 4200, "why": "credits"}]}
     chapter_id = site.chapter(site.series(layout="strip"), members, edit=edit)
     outcome = site.run(chapter_id)
-    assert isinstance(outcome, workflow.NeedsHuman) and outcome.reason == "the chapter edit drops every page", (
+    assert isinstance(outcome, workflow.NeedsHuman), (
+        "removed rows covering the whole strip leave no page: needs_human at once, no attempt spent"
+    )
+    assert outcome.reason == "the chapter edit drops every page", (
         "removed rows covering the whole strip leave no page: needs_human at once, no attempt spent"
     )
     assert not site.scratch(chapter_id).exists()
@@ -545,7 +550,8 @@ def test_a_chapter_feeds_both_groups_and_a_rendered_chapter_samples_its_rendered
         site.chapter(strip_series, [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=60 + i))) for i in range(1, 4)])
     )
     samples = calibration(site, strip_series)["colour"]["samples"]
-    assert samples and all(s["rendered"] for s in samples), "a rendered chapter samples its rendered pages"
+    assert samples, "a rendered chapter samples its rendered pages"
+    assert all(s["rendered"] for s in samples), "a rendered chapter samples its rendered pages"
 
 
 @budget(load="pool")
@@ -614,7 +620,8 @@ def test_a_process_start_deletes_a_day_old_part_file(site):
         path.write_bytes(b"x")
     os.utime(old, (old.stat().st_atime - 2 * 86400, old.stat().st_mtime - 2 * 86400))
     process.clean_staging(site.ctx)
-    assert not old.exists() and fresh.exists(), "a killed archive write's .part goes once a day old, as a .cbz does"
+    assert not old.exists(), "a killed archive write's .part goes once a day old, as a .cbz does"
+    assert fresh.exists(), "a killed archive write's .part goes once a day old, as a .cbz does"
 
 
 @budget(load="db")
@@ -679,7 +686,8 @@ def test_a_blanked_rendered_chapter_samples_its_unblanked_render_and_records_the
     chapter_id = site.chapter(site.series(), pages(2), edit=edit)
     outcome = site.run(chapter_id)
     site.record(outcome)
-    assert seen and set(seen) == {"render"}, "calibration samples come from the unblanked render"
+    assert seen, "calibration samples come from the unblanked render"
+    assert set(seen) == {"render"}, "calibration samples come from the unblanked render"
     result = json.loads(chapter(site.conn, chapter_id)["convert_result"])
     assert (result["outcome"], result["blanked"]) == ("avif", ["002.jpg"])
 
@@ -722,7 +730,8 @@ def test_a_volume_cover_goes_in_first_as_avif_at_the_page_width_and_bw_ignores_i
     assert result["cover"]["format"] == "AVIF"
     assert result["cover"]["volume"] == "1"
     assert result["cover_skipped"] is None
-    assert result["pages_out"] == 3 and result["gray"] is True, "a colour cover leaves a gray chapter gray"
+    assert result["pages_out"] == 3, "a colour cover leaves a gray chapter gray"
+    assert result["gray"] is True, "a colour cover leaves a gray chapter gray"
 
 
 @budget(load="pool")
@@ -865,7 +874,8 @@ def test_a_blanked_rendered_chapter_of_a_fixed_series_is_rendered_once(site, mon
         "blank": [{"page": 1, "box": [10, 10, 40, 30], "fill": [200, 30, 30]}],
     }
     result, _ = staged_result(site, site.chapter(series_id, pages(2), edit=edit))
-    assert renders == ["render-blanked"] and result["blanked"] == ["002.jpg"], "no group wants samples: 1 render"
+    assert renders == ["render-blanked"], "no group wants samples: 1 render"
+    assert result["blanked"] == ["002.jpg"], "no group wants samples: 1 render"
 
 
 BLANKED_RENDER_EDIT = {
@@ -911,7 +921,8 @@ def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(sit
     monkeypatch.setattr(image, "render", lambda p, src, out: renders.append(out.name) or real_render(p, src, out))
     result, _ = staged_result(site, site.chapter(site.series(), pages(2), edit=BLANKED_RENDER_EDIT))
     assert renders == ["render", "render-blanked"], "an open group wants samples: the unblanked render is made too"
-    assert encoded and set(encoded) == {"render-blanked"}, "the staged pages are encoded from the blanked render"
+    assert encoded, "the staged pages are encoded from the blanked render"
+    assert set(encoded) == {"render-blanked"}, "the staged pages are encoded from the blanked render"
     assert result["blanked"] == ["002.jpg"]
 
 
@@ -943,7 +954,8 @@ def test_a_dropped_share_while_reading_a_cover_reaches_the_caller_and_a_missing_
         return
     with pytest.raises(FileNotFoundError) as e:
         covers.load(site.cfg, row)
-    assert e.value is error and errors.dropped_share(e.value), (
+    assert e.value is error, "a dropped share reaches workflow.share_errors as it is, to become Unreachable('share')"
+    assert errors.dropped_share(e.value), (
         "a dropped share reaches workflow.share_errors as it is, to become Unreachable('share')"
     )
 
@@ -954,7 +966,8 @@ def test_a_gray_chapter_whose_colour_cover_page_is_replaced_stays_gray(site):
     chapter_id = site.chapter(site.series(), members)
     add_cover(site, chapter_id, COVER)
     result, _ = staged_result(site, chapter_id)
-    assert result["cover"] and result["gray"] is True, "neither the cover nor the page it replaces counts"
+    assert result["cover"], "neither the cover nor the page it replaces counts"
+    assert result["gray"] is True, "neither the cover nor the page it replaces counts"
 
 
 @budget(load="pool")
@@ -969,7 +982,8 @@ def test_a_strip_chapter_takes_the_cover_in_place_of_its_own(site):
     assert result["route"] == "rendered-avif"
     assert names[0] == "000_cover.avif"
     assert names.count("000_cover.avif") == 1
-    assert out[0]["width"] == 200 and result["pages_out"] == len(names), "the cover at the strip's page width"
+    assert out[0]["width"] == 200, "the cover at the strip's page width"
+    assert result["pages_out"] == len(names), "the cover at the strip's page width"
 
 
 @budget(load="pool")

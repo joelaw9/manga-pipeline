@@ -296,7 +296,8 @@ def test_a_wanted_cover_failing_to_the_limit_is_listed_and_no_longer_fetched(wor
     for _ in range(4):
         world.run(intake)
     ((attempts, error),) = world.rows("SELECT attempts, last_error FROM volume_cover_wanted")
-    assert attempts == 3 and "not an image" in error, "3 attempts (workflow.attempt_limit), then left"
+    assert attempts == 3, "3 attempts (workflow.attempt_limit), then left"
+    assert "not an image" in error, "3 attempts (workflow.attempt_limit), then left"
     with db.read_only(world.cfg) as conn:
         report = " | ".join(status.report(conn))
     assert "volume 2 cover not fetched" in report

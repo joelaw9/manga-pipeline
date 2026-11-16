@@ -450,4 +450,5 @@ def test_a_templates_key_text_round_trips_and_still_matches(templates):
     """A logo decision's key is the template's RGBA PNG in base64: it comes back as the same template."""
     t = templates[0]
     back = marks.Template.from_key(t.key_text())
-    assert back.size == t.size and marks.same_variant(back, t), "the key gives the template back"
+    assert back.size == t.size, "the key gives the template back"
+    assert marks.same_variant(back, t), "the key gives the template back"

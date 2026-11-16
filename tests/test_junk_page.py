@@ -231,7 +231,10 @@ def test_ink_box_spans_the_text():
     b = Image.new("RGB", (600, 40), "white")
     b.paste(fx.credit((300, 30)), (100, 5))
     x0, y0, x1, y1 = page_units.ink_box(b)
-    assert x0 >= 100 and x1 <= 400 and y0 >= 5 and y1 <= 35, (x0, y0, x1, y1)
+    assert x0 >= 100, (x0, y0, x1, y1)
+    assert x1 <= 400, (x0, y0, x1, y1)
+    assert y0 >= 5, (x0, y0, x1, y1)
+    assert y1 <= 35, (x0, y0, x1, y1)
 
 
 @budget(load="pure")

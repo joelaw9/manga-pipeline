@@ -78,7 +78,9 @@ def test_a_title_differing_by_a_kept_mark_is_a_near_hit_needing_a_human_not_a_ne
     world.download(manga, "Chapter 1")
     scan(world)
     rows = world.rows("SELECT name, status, status_reason, kavita_series_id FROM series")
-    assert len(rows) == 1 and rows[0][1] == "needs_human" and rows[0][3] is None, "a near hit is never matched"
+    assert len(rows) == 1, "a near hit is never matched"
+    assert rows[0][1] == "needs_human", "a near hit is never matched"
+    assert rows[0][3] is None, "a near hit is never matched"
     assert "nearly matches: Kaiju No. 8!" in rows[0][2]
     assert f"series link {manga}" in rows[0][2]
     assert world.rows("SELECT status FROM chapter") == [("ready",)], "its chapters are recorded and held"
@@ -139,9 +141,8 @@ def test_a_manga_folder_that_cannot_be_listed_is_listed_and_the_rest_is_taken(wo
         "the other downloads are still taken"
     )
     ((listed, reason),) = world.rows("SELECT path, reason FROM unmatched_download")
-    assert listed == config.to_stored(world.cfg, bad.parent) and reason.startswith("its folder cannot be listed"), (
-        "the folder is listed"
-    )
+    assert listed == config.to_stored(world.cfg, bad.parent), "the folder is listed"
+    assert reason.startswith("its folder cannot be listed"), "the folder is listed"
 
 
 @budget(load="db")
@@ -386,7 +387,8 @@ def test_the_same_pages_as_a_handled_chapter_are_put_aside(world):
     assert isinstance(outcome, workflow.Dropped), "whatever its outcome or identity, the same pages are not redone"
     assert world.rows("SELECT stage, status FROM chapter") == [("discover", "done")]
     kept = config.abs_path(world.cfg["paths"]["retention"]) / "Src (EN)" / "Solo Leveling" / path.name
-    assert not path.exists() and kept.exists(), "put aside the retention way"
+    assert not path.exists(), "put aside the retention way"
+    assert kept.exists(), "put aside the retention way"
 
 
 @budget(load="db")
@@ -413,7 +415,8 @@ def test_an_unnumbered_notice_is_dropped_put_aside_and_recorded(tmp_path):
     outcome = run_stage(world, chapter_id)
     assert isinstance(outcome, workflow.Dropped), "a notice is not a chapter"
     kept = config.abs_path(world.cfg["paths"]["retention"]) / "Src (EN)" / "Solo Leveling" / path.name
-    assert not path.exists() and kept.exists(), "removed the retention way"
+    assert not path.exists(), "removed the retention way"
+    assert kept.exists(), "removed the retention way"
     assert world.rows("SELECT outcome, content_digest FROM handled_chapter") == [
         ("dropped", archive.pages_digest(kept))
     ], "recorded as handled, so the same pages arriving again are put aside"

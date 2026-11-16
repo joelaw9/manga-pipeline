@@ -92,7 +92,8 @@ def test_a_new_size_on_the_same_thread_gets_its_own_handle(scorer):
     here = [scorer.score(*pr) for pr in pairs]
     with ThreadPoolExecutor(1) as t:
         fresh = [t.submit(scorer.score, *pr).result() for pr in pairs[:2]]
-    assert here[:2] == fresh and here[0] == here[2], "each size scores as on a fresh thread"
+    assert here[:2] == fresh, "each size scores as on a fresh thread"
+    assert here[0] == here[2], "each size scores as on a fresh thread"
 
 
 @pytest.mark.gpu

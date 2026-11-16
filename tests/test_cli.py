@@ -228,7 +228,8 @@ def test_junk_review_on_an_unmounted_share_exits_4(site, capsys):
     adopt(site)
     preflight.owner_file(site_cfg(site)).unlink()  # the share is not mounted: its owner file is not there
     assert cli.main([*(a for item in site for a in ("--set", item)), "junk", "review"]) == 4
-    assert "share ownership" in (err := capsys.readouterr().err) and "is missing" in err, err
+    assert "share ownership" in (err := capsys.readouterr().err), err
+    assert "is missing" in err, err
 
 
 @budget(load="db")
@@ -278,7 +279,8 @@ def test_hard_preflight_failure_exits_4(site, monkeypatch, capsys):
     assert run(site, "intake") == 4
     assert "preflight failed: stub: missing" in capsys.readouterr().err
     text = (config.abs_path(site_cfg(site)["logging"]["dir"]) / "intake.log").read_text(encoding="utf-8")
-    assert "stub: missing" in text and "run ended" not in text, "the work must not start after a hard failure"
+    assert "stub: missing" in text, "the work must not start after a hard failure"
+    assert "run ended" not in text, "the work must not start after a hard failure"
 
 
 @budget(load="db")
@@ -290,7 +292,8 @@ def test_crash_inside_a_part_exits_1_with_1_traceback_in_its_log(site, monkeypat
     monkeypatch.setattr(discovery, "scan", unreadable)
     assert run(site, "intake") == 1, "SPEC 'CLI': an unexpected error exits 1"
     text = (config.abs_path(site_cfg(site)["logging"]["dir"]) / "intake.log").read_text(encoding="utf-8")
-    assert text.count("Traceback") == 1 and "PermissionError" in text, "logged with its traceback, once"
+    assert text.count("Traceback") == 1, "logged with its traceback, once"
+    assert "PermissionError" in text, "logged with its traceback, once"
     with closing(db.connect(site_cfg(site))) as conn:
         result = conn.execute("SELECT value FROM meta WHERE key = 'intake.last_result'").fetchone()[0]
     assert result == "error"

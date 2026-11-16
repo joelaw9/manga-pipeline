@@ -265,7 +265,8 @@ def test_a_one_page_chapter_has_no_joins_and_is_left_out_of_the_median(tmp_path)
     """Median over chapters with joins only: a 1-page sample chapter does not pull 0.75 down to 0.375."""
     one = save_pages(tmp_path / "one", [fx.webtoon_page((400, 300), seed=3)])
     layout, why, _ = strip.classify_layout([one, joins_chapter(tmp_path / "c", slices=4, others=1)])
-    assert layout == "strip" and "75%" in why, "a chapter without joins is left out of the median"
+    assert layout == "strip", "a chapter without joins is left out of the median"
+    assert "75%" in why, "a chapter without joins is left out of the median"
 
 
 @budget(1.0, load="fs")
@@ -398,7 +399,9 @@ def test_gaps_located_exactly_despite_varying_slice_heights(tmp_path):
     g = [s for s in gaps if 39000 < s[0] < 41000]
     assert len(g) == 1, f"one gap near the gutter: {gaps[-3:]}"
     s, e = g[0]
-    assert s >= 39975 and e <= 40025 and 39980 <= (s + e) // 2 < 40020, f"the gap is where the gutter is: {g}"
+    assert s >= 39975, f"the gap is where the gutter is: {g}"
+    assert e <= 40025, f"the gap is where the gutter is: {g}"
+    assert 39980 <= (s + e) // 2 < 40020, f"the gap is where the gutter is: {g}"
 
 
 @budget(2.0, load="fs")

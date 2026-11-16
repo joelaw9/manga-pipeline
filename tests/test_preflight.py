@@ -433,7 +433,8 @@ def test_image_tools_names_every_missing_tool(tmp_path):
         (tmp_path / name).touch()
     assert preflight.image_tools(with_tools(tmp_path)) is None
     problem = preflight.image_tools(with_tools(tmp_path, oxipng=tmp_path / "gone", vship=tmp_path))
-    assert "tools.oxipng" in problem and "tools.vship" in problem, "a missing file and a folder are both problems"
+    assert "tools.oxipng" in problem, "a missing file and a folder are both problems"
+    assert "tools.vship" in problem, "a missing file and a folder are both problems"
     assert "tools.avifenc" not in problem, "a present tool is not named"
 
 

@@ -59,11 +59,13 @@ def test_a_closed_candidate_is_stamped_then_deleted_with_its_folder_an_hour_late
     cfg, conn = site
     cid = candidate(conn, cfg, "a-1-1")
     assert candidates.cleanup(cfg, conn) == 0
-    assert row(conn, cid)["closed_at"] is not None and folder(cfg, "a-1-1").exists(), "closed 0 min ago: kept"
+    assert row(conn, cid)["closed_at"] is not None, "closed 0 min ago: kept"
+    assert folder(cfg, "a-1-1").exists(), "closed 0 min ago: kept"
     with db.transaction(conn):
         conn.execute("UPDATE junk_candidate SET closed_at = %s", (HOUR_AGO_2,))
     assert candidates.cleanup(cfg, conn) == 1
-    assert row(conn, cid) is None and not folder(cfg, "a-1-1").exists(), "closed 2 hours ago: deleted, folder too"
+    assert row(conn, cid) is None, "closed 2 hours ago: deleted, folder too"
+    assert not folder(cfg, "a-1-1").exists(), "closed 2 hours ago: deleted, folder too"
 
 
 @budget(load="db")

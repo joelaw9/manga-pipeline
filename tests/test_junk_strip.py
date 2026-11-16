@@ -175,7 +175,8 @@ def test_an_unmatched_edge_block_carries_its_banner_probe_with_its_text():
     """Nothing approved: the cover block keeps its banner piece as a probe, each with its own OCR text."""
     got = su.decide(su.scan(strip_of([BANNER]), lambda im: f"{im.height} px"), store())
     (block,) = got["undecided"]
-    assert block["text"] == "300 px" and [q["text"] for q in block["probes"]] == ["166 px"], "each unit's own read"
+    assert block["text"] == "300 px", "each unit's own read"
+    assert [q["text"] for q in block["probes"]] == ["166 px"], "each unit's own read"
 
 
 @budget(load="fs")
@@ -184,7 +185,8 @@ def test_a_unit_with_a_stored_decision_is_not_read():
     banner = images.signature(Image.open(BANNER).convert("RGB").crop((0, 0, 360, 166)))
     sc = su.scan(strip_of([BANNER]), lambda im: "read", lambda sig: not images.matches(sig, banner))
     (block,) = sc["blocks"]
-    assert block["text"] == "read" and "text" not in block["joins"][0], block["joins"]
+    assert block["text"] == "read", block["joins"]
+    assert "text" not in block["joins"][0], block["joins"]
 
 
 def glued_block(where):
@@ -293,7 +295,8 @@ def test_a_block_decision_removes_the_magus_band_of_a_real_end_card(tmp_path):
     got = su.decide(sc, store(("block", band["sig"], "junk", 298)))
     assert {"start": start, "end": st.height, "why": "match"} in got["removed"], got["removed"]
     assert [r["why"] for r in got["removed"]] == ["join", "match"], "the blank run above the band joins the strip end"
-    assert got["undecided"] and all(u["end"] <= got["removed"][0]["start"] for u in got["undecided"]), got["undecided"]
+    assert got["undecided"], got["undecided"]
+    assert all(u["end"] <= got["removed"][0]["start"] for u in got["undecided"]), got["undecided"]
     assert got["kept_problem"] is None
 
 
@@ -388,7 +391,8 @@ def test_a_block_too_tall_to_match_a_band_is_never_rendered(tmp_path):
         sc = su.scan(st)
     assert sc["middle"] == []
     rendered = [c.args[2:4] for c in spy.call_args_list]
-    assert (6000, 12500) not in rendered and rendered, rendered
+    assert (6000, 12500) not in rendered, rendered
+    assert rendered, rendered
 
 
 # ---------------------------------------------------------------- the tail pass (W1 blank, W3 wedge), via decide

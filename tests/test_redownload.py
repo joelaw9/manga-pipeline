@@ -56,7 +56,8 @@ def retained(world, path):
 def test_a_bad_download_is_removed_and_downloaded_again_from_the_same_chapter_first(world):
     chapter_id, path = bad_download(world)
     assert chapter(world)[:3] == ("validate", "waiting", "suwayomi_download")
-    assert not path.exists() and retained(world, path).exists(), "the rejected copy goes the retention way"
+    assert not path.exists(), "the rejected copy goes the retention way"
+    assert retained(world, path).exists(), "the rejected copy goes the retention way"
     assert writes(world, "delete_downloaded", "enqueue", "start_downloader") == [
         ("delete_downloaded", [chapter_id]),
         ("enqueue", [chapter_id]),
@@ -222,7 +223,8 @@ def test_chapter_use_on_a_chapter_whose_file_is_in_hand_rejects_that_file_first(
     assert world.rows("SELECT status FROM chapter") == [("needs_human",)]
     command(cli.chapter_use, world, chapter=1, suwayomi_chapter=world.other_chapters[12])
     world.run(intake)
-    assert not path.exists() and retained(world, path).exists(), "the file in hand goes the retention way"
+    assert not path.exists(), "the file in hand goes the retention way"
+    assert retained(world, path).exists(), "the file in hand goes the retention way"
     assert world.rows("SELECT outcome FROM handled_chapter WHERE outcome = 'rejected'") == [("rejected",)]
     assert state(world)["expected"]["chapter_id"] == world.other_chapters[12]
 
@@ -328,7 +330,8 @@ def test_a_chosen_download_numbered_otherwise_needs_a_human(world):
     world.suwayomi.finish_downloads(cbz(seed="13"))
     world.run(intake)
     ((status, error, download),) = world.rows("SELECT status, last_error, download_path FROM chapter")
-    assert status == "needs_human" and "numbered" in error, "never published under the chapter's number"
+    assert status == "needs_human", "never published under the chapter's number"
+    assert "numbered" in error, "never published under the chapter's number"
     assert download == config.to_stored(world.cfg, world.suwayomi.path(other_number)), (
         "it is the chapter's download now: drop removes it"
     )
@@ -347,9 +350,11 @@ def test_a_chosen_download_numbered_12_10_is_never_taken_for_chapter_12_1(world)
     world.suwayomi.finish_downloads(cbz(seed="12.10"))
     world.run(intake)
     ((status, error, identity),) = world.rows("SELECT status, last_error, identity FROM chapter")
-    assert status == "needs_human" and "'12.10'" in error and "'12.1')" in error, (
+    assert status == "needs_human", (
         "a number with 2 readings is numbered otherwise than chapter 12.1: never published as it"
     )
+    assert "'12.10'" in error, "a number with 2 readings is numbered otherwise than chapter 12.1: never published as it"
+    assert "'12.1')" in error, "a number with 2 readings is numbered otherwise than chapter 12.1: never published as it"
     assert json.loads(identity)[3] == "12.1", "the chapter keeps its own identity"
 
 
@@ -370,7 +375,8 @@ def test_a_refused_choice_stays_recorded_until_retry(world):
     assert world.rows("SELECT status FROM chapter") == [("needs_human",)]
     assert state(world)["chosen"] == 999999
     command(cli.retry, world, chapter=1, series=None)
-    assert state(world)["chosen"] is None and state(world)["tried"] == [], "retry forgets it and searches again"
+    assert state(world)["chosen"] is None, "retry forgets it and searches again"
+    assert state(world)["tried"] == [], "retry forgets it and searches again"
 
 
 @budget(load="db")
@@ -407,7 +413,8 @@ def test_a_suwayomi_chapter_another_open_chapter_holds_is_never_picked(world):
     world.suwayomi.fail_download(chapter_id)
     world.run(intake)
     ((status, error),) = world.rows("SELECT status, last_error FROM chapter WHERE suwayomi_chapter_id = %s", chapter_id)
-    assert status == "needs_human" and "Other (EN)" in error, "Other's Ch. 12 belongs to the other chapter"
+    assert status == "needs_human", "Other's Ch. 12 belongs to the other chapter"
+    assert "Other (EN)" in error, "Other's Ch. 12 belongs to the other chapter"
     assert held.exists(), "the other chapter's download is untouched"
 
 
@@ -467,7 +474,8 @@ def test_status_lists_re_downloads_notes_and_the_commands_that_settle_a_chapter(
     world.run(intake)
     with closing(db.connect(world.cfg)) as conn:
         text = "\n".join(status.report(conn))
-    assert "waiting on Src (EN) chapter" in text and "tried: none" in text, text
+    assert "waiting on Src (EN) chapter" in text, text
+    assert "tried: none" in text, text
     assert "-> retry 2, chapter use 2 SUWAYOMI_CHAPTER_ID, chapter drop 2" in text
     assert "chapter 3 (Solo Leveling" in text
     assert "duplicate pages: 001.png, 002.png" in text

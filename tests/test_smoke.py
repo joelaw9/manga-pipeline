@@ -47,7 +47,8 @@ def test_smoke_prints_what_both_services_answer_and_writes_nothing(services, cap
     assert f'"Alpha": 1 files, folder {tmp_path / "library" / "Alpha"}' in out
     assert f"{tmp_path / 'library' / 'Alpha' / 'Ch.1.cbz'}" in out
     assert "exists" in out
-    assert suw.writes == [] and kav.writes == [], "SPEC 'Services': smoke only reads"
+    assert suw.writes == [], "SPEC 'Services': smoke only reads"
+    assert kav.writes == [], "SPEC 'Services': smoke only reads"
 
 
 @budget(load="fs")
@@ -73,7 +74,8 @@ def test_kavita_is_checked_though_suwayomi_failed(services, capsys, monkeypatch)
     with pytest.raises(smoke.Failed, match="suwayomi: Unreachable: suwayomi: timed out"):
         smoke.run(config.cached())
     out = capsys.readouterr().out
-    assert "suwayomi: FAILED" in out and "kavita: library 4 holds 1 series" in out, "SPEC 'Services': both are tried"
+    assert "suwayomi: FAILED" in out, "SPEC 'Services': both are tried"
+    assert "kavita: library 4 holds 1 series" in out, "SPEC 'Services': both are tried"
 
 
 @budget(load="fs")

@@ -179,7 +179,8 @@ def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path, monkeypa
         assert db.database_id(conn) == database_id
     assert [p.name for p in staging.iterdir()] == [preflight.OWNER_FILE], "staging keeps only the owner file"
     assert not list(scratch.iterdir())
-    assert kept_download.exists() and published_download.exists(), "downloads are never touched"
+    assert kept_download.exists(), "downloads are never touched"
+    assert published_download.exists(), "downloads are never touched"
     assert sorted(p.name for p in config.abs_path(cfg["paths"]["library"]).rglob("*.cbz")) == library
 
     run_part(cfg, intake)
@@ -336,7 +337,8 @@ def test_a_builder_whose_role_cannot_create_the_database_exits_4(tmp_path, missi
     monkeypatch.setattr(db, "_open", opened)
     assert main(tmp_path, missing, "state", "adopt", "--yes") == 4
     err = capsys.readouterr().err
-    assert missing["database"]["name"] in err and "permission denied to create database" in err, "named on stderr"
+    assert missing["database"]["name"] in err, "named on stderr"
+    assert "permission denied to create database" in err, "named on stderr"
 
 
 @budget(load="db", seconds=5)
@@ -351,7 +353,8 @@ def test_a_connection_the_server_ends_mid_run_exits_1_with_its_traceback(tmp_pat
     monkeypatch.setattr(process, "run", ended_mid_run)
     assert main(tmp_path, cfg, "process") == 1
     text = (config.abs_path(cfg["logging"]["dir"]) / "process.log").read_text(encoding="utf-8")
-    assert text.count("Traceback") == 1 and "process: failed" in text, "logged with its traceback, once"
+    assert text.count("Traceback") == 1, "logged with its traceback, once"
+    assert "process: failed" in text, "logged with its traceback, once"
 
 
 @budget(load="db")
@@ -360,7 +363,8 @@ def test_process_stops_at_start_on_a_paired_term_that_is_no_keyword(tmp_path, ca
     cfg = {**cfg, "junk": {**cfg["junk"], "paired": [*cfg["junk"]["paired"], "nonsense"]}}
     assert main(tmp_path, cfg, "process") == 4
     err = capsys.readouterr().err
-    assert "junk word lists" in err and "['nonsense']" in err, "the check and the stray term are named"
+    assert "junk word lists" in err, "the check and the stray term are named"
+    assert "['nonsense']" in err, "the check and the stray term are named"
 
 
 @budget(load="db")
@@ -450,7 +454,8 @@ def test_status_sections_come_from_1_snapshot(tmp_path):
         with closing(db.read_only(cfg)) as conn:
             lines = status.report(WritesAfterFirstRead(conn))
     entries = [line for line in lines if line.startswith("  ")]
-    assert entries and all(line == "  none" for line in entries), "a chapter written mid-report shows in no section"
+    assert entries, "a chapter written mid-report shows in no section"
+    assert all(line == "  none" for line in entries), "a chapter written mid-report shows in no section"
 
 
 class _Rows(list):

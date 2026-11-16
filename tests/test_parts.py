@@ -278,7 +278,8 @@ def test_an_export_stage_that_lost_its_claim_leaves_every_file_untouched(site):
         assert staged.read_bytes() == before, "no ComicInfo.xml is written under a lost claim"
         done("comicinfo", comicinfo.run)
         lost("publish", publish.run)
-        assert staged.exists() and not published(site.cfg), "nothing is moved into the library under a lost claim"
+        assert staged.exists(), "nothing is moved into the library under a lost claim"
+        assert not published(site.cfg), "nothing is moved into the library under a lost claim"
         done("publish", publish.run)
         export.request_scan(ctx)
         site.world.kavita.run_scans()

@@ -103,7 +103,8 @@ def test_duplicate_pages_are_kept_and_noted(tmp_path):
     page = jpeg(manga_page(seed=1))
     members = {"001.jpg": page, "002.jpg": jpeg(manga_page(seed=2)), "003.jpg": page}
     verdict = validation.check(cbz(tmp_path / "d.cbz", members), KEY, [])
-    assert verdict.kind == "ok" and len(verdict.pages) == 3, "a duplicate page is kept"
+    assert verdict.kind == "ok", "a duplicate page is kept"
+    assert len(verdict.pages) == 3, "a duplicate page is kept"
     assert verdict.notes == ["duplicate pages: 001.jpg, 003.jpg"]
 
 

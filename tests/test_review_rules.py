@@ -42,7 +42,9 @@ def test_a_series_folder_outside_the_library_needs_a_human(tmp_path):
     with closing(db.connect(world.cfg)) as conn:
         discovery.scan(world.context(conn, "intake"))
     ((status, reason, folder),) = world.rows("SELECT status, status_reason, folder FROM series")
-    assert status == "needs_human" and folder is None and "'..'" in reason, "held with the folder named"
+    assert status == "needs_human", "held with the folder named"
+    assert folder is None, "held with the folder named"
+    assert "'..'" in reason, "held with the folder named"
 
 
 @budget(load="db")

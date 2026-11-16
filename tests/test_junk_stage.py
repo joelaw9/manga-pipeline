@@ -102,7 +102,8 @@ def test_the_same_credit_page_in_20_chapters_is_1_candidate(site):
     site.parts()
     assert site.chapters() == [("junk", "waiting", "junk_decision")] * 20, "every chapter waits on its credit page"
     got = open_candidates(site)
-    assert len(got) == 1 and got[0]["kind"] in ("page", "frame"), "the same page in 20 chapters is 1 candidate"
+    assert len(got) == 1, "the same page in 20 chapters is 1 candidate"
+    assert got[0]["kind"] in ("page", "frame"), "the same page in 20 chapters is 1 candidate"
     assert decide_junk(site.cfg, "junk") == 1
     run_part(site.cfg, process)
     assert all(s[0] != "junk" for s in site.chapters()), "1 decision frees all 20"
@@ -180,7 +181,8 @@ def test_an_imported_decision_closes_the_candidate_and_its_folder(site):
     site.parts()
     (cand,) = open_candidates(site)
     folder = config.abs_path(site.cfg["paths"]["candidates"]) / cand["folder"]
-    assert (folder / "unit.png").is_file() and (folder / "context.png").is_file(), "its images are written"
+    assert (folder / "unit.png").is_file(), "its images are written"
+    assert (folder / "context.png").is_file(), "its images are written"
     with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
         store.upsert(
             conn,
@@ -230,7 +232,8 @@ def test_junk_commands_list_show_decide_and_refuse(site, tmp_path, capsys, monke
     (cand,) = open_candidates(site)
     assert cli.main(["--config", path, "junk", "list"]) == 0
     line = capsys.readouterr().out.strip().split("\t")
-    assert line[0] == str(cand["id"]) and line[-1].endswith("context.png"), "list prints id, ..., image paths"
+    assert line[0] == str(cand["id"]), "list prints id, ..., image paths"
+    assert line[-1].endswith("context.png"), "list prints id, ..., image paths"
     assert cli.main(["--config", path, "junk", "show", str(cand["id"])]) == 0
     assert "unit:" in capsys.readouterr().out, "show prints the images"
     assert cli.main(["--config", path, "junk", "decide", "999", "keep"]) == 2, "an unknown candidate is refused"
@@ -253,7 +256,8 @@ def test_a_chapter_without_a_content_digest_fails_instead_of_scanning_for_ever(s
         conn.execute("UPDATE chapter SET content_digest = NULL")
     run_part(site.cfg, process)  # returns: a scan that could never be current would make drain spin
     got = site.rows("SELECT stage, status, attempts, last_error FROM chapter")
-    assert got[0][:3] == ("junk", "ready", 1) and "content digest" in got[0][3], "no digest: 1 failed attempt"
+    assert got[0][:3] == ("junk", "ready", 1), "no digest: 1 failed attempt"
+    assert "content digest" in got[0][3], "no digest: 1 failed attempt"
     assert site.rows("SELECT count(*) FROM junk_scan") == [(0,)], "no scan is written"
 
 
@@ -267,7 +271,8 @@ def test_a_strip_chapter_waits_on_its_candidates_and_finishes_once_they_are_kept
     site.parts()
     assert site.chapters() == [("junk", "waiting", "junk_decision")] * 3, "each strip chapter waits on its blocks"
     got = open_candidates(site)
-    assert got and {c["kind"] for c in got} <= {"block", "probe"}, got
+    assert got, got
+    assert {c["kind"] for c in got} <= {"block", "probe"}, got
     assert decide_junk(site.cfg, "keep") == len(got)
     run_part(site.cfg, process)
     assert all(c[0] != "junk" for c in site.chapters()), "kept blocks free every chapter"
@@ -312,7 +317,8 @@ def test_ocr_text_holding_a_nul_makes_its_chapter_needs_human_at_once(site, monk
     site.parts()
     ((status, attempts, reason),) = site.rows("SELECT status, attempts, last_error FROM chapter")
     assert (status, attempts) == ("needs_human", 0), "no attempt can store the text: held at once, no attempt spent"
-    assert "strip rows" in reason and "NUL" in reason, f"the reason names the unit's rows: {reason}"
+    assert "strip rows" in reason, f"the reason names the unit's rows: {reason}"
+    assert "NUL" in reason, f"the reason names the unit's rows: {reason}"
     assert site.rows("SELECT count(*) FROM junk_scan") == [(0,)], "nothing is stored"
 
 
@@ -363,10 +369,12 @@ def test_a_badge_holds_its_chapters_on_1_candidate_and_a_junk_decision_blanks_it
     run_part(site.cfg, process)
     assert all(c[0] != "junk" for c in site.chapters()), "1 decision frees both"
     for edit in edits(site):
-        assert [b["page"] for b in edit["blank"]] == [3] and edit["drop_pages"] == [], "the badge page is blanked"
+        assert [b["page"] for b in edit["blank"]] == [3], "the badge page is blanked"
+        assert edit["drop_pages"] == [], "the badge page is blanked"
         assert plan.check_edit(json.dumps(edit)) == edit, "convert accepts the blank"
         x0, y0, x1, y1 = edit["blank"][0]["box"]
-        assert 0 <= x0 < x1 <= 1200 and 0 <= y0 < y1 <= 1800, "the box lies in the page"
+        assert 0 <= x0 < x1 <= 1200, "the box lies in the page"
+        assert 0 <= y0 < y1 <= 1800, "the box lies in the page"
         assert all(245 <= v <= 255 for v in edit["blank"][0]["fill"]), "the fill is the white margin around it"
 
 
@@ -418,7 +426,8 @@ def test_a_badge_in_a_strip_chapter_is_offered_and_blanked_on_its_page(site, mon
     assert kinds.count("logo") == 1, kinds
     run_part(site.cfg, process)
     (edit,) = edits(site)
-    assert [b["page"] for b in edit["blank"]] == [2] and edit["strip_removed"] == [], "download page 2 is blanked"
+    assert [b["page"] for b in edit["blank"]] == [2], "download page 2 is blanked"
+    assert edit["strip_removed"] == [], "download page 2 is blanked"
     assert plan.check_edit(json.dumps(edit)) == edit, "convert accepts a strip chapter's blank"
 
 
@@ -454,7 +463,8 @@ def test_a_badge_is_painted_over_in_the_published_chapter_only_when_junk(site, v
         " WHERE p.origin = 'pipeline'"
     )
     result = json.loads(result)
-    assert result["outcome"] == "avif" and result["blanked"] == (["003.jpg"] if verdict == "junk" else []), result
+    assert result["outcome"] == "avif", result
+    assert result["blanked"] == (["003.jpg"] if verdict == "junk" else []), result
     logo = logo_units.measure(2, Image.open(io.BytesIO(logo_page(at=(100, 400)))).convert("RGB"))
     x0, y0, x1, y1 = logo["box"]
     with zipfile.ZipFile(config.to_local(site.cfg, path)) as z:
@@ -530,7 +540,8 @@ def test_a_candidate_deleted_under_a_waiting_chapter_ends_its_wait(site):
         conn.execute("DELETE FROM junk_candidate WHERE id = %s", (page,))
     run_part(site.cfg, process)
     ((after,),) = site.rows("SELECT candidates FROM junk_scan")
-    assert page in json.loads(before) and page not in json.loads(after), "decided again: the gone one is not listed"
+    assert page in json.loads(before), "decided again: the gone one is not listed"
+    assert page not in json.loads(after), "decided again: the gone one is not listed"
     assert site.chapters() == [("junk", "waiting", "junk_decision")], "it waits on the page and band offered again"
 
 
@@ -602,7 +613,8 @@ def test_a_renamed_series_folder_keeps_its_junk_decisions_and_sightings(site):
     with closing(db.connect(site.cfg)) as conn:
         identify.link(site.cfg, conn, world.suwayomi, world.kavita, kavita_id, manga_id=site.mangas["Alpha"])
     ((folder, key),) = site.rows("SELECT folder, rules_key FROM series")
-    assert folder.endswith("Beta") and key == "Alpha", "the folder follows Kavita; the rules key stays"
+    assert folder.endswith("Beta"), "the folder follows Kavita; the rules key stays"
+    assert key == "Alpha", "the folder follows Kavita; the rules key stays"
     site.download("Alpha", 3, cbz(seed="r3", credit=True))
     site.parts()
     assert site.chapters()[1][0] != "junk", "the series' decision still drops the credit page"
@@ -623,7 +635,8 @@ def test_a_chapter_joining_a_candidate_cleaned_up_meanwhile_fails_once_then_writ
     monkeypatch.setattr(candidates, "join", cleaned_up_first)
     site.parts()
     (third,) = site.rows("SELECT attempts, last_error FROM chapter WHERE identity LIKE '%%\"3\"%%'")
-    assert third[0] == 1 and "cleaned up meanwhile" in third[1], "the chapter fails once"
+    assert third[0] == 1, "the chapter fails once"
+    assert "cleaned up meanwhile" in third[1], "the chapter fails once"
     monkeypatch.setattr(candidates, "join", real)
     with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
         conn.execute("UPDATE chapter SET retry_after = NULL")  # the retry pause is over

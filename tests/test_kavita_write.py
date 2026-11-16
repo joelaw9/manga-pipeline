@@ -51,7 +51,8 @@ def test_export_writes_the_series_fields_locked_and_then_nothing_while_they_hold
     m = meta(world, kavita_id)
     assert (m["summary"], m["summaryLocked"]) == ("Hunters rise.", True), "summary from MangaBaka, HTML dropped"
     genres = sorted(g["title"] for g in m["genres"])
-    assert genres == ["Action", "Completed", "Fantasy"] and m["genresLocked"], "MangaBaka's genres and the status rule"
+    assert genres == ["Action", "Completed", "Fantasy"], "MangaBaka's genres and the status rule"
+    assert m["genresLocked"], "MangaBaka's genres and the status rule"
     assert (m["publicationStatus"], m["ageRating"]) == (2, 8), "completed; suggestive is Teen"
     assert "https://mangabaka.org/50" in m["webLinks"]
     before = len(field_writes(world))
@@ -196,7 +197,8 @@ def test_lists_compare_by_kavitas_name_key_and_people_are_written(world):
     world.run(export)
     m = meta(world, kavita_id)
     assert [g["title"] for g in m["genres"]][:2] == ["action", "Fant-asy"], "the same names under Kavita's key"
-    assert [p["name"] for p in m["writers"]] == ["Chugong"] and m["writerLocked"], "added, locked"
+    assert [p["name"] for p in m["writers"]] == ["Chugong"], "added, locked"
+    assert m["writerLocked"], "added, locked"
     assert [p["name"] for p in m["pencillers"]] == ["Chugong"]
     m["writers"].append({"id": 5, "name": "From A File"})  # Kavita keeps file people
     execute(world, "UPDATE series_check SET data_version = data_version + 1")

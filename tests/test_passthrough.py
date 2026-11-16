@@ -58,9 +58,8 @@ def test_a_download_lands_in_its_series_indexed_and_its_original_retained(world,
     through(world)
     target = published(world, "Ch.2 - Arise.cbz")
     fields, pages = comicinfo_of(target)
-    assert fields["Series"] == "Solo Leveling" and fields["LocalizedSeries"] == "Na Honjaman Level Up", (
-        "Series is the record's name, LocalizedSeries Kavita's"
-    )
+    assert fields["Series"] == "Solo Leveling", "Series is the record's name, LocalizedSeries Kavita's"
+    assert fields["LocalizedSeries"] == "Na Honjaman Level Up", "Series is the record's name, LocalizedSeries Kavita's"
     assert pages == ["001.png", "002.png", "003.png"], "converted (flat test pages: lossless), in reading order"
     assert world.rows("SELECT stage, status, waiting_on FROM chapter") == [("confirm", "waiting", "kavita_scan")], (
         "a scan is requested, not awaited"
@@ -73,7 +72,8 @@ def test_a_download_lands_in_its_series_indexed_and_its_original_retained(world,
     assert world.kavita.pending == [], "nothing published and nothing waits: no scan"
     assert world.kavita.series(kavita_id) is not None, "the series id is unchanged"
     assert target in [f["path"] for f in world.kavita.series_files(kavita_id)]
-    assert not path.exists() and retained(world, path).exists(), "the original goes to the retention folder"
+    assert not path.exists(), "the original goes to the retention folder"
+    assert retained(world, path).exists(), "the original goes to the retention folder"
     assert world.suwayomi.chapter_rows[chapter_id]["isDownloaded"], "Suwayomi still shows it downloaded"
     assert world.rows(
         "SELECT state, origin FROM published_file WHERE library_path = %s", config.to_stored(world.cfg, target)
@@ -206,7 +206,8 @@ def test_no_scan_is_requested_while_one_is_awaited_even_after_a_publish(world, s
     world.kavita.pending.clear()  # Kavita has not run the scan yet
     world.download(manga, "Chapter 3")
     through(world)
-    assert len(scans(world)) == 1 and not world.kavita.pending, "back-to-back scans do not work"
+    assert len(scans(world)) == 1, "back-to-back scans do not work"
+    assert not world.kavita.pending, "back-to-back scans do not work"
     assert world.rows("SELECT status, attempts FROM chapter ORDER BY id") == [("waiting", 0), ("waiting", 0)]
     assert world.rows("SELECT scan_due FROM series") == [(1,)], "the new file waits for the next request"
 
@@ -230,7 +231,8 @@ def test_chapters_not_indexed_an_hour_after_the_scan_get_1_library_scan_and_1_at
     through(world)
     world.kavita.pending.clear()  # Kavita never runs the scan
     world.run(export)
-    assert not world.kavita.pending and world.rows("SELECT attempts FROM chapter") == [(0,)], "not yet due"
+    assert not world.kavita.pending, "not yet due"
+    assert world.rows("SELECT attempts FROM chapter") == [(0,)], "not yet due"
     an_hour_passes(world)
     world.download(manga, "Chapter 3")
     through(world)
@@ -303,7 +305,8 @@ def test_a_record_naming_another_series_holds_the_series(world):
     world.download(world.manga("Solo Leveling"), "Chapter 2")
     through(world, intake, intake)
     ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
-    assert status == "needs_human" and "Other Name" in reason, "the baseline pass holds the series"
+    assert status == "needs_human", "the baseline pass holds the series"
+    assert "Other Name" in reason, "the baseline pass holds the series"
     assert world.rows("SELECT stage, status FROM chapter") == [("discover", "ready")], "its chapter is held"
 
 

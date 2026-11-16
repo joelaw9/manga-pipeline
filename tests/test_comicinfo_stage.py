@@ -79,7 +79,8 @@ def test_a_published_file_holds_the_series_fields_its_source_and_its_pages(world
         sid = world.rows("SELECT id FROM series WHERE name = 'Solo Leveling'")[0][0]
         fields = merge.stored(conn, sid, tags.load())
     assert got["Summary"] == "Hunters & gates.", "the stored records' summary, never the download's"
-    assert got["Genre"] == ", ".join(fields.genres) and "Isekai" not in got["Genre"], "genres from the tag rules"
+    assert got["Genre"] == ", ".join(fields.genres), "genres from the tag rules"
+    assert "Isekai" not in got["Genre"], "genres from the tag rules"
     assert (got["AgeRating"], got["Writer"], got["Penciller"]) == ("Teen", "Dubu", "Dubu")
     assert got["Translator"] == "Grp", "a per-chapter element of the download is kept"
     assert got["Notes"] == "Source: Src (EN)"
@@ -216,7 +217,8 @@ def test_a_mangadex_series_names_its_new_chapter_and_side_story_and_covers_the_n
     with zipfile.ZipFile(folder / "Vol.3 Ch.1 - Side Story 1.cbz") as z:
         assert not any(n.startswith("000_cover.") for n in z.namelist()), "a side story opens no covered volume"
     ((volume, url),) = world.rows("SELECT volume, source_url FROM series_volume_cover")
-    assert volume == 2 and url.endswith(f"/covers/{MD}/v2.png"), "English beats the original language"
+    assert volume == 2, "English beats the original language"
+    assert url.endswith(f"/covers/{MD}/v2.png"), "English beats the original language"
     assert world.rows(
         "SELECT kind, volume_source FROM published_file WHERE origin = 'pipeline' ORDER BY comicinfo_number"
     ) == [("side", "side"), ("main", "mangadex")]

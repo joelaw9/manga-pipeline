@@ -137,7 +137,8 @@ def test_a_crash_leftover_folder_is_used_and_a_foreign_file_holds_the_series(wor
     (other.library / "Brand New Thing" / "Stray.cbz").write_bytes(cbz(seed="stray"))
     other.run(export)
     ((status, reason),) = other.rows("SELECT status, status_reason FROM series WHERE id = %s", osid)
-    assert status == "needs_human" and "Stray.cbz" in reason, "a file it did not publish"
+    assert status == "needs_human", "a file it did not publish"
+    assert "Stray.cbz" in reason, "a file it did not publish"
 
 
 @budget(load="db", seconds=30)
@@ -177,7 +178,10 @@ def test_a_listed_series_of_its_name_in_another_folder_is_neither_attached_nor_a
     world.download(second, "Chapter 9", data=cbz(seed="9", pages=4))
     world.run(intake)
     ((status, reason),) = world.rows("SELECT status, status_reason FROM series WHERE id <> %s", sid)
-    assert status == "needs_human" and "published new series not found in Kavita yet" in reason, (
+    assert status == "needs_human", (
+        "a manga whose strict hit a published new series is named as is held, not a second Kavita series"
+    )
+    assert "published new series not found in Kavita yet" in reason, (
         "a manga whose strict hit a published new series is named as is held, not a second Kavita series"
     )
 
