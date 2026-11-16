@@ -6,7 +6,7 @@ outcome. The scan itself is `export`'s 1 library scan, after all its publishes.
 import json
 from pathlib import PurePosixPath
 
-from manga_pipeline import config, measures, page_store, rewrite_covers, workflow
+from manga_pipeline import config, errors, measures, page_store, rewrite_covers, workflow
 from manga_pipeline.db import sql
 
 
@@ -60,16 +60,16 @@ def run(ctx, chapter):
     staged = config.to_local(ctx.cfg, chapter["staged_path"])
     target = config.to_local(ctx.cfg, folder) / PurePosixPath(chapter["library_path"]).name
     library_path = config.to_stored(ctx.cfg, target)
-    if not workflow.exists(target.parent):
+    if not errors.exists(target.parent):
         msg = f"series folder {target.parent} does not exist"
         raise FileNotFoundError(msg)
-    if workflow.exists(staged):
-        if workflow.exists(target):
+    if errors.exists(staged):
+        if errors.exists(target):
             return workflow.NeedsHuman(f"{target} is already in the library; a library file is never overwritten")
         workflow.holds_claim(ctx, chapter)
         # ponytail: check-then-replace; only another writer in the same folder in between could lose a file.
         staged.replace(target)
-    elif not workflow.exists(target):
+    elif not errors.exists(target):
         msg = f"neither the staged {staged} nor the published {target} exists"
         raise FileNotFoundError(msg)
     elif target.stat().st_size != chapter["staged_size"]:

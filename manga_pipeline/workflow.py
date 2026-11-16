@@ -21,7 +21,7 @@ from manga_pipeline import db, lock
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.db import sql
-from manga_pipeline.errors import SHARE_ERRNOS, SHARE_WINERRORS, Unreachable, dropped_share, exists  # noqa: F401
+from manga_pipeline.errors import SHARE_ERRNOS, SHARE_WINERRORS, Unreachable
 
 log = logging.getLogger(__name__)
 STAGES = ("discover", "validate", "junk", "convert", "comicinfo", "publish", "confirm")

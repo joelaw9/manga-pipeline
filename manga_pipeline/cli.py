@@ -18,6 +18,7 @@ from manga_pipeline import (
     archive,
     config,
     db,
+    errors,
     export,
     hand_edits,
     handled,
@@ -143,7 +144,7 @@ def chapter_drop(cfg, args):
             config.to_local(cfg, row["staged_path"]).unlink(missing_ok=True)
         if row["download_path"]:
             download = config.to_local(cfg, row["download_path"])
-            if digest is None and workflow.exists(download):  # held at discover, before its digest was settled
+            if digest is None and errors.exists(download):  # held at discover, before its digest was settled
                 digest = archive.digest_or_none(download)
             retention.put(cfg, download)
         workflow.drop_chapter(

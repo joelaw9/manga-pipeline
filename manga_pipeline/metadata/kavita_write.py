@@ -16,7 +16,7 @@ import json
 import logging
 from pathlib import Path
 
-from manga_pipeline import config, db, workflow
+from manga_pipeline import config, db, errors, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients.kavita_match import normalize
@@ -84,7 +84,7 @@ def run(ctx):
         try:
             write(ctx, series_id, rules)
         except (http.HttpError, kavita_client.CoverError, FileNotFoundError) as e:
-            if isinstance(e, OSError) and workflow.dropped_share(e):
+            if isinstance(e, OSError) and errors.dropped_share(e):
                 raise
             log.warning("series %s: fields not written: %s", series_id, e)
 

@@ -22,6 +22,7 @@ from manga_pipeline import (
     comicinfo,
     config,
     db,
+    errors,
     handled,
     names,
     retention,
@@ -184,9 +185,12 @@ def _plan(ctx, series):
             elif v in images:
                 cover[fid] = ("insert", v, images[v])
             else:
+                number = names.to_volume(v)
+                if number is None:  # cover_changes names volumes by fmt_num: always a number
+                    msg = f"cover change for {v!r}: not a volume number"
+                    raise ValueError(msg)
                 if (
                     v not in given_up
-                    and (number := names.to_volume(v)) is not None
                     and number == int(number)
                     and records.get("manga")
                     and cover_images.volume_choice(records["manga"], records.get("covers") or [], number)
@@ -428,7 +432,7 @@ def publish_run(ctx, chapter):
     clash = conn.execute(
         "SELECT id FROM published_file WHERE library_path = %s AND id <> %s", (chapter["library_path"], file["id"])
     ).fetchone()
-    if clash or (target != old and workflow.exists(target)):
+    if clash or (target != old and errors.exists(target)):
         return workflow.NeedsHuman(f"{target} is already in the library; a library file is never overwritten")
     copy = chapter["kind"] == "download"  # a better copy (SPEC "Library copies")
     read, old_pages = seen[0]["pages_read"], page_count(old)
@@ -520,8 +524,8 @@ def finish(ctx, row):
     target = config.to_local(cfg, row["pending_path"])
     old = config.to_local(cfg, row["library_path"])
     step = row["pending_step"]
-    if step < STEP_RENAMED and not workflow.exists(staged):
-        if workflow.exists(target) and target.stat().st_size == row["pending_size"] and target != old:
+    if step < STEP_RENAMED and not errors.exists(staged):
+        if errors.exists(target) and target.stat().st_size == row["pending_size"] and target != old:
             step = record_step(conn, row["id"], STEP_RENAMED)  # renamed in before a crash recorded it
         elif target == old and is_new(target, row):
             step = record_step(conn, row["id"], STEP_RENAMED)
@@ -536,13 +540,13 @@ def finish(ctx, row):
         retention.put_library(cfg, old)
         step = record_step(conn, row["id"], STEP_RETAINED)
     if step < STEP_RENAMED:
-        if target != old and workflow.exists(target):
+        if target != old and errors.exists(target):
             msg = f"{target} is already in the library; a library file is never overwritten"
             raise FileExistsError(msg)
         staged.replace(target)
         step = record_step(conn, row["id"], STEP_RENAMED)
     if step < STEP_OLD_REMOVED:
-        if target != old and workflow.exists(old):
+        if target != old and errors.exists(old):
             old.unlink()
         step = record_step(conn, row["id"], STEP_OLD_REMOVED)
     with db.transaction(conn):
@@ -571,7 +575,7 @@ def finish(ctx, row):
 def is_new(path, row):
     """Whether a same-name target already holds the rewritten file (a crash after the rename): its size and its
     ComicInfo Volume are the queued ones, and its Title too when the rewrite changes it."""
-    if not workflow.exists(path) or path.stat().st_size != row["pending_size"]:
+    if not errors.exists(path) or path.stat().st_size != row["pending_size"]:
         return False
     xml = archive.read_comicinfo(path)
     if xml is None:

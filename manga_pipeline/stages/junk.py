@@ -22,6 +22,7 @@ from manga_pipeline import (
     archive,
     config,
     db,
+    errors,
     handled,
     images,
     library_copy,
@@ -125,7 +126,7 @@ def _sample(ctx, chapter, series):
         for r in rows
         if r["download_path"]
         and not (os.name == "nt" and re.search(workflow.WINDOWS_UNUSABLE, r["download_path"]))
-        and (r["id"] == chapter["id"] or workflow.exists(config.to_local(ctx.cfg, r["download_path"])))
+        and (r["id"] == chapter["id"] or errors.exists(config.to_local(ctx.cfg, r["download_path"])))
     ]
     picked = list(dict.fromkeys(r["id"] for r in (usable[0], usable[-1], usable[len(usable) // 2]))) if usable else []
     others = [i for i in picked if i != chapter["id"]][:2]  # this chapter is always measured: 2 more at most

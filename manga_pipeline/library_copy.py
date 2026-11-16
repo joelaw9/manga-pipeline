@@ -6,14 +6,15 @@ the library holds.
 
 import functools
 import zipfile
+from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any
 
 from manga_pipeline import (
     archive,
     chapter_names,
     config,
     db,
+    errors,
     handled,
     images,
     measures,
@@ -75,15 +76,15 @@ def after_junk(ctx, chapter, edit):
     if _worse(ours, theirs):
         return _duplicate(ctx, chapter, published)
     layout = _layout(ctx, chapter["series_id"])
-    junk = measures.junk(edit, layout, ours["median_page_width"])
-    their_junk = published_junk(ctx, published, layout, theirs["median_page_width"])
+    junk = measures.junk(edit, layout, ours.median_page_width)
+    their_junk = published_junk(ctx, published, layout, theirs.median_page_width)
     more = less = False
     if their_junk is not None:
         margin = 0 if layout == "pages" else JUNK_ROWS
         more, less = junk > their_junk + margin, junk < their_junk - margin
     better = (
-        ours["median_page_width"] >= WIDER * theirs["median_page_width"]
-        or (theirs["bpp"] is not None and ours["bpp"] >= BPP_BETTER * theirs["bpp"])
+        ours.median_page_width >= WIDER * theirs.median_page_width
+        or _bpp_compared(ours, theirs, lambda a, b: a >= BPP_BETTER * b)
         or less
     )
     if more or not better:
@@ -103,7 +104,7 @@ def _copy_of(ctx, chapter):
         # A published file gone from the library is no copy: publishing replaces its record (SPEC "Publishing"); a
         # file whose queued rewrite renamed it is in the library under its queued name (SPEC "Retroactive updates").
         if validation.chapter_key(r["identity"]) == key
-        and any(workflow.exists(config.to_local(ctx.cfg, p)) for p in (r["library_path"], r["pending_path"]) if p)
+        and any(errors.exists(config.to_local(ctx.cfg, p)) for p in (r["library_path"], r["pending_path"]) if p)
     ]
     if rows:
         ours = functools.cache(lambda: chapter_names.download_volume(ctx.cfg, chapter["download_path"]))
@@ -122,22 +123,48 @@ def _copy_of(ctx, chapter):
     if not pages:
         msg = f"chapter {chapter['id']} has no page rows: validate stores them"
         raise ValueError(msg)
-    ours = measures.summary(pages) | {"bpp": measures.bits_per_pixel(pages)}
+    ours = _measured(f"chapter {chapter['id']}", measures.summary(pages), measures.bits_per_pixel(pages))
     theirs = _original(ctx, published)
-    measure = "strip_length" if _layout(ctx, chapter["series_id"]) == "strip" else "pages_in"
-    if abs(ours[measure] - theirs[measure]) > SAME_CHAPTER * theirs[measure]:
+    strip = _layout(ctx, chapter["series_id"]) == "strip"
+    measure = "strip_length" if strip else "pages_in"
+    mine, its = (ours.strip_length, theirs.strip_length) if strip else (ours.pages_in, theirs.pages_in)
+    if abs(mine - its) > SAME_CHAPTER * its:
         return workflow.NeedsHuman(
-            f"not the same chapter as the published {published['library_path']}: {measure} {ours[measure]} against "
-            f"{theirs[measure]}"
+            f"not the same chapter as the published {published['library_path']}: {measure} {mine} against {its}"
         )
     return published, ours, theirs
 
 
 def _worse(ours, theirs):
     """A page width, or bits per pixel where the file's is known, below NOT_WORSE of the published file's."""
-    return ours["median_page_width"] < NOT_WORSE * theirs["median_page_width"] or (
-        theirs["bpp"] is not None and ours["bpp"] < NOT_WORSE * theirs["bpp"]
+    return ours.median_page_width < NOT_WORSE * theirs.median_page_width or _bpp_compared(
+        ours, theirs, lambda a, b: a < NOT_WORSE * b
     )
+
+
+def _bpp_compared(ours, theirs, test):
+    """test(our bits per pixel, theirs), False where either is not known."""
+    return ours.bpp is not None and theirs.bpp is not None and test(ours.bpp, theirs.bpp)
+
+
+@dataclass(frozen=True)
+class Measures:
+    """A copy's measurements the check compares."""
+
+    pages_in: int
+    median_page_width: int
+    strip_length: int
+    bpp: float | None  # bits per pixel; None when not known (a bulk file's pages are re-encoded)
+
+
+def _measured(what, summary, bpp):
+    """Measures from a measures.summary of a copy's pages and its bits per pixel; ValueError for a summary of no
+    pages."""
+    pages_in, width, length = summary["pages_in"], summary["median_page_width"], summary["strip_length"]
+    if pages_in is None or width is None or length is None:
+        msg = f"{what}: no page measurements"
+        raise ValueError(msg)
+    return Measures(pages_in, width, length, bpp)
 
 
 def _layout(ctx, series_id):
@@ -158,7 +185,7 @@ def published_junk(ctx, published, layout, width):
     try:
         record = record_reader.load(config.to_local(ctx.cfg, series["folder"]))
     except FileNotFoundError as e:
-        if workflow.dropped_share(e):
+        if errors.dropped_share(e):
             raise
         return None
     except record_reader.RecordError:
@@ -183,13 +210,13 @@ def _duplicate(ctx, chapter, published):
     return workflow.Dropped(f"a duplicate of the published {published['library_path']}", record)
 
 
-def _original(ctx, published) -> dict[str, Any]:
+def _original(ctx, published):
     """The published copy's original measurements: as stored when the pipeline published it, else measured from the
     library file (the bulk converter's, or published before they were stored). Each page is read whole and not
     decoded: an AVIF page gives no size from its first bytes. bpp: the original's bits per pixel, None when not stored
     (a bulk file's pages are re-encoded)."""
-    if published["pages_in"] is not None:
-        return {k: published[k] for k in ("pages_in", "median_page_width", "strip_length", "bpp")}
+    if published["pages_in"] is not None:  # publish stores the 3 measures together
+        return _measured(published["library_path"], published, published["bpp"])
     with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
         names = archive.archive_pages(z.namelist())
         sizes = [images.dimensions(z.read(n)) for n in names]
@@ -197,7 +224,8 @@ def _original(ctx, published) -> dict[str, Any]:
     if not sizes or len(known) < len(sizes):
         msg = f"{published['library_path']}: page sizes cannot be read"
         raise ValueError(msg)
-    return measures.summary([{"width": w, "height": h, "phash": None, "blank": True} for w, h in known]) | {"bpp": None}
+    pages = [{"width": w, "height": h, "phash": None, "blank": True} for w, h in known]
+    return _measured(published["library_path"], measures.summary(pages), None)
 
 
 def _take(ctx, chapter, published):

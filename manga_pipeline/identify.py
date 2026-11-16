@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from manga_pipeline import archive, comicinfo, config, db, kavita_link, names, workflow
+from manga_pipeline import archive, comicinfo, config, db, errors, kavita_link, names, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
@@ -196,7 +196,7 @@ def comicinfo_series(paths):
             name = comicinfo.read_fields(xml, ("Series",))["Series"] if xml else ""
         except (*archive.UNREADABLE, ET.ParseError, LookupError, OSError) as e:
             # A file this machine cannot read (permissions, held open, gone) says nothing; a failing share ends the run
-            if isinstance(e, OSError) and (workflow.dropped_share(e) or e.errno in workflow.SHARE_ERRNOS):
+            if isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in workflow.SHARE_ERRNOS):
                 raise
             continue
         if name:

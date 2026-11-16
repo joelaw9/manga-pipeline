@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 from rapidfuzz import fuzz
 
-from manga_pipeline import config, db, names, retention, workflow
+from manga_pipeline import config, db, errors, names, retention, workflow
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.db import sql
 
@@ -292,7 +292,7 @@ def download_state(ctx, expected):
     if row is None:
         return "failed"
     if row["isDownloaded"]:
-        return "complete" if workflow.exists(config.to_local(ctx.cfg, expected["path"])) else "failed"
+        return "complete" if errors.exists(config.to_local(ctx.cfg, expected["path"])) else "failed"
     queued_at = datetime.fromisoformat(expected["enqueued_at"])
     if datetime.fromisoformat(workflow.now(ctx.conn)) - queued_at > timedelta(
         hours=ctx.cfg["sources"]["download_timeout_hours"]
