@@ -62,17 +62,17 @@ def _unless_gone(call):
 
 
 class MangaBaka:
-    def __init__(self):
-        self.service = http.Service("mangabaka", 0.5)  # the client's 1 Service, public
+    def __init__(self, service=None):
+        self._service = service or http.Service("mangabaka", 0.5)
         self._search = http.Service("mangabaka", 2.1)  # search has its own, slower limit
 
     def series(self, mb_id):
-        return _unless_gone(lambda: self._get(self.service, f"/series/{mb_id}"))
+        return _unless_gone(lambda: self._get(self._service, f"/series/{mb_id}"))
 
     def by_source(self, source, source_id):
         """The 1 active series MangaBaka holds for an AniList ("anilist") or MangaUpdates ("manga-updates") id; None
         for none or several."""
-        data = _unless_gone(lambda: self._get(self.service, f"/source/{source}/{source_id}")) or {}
+        data = _unless_gone(lambda: self._get(self._service, f"/source/{source}/{source_id}")) or {}
         active = [s for s in data.get("series") or [] if s.get("state") == "active"]
         return active[0] if len(active) == 1 else None
 
@@ -87,22 +87,22 @@ class MangaBaka:
 
 
 class MangaUpdates:
-    def __init__(self):
-        self.service = http.Service("mangaupdates", 0.5)  # the client's 1 Service, public
+    def __init__(self, service=None):
+        self._service = service or http.Service("mangaupdates", 0.5)
 
     def series(self, mu_id):
-        return _unless_gone(lambda: self.service.request("GET", f"{MANGAUPDATES}/series/{mu_id}").json())
+        return _unless_gone(lambda: self._service.request("GET", f"{MANGAUPDATES}/series/{mu_id}").json())
 
     def search(self, name):
         """The search's results: each {"record": {...}, "hit_title": ...}."""
         body = {"search": name, "perpage": SEARCH_RESULTS}
-        reply = self.service.request("POST", f"{MANGAUPDATES}/series/search", json=body).json()
+        reply = self._service.request("POST", f"{MANGAUPDATES}/series/search", json=body).json()
         return reply.get("results") or []
 
 
 class MangaDex:
-    def __init__(self):
-        self.service = http.Service("mangadex", 0.25, MANGADEX_USER_AGENT)  # the client's 1 Service, public
+    def __init__(self, service=None):
+        self._service = service or http.Service("mangadex", 0.25, MANGADEX_USER_AGENT)
 
     def manga(self, md_id):
         query = urllib.parse.urlencode([("includes[]", "cover_art")])
@@ -140,15 +140,15 @@ class MangaDex:
 
     def cover_image(self, md_id, file_name):
         url = f"{MANGADEX_UPLOADS}/covers/{md_id}/{urllib.parse.quote(file_name)}"
-        return self.service.request("GET", url, headers={"Accept": "image/*"}, timeout=IMAGE_TIMEOUT).body
+        return self._service.request("GET", url, headers={"Accept": "image/*"}, timeout=IMAGE_TIMEOUT).body
 
     def _get(self, path):
-        return self.service.request("GET", MANGADEX + path).json()
+        return self._service.request("GET", MANGADEX + path).json()
 
 
 class AniList:
-    def __init__(self):
-        self.service = http.Service("anilist", 2.1)  # the client's 1 Service, public
+    def __init__(self, service=None):
+        self._service = service or http.Service("anilist", 2.1)
 
     def media(self, al_id):
         data = _unless_gone(lambda: self._query(ANILIST_MEDIA, {"id": int(al_id)}))
@@ -159,10 +159,10 @@ class AniList:
 
     def cover_image(self, url):
         """The media's `coverImage.extraLarge` image (served by AniList's image host)."""
-        return self.service.request("GET", url, headers={"Accept": "image/*"}, timeout=IMAGE_TIMEOUT).body
+        return self._service.request("GET", url, headers={"Accept": "image/*"}, timeout=IMAGE_TIMEOUT).body
 
     def _query(self, query, variables):
-        reply = self.service.request("POST", ANILIST, json={"query": query, "variables": variables}).json()
+        reply = self._service.request("POST", ANILIST, json={"query": query, "variables": variables}).json()
         if reply.get("errors"):
             raise SourceError("AniList: " + "; ".join(str(e.get("message")) for e in reply["errors"]))
         return reply["data"]
@@ -171,10 +171,10 @@ class AniList:
 class Tapas:
     """Tapas' own site endpoints (local library tapas.md). A 403 is Tapas blocking: unreachable for the run."""
 
-    GONE = (400, 404)
+    GONE = (HTTPStatus.BAD_REQUEST, HTTPStatus.NOT_FOUND)
 
-    def __init__(self):
-        self.service = http.Service("tapas", 0.5)  # the client's 1 Service, public
+    def __init__(self, service=None):
+        self._service = service or http.Service("tapas", 0.5)
 
     def series_id(self, slug):
         """The numeric series id from the series' /info page (its `tapastic://series/<id>` meta; the page carries it
@@ -210,19 +210,21 @@ class Tapas:
 
     def _get(self, url, accept="application/json"):
         try:
-            return self.service.request("GET", url, headers={"Accept": accept})
+            return self._service.request("GET", url, headers={"Accept": accept})
         except http.HttpError as e:
             if e.status == HTTPStatus.FORBIDDEN:
                 msg = f"HTTP 403 from {http.redact_url(url)}: blocked"
-                raise self.service.mark_unreachable(msg) from None
+                raise self._service.mark_unreachable(msg) from None
             raise
 
 
 class Webtoons:
     """Webtoons' own endpoints (local library webtoons.md); a ref is "<webtoon|canvas>:<title_no>"."""
 
-    def __init__(self):
-        self.service = http.Service("webtoons", 0.5)  # the client's 1 Service, public
+    GONE = (HTTPStatus.BAD_REQUEST, HTTPStatus.NOT_FOUND)
+
+    def __init__(self, service=None):
+        self._service = service or http.Service("webtoons", 0.5)
 
     def episodes(self, ref):
         """[(site number, title, date, None)] in site order, or None when Webtoons has no such series
@@ -233,7 +235,7 @@ class Webtoons:
             url = f"{WEBTOONS_API}/{kind}/{number}/episodes?pageSize={WEBTOONS_PAGE}"
             url += f"&cursor={cursor}" if cursor else ""
             # a gone first page is no list; a page gone later is an error: the stored list is kept
-            reply = _gone(lambda url=url: self.service.request("GET", url), (400, 404) if cursor is None else ())
+            reply = _gone(lambda url=url: self._service.request("GET", url), self.GONE if cursor is None else ())
             if reply is None:
                 return None
             data = reply.json()
@@ -260,7 +262,7 @@ class Webtoons:
         kind, number = ref.split(":")
         path = "/challenge/episodeList" if kind == "canvas" else "/episodeList"
         try:
-            reply = self.service.request(
+            reply = self._service.request(
                 "GET", f"{WEBTOONS_WEB}{path}?titleNo={number}", headers={"Accept": "text/html"}
             )
         except http.HttpError:

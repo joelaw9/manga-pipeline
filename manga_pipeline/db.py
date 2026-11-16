@@ -104,7 +104,7 @@ def _login(cfg):
             raise config.ConfigError(msg)
     port = settings["port"]
     if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= PORT_MAX:
-        msg = f"database.port must be a whole number from 1 to 65535, got {port!r}"
+        msg = f"database.port must be a whole number from 1 to {PORT_MAX}, got {port!r}"
         raise config.ConfigError(msg)
     if settings["password"] is not None and (not isinstance(settings["password"], str) or not settings["password"]):
         msg = "database.password must be null or a non-empty string"

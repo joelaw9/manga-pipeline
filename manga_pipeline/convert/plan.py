@@ -25,8 +25,6 @@ TURNED = range(2, 9)  # EXIF orientations readers apply: a rotation or mirror
 EDIT_KEYS = {"drop_pages": list, "strip_removed": list, "bands": list, "join": list, "split": bool, "blank": list}
 BOX_SIDES = 4  # a box: [left, top, right, bottom]
 PAIR_LEN = 2  # a join entry: [page, sliver]
-RGB_LEN = 3  # a fill: [r, g, b]
-CHANNEL_MAX = 255  # an 8-bit colour channel's top value
 
 
 class EditError(ValueError):
@@ -110,7 +108,7 @@ def check_edit(text):
             or not isinstance(b["box"], list)
             or len(b["box"]) != BOX_SIDES
             or not isinstance(b["fill"], list)
-            or len(b["fill"]) != RGB_LEN
+            or len(b["fill"]) != images.RGB_CHANNELS
         ):
             msg = f"chapter_edit blank entries are {{page, box: [l, t, r, b], fill: [r, g, b]}}, got {b!r}"
             raise EditError(msg)
@@ -276,7 +274,7 @@ def _blanks(entries, edit, name):
         if not (0 <= left < right <= w and 0 <= top < bottom <= h):
             msg = f"chapter_edit blank box {b['box']} is not inside page {b['page']} ({w} x {h})"
             raise EditError(msg)
-        if not all(0 <= v <= CHANNEL_MAX for v in b["fill"]):
+        if not all(0 <= v <= images.CHANNEL_MAX for v in b["fill"]):
             msg = f"chapter_edit blank fill {b['fill']} is not an RGB colour"
             raise EditError(msg)
         out.append({"page": page, "box": list(b["box"]), "fill": list(b["fill"])})

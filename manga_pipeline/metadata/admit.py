@@ -56,7 +56,7 @@ def _admit(ctx, series, kavita_keys, on_disk, root):
     name = name_for(conn, series)
     safe = names.folder_name(name)
     with db.transaction(conn):
-        clash = _clash(conn, series, name, kavita_keys, on_disk)
+        clash = _clash(conn, series, name, safe, kavita_keys=kavita_keys, on_disk=on_disk)
         if clash:
             workflow.needs_human(
                 conn, "series", series["id"], f"new series {name!r}: {clash} -> series new {series['id']} --name NAME"
@@ -72,10 +72,9 @@ def _admit(ctx, series, kavita_keys, on_disk, root):
         log.info("series %s (%s): admitted as new series %r, folder %r", series["id"], series["name"], name, safe)
 
 
-def _clash(conn, series, name, kavita_keys, on_disk):
+def _clash(conn, series, name, safe, *, kavita_keys, on_disk):
     """Why the name cannot be the series', or None (inside the admission's transaction, so 2 admissions never both
     take a name)."""
-    safe = names.folder_name(name)
     if not safe:
         return "its name leaves no folder name once made safe"
     key = normalize(name)

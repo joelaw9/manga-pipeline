@@ -4,6 +4,8 @@ Field and input names are Suwayomi-Server's schema at v2.4.2366 (introspected). 
 Suwayomi was found unreachable. Every call returns plain dicts shaped like the GraphQL reply.
 """
 
+from http import HTTPStatus
+
 from manga_pipeline.clients import http
 
 PAGE_SIZE = 50  # library manga per query: the whole library in 1 query times out
@@ -18,7 +20,7 @@ MANGA = (
 CHAPTER = "id mangaId name scanlator chapterNumber sourceOrder isDownloaded pageCount uploadDate url realUrl"
 # the last code point UTF-8 writes in 1, 2 and 3 bytes
 UTF8_1_BYTE_LAST, UTF8_2_BYTES_LAST, UTF8_3_BYTES_LAST = 0x7F, 0x7FF, 0xFFFF
-FIRST_PRINTABLE = 0x20  # code points below it are control characters
+FIRST_PRINTABLE = 0x20  # the first printable code point: the C0 control characters lie below it
 
 
 class GraphQLError(Exception):
@@ -105,7 +107,7 @@ class Suwayomi:
         except http.HttpTimeoutError:
             return None
         except http.HttpError as e:
-            if e.status in (404, 500):
+            if e.status in (HTTPStatus.NOT_FOUND, HTTPStatus.INTERNAL_SERVER_ERROR):
                 return None
             raise
         return reply.body

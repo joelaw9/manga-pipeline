@@ -350,4 +350,4 @@ def test_series_with_files_in_2_folders_has_no_usable_folder(kav, tmp_path):
 @budget(load="fs")
 def test_a_kavita_call_the_fake_does_not_answer_fails_loudly(kav):
     with pytest.raises(AssertionError, match="unexpected request"):
-        kavita.Kavita.metadata(kav, 1)  # the real client's request, which the fake does not answer
+        kavita.Kavita.metadata(kav, 1)  # the real client's request: every public method the fake has answers it

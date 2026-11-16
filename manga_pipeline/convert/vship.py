@@ -20,6 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from PIL import Image
 
+from manga_pipeline import images
+
 log = logging.getLogger(__name__)
 
 GPU = 0
@@ -29,7 +31,7 @@ ALPHA_BACKGROUNDS = (26, 230)  # a page with alpha: min score over dark / light 
 # Vship enum values (VshipColor.h)
 _UINT8, _FULL_RANGE, _RGB_FAMILY, _RGB_MATRIX, _SRGB_TRANSFER, _BT709 = 2, 1, 1, 0, 13, 1
 _INIT_STRUCT, _SCORE_STRUCT = 1, 4
-RGB_NDIM, RGB_CHANNELS = 3, 3  # an RGB image array: (height, width, channel), 3 channels
+RGB_NDIM = 3  # an RGB image array: (height, width, channel)
 
 
 class VshipError(RuntimeError):
@@ -159,7 +161,7 @@ class Scorer:
         if (
             ref.shape != dist.shape
             or ref.ndim != RGB_NDIM
-            or ref.shape[2] != RGB_CHANNELS
+            or ref.shape[2] != images.RGB_CHANNELS
             or ref.dtype != np.uint8
             or dist.dtype != np.uint8
         ):

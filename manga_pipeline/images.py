@@ -35,7 +35,7 @@ HEADER_BYTES = 256 * 1024  # enough of a file for dimensions() on every format w
 VP8X_HEAD, VP8_HEAD, VP8L_HEAD = 30, 30, 25
 VP8L_SIGNATURE = 0x2F  # a lossless bitstream's first byte
 CHANNEL_MAX = 255  # an 8-bit channel's top value (opaque, for alpha)
-RGB_CHANNELS = 3
+RGB_CHANNELS = 3  # an RGB pixel's channels (r, g, b)
 
 
 def _webp_kind(data):
