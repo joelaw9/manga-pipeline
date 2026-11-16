@@ -135,7 +135,7 @@ def _open(ctx: workflow.Context, series_id, downloads):
                 key=c["id"],
                 settled=False,
                 kind=item.kind,
-                number=item.num,
+                number=float(item.number),
                 season=int(item.season) if item.season else None,
                 src_volume=item.volume if item.volume is not None else fields.get("Volume"),
                 volume=None,

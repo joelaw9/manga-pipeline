@@ -449,13 +449,16 @@ def _rows(fixture):
         item = names.parse(stem)
         season = int(item.season) if item.season else None
         if c["open"]:
+            number = item.num
+            if number is None:
+                continue  # the resolver's caller leaves out an open chapter without a number (chapter_names)
             title = names.chapter_title(item, "")
             rows.append(
                 Row(
                     key=k,
                     settled=False,
                     kind=item.kind,
-                    number=item.num,
+                    number=number,
                     season=season,
                     src_volume=item.volume,
                     volume=None,
