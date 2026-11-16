@@ -6,7 +6,7 @@ waits on kavita_scan; a series Kavita no longer holds is needs_human.
 from manga_pipeline import config, db, kavita_link, retention, workflow
 
 
-def run(ctx, chapter):
+def run(ctx: workflow.Context, chapter):
     series = _series(ctx, chapter)
     if series["kavita_series_id"] is None:
         return workflow.Waiting("kavita_scan")  # a new series Kavita does not list yet (SPEC "Publishing")
@@ -32,7 +32,7 @@ def run(ctx, chapter):
     return workflow.Done(record)
 
 
-def wait_over(ctx, chapter):
+def wait_over(ctx: workflow.Context, chapter):
     """The kavita_scan wait ends when the file is indexed, or Kavita no longer holds the series (confirm says so)."""
     series = _series(ctx, chapter)
     if series["kavita_series_id"] is None:
@@ -40,17 +40,17 @@ def wait_over(ctx, chapter):
     return ctx.kavita.series(series["kavita_series_id"]) is None or _indexed(ctx, series, chapter)
 
 
-def _series(ctx, chapter):
+def _series(ctx: workflow.Context, chapter):
     """The chapter's series, its Kavita id looked for first when it is a new series Kavita did not list before."""
-    series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
+    series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     if series["kavita_series_id"] is not None:
         return series
     if kavita_link.attach(ctx, series["id"], kavita_link.listing(ctx)) is None:
         return series
-    return ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
+    return db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
 
 
-def _indexed(ctx, series, chapter):
+def _indexed(ctx: workflow.Context, series, chapter):
     """Kavita lists the published file in the series with the size it has on disk (a scan can keep a stale size)."""
     target = config.to_local(ctx.cfg, chapter["library_path"])
     size = target.stat().st_size

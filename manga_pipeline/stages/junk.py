@@ -38,7 +38,7 @@ from manga_pipeline.junk import candidates, logo_units, ocr, page_units, store, 
 WORDS = ("keywords", "weak", "paired", "suppress")
 
 
-def run(ctx, chapter):
+def run(ctx: workflow.Context, chapter):
     series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
     why = handled.put_aside(ctx, chapter, chapter["content_digest"])
     if why:
@@ -67,11 +67,11 @@ def current_scan(conn, chapter):
 # ---------------------------------------------------------------- pages on local disk
 
 
-def _scratch(ctx, chapter):
+def _scratch(ctx: workflow.Context, chapter):
     return config.abs_path(ctx.cfg["paths"]["scratch"]) / workflow.claim_name(chapter) / "junk"
 
 
-def extract(ctx, chapter, work):
+def extract(ctx: workflow.Context, chapter, work):
     """The download's pages written to `work` in archive order: (paths, names, sizes, measurements)."""
     cbz = config.to_local(ctx.cfg, chapter["download_path"])
     measured = images.measure_pages(cbz, page_store.load(ctx.conn, chapter["id"]))
@@ -88,7 +88,7 @@ def extract(ctx, chapter, work):
     return paths, names, sizes, measured
 
 
-def _layout(ctx, chapter, series, content_paths):
+def _layout(ctx: workflow.Context, chapter, series, content_paths):
     """The series' layout (SPEC "State"): its override file's `layout`, stored as the series' layout; else the stored
     one; else measured, for a new series over up to 3 of its chapters (this one among them), for any other over this
     chapter. OverrideError for a malformed override file."""
@@ -111,7 +111,7 @@ def _layout(ctx, chapter, series, content_paths):
     return strip.ensure_series_layout(ctx.conn, series["id"], chapters)
 
 
-def _sample(ctx, chapter, series):
+def _sample(ctx: workflow.Context, chapter, series):
     """The content pages of up to 2 more of a new series' chapters past validate (first, middle and last by id, this
     chapter counting as 1 of them), each extracted to the claim's scratch folder; only chapters whose download this
     machine can use and that still exist (the claim query's count, SPEC "State")."""
@@ -148,9 +148,9 @@ def _sample(ctx, chapter, series):
     return out
 
 
-def _aspects(ctx, series, sizes):
+def _aspects(ctx: workflow.Context, series, sizes):
     """The series' page aspect candidates: stored, else computed from this chapter and stored."""
-    row = ctx.conn.execute("SELECT page_aspect FROM series_conversion WHERE series_id = %s", (series["id"],)).fetchone()
+    row = db.one_row(ctx.conn, "SELECT page_aspect FROM series_conversion WHERE series_id = %s", (series["id"],))
     if row["page_aspect"] is not None:
         return json.loads(row["page_aspect"])
     aspects = strip.page_aspect([sizes])
@@ -166,7 +166,7 @@ def _aspects(ctx, series, sizes):
 # ---------------------------------------------------------------- scan
 
 
-def scan(ctx, chapter, series, key):
+def scan(ctx: workflow.Context, chapter, series, key):
     work = _scratch(ctx, chapter)
     try:
         paths, names, sizes, measured = extract(ctx, chapter, work)
@@ -204,7 +204,7 @@ def scan(ctx, chapter, series, key):
     return workflow.Ready(record=record)
 
 
-def _scan_strip(ctx, key, paths, sizes, content):
+def _scan_strip(ctx: workflow.Context, key, paths, sizes, content):
     cpaths = [paths[i] for i in content]
     rows, logos = [], []
     for i, path in zip(content, cpaths, strict=True):
@@ -253,7 +253,7 @@ def _page_units(sc):
 # ---------------------------------------------------------------- decide
 
 
-def decide(ctx, chapter, key, row):
+def decide(ctx: workflow.Context, chapter, key, row):
     sc = json.loads(row["scan"])
     decisions = store.Decisions(ctx.conn, key)
 
@@ -342,7 +342,7 @@ def held_reason(rows, limit):
     return "junk " + "; ".join(parts) + " -> junk decide ID junk|keep, then retry"
 
 
-def junk_decision_over(ctx, chapter):
+def junk_decision_over(ctx: workflow.Context, chapter):
     """The junk_decision wait (SPEC "Junk decisions"): over (True) when the chapter's scan is stale (it rescans) or a
     candidate it waits on is covered by a decision or gone: the chapter is decided again and waits on what is still
     undecided then (a decision can make another candidate moot: a dropped page's band). Else NeedsHuman when one is
@@ -369,7 +369,7 @@ def junk_decision_over(ctx, chapter):
 # ---------------------------------------------------------------- candidate images
 
 
-def write_images(ctx, chapter, key, sc, picks):
+def write_images(ctx: workflow.Context, chapter, key, sc, picks):
     """Write the images of new candidates (SPEC "Junk decisions", candidates): the download's pages are extracted
     again to the scratch folder, which is removed afterwards."""
     work = _scratch(ctx, chapter)

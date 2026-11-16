@@ -205,7 +205,7 @@ def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, *
     )
 
 
-def claim(ctx, stages, series_id=None):
+def claim(ctx: Context, stages, series_id=None):
     """Claim the next ready chapter at one of stages, by priority: series Kavita knows before new series, then the
     oldest discovery, then id. Chapters of a needs_human series, out of scope, failed in this run, or at a stage whose
     service was unreachable in this run are not picked; nor is a convert-stage chapter while its series has a ready
@@ -284,7 +284,7 @@ def claim(ctx, stages, series_id=None):
         ).fetchone()
 
 
-def _free_dead_claims(ctx):
+def _free_dead_claims(ctx: Context):
     """Inside the claim's transaction: the claims of every other owner of this part whose run lock is not held go
     back to ready, attempts unchanged. None with lock.enabled false: no run holds a lock then (SPEC "State")."""
     if not ctx.cfg["lock"]["enabled"]:
@@ -301,7 +301,7 @@ def _free_dead_claims(ctx):
         log.info("%s: freed chapter %s: its owner %s holds no run lock", ctx.owner, row["id"], row["claimed_by"])
 
 
-def series_with_ready(ctx, stages):
+def series_with_ready(ctx: Context, stages):
     """Ids of the in-scope, not needs_human series with a ready chapter at one of stages, in priority order."""
     rows = ctx.conn.execute(
         sql.SQL("""SELECT c.series_id FROM chapter c JOIN series s ON s.id = c.series_id
@@ -316,7 +316,7 @@ def series_with_ready(ctx, stages):
     return [row[0] for row in rows]
 
 
-def work(ctx, chapter, stage):
+def work(ctx: Context, chapter, stage):
     """Run stage(ctx, chapter) on a claimed chapter, record its outcome and log it. Any exception from the stage is
     Failed, except Unreachable (and an OSError with a SHARE_ERRNOS errno, which is Unreachable("share")): that leaves
     the chapter ready with its attempts unchanged, and the chapter's stage is not claimed again in this run. Returns
@@ -382,7 +382,7 @@ def _name(chapter):
     return f"chapter {chapter['id']} (series {chapter['series_id']}, {chapter['identity']}, at {chapter['stage']})"
 
 
-def drain(ctx, stages, series_id=None):
+def drain(ctx: Context, stages, series_id=None):
     """Work chapters until none is ready at the stages of `stages` ({stage: stage function}), claiming again by
     priority after each one. Returns how many ended Done."""
     done = 0
@@ -391,7 +391,7 @@ def drain(ctx, stages, series_id=None):
     return done
 
 
-def end_waits(ctx, on, holds):
+def end_waits(ctx: Context, on, holds):
     """Make every in-scope chapter waiting on `on` ready again at its stage when holds(ctx, chapter) is true, or
     needs_human when it returns a NeedsHuman (no further wait can help). The chapters of a needs_human series keep
     waiting."""
@@ -428,7 +428,7 @@ def end_waits(ctx, on, holds):
                 )
 
 
-def charge_waits(ctx, on, reason, waited_since, at):
+def charge_waits(ctx: Context, on, reason, waited_since, at):
     """1 attempt for each in-scope chapter of an ok series waiting on `on` whose wait was recorded at or before
     waited_since (a wait renewed at a cost, SPEC "Publishing"); the charge stamps updated_at with `at`, so a charged
     chapter's wait counts from then. A chapter reaching the attempt limit becomes needs_human. Runs inside the caller's
@@ -450,7 +450,7 @@ def charge_waits(ctx, on, reason, waited_since, at):
     return len(rows)
 
 
-def release_own_claims(ctx):
+def release_own_claims(ctx: Context):
     """Free the claims a killed run of this owner left, in scope or not: back to ready at their stage, attempts
     unchanged (this run holds the owner's lock, so they are dead). Not when lock.enabled is false: another live run
     of the owner may hold them."""
@@ -466,7 +466,7 @@ def release_own_claims(ctx):
         log.info("%s: released %d claim(s) left by an earlier run", ctx.owner, released)
 
 
-def holds_claim(ctx, chapter):
+def holds_claim(ctx: Context, chapter):
     """Raise ClaimLost unless this run still holds the chapter's claim; inside the caller's transaction or alone.
     Called immediately before an act that cannot be undone outside the database (SPEC "State")."""
     held = ctx.conn.execute(
@@ -646,7 +646,7 @@ def _refuse_unless_human(conn, chapter_id, stages):
     return row
 
 
-def run_part(ctx, body):
+def run_part(ctx: Context, body):
     """A part's run (SPEC "Parts"): record its start, release its own stale claims, run body(ctx), record its end and
     result ("ok", "unreachable: <service>, …" or "error"), and its last success when the result is ok. Unreachable
     raised outside a stage (discovery, a wait check) ends the run; either way the exit code stays 0. Any other
@@ -677,7 +677,7 @@ def run_part(ctx, body):
         log.info("%s: run ended: %s (%s)", ctx.owner, result, counts)
 
 
-def _finish(ctx, chapter, outcome):
+def _finish(ctx: Context, chapter, outcome):
     """Record outcome for a chapter this run claimed (its owner and claim count), unless a person changed the row
     meanwhile or the claim was freed. Returns whether it was recorded."""
     limit = ctx.cfg["workflow"]["attempt_limit"]
@@ -749,11 +749,11 @@ def share_errors():
         raise Unreachable(msg) from e
 
 
-def _params(ctx, **extra):
+def _params(ctx: Context, **extra):
     return {"part": ctx.part, "owner": ctx.owner, "now": now(ctx.conn), **scope_params(ctx.cfg), **extra}
 
 
-def _set_meta(ctx, name, value):
+def _set_meta(ctx: Context, name, value):
     with db.transaction(ctx.conn):
         set_meta(ctx.conn, f"{ctx.owner}.{name}", value)  # 1 set of run records per part and machine
 

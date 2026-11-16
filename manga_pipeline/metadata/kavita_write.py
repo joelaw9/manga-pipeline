@@ -56,7 +56,7 @@ def inputs(version, rules):
     return f"{version}:{rules.fingerprint}:{CODE}"
 
 
-def due(ctx, rules):
+def due(ctx: workflow.Context, rules):
     """Ids of the in-scope Kavita series with a completed check whose written fields or cover are out of date, or
     written to another Kavita series (Kavita recreated it)."""
     rows = ctx.conn.execute(
@@ -71,7 +71,7 @@ def due(ctx, rules):
     return [r[0] for r in rows]
 
 
-def run(ctx):
+def run(ctx: workflow.Context):
     """Write every due series' fields; a series Kavita refuses, or whose cover file cannot be read, is logged and stays
     due. Kavita unreachable ends the step (and the run, as everything after it needs Kavita)."""
     rules = tags.load()
@@ -89,15 +89,15 @@ def run(ctx):
             log.warning("series %s: fields not written: %s", series_id, e)
 
 
-def write(ctx, series_id, rules):
+def write(ctx: workflow.Context, series_id, rules):
     conn, kv = ctx.conn, ctx.kavita
-    series = conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone()
+    series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series_id,))
     kid = series["kavita_series_id"]
     if kv.series(kid) is None:
         log.info("series %s (%s): not written: Kavita no longer holds series %s", series_id, series["name"], kid)
         return
     fields = merge.stored(conn, series_id, rules)
-    version = conn.execute("SELECT data_version FROM series_check WHERE series_id = %s", (series_id,)).fetchone()[0]
+    version = db.one_row(conn, "SELECT data_version FROM series_check WHERE series_id = %s", (series_id,))[0]
     before = conn.execute("SELECT * FROM series_written WHERE series_id = %s", (series_id,)).fetchone()
     if before is not None and before["kavita_series_id"] != kid:
         before = None  # written to a Kavita series that is gone: this one holds none of it
@@ -235,7 +235,7 @@ def _links_and_ids(kv, kid, fields):
         kv.update_series(series, **changes)
 
 
-def _cover(ctx, series, kid, state, imported, *, guard, record):
+def _cover(ctx: workflow.Context, series, kid, state, imported, *, guard, record):
     """Upload the series' cover when Kavita does not hold it from the pipeline; the sha256 Kavita now holds from it.
     A cover uploaded to Kavita before the pipeline's first upload, and not by the old tool, is a person's: kept.
     (Kavita names every upload alike, so a person's upload after the pipeline's is not told apart.)"""

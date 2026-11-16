@@ -39,7 +39,7 @@ NOT_ADMITTED = NotTaken("new series, metadata not fetched yet", listed=True)
 class KavitaSeries:
     """The library's series, read from Kavita once per discovery and only when a manga needs them."""
 
-    def __init__(self, ctx):
+    def __init__(self, ctx: workflow.Context):
         self._ctx = ctx
         self._rows = None
 
@@ -105,7 +105,7 @@ def _folder_subject(folder):
     )
 
 
-def series_for(ctx, manga, kavita_series):
+def series_for(ctx: workflow.Context, manga, kavita_series):
     """The series row of a library manga, or NotTaken. A series row may be needs_human (near or double hit, no
     usable folder): its chapters are recorded and held."""
     conn, cfg = ctx.conn, ctx.cfg
@@ -130,7 +130,7 @@ def series_for(ctx, manga, kavita_series):
     return _by_names(ctx, subject, [manga["title"]], kavita_series)
 
 
-def series_for_folder(ctx, folder, paths, kavita_series):
+def series_for_folder(ctx: workflow.Context, folder, paths, kavita_series):
     """The series row of a hand-placed download folder ("<source folder>/<title folder>", holding paths), or NotTaken:
     its stored link, else its title folder's name, else (read only then) the ComicInfo Series its files agree on."""
     subject = _folder_subject(folder)
@@ -153,7 +153,7 @@ def link_manga(conn, manga, series_id):
     _manga_subject(manga).write_link(conn, series_id)
 
 
-def sweep(ctx, library, kavita_series):
+def sweep(ctx: workflow.Context, library, kavita_series):
     """Link each library manga with no link to its series when steps 2 or 3 find exactly 1 (SPEC "Series
     identification"); a near, double or missing hit writes nothing. Returns the manga left unlinked."""
     conn = ctx.conn
@@ -204,7 +204,7 @@ def comicinfo_series(paths):
     return found.pop() if len(found) == 1 else None
 
 
-def _by_names(ctx, subject, titles, kavita_series):
+def _by_names(ctx: workflow.Context, subject, titles, kavita_series):
     """Step 3 over each title in turn: the first with exactly 1 strict hit is the series; else the first near or
     double hit holds the subject's series (needs_human); else a new series (pending: its row and link are stored, its
     downloads not taken). A held or new series is in scope when any title is; its row keeps a second title (a
@@ -247,7 +247,7 @@ def _near(title, kseries):
     return bool(key) and any(key == names.key(n) or search.close(title, n) for n in series_names(kseries))
 
 
-def _taken(ctx, row):
+def _taken(ctx: workflow.Context, row):
     """The linked row of a manga or folder, with its folder; NotTaken for a pending new series (a held one is
     returned: its chapters are recorded and held)."""
     if row["origin"] == "new" and row["admitted_at"] is None and row["status"] == "ok":
@@ -280,7 +280,7 @@ def _strict_keys(series):
     return {normalize(n) for n in series_names(series)}
 
 
-def _store_kavita_series(ctx, subject, found):
+def _store_kavita_series(ctx: workflow.Context, subject, found):
     """The series row of a strict Kavita hit: the row already holding its Kavita id (another source's manga of the
     same series), else a new one with its names and folder; a series with no usable folder is needs_human."""
     conn = ctx.conn
@@ -288,7 +288,8 @@ def _store_kavita_series(ctx, subject, found):
     folder, problem = _folder(ctx, found["id"]) if existing is None else (None, None)
     with db.transaction(conn):
         if existing is None:
-            series_id = conn.execute(
+            series_id = db.one_row(
+                conn,
                 """INSERT INTO series (name, kavita_series_id, kavita_library_id, folder, origin, localized_name,
                     original_name)
                 VALUES (%s, %s, %s, %s, 'kavita', %s, %s) RETURNING id""",
@@ -300,7 +301,7 @@ def _store_kavita_series(ctx, subject, found):
                     found.get("localizedName") or None,
                     found.get("originalName") or None,
                 ),
-            ).fetchone()[0]
+            )[0]
             if problem:
                 workflow.needs_human(conn, "series", series_id, problem)
         else:
@@ -309,7 +310,7 @@ def _store_kavita_series(ctx, subject, found):
     return _with_folder(ctx, conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone())
 
 
-def _with_folder(ctx, row):
+def _with_folder(ctx: workflow.Context, row):
     """The row with its folder: a Kavita series' row the library listing stored has none until a download needs it
     (SPEC "Metadata checks"); one Kavita gives no usable folder is needs_human."""
     if row["kavita_series_id"] is None or row["folder"] is not None:
@@ -323,7 +324,7 @@ def _with_folder(ctx, row):
     return ctx.conn.execute("SELECT * FROM series WHERE id = %s", (row["id"],)).fetchone()
 
 
-def _folder(ctx, kavita_series_id):
+def _folder(ctx: workflow.Context, kavita_series_id):
     """(the series folder in stored form, None) or (None, why it has none)."""
     try:
         return kavita_link.library_folder(ctx.cfg, ctx.kavita.series_folder(kavita_series_id)), None

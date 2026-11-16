@@ -17,7 +17,7 @@ from manga_pipeline.metadata import check
 log = logging.getLogger(__name__)
 
 
-def scan(ctx):
+def scan(ctx: workflow.Context):
     """Record each new settled download as a chapter. A manga folder that cannot be listed is not taken (`_list`);
     any other folder that cannot be read raises its OSError (the caller
     decides whether the share is unreachable); an unreachable service raises Unreachable before anything is written
@@ -70,7 +70,7 @@ def _settled(path, settled_by):
         return False
 
 
-def _held(ctx):
+def _held(ctx: workflow.Context):
     """The paths open chapters hold: their downloads, the re-downloads they expect and the rejected copies they are
     still removing (SPEC "Bad downloads"). Such a file is never a new chapter and never listed as not taken."""
     rows = ctx.conn.execute(
@@ -119,7 +119,7 @@ def _entries(folder, dirs):
         return sorted(e.name for e in it if e.is_dir() == dirs)
 
 
-def _manga_downloads(ctx, manga, paths, kavita_series):
+def _manga_downloads(ctx: workflow.Context, manga, paths, kavita_series):
     """([(path, reason)] not taken, [new chapter fields]) for 1 manga's downloads."""
     series = identify.series_for(ctx, manga, kavita_series)
     if isinstance(series, identify.NotTaken):
@@ -140,7 +140,7 @@ def _manga_downloads(ctx, manga, paths, kavita_series):
     return unmatched, found
 
 
-def _folder_downloads(ctx, folder, paths, kavita_series):
+def _folder_downloads(ctx: workflow.Context, folder, paths, kavita_series):
     """([(path, reason)] not taken, [new chapter fields]) for a hand-placed folder's downloads."""
     series = identify.series_for_folder(ctx, folder, paths, kavita_series)
     if isinstance(series, identify.NotTaken):
@@ -148,14 +148,14 @@ def _folder_downloads(ctx, folder, paths, kavita_series):
     return [], [_found(ctx, series, path, None, None) for path in paths]
 
 
-def _found(ctx, series, path, chapter, source):
+def _found(ctx: workflow.Context, series, path, chapter, source):
     """chapter: the Suwayomi chapter the file rebuilds to, None for a hand-placed one."""
     identity = names.identity(names.parse(path.stem))
     chapter_id, url = (chapter["id"], chapter["realUrl"] or None) if chapter else (None, None)
     return series["id"], identity, config.to_stored(ctx.cfg, path), chapter_id, source, url
 
 
-def _record(ctx, found, unmatched):
+def _record(ctx: workflow.Context, found, unmatched):
     """Add the chapters not yet open at their path, and replace unmatched_download (first seen kept)."""
     stamp = workflow.now(ctx.conn)
     with db.transaction(ctx.conn):

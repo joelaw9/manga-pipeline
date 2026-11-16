@@ -8,7 +8,7 @@ from manga_pipeline import config, retention, workflow
 OUTCOMES = ("published", "rejected", "duplicate", "dropped")
 
 
-def put_aside(ctx, chapter, digest):
+def put_aside(ctx: workflow.Context, chapter, digest):
     """When a handled chapter of the chapter's series has this content digest: move the download the retention way and
     return why (the stage then drops the chapter); else None."""
     row = ctx.conn.execute(

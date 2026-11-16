@@ -13,7 +13,7 @@ from manga_pipeline.metadata import naming
 FIELDS = ("title", "volume")
 
 
-def apply(ctx, data, series_id=None):
+def apply(ctx: workflow.Context, data, series_id=None):
     """Check data (the edit file's JSON) whole and store its edits in 1 transaction; returns the lines to print.
     Refused naming every problem found."""
     problems = []
@@ -116,7 +116,7 @@ def load(path):
         raise workflow.Refused(msg) from None
 
 
-def _series(ctx, name, series_id, problems):
+def _series(ctx: workflow.Context, name, series_id, problems):
     if not isinstance(name, str) or not name.strip():
         problems.append("'series' must be the series' Kavita name")
         return None
@@ -138,7 +138,7 @@ def _series(ctx, name, series_id, problems):
     return rows[0]
 
 
-def _chapters(ctx, series, edits):
+def _chapters(ctx: workflow.Context, series, edits):
     """The series' chapters as the edits would leave them: [{key, kind, season, number, volume, title, name}] (name:
     the file name it holds or would get)."""
     rows, overrides, mangadex, platform = chapter_names.inputs(ctx, series)

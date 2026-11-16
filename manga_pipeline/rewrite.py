@@ -70,7 +70,7 @@ def _set_null(columns):
 # --- the comparison
 
 
-def compare(ctx):
+def compare(ctx: workflow.Context):
     """Compare every in-scope ok series with a Kavita id and its baseline taken whose naming inputs changed: queue a
     rewrite chapter for each published file whose volume or cover should change, while fewer than export.rewrites_open
     are open, and record the cover images wanted. A series compared whole stores the hash it was compared with; one cut
@@ -84,7 +84,7 @@ def compare(ctx):
     for series in candidates:
         if baseline.needed(conn, series):
             continue
-        room = cap - conn.execute(sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(OPEN_REWRITES)).fetchone()[0]
+        room = cap - db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(OPEN_REWRITES))[0]
         if room <= 0:
             log.info("%s: %d rewrites open (export.rewrites_open): the comparison waits", ctx.part, cap)
             return
@@ -130,7 +130,7 @@ def compare(ctx):
             log.info("%s: series %s (%s): %d rewrite(s) queued", ctx.part, series["id"], series["name"], made)
 
 
-def _plan(ctx, series):
+def _plan(ctx: workflow.Context, series):
     """(todo, wants, unknown) of 1 series. todo: {published file id: (volume, volume source, cover, title, unedited)} of
     the files whose volume, cover or (by a hand edit) title should change, in id order (cover: None, ("insert",
     volume, its series_volume_cover row) or ("drop",); unedited: what the file keeps of its sources' values afterwards,
@@ -211,7 +211,7 @@ def _stored_hash(conn, series_id):
     return row[0] if row else None
 
 
-def _hash(ctx, series):
+def _hash(ctx: workflow.Context, series):
     """The series' naming inputs: its basis, override file, hand edits, stored MangaDex aggregate, cover list and
     platform list, its stored cover images, the naming code, its published files' rows, its open downloads and the
     covers they took, and its open rewrites. VolumeError for a malformed override file."""
@@ -261,7 +261,7 @@ def _hash(ctx, series):
     return hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _queue_chapter(ctx, series, file_id, *, volume, source, cover, title, unedited):
+def _queue_chapter(ctx: workflow.Context, series, file_id, *, volume, source, cover, title, unedited):
     """1 rewrite chapter for a confirmed published file with no open chapter and nothing queued or awaited, at convert
     when its cover changes (an insert's cover handed over as a volume_cover row), else at comicinfo; it carries the
     file's title and unedited values afterwards (title "" = untitled). Returns 1 when made, else 0."""
@@ -337,12 +337,12 @@ def _target(row, volume, title):
 # --- the rewrite chapter's stages
 
 
-def comicinfo_run(ctx, chapter):
+def comicinfo_run(ctx: workflow.Context, chapter):
     """Copy the library file to staging with a new ComicInfo.xml (the series-level fields now, the new volume, the
     old file's own fields and pages); every other member copied byte for byte."""
     conn = ctx.conn
-    series = conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
-    file = conn.execute("SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],)).fetchone()
+    series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
+    file = db.one_row(conn, "SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],))
     converted = chapter["convert_result"] and json.loads(chapter["convert_result"])  # the cover changed at convert
     source = config.to_local(ctx.cfg, file["library_path"])  # unchanged until finish: a rerun reads the same
     old = archive.read_comicinfo(source)
@@ -410,16 +410,16 @@ def copy_replacing(source, dest, name, data):
     return size
 
 
-def publish_run(ctx, chapter):
+def publish_run(ctx: workflow.Context, chapter):
     """Queue the rewrite, or a better copy's replacement, on its file's row with the API key's user's progress (SPEC
     "Retroactive updates"); the chapter is then done. A copy also queues its values (publish.row_values), puts its
     download aside the retention way and is recorded as a handled chapter `published`. A publish run again finds its
     rewrite queued or finished and is done."""
     conn = ctx.conn
-    file = conn.execute("SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],)).fetchone()
+    file = db.one_row(conn, "SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],))
     if file["pending_path"] == chapter["library_path"] or file["indexed_since"] is not None:
         return workflow.Done()  # queued, or finished, by an earlier run of this stage
-    series = conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
+    series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     old = config.to_local(ctx.cfg, file["library_path"])
     seen = [f for f in ctx.kavita.series_files(series["kavita_series_id"]) if f["path"] == old]
     if not seen:  # a confirmed file Kavita lost: tried again by a later run, its attempts counted
@@ -491,7 +491,7 @@ def copy_shift(read, old_pages, new_pages):
     return round(read * new_pages / old_pages) - read if old_pages else 0
 
 
-def finish_all(ctx):
+def finish_all(ctx: workflow.Context):
     """Finish every queued rewrite that has failed fewer than workflow.attempt_limit times; a row whose act fails
     records its error and 1 attempt and resumes at its next step on the next run; the others go on (a share error
     ends the run). At the limit it waits for `rewrite retry` (or, before its rename, `rewrite drop`)."""
@@ -515,7 +515,7 @@ def finish_all(ctx):
             log.warning("%s: rewrite of %s failed: %s", ctx.part, row["library_path"], e)
 
 
-def finish(ctx, row):
+def finish(ctx: workflow.Context, row):
     """The file acts of 1 queued rewrite, each recorded on the row once done (pending_step), so a retry starts at the
     next: 1 the staged file's time set to now; 2 the old file hard-linked into retention; 3 the staged file renamed over
     the target; 4 a renamed file's old name removed; 5 the row takes the new path, size and volume."""
@@ -665,7 +665,7 @@ def retry(conn, file_id):
 # --- the progress restore
 
 
-def restore_all(ctx):
+def restore_all(ctx: workflow.Context):
     """For every rewritten file Kavita has re-read (listed at its size, its chapter modified after the snapshot),
     restore the API key's user's progress where Kavita lost it, and end the wait; then refresh the covers."""
     rows = ctx.conn.execute(
@@ -702,7 +702,7 @@ def restore_all(ctx):
     refresh_covers(ctx)
 
 
-def refresh_covers(ctx):
+def refresh_covers(ctx: workflow.Context):
     """Ask Kavita to regenerate the cover images of each series holding a re-read file whose cover a rewrite changed (a
     library scan keeps a re-read chapter's old one): 1 request per series per run; a request that fails is logged and
     asked again by the next run."""
@@ -729,7 +729,7 @@ def _later(now, before):
     return before is None or datetime.fromisoformat(now) > datetime.fromisoformat(before)
 
 
-def _restore(ctx, row, seen):
+def _restore(ctx: workflow.Context, row, seen):
     """The carried progress, written only when higher than what Kavita now holds: unread stays unread; fully read is
     marked read; else the pages read, shifted by an added or dropped cover, at least 1, at most the new page count
     (written lower too when Kavita still holds exactly the snapshot's page: a same-name file keeps it unshifted)."""
@@ -747,7 +747,7 @@ def _restore(ctx, row, seen):
         log.info("%s: %s: progress %d page(s) restored", ctx.part, row["library_path"], want)
 
 
-def charge_waits(ctx, waited_since, at):
+def charge_waits(ctx: workflow.Context, waited_since, at):
     """1 charge for each rewritten file still not re-read whose wait began at or before waited_since (a repeated
     library scan request); at workflow.attempt_limit charges its row records the error. Inside the caller's
     transaction; returns how many were charged."""
@@ -776,7 +776,7 @@ def waiting(conn):
 # --- naming diff
 
 
-def diff(ctx, series):
+def diff(ctx: workflow.Context, series):
     """(rewrites the comparison would queue: [(path, old volume, new volume, new path, cover, new title or None)],
     cover images it would want: [volume], whether some file's cover is not known yet (covers then left out),
     differences not applied: [(path, stored volume, sources' volume)], the series' hand edits: [(chapter, title,

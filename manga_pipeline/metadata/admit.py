@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 ANILIST_SUFFIX = " @COMIC"  # AniList's mark on a title also used by an anime, dropped as the old tool did
 
 
-def run(ctx, listing):
+def run(ctx: workflow.Context, listing):
     """Admit every in-scope pending new series whose check completed and is not due again at once (`series new`
     makes it so: the check runs first). listing: the library's series (Kavita's
     `series_in_library`, unfiltered)."""
@@ -51,7 +51,7 @@ def name_for(conn, series):
     return english or series["alt_name"] or series["name"]
 
 
-def _admit(ctx, series, kavita_keys, on_disk, root):
+def _admit(ctx: workflow.Context, series, kavita_keys, on_disk, root):
     conn = ctx.conn
     name = name_for(conn, series)
     safe = names.folder_name(name)

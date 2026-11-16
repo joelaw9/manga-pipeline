@@ -59,7 +59,7 @@ def median(conn, series_id):
     return statistics.median(counts) if len(counts) >= validation.MIN_PUBLISHED else None
 
 
-def judge(ctx, chapter):
+def judge(ctx: workflow.Context, chapter):
     """At junk: None to go on (no notice title, or one judged a chapter: its note is written now, in its own
     transaction); Dropped for a notice."""
     notes = json.loads(chapter["notes"] or "[]")
@@ -83,7 +83,7 @@ def judge(ctx, chapter):
     return None
 
 
-def drop(ctx, chapter, download):
+def drop(ctx: workflow.Context, chapter, download):
     """A notice: its download removed the retention way, and recorded as a dropped handled chapter."""
     digest = archive.digest_or_none(download)
     workflow.holds_claim(ctx, chapter)

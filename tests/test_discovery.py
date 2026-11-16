@@ -9,7 +9,7 @@ import pytest
 from manga_pipeline import archive, config, db, discovery, intake, workflow
 from manga_pipeline.stages import discover
 
-from tests.builders import settle
+from tests.builders import present, settle
 from tests.timing import budget
 from tests.world import World, cbz, comicinfo
 
@@ -28,7 +28,7 @@ def run_stage(world, chapter_id):
     """Claim the chapter at discover and run the discover stage on it; returns the outcome."""
     with closing(db.connect(world.cfg)) as conn:
         ctx = world.context(conn, "intake")
-        row = workflow.claim(ctx, ("discover",))
+        row = present(workflow.claim(ctx, ("discover",)))
         assert row["id"] == chapter_id
         return workflow.work(ctx, row, discover.run)
 

@@ -56,7 +56,7 @@ def record_problem(cfg, series):
     return None
 
 
-def take(ctx, series):
+def take(ctx: workflow.Context, series):
     """Take the series' baseline from its record. Returns None once the series has one; else why not (the chapter
     waits). A record whose series name is not one of the series' Kavita names records nothing and makes the series
     needs_human."""
@@ -80,7 +80,7 @@ def take(ctx, series):
         return reason
     layout = record["series"]["layout"]["layout"]
     with db.transaction(ctx.conn):
-        if ctx.conn.execute("SELECT baseline_at FROM series WHERE id = %s", (series["id"],)).fetchone()[0]:
+        if db.one_row(ctx.conn, "SELECT baseline_at FROM series WHERE id = %s", (series["id"],))[0]:
             return None  # another run took it meanwhile
         _write(ctx.conn, series, record, name, layout)
     log.info("%s: series %s baseline taken from its record", ctx.part, series["id"])

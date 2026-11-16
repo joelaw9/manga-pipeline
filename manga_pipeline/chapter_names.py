@@ -7,13 +7,13 @@ import json
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
 
-from manga_pipeline import archive, comicinfo, config, db, errors, names, volumes
+from manga_pipeline import archive, comicinfo, config, db, errors, names, volumes, workflow
 from manga_pipeline.metadata import naming, platforms
 
 OPEN = ("ready", "claimed", "waiting")  # an unnamed needs_human chapter may never be published: no number
 
 
-def resolve(ctx, series, downloads=None, *, edited=True):
+def resolve(ctx: workflow.Context, series, downloads=None, *, edited=True):
     """{chapter id: naming.Naming} of the series' open download chapters, with the series' hand edits (edited=False:
     as the sources alone name them). downloads: {chapter id: stored path} read instead of the chapter's own download
     (validate's re-download candidate). VolumeError (volumes.OverrideError included) for a malformed override file, an
@@ -35,7 +35,7 @@ def edits(conn, series_id):
     }
 
 
-def choose_basis(ctx, series, downloads=None):
+def choose_basis(ctx: workflow.Context, series, downloads=None):
     """Choose and store a new series' volume basis over its chapters known now (SPEC "Publishing"); kept when another
     run stored one first. downloads: as resolve's. Returns the series' basis. VolumeError for a malformed override
     file."""
@@ -45,10 +45,10 @@ def choose_basis(ctx, series, downloads=None):
         ctx.conn.execute(
             "UPDATE series SET naming_basis = %s WHERE id = %s AND naming_basis IS NULL", (basis, series["id"])
         )
-        return ctx.conn.execute("SELECT naming_basis FROM series WHERE id = %s", (series["id"],)).fetchone()[0]
+        return db.one_row(ctx.conn, "SELECT naming_basis FROM series WHERE id = %s", (series["id"],))[0]
 
 
-def inputs(ctx, series, downloads=None):
+def inputs(ctx: workflow.Context, series, downloads=None):
     """(rows, override mapping or None, MangaDex volume map, stored platform list or None) of the series."""
     overrides = volumes.override_file(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
     row = ctx.conn.execute(
@@ -91,7 +91,7 @@ def _published(conn, series_id):
     return out
 
 
-def _open(ctx, series_id, downloads):
+def _open(ctx: workflow.Context, series_id, downloads):
     out = []
     chapters = ctx.conn.execute(
         """SELECT * FROM chapter WHERE series_id = %s AND kind = 'download' AND stage != 'discover'

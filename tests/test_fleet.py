@@ -15,7 +15,7 @@ from manga_pipeline.convert import calibrate
 from manga_pipeline.db import sql
 from manga_pipeline.workflow import Failed, Waiting
 
-from tests.builders import add_chapter, add_series, chapter, one, site_cfg
+from tests.builders import add_chapter, add_series, chapter, one, present, site_cfg
 from tests.timing import budget
 from tests.world import cbz
 
@@ -80,10 +80,10 @@ def test_3_machines_claim_3_series_and_no_chapter_twice(fleet):
     for name in ("A", "B", "C", "D"):
         fleet.series(name, chapters=3)
     machines = [fleet.machine(n) for n in ("lxc", "celestia", "luna")]
-    claims = [workflow.claim(ctx, ("junk",)) for ctx in machines]
+    claims = [present(workflow.claim(ctx, ("junk",))) for ctx in machines]
     assert len({c["id"] for c in claims}) == 3, "no chapter is claimed twice"
     assert len({c["series_id"] for c in claims}) == 3, "machines work different series at once"
-    assert workflow.claim(machines[0], ("junk",))["series_id"] not in {c["series_id"] for c in claims}, (
+    assert present(workflow.claim(machines[0], ("junk",)))["series_id"] not in {c["series_id"] for c in claims}, (
         "a machine holding a claim in a series takes another series next, never a second chapter of one in hand"
     )
 
@@ -103,18 +103,18 @@ def test_between_2_chapters_a_series_may_move_to_another_machine(fleet):
     a, b = fleet.machine("a"), fleet.machine("b")
     first = workflow.claim(a, ("junk",))
     workflow.work(a, first, returns(Waiting("junk_decision")))
-    assert workflow.claim(b, ("junk",))["series_id"] == series_id, "a holds no claim between chapters"
+    assert present(workflow.claim(b, ("junk",)))["series_id"] == series_id, "a holds no claim between chapters"
 
 
 @budget(load="db", seconds=2)
 def test_a_dead_machines_claims_are_freed_by_another_machines_next_claim(fleet):
     _, (c1,) = fleet.series("S", chapters=1)
     a, b = fleet.machine("a"), fleet.machine("b")
-    assert workflow.claim(a, ("junk",))["id"] == c1
+    assert present(workflow.claim(a, ("junk",)))["id"] == c1
     assert workflow.claim(b, ("junk",)) is None, "a live machine's claim stays"
     assert fleet.row(c1)["claimed_by"] == "process@a"
     fleet.vanish("a")
-    taken = workflow.claim(b, ("junk",))
+    taken = present(workflow.claim(b, ("junk",)))
     assert taken["id"] == c1, "freed within the next claim, then taken"
     assert taken["claimed_by"] == "process@b", "freed within the next claim, then taken"
     assert taken["attempts"] == 0, "freeing a dead claim costs no attempt"
@@ -140,14 +140,14 @@ def test_a_lock_held_in_another_database_keeps_no_claim_here(fleet, tmp_path):
             fleet.conn.execute(
                 "UPDATE chapter SET status = 'claimed', claimed_by = 'process@a', claim_count = 1 WHERE id = %s", (c1,)
             )
-        assert workflow.claim(fleet.machine("b"), ("junk",))["id"] == c1, "only a lock in this database counts"
+        assert present(workflow.claim(fleet.machine("b"), ("junk",)))["id"] == c1, "only a lock in this database counts"
 
 
 def lost(fleet, cfg=None):
     """Machine a's claim of a chapter, then freed and taken by machine b (a slept): (a, a's stale row)."""
     _, (c1,) = fleet.series("S", chapters=1)
     a, b = fleet.machine("a", cfg), fleet.machine("b")
-    stale = workflow.claim(a, ("junk",))
+    stale = present(workflow.claim(a, ("junk",)))
     with db.transaction(fleet.conn):
         fleet.conn.execute(
             """UPDATE chapter SET claimed_by = %s, claim_count = claim_count + 1 WHERE id = %s""", (b.owner, c1)
@@ -175,9 +175,9 @@ def test_a_run_that_lost_its_claim_records_nothing_and_spends_no_attempt(fleet):
 def test_an_older_run_of_the_same_owner_never_passes_for_the_new_one(fleet):
     _, (c1,) = fleet.series("S", chapters=1)
     a = fleet.machine("a")
-    stale = workflow.claim(a, ("junk",))
+    stale = present(workflow.claim(a, ("junk",)))
     workflow.release_own_claims(a)  # the next run of a's owner starts
-    fresh = workflow.claim(a, ("junk",))
+    fresh = present(workflow.claim(a, ("junk",)))
     assert fresh["claim_count"] == stale["claim_count"] + 1
     workflow.work(a, stale, returns(Failed("old run")))
     assert fleet.row(c1)["attempts"] == 0, "the old run's outcome is refused: same owner, older count"
@@ -233,18 +233,18 @@ def test_a_lost_claim_neither_notes_a_kept_notice_nor_puts_a_dropped_one_aside(f
 def test_a_failed_chapter_waits_5_minutes_on_every_machine_and_its_series_goes_on(fleet):
     _, (_c1, _c2) = fleet.series("S", chapters=2)
     a, b = fleet.machine("a"), fleet.machine("b")
-    first = workflow.claim(a, ("junk",))
+    first = present(workflow.claim(a, ("junk",)))
     workflow.work(a, first, returns(Failed("bad page")))
     row = fleet.row(first["id"])
     assert row["retry_after"] == workflow.after(row["updated_at"], workflow.RETRY_PAUSE)
-    other = workflow.claim(b, ("junk",))
+    other = present(workflow.claim(b, ("junk",)))
     assert other["id"] != first["id"], "no machine takes it during the pause; the series' other chapter goes on"
     workflow.work(b, other, returns(Waiting("junk_decision")))
     assert workflow.claim(b, ("junk",)) is None
     with db.transaction(fleet.conn):  # the pause is over
         fleet.conn.execute("UPDATE chapter SET retry_after = %s WHERE id = %s", (workflow.now(fleet.conn), first["id"]))
     assert workflow.claim(a, ("junk",)) is None, "never again in the run that failed it"
-    assert workflow.claim(b, ("junk",))["id"] == first["id"], "another run takes it once the pause is over"
+    assert present(workflow.claim(b, ("junk",)))["id"] == first["id"], "another run takes it once the pause is over"
 
 
 @budget(load="db")
@@ -256,14 +256,14 @@ def test_retry_ends_the_pause_at_once(fleet):
         fleet.conn.execute("UPDATE chapter SET status = 'needs_human' WHERE id = %s", (c1,))
     workflow.retry_chapter(fleet.conn, c1)
     assert fleet.row(c1)["retry_after"] is None
-    assert workflow.claim(fleet.machine("b"), ("junk",))["id"] == c1
+    assert present(workflow.claim(fleet.machine("b"), ("junk",)))["id"] == c1
 
 
 @budget(load="db")
 def test_every_stored_time_comes_from_the_servers_clock(fleet):
     fleet.series("S", chapters=1)
     a = fleet.machine("a")
-    row = workflow.claim(a, ("junk",))
+    row = present(workflow.claim(a, ("junk",)))
     workflow.work(a, row, returns(Failed("bad page")))
     server = real_datetime.fromisoformat(workflow.now(fleet.conn))
     stored = real_datetime.fromisoformat(fleet.row(row["id"])["updated_at"])

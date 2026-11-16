@@ -4,14 +4,14 @@ check asks Suwayomi to fetch the list again, and queues only the chapters that r
 
 import logging
 
-from manga_pipeline import names, validation
+from manga_pipeline import names, validation, workflow
 from manga_pipeline.clients import suwayomi as suwayomi_client
 
 log = logging.getLogger(__name__)
 COMPLETED = "COMPLETED"
 
 
-def completed(ctx, series_id, manga_rows):
+def completed(ctx: workflow.Context, series_id, manga_rows):
     held = _held_keys(ctx.conn, series_id)
     for manga in manga_rows:
         if manga["status"] != COMPLETED:

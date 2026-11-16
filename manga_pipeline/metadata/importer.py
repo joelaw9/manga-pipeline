@@ -54,7 +54,7 @@ def read_overrides(path):
     return found
 
 
-def run(ctx, state, overrides):
+def run(ctx: workflow.Context, state, overrides):
     conn = ctx.conn
     listing = ctx.kavita.series_in_library(ctx.cfg["kavita"]["library_id"])
     library.sync(ctx, listing)
@@ -115,7 +115,7 @@ def _import_series(conn, series_id, kavita_id, entry, state):
     )
 
 
-def _link_overrides(ctx, listing, overrides):
+def _link_overrides(ctx: workflow.Context, listing, overrides):
     """Link each override's Suwayomi manga to the Kavita series it names. Returns (links made, names not found)."""
     by_name = {}
     for kseries in listing:

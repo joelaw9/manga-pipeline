@@ -13,7 +13,7 @@ def run(cfg, conn):
     workflow.run_part(workflow.context(cfg, conn, "intake"), work)
 
 
-def work(ctx):
+def work(ctx: workflow.Context):
     # Before discovery, so a re-download that ended is judged by validate, not listed as a new download.
     workflow.end_waits(ctx, "suwayomi_download", redownload.wait_over)
     with workflow.share_errors():

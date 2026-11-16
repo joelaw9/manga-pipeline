@@ -33,7 +33,7 @@ from manga_pipeline.db import sql
 from manga_pipeline.metadata import check, covers
 
 
-def run(ctx, chapter):
+def run(ctx: workflow.Context, chapter):
     series = _series(ctx, chapter)
     if baseline.needed(ctx.conn, series):
         why = baseline.take(ctx, series)
@@ -87,7 +87,7 @@ def _own(chapter):
     return {"source": chapter["source"], "chapter_id": chapter["suwayomi_chapter_id"], "path": chapter["download_path"]}
 
 
-def _check(ctx, chapter, path):
+def _check(ctx: workflow.Context, chapter, path):
     published = [
         {
             "key": validation.chapter_key(row["identity"]),
@@ -126,11 +126,11 @@ def _file_key(path):
     return validation.chapter_key(names.identity(names.parse(Path(path).stem, comicinfo.download_number(path))))
 
 
-def _series(ctx, chapter):
-    return ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
+def _series(ctx: workflow.Context, chapter):
+    return db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
 
 
-def _reject(ctx, chapter, state, copy, why):
+def _reject(ctx: workflow.Context, chapter, state, copy, why):
     """Record a rejected copy (a target: {source, chapter_id, path}) and queue its removal; the state and the handled
     chapter land in 1 transaction."""
     digest = archive.digest_or_none(config.to_local(ctx.cfg, copy["path"]))
@@ -144,7 +144,7 @@ def _reject(ctx, chapter, state, copy, why):
     return state
 
 
-def _candidate(ctx, chapter, state):
+def _candidate(ctx: workflow.Context, chapter, state):
     """Judge the expected download. Returns the stage's outcome, or None once the state moved on to the next pick."""
     expected = state["expected"]
     status = redownload.download_state(ctx, expected)
@@ -180,7 +180,7 @@ def _candidate(ctx, chapter, state):
     return _done(ctx, chapter, verdict, adopted)
 
 
-def _done(ctx, chapter, verdict, adopted=None):
+def _done(ctx: workflow.Context, chapter, verdict, adopted=None):
     """Done with the verdict's pages and notes (and the adopted re-download), and the volume cover of a chapter that
     opens a covered volume (SPEC "Metadata", Volume covers)."""
     download = (adopted or {}).get("download_path", chapter["download_path"])
@@ -216,14 +216,14 @@ def _done(ctx, chapter, verdict, adopted=None):
     return workflow.Done(record)
 
 
-def bulk_conversion_over(ctx, chapter):
+def bulk_conversion_over(ctx: workflow.Context, chapter):
     """The bulk_conversion wait ends once the series has its baseline (taken here when its record can be read, so a
     chapter waiting past validate, left by an older version, goes on with one)."""
     series = _series(ctx, chapter)
     return not baseline.needed(ctx.conn, series) or baseline.take(ctx, series) is None
 
 
-def _volume_cover(ctx, chapter, download):
+def _volume_cover(ctx: workflow.Context, chapter, download):
     """(path, sha256, volume) of the cover the chapter takes when it opens a covered volume and MangaDex has that
     volume's cover; else None. A chapter that already has its cover keeps it."""
     if ctx.conn.execute("SELECT 1 FROM volume_cover WHERE chapter_id = %s", (chapter["id"],)).fetchone():
