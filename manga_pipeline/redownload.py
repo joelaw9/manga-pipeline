@@ -100,7 +100,9 @@ def target(ctx, chapter_id):
     """{source, manga_id, chapter_id, path, url} of a Suwayomi chapter of any manga; None when Suwayomi has no such
     chapter or no source for it."""
     row = ctx.suwayomi.chapter(chapter_id)
-    manga = row and ctx.suwayomi.manga(row["mangaId"])
+    if row is None:
+        return None
+    manga = ctx.suwayomi.manga(row["mangaId"])
     if not manga or manga["source"] is None:
         return None
     display = manga["source"]["displayName"]

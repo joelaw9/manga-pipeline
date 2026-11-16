@@ -521,6 +521,23 @@ def test_the_path_rebuilt_for_a_download_is_where_suwayomi_wrote_it(world):
     assert found["source"] == "Manga Ball (EN)"
 
 
+@budget(load="db")
+def test_a_chapter_suwayomi_no_longer_holds_has_no_target(world):
+    with closing(db.connect(world.cfg)) as conn:
+        found = redownload.target(world.context(conn, "intake"), 999)
+    assert found is None, "a chapter Suwayomi does not hold cannot be queued again"
+
+
+@budget(load="db")
+def test_a_chapter_whose_source_is_no_longer_installed_has_no_target(world):
+    source = world.suwayomi.add_source("Gone")
+    chapter_id = world.suwayomi.add_chapter(world.suwayomi.add_manga("S", source), "Chapter 1")
+    del world.suwayomi.source_rows[source]  # its extension uninstalled: Suwayomi reports the manga's source as null
+    with closing(db.connect(world.cfg)) as conn:
+        found = redownload.target(world.context(conn, "intake"), chapter_id)
+    assert found is None, "a chapter with no source to download from cannot be queued again"
+
+
 def _target(world, chapter_id):
     with closing(db.connect(world.cfg)) as conn:
         found = redownload.target(world.context(conn, "intake"), chapter_id)
