@@ -91,7 +91,7 @@ def _calibrate(ctx, chapter, chapter_plan, x_dir, rendered, work, pool, scorer, 
             for u in picked
         ]
         stored[group] = calibrate.add(
-            ctx.conn, chapter["series_id"], group, chapter["id"], new, lambda conn: workflow.holds_claim(ctx, chapter)
+            ctx.conn, chapter["series_id"], group, chapter["id"], new, lambda _conn: workflow.holds_claim(ctx, chapter)
         )
         log.info("series %s %s calibration: %s", chapter["series_id"], group, stored[group]["why"])
     return calibrate.quality(stored)

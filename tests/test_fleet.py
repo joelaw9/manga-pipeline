@@ -70,7 +70,7 @@ def fleet(tmp_path):
 
 
 def returns(outcome):
-    return lambda ctx, chapter: outcome
+    return lambda _ctx, _chapter: outcome
 
 
 @budget(load="db", seconds=2)
@@ -197,7 +197,7 @@ def test_a_lost_claim_puts_no_download_aside_and_adds_no_calibration_sample(flee
     assert download.exists(), "no download is put aside under a lost claim"
     with pytest.raises(workflow.ClaimLost):
         calibrate.add(
-            a.conn, stale["series_id"], "colour", stale["id"], [], lambda conn: workflow.holds_claim(a, stale)
+            a.conn, stale["series_id"], "colour", stale["id"], [], lambda _conn: workflow.holds_claim(a, stale)
         )
     assert fleet.conn.execute("SELECT count(*) FROM series_calibration").fetchone()[0] == 0
 
@@ -380,7 +380,7 @@ def test_state_reset_holds_its_lock_until_its_folders_are_emptied(tmp_path, monk
         cli.COMMANDS,
         "state reset",
         cli.COMMANDS["state reset"].__class__(
-            **{**cli.COMMANDS["state reset"].__dict__, "handler": lambda cfg, args, conn: watched(cfg, conn)}
+            **{**cli.COMMANDS["state reset"].__dict__, "handler": lambda cfg, _args, conn: watched(cfg, conn)}
         ),
     )
     assert cli.main(argv(cfg, tmp_path, "state", "reset", "--yes")) == 0

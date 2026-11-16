@@ -152,8 +152,8 @@ def test_state_reset_waits_for_no_part(tmp_path, seeded, held):
 @budget(load="db", seconds=2)
 def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path, monkeypatch):
     world = World(tmp_path)
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: world.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     cfg = world.cfg
     world.kavita_series("Alpha")

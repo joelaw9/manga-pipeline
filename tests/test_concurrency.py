@@ -43,8 +43,8 @@ sys.exit(cli.main(["--config", sys.argv[2], "process"]))
 def world(tmp_path, monkeypatch):
     """A World whose fakes the parts run in this process get too."""
     world = World(tmp_path)
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: world.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     return world
 
@@ -129,7 +129,7 @@ def test_killed_process_run_is_finished_by_the_next_run(world, tmp_path, monkeyp
     assert got == [("convert", "claimed", workflow.owner("process"), 0)], "the killed run left its claim"
 
     junk_runs = []
-    monkeypatch.setitem(process.STAGES, "junk", lambda ctx, chapter: junk_runs.append(chapter["id"]))
+    monkeypatch.setitem(process.STAGES, "junk", lambda _ctx, chapter: junk_runs.append(chapter["id"]))
     run_part(cfg, process)
     got = rows(cfg, "SELECT stage, status, claimed_by, attempts FROM chapter")
     assert got == [("comicinfo", "ready", None, 0)], "the next run releases the claim and finishes the chapter"

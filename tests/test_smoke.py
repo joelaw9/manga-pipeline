@@ -29,8 +29,8 @@ def services(tmp_path, monkeypatch):
     (folder / "Ch.1.cbz").write_bytes(cbz())
     kav = FakeKavita({4: ROOT, 5: "/kavita/books"}, {"/kavita": str(tmp_path)})
     kav.add_series("Alpha", "Alpha")
-    monkeypatch.setattr(suwayomi, "from_config", lambda cfg: suw)
-    monkeypatch.setattr(kavita, "from_config", lambda cfg: kav)
+    monkeypatch.setattr(suwayomi, "from_config", lambda _cfg: suw)
+    monkeypatch.setattr(kavita, "from_config", lambda _cfg: kav)
     return suw, kav
 
 

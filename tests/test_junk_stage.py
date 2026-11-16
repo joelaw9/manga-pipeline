@@ -31,8 +31,8 @@ class Site:
         self.world = World(tmp_path)
         self.cfg = self.world.cfg
         self.mangas = {}
-        monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: self.world.suwayomi)
-        monkeypatch.setattr(kavita_client, "from_config", lambda cfg: self.world.kavita)
+        monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: self.world.suwayomi)
+        monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: self.world.kavita)
         monkeypatch.setattr(check, "new_sources", lambda: self.world.sources)
 
     def download(self, series, number, data):
@@ -265,7 +265,7 @@ def test_a_chapter_without_a_content_digest_fails_instead_of_scanning_for_ever(s
 
 @budget(load="db", seconds=5)
 def test_a_strip_chapter_waits_on_its_candidates_and_finishes_once_they_are_kept(site, monkeypatch):
-    monkeypatch.setattr(ocr, "text", lambda im, device: "")  # the real engine reads noise for seconds per block
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")  # the real engine reads noise for seconds per block
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
     for n in (2, 3, 4):
@@ -312,7 +312,7 @@ def test_a_lost_claim_writes_no_candidate_folder(site, monkeypatch):
 
 @budget(load="db", seconds=5)
 def test_ocr_text_holding_a_nul_makes_its_chapter_needs_human_at_once(site, monkeypatch):
-    monkeypatch.setattr(ocr, "text", lambda im, device: "CREDITS\x00")  # the OCR engine read a NUL off a block
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "CREDITS\x00")  # the OCR engine read a NUL off a block
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
     site.download("Long", 2, strip_cbz("n2"))
@@ -418,7 +418,7 @@ def strip_logo_cbz(seed):
 
 @budget(load="db", seconds=20)
 def test_a_badge_in_a_strip_chapter_is_offered_and_blanked_on_its_page(site, monkeypatch):
-    monkeypatch.setattr(ocr, "text", lambda im, device: "")
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
     site.download("Long", 2, strip_logo_cbz("s2"))
@@ -567,7 +567,7 @@ def test_a_watermark_1_chapter_shows_is_known_to_the_series_next_chapters(site, 
     """Chapter 2 ends with the band twice: a watermark. Chapter 3 has it once at its tail, before a story panel: known
     as a watermark it starts no credit block, so the panel after it is no tail piece. The memory is by key: an
     import that rebuilds the decision under a new id changes nothing. Without the memory the panel is a tail piece."""
-    monkeypatch.setattr(ocr, "text", lambda im, device: "")
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
     site.download("Long", 2, panels_cbz(["a2", "b2", "c2", "d2", "mark", "mark"]))

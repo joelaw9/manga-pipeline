@@ -25,7 +25,7 @@ from manga_pipeline.convert import image, tools, vship
 REAL_SCORER = vship.Scorer  # taken at import, before install replaces it
 CALLS = []
 DEFAULT_SCORE = 90.0
-SCORE = [lambda ref, dec: DEFAULT_SCORE]  # 1-element holder: tests replace SCORE[0]
+SCORE = [lambda _ref, _dec: DEFAULT_SCORE]  # 1-element holder: tests replace SCORE[0]
 
 
 def _tool(path):
@@ -83,6 +83,6 @@ def install(setattr):
     setattr(tools, "run", fake_run)
     setattr(image, "pool", ThreadPoolExecutor)  # threads: the fake tools reach the workers
     setattr(vship, "Scorer", FakeScorer)
-    setattr(fleet, "_tools", lambda cfg: dict(FAKE_TOOL_VERSIONS))  # the fakes have no version to print
+    setattr(fleet, "_tools", lambda _cfg: dict(FAKE_TOOL_VERSIONS))  # the fakes have no version to print
     CALLS.clear()
-    SCORE[0] = lambda ref, dec: DEFAULT_SCORE
+    SCORE[0] = lambda _ref, _dec: DEFAULT_SCORE

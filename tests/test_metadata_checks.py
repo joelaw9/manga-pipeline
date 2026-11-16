@@ -240,7 +240,7 @@ def test_a_check_that_fails_on_a_bad_reply_holds_the_chapter_until_it_completes(
     manga = world.manga("Solo Leveling")
     world.suwayomi.thumbnails[manga] = b"<html>challenge</html>"
     world.download(manga, "Chapter 2")
-    monkeypatch.setattr(world.sources.mangaupdates, "search", lambda name: [{"unexpected": "shape"}])
+    monkeypatch.setattr(world.sources.mangaupdates, "search", lambda _name: [{"unexpected": "shape"}])
     world.run(intake)
     assert world.rows("SELECT stage, waiting_on, attempts FROM chapter") == [("validate", "metadata_check", 0)], (
         "a series never checked holds its chapter at validate, at no attempt: its name and covers need the data"

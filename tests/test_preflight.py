@@ -27,7 +27,7 @@ def ok(cfg):
 
 
 def broken(text):
-    return lambda cfg: text
+    return lambda _cfg: text
 
 
 def with_min_free(mb, folder=None):
@@ -80,7 +80,7 @@ def test_hard_problems_stop_the_run_after_every_check_ran():
     seen = []
     checks = [
         Check("a", HARD, broken("first")),
-        Check("b", SOFT, lambda cfg: seen.append("b")),
+        Check("b", SOFT, lambda _cfg: seen.append("b")),
         Check("c", HARD, broken("second")),
     ]
     with pytest.raises(preflight.PreflightFailed, match="a: first; c: second"):

@@ -82,8 +82,8 @@ def mount(target, link):
 @budget(load="db", seconds=6)
 def test_a_database_filled_under_1_mount_is_worked_under_another_and_back(tmp_path, monkeypatch):
     world = World(tmp_path)
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: world.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     world.kavita_series("Alpha")
     manga = world.manga("Alpha")
@@ -123,8 +123,8 @@ def test_a_database_filled_under_1_mount_is_worked_under_another_and_back(tmp_pa
 @budget(load="db", seconds=3)
 def test_no_stored_path_is_absolute_after_a_full_run(tmp_path, monkeypatch):
     world = World(tmp_path)
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: world.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     world.kavita_series("Alpha")
     manga = world.manga("Alpha")

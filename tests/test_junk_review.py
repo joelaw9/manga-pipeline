@@ -53,8 +53,8 @@ def dumps(folder, what):
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     w = World(tmp_path)
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: w.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: w.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: w.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: w.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: w.sources)
     w.kavita_series("Alpha")
     manga = w.manga("Alpha")

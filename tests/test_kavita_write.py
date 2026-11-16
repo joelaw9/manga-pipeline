@@ -103,7 +103,7 @@ def test_a_tag_rule_change_rewrites_every_series_with_no_source_request(world, m
 @budget(load="db")
 def test_no_series_write_while_a_library_scan_is_awaited(world, monkeypatch):
     checked(world)
-    monkeypatch.setattr(export, "scan_awaited", lambda ctx: "2026-11-15T00:00:00+00:00")
+    monkeypatch.setattr(export, "scan_awaited", lambda _ctx: "2026-11-15T00:00:00+00:00")
     world.run(export)
     assert field_writes(world) == [], "Kavita holds writes while its scan runs: a later run writes"
 

@@ -66,7 +66,7 @@ def test_a_named_side_story_held_at_publish_keeps_its_number(world, monkeypatch)
     """A chapter comicinfo named keeps its name while it is needs_human: the next side story is numbered after it."""
     world.kavita_series("Solo Leveling")
     manga = world.manga("Solo Leveling")
-    monkeypatch.setattr(publish, "run", lambda ctx, chapter: workflow.NeedsHuman("held for the test"))
+    monkeypatch.setattr(publish, "run", lambda _ctx, _chapter: workflow.NeedsHuman("held for the test"))
     world.download(manga, "Side Story 1", scanlator="Grp")
     for part in (intake, process, export):
         world.run(part)

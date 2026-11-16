@@ -145,7 +145,7 @@ def test_each_command_runs_in_its_table_row(site, command, monkeypatch):
         seen["locks"] = held
         log.info("probe ran")
 
-    monkeypatch.setattr(preflight, "run", lambda cfg, checks: seen.setdefault("checks", [c.name for c in checks]))
+    monkeypatch.setattr(preflight, "run", lambda _cfg, checks: seen.setdefault("checks", [c.name for c in checks]))
     monkeypatch.setitem(cli.COMMANDS, command, dataclasses.replace(cli.COMMANDS[command], handler=probe))
     assert run(site, command) == 0
     locks, log_file, checks = SPEC[command]
@@ -157,8 +157,8 @@ def test_each_command_runs_in_its_table_row(site, command, monkeypatch):
 def test_part_logs_that_it_ran(site, tmp_path, monkeypatch):
     adopt(site)
     # intake asks Kavita and Suwayomi for the library each run: empty fakes
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: FakeSuwayomi(tmp_path / "share" / "downloads"))
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: FakeKavita({}, {"/kavita": str(tmp_path)}))
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: FakeSuwayomi(tmp_path / "share" / "downloads"))
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: FakeKavita({}, {"/kavita": str(tmp_path)}))
     monkeypatch.setattr(check, "new_sources", fake_sources)
     assert run(site, "intake") == 0
     log_file = config.abs_path(site_cfg(site)["logging"]["dir"]) / "intake.log"
@@ -274,7 +274,7 @@ def test_bad_set_is_a_usage_error(capsys):
 
 @budget(load="fs")
 def test_hard_preflight_failure_exits_4(site, monkeypatch, capsys):
-    stub = preflight.Check("stub", preflight.HARD, lambda cfg: "missing")
+    stub = preflight.Check("stub", preflight.HARD, lambda _cfg: "missing")
     monkeypatch.setitem(cli.COMMANDS, "intake", dataclasses.replace(cli.COMMANDS["intake"], checks=(stub,)))
     assert run(site, "intake") == 4
     assert "preflight failed: stub: missing" in capsys.readouterr().err

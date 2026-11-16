@@ -76,9 +76,9 @@ def test_another_program_or_package_or_tool_version_stops_the_machine(cfg, monke
     assert "runtime packages" in problem(cfg), "an older Pillow changes junk scans"
     monkeypatch.undo()
 
-    monkeypatch.setattr(fleet, "_tools", lambda cfg: {**fake_convert.FAKE_TOOL_VERSIONS, "avifenc": "Version: 1.2.1"})
+    monkeypatch.setattr(fleet, "_tools", lambda _cfg: {**fake_convert.FAKE_TOOL_VERSIONS, "avifenc": "Version: 1.2.1"})
     assert "tools" in problem(cfg), "another avifenc version output"
-    monkeypatch.setattr(fleet, "_tools", lambda cfg: dict(fake_convert.FAKE_TOOL_VERSIONS))
+    monkeypatch.setattr(fleet, "_tools", lambda _cfg: dict(fake_convert.FAKE_TOOL_VERSIONS))
     monkeypatch.setattr(fleet, "_program", lambda: {"manga_pipeline/x.py": "another"})
     assert "program" in problem(cfg)
     assert fleet.digest(cfg) != real

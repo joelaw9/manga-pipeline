@@ -27,7 +27,7 @@ class Verdict:
     notes: list = field(default_factory=list)
 
 
-def check(cbz, key, published, same=lambda p: True):
+def check(cbz, key, published, same=lambda _p: True):
     """The verdict on a download. key: its (season, side label, number); published: the series' published files as
     [{key, page_phashes (list or None), strip_length (int or None), ...}]; same(p): whether a published file of the
     download's key is the same chapter (chapter_names.same_chapter), asked only once the pages have passed."""

@@ -183,7 +183,7 @@ def test_an_unmatched_edge_block_carries_its_banner_probe_with_its_text():
 def test_a_unit_with_a_stored_decision_is_not_read():
     """ocr_text reads only units `undecided` says have no stored decision: the decided banner piece gets no text."""
     banner = images.signature(Image.open(BANNER).convert("RGB").crop((0, 0, 360, 166)))
-    sc = su.scan(strip_of([BANNER]), lambda im: "read", lambda sig: not images.matches(sig, banner))
+    sc = su.scan(strip_of([BANNER]), lambda _im: "read", lambda sig: not images.matches(sig, banner))
     (block,) = sc["blocks"]
     assert block["text"] == "read", block["joins"]
     assert "text" not in block["joins"][0], block["joins"]
@@ -261,7 +261,7 @@ def test_match_blocks_without_an_approved_piece_cuts_nothing():
 @budget(load="pure")
 def test_a_block_matching_whole_is_removed_why_match():
     blocks = [{"start": 0, "end": 100, "where": "head", "sig": "a", "joins": []}]
-    removed, left = su.match_blocks(blocks, lambda kind, sig: 4)
+    removed, left = su.match_blocks(blocks, lambda _kind, _sig: 4)
     assert removed == [{"start": 0, "end": 100, "where": "head", "decision": 4, "why": "match"}]
     assert left == []
 

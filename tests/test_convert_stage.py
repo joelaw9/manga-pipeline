@@ -174,7 +174,7 @@ def test_a_stale_stored_measurement_fails_the_chapter(site):
 
 @budget(load="pool")
 def test_a_failed_post_check_deletes_the_staged_file_and_fails(site, monkeypatch):
-    monkeypatch.setattr(check, "check", lambda *a: ["page-count: 1 != expected 2"])
+    monkeypatch.setattr(check, "check", lambda *_a: ["page-count: 1 != expected 2"])
     chapter_id = site.chapter(site.series(), pages(1))
     with pytest.raises(RuntimeError, match="post-check failed: page-count"):
         site.run(chapter_id)
@@ -316,7 +316,7 @@ def test_a_retried_chapter_adds_no_samples_twice(site):
 @budget(load="pool", seconds=15)
 def test_samples_failing_at_q80_are_not_counted(site):
     low = {"001", "002", "003"}
-    fake.SCORE[0] = lambda ref, dec: (
+    fake.SCORE[0] = lambda _ref, dec: (
         70.0 if dec.name.split(".")[0] in low else 95 - (80 - int(dec.name.split(".q")[1][:2])) * 0.5
     )
     series_id = site.series()
@@ -348,12 +348,12 @@ def test_choose_follows_the_bulk_converters_rule():
     def sample(chapter, by_q):
         return {"chapter_id": chapter, "scores": {str(q): [by_q(q), 1] for q in (80, *calibrate.LADDER)}}
 
-    passing = [sample(c % 3, lambda q: 90.0) for c in range(20)]
+    passing = [sample(c % 3, lambda _q: 90.0) for c in range(20)]
     assert calibrate.choose(passing) == (50, "ladder floor q50 passes (20 samples)")
     assert calibrate.choose(passing[:19]) is None, "fewer than 20 counted samples"
-    two_chapters = [sample(c % 2, lambda q: 90.0) for c in range(20)]
+    two_chapters = [sample(c % 2, lambda _q: 90.0) for c in range(20)]
     assert calibrate.choose(two_chapters) is None, "samples from fewer than 3 chapters"
-    third_low = [*two_chapters, sample(2, lambda q: 79.0)]
+    third_low = [*two_chapters, sample(2, lambda _q: 79.0)]
     assert calibrate.choose(third_low) is not None, (
         "a 3rd chapter counts though its samples score under the floor: a group takes no sample past 40, so it "
         "would otherwise stay open for good"
@@ -443,7 +443,7 @@ def test_a_repeated_page_is_sampled_once():
 @budget(load="pool")
 def test_lossless_and_untouched_chapters_through_the_stage(site):
 
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     series_id = site.series()
     lossless = site.chapter(series_id, pages(2))
     untouched = site.chapter(series_id, [("001.webp", webp(colour()))])
@@ -734,7 +734,7 @@ def test_a_cover_page_already_there_is_replaced(site):
 
 @budget(load="pool")
 def test_a_lossless_chapter_takes_the_cover_as_jpeg(site):
-    fake.SCORE[0] = lambda ref, dec: 50.0  # every AVIF fails: the cover's too
+    fake.SCORE[0] = lambda _ref, _dec: 50.0  # every AVIF fails: the cover's too
     chapter_id = site.chapter(site.series(), pages(2))
     add_cover(site, chapter_id, COVER)
     result, out = staged_result(site, chapter_id)
@@ -767,7 +767,7 @@ def test_an_untouched_chapter_takes_the_cover_in_its_own_format(site):
 
 @budget(load="pool")
 def test_a_cover_whose_avif_fails_is_left_out_with_the_reason(site, caplog):
-    fake.SCORE[0] = lambda ref, dec: 50.0 if dec.name.startswith("000_cover") else 90.0
+    fake.SCORE[0] = lambda _ref, dec: 50.0 if dec.name.startswith("000_cover") else 90.0
     chapter_id = site.chapter(site.series(), pages(2))
     add_cover(site, chapter_id, COVER)
     result, out = staged_result(site, chapter_id)
@@ -780,7 +780,7 @@ def test_a_cover_whose_avif_fails_is_left_out_with_the_reason(site, caplog):
 
 @budget(load="pool")
 def test_pages_sharing_no_cover_format_go_out_without_it(site):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     chapter_id = site.chapter(site.series(), [("001.jpg", jpeg(colour(seed=1))), ("002.webp", webp(colour(seed=2)))])
     add_cover(site, chapter_id, COVER)
     result, out = staged_result(site, chapter_id)
@@ -816,7 +816,7 @@ def test_a_cover_that_is_not_as_handed_over_fails_the_attempt_naming_its_path(
 
 @budget(load="pool")
 def test_an_avif_only_chapter_whose_avif_cover_fails_names_the_floor(site):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
 
     chapter_id = site.chapter(site.series(), [("001.avif", encoded(colour(seed=1), "AVIF"))])
     add_cover(site, chapter_id, COVER)
@@ -827,7 +827,7 @@ def test_an_avif_only_chapter_whose_avif_cover_fails_names_the_floor(site):
 
 @budget(load="pool")
 def test_a_lossless_png_chapter_replaces_its_cover_page_with_a_png_cover(site):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     members = [("000_cover.png", png(colour(seed=5))), ("001.png", png(colour(seed=1))), ("002.png", png(gray()))]
     chapter_id = site.chapter(site.series(), members)
     add_cover(site, chapter_id, COVER)
@@ -964,7 +964,7 @@ def test_a_strip_chapter_takes_the_cover_in_place_of_its_own(site):
 
 @budget(load="pool")
 def test_a_forced_avif_that_fails_goes_out_untouched_without_the_cover(site):
-    fake.SCORE[0] = lambda ref, dec: 90.0 if dec.name.startswith("000_cover") else 50.0
+    fake.SCORE[0] = lambda _ref, dec: 90.0 if dec.name.startswith("000_cover") else 50.0
     members = [("001.jpg", jpeg(colour(seed=1))), ("002.png", png(colour(seed=2)))]
     chapter_id = site.chapter(site.series(), members)
     add_cover(site, chapter_id, COVER)

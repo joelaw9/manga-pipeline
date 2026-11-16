@@ -148,8 +148,8 @@ def test_a_handle_vship_fails_to_free_raises_with_vships_message():
         "Lib",
         (),
         {
-            "Vship_FreeHandler": staticmethod(lambda ptr: 5),
-            "Vship_GetDetailedLastError": staticmethod(lambda buf, n: 0),
+            "Vship_FreeHandler": staticmethod(lambda _ptr: 5),
+            "Vship_GetDetailedLastError": staticmethod(lambda _buf, _n: 0),
         },
     )()
     h = object.__new__(vship._Handle)

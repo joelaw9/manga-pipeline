@@ -193,7 +193,7 @@ def test_a_copy_changes_no_other_chapters_name(world):
 def test_a_dropped_copy_replacement_leaves_the_file_and_records_the_copy_dropped(world, monkeypatch):
     library(world)
     copy(world, width=20)
-    monkeypatch.setattr(retention, "put_library", lambda *a: (_ for _ in ()).throw(PermissionError("denied")))
+    monkeypatch.setattr(retention, "put_library", lambda *_a: (_ for _ in ()).throw(PermissionError("denied")))
     for part in (intake, intake, process, export, export, export):
         world.run(part)
     monkeypatch.undo()

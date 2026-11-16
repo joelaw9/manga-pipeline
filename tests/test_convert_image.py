@@ -256,7 +256,7 @@ def test_lossy_webp_chapter_stays_untouched_byte_for_byte(tmp_path):
 
 @budget(load="pool")
 def test_jpeg_webp_mix_failing_the_gate_stays_untouched(tmp_path):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.webp", webp(colour(seed=5)))])
     rec = ch.run(ch.plan())
     assert rec["outcome"] == "untouched"
@@ -277,7 +277,7 @@ def test_dropped_pages_are_left_out(tmp_path):
 
 @budget(load="pool")
 def test_lossless_output_not_smaller_keeps_the_source_bytes(tmp_path):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     data = jpeg(colour())
     ch = Chapter(tmp_path, [("001.jpg", data)])
     rec = ch.run(ch.plan())
@@ -287,7 +287,7 @@ def test_lossless_output_not_smaller_keeps_the_source_bytes(tmp_path):
 
 @budget(load="pool")
 def test_a_lossless_pixel_mismatch_names_the_page(tmp_path, monkeypatch):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
 
     def bad_jpegtran(*args):
         args = [str(a) for a in args]
@@ -304,7 +304,7 @@ def test_a_lossless_pixel_mismatch_names_the_page(tmp_path, monkeypatch):
 
 @budget(load="pool")
 def test_gray_jpeg_on_the_lossless_path_is_grayscaled(tmp_path):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     ch = Chapter(tmp_path, [("001.jpg", jpeg(gray().convert("RGB")))])
     ch.run(ch.plan())
     assert "-grayscale" in calls("jpegtran")[0], "a gray YCbCr JPEG loses its chroma losslessly"
@@ -339,7 +339,7 @@ def test_crop_and_join_render_numbered_avif_pages(tmp_path):
 
 @budget(load="pool")
 def test_a_rendered_chapter_failing_the_floor_keeps_its_original_pages_minus_drops(tmp_path):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour(seed=9))), ("003.jpg", jpeg(gray()))])
     rec = ch.run(ch.plan({**NO_EDIT, "drop_pages": [2], "bands": [{"page": 0, "box": [0, 0, 96, 64]}]}))
     assert rec["outcome"] == "untouched"
@@ -516,7 +516,7 @@ def test_a_blanked_page_is_encoded_from_its_blanked_pixels_and_keeps_its_name_an
 
 @budget(load="pool")
 def test_a_blank_is_not_applied_on_the_lossless_or_untouched_outcomes(tmp_path):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     data = jpeg(colour())
     ch = Chapter(tmp_path, [("001.jpg", data)])
     rec = ch.run(ch.plan(BLANK))
@@ -715,7 +715,7 @@ def test_a_page_mode_gets_the_bulk_converters_lossless_and_avif_decisions(tmp_pa
     assert ("--ignore-exif" in enc) == (reads == "jpeg"), f"{mode}: only a fed JPEG has its EXIF ignored"
 
     fake.CALLS.clear()
-    fake.SCORE[0] = lambda ref, dec: 50.0  # every AVIF fails: the lossless path
+    fake.SCORE[0] = lambda _ref, _dec: 50.0  # every AVIF fails: the lossless path
     modes = []
     real = pages.pixels_match
     monkeypatch.setattr(pages, "pixels_match", lambda a, b, m: modes.append(m) or real(a, b, m))

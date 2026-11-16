@@ -26,8 +26,8 @@ class Site:
         self.world = World(tmp_path, **changes)
         self.cfg = self.world.cfg
         self.mangas = {}
-        monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: self.world.suwayomi)
-        monkeypatch.setattr(kavita_client, "from_config", lambda cfg: self.world.kavita)
+        monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: self.world.suwayomi)
+        monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: self.world.kavita)
         monkeypatch.setattr(check, "new_sources", lambda: self.world.sources)
 
     def download(self, series, number, data=None):
@@ -137,7 +137,7 @@ def test_new_chapter_of_a_known_series_is_worked_next(site, monkeypatch):
         return workflow.Done()
 
     monkeypatch.setitem(process.STAGES, "junk", recording_junk)
-    monkeypatch.setitem(process.STAGES, "convert", lambda ctx, chapter: workflow.Done())
+    monkeypatch.setitem(process.STAGES, "convert", lambda _ctx, _chapter: workflow.Done())
     run_part(cfg, process)
     assert order[:3] == ["big00", "ongoing-ch9", "big01"], "process picks again by priority after every chapter"
     assert len(order) == 51

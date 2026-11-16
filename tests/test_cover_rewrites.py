@@ -379,7 +379,7 @@ def test_validate_gives_no_second_cover_to_a_volume_a_published_file_is_queued_t
     store_image(world, 2, png(900))
     world.run(export)
     world.run(process)
-    monkeypatch.setattr(retention, "put_library", lambda *a: (_ for _ in ()).throw(PermissionError("denied")))
+    monkeypatch.setattr(retention, "put_library", lambda *_a: (_ for _ in ()).throw(PermissionError("denied")))
     world.run(export)  # published (queued as volume 2 with its cover), not finished
     monkeypatch.undo()
     assert world.rows("SELECT comicinfo_volume, pending_cover FROM published_file WHERE id = 3") == [(None, "volume:2")]
@@ -422,7 +422,7 @@ def test_mangadex_down_with_a_wanted_cover_spends_no_attempt_and_intake_goes_on(
         RETURNING series_id"""
     )
     error = http.Timeout("slow") if failure == "timeout" else http.HttpError(503, "https://uploads.mangadex.org/x", b"")
-    monkeypatch.setattr(cover_images, "volume_cover", lambda *a: (_ for _ in ()).throw(error))
+    monkeypatch.setattr(cover_images, "volume_cover", lambda *_a: (_ for _ in ()).throw(error))
     manga = next(i for i, m in world.suwayomi.manga_rows.items() if m["title"] == SERIES)
     world.download(manga, "Chapter 4", data=cbz(pages=4, seed="4"))
     world.run(intake)
@@ -442,7 +442,7 @@ def test_a_failed_cover_refresh_leaves_the_file_waiting_and_a_volume_only_rewrit
     world.run(export)
     world.run(process)
     world.run(export)
-    monkeypatch.setattr(world.kavita, "refresh_covers", lambda *a: (_ for _ in ()).throw(RuntimeError("busy")))
+    monkeypatch.setattr(world.kavita, "refresh_covers", lambda *_a: (_ for _ in ()).throw(RuntimeError("busy")))
     scan(world)
     world.run(export)
     monkeypatch.undo()

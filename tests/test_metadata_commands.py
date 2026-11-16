@@ -132,8 +132,8 @@ def test_import_again_drops_ids_the_newer_state_file_no_longer_holds(world, tmp_
 @budget(load="db")
 def test_audit_opens_no_database(world, monkeypatch, capsys):
     cfg = {**world.cfg, "database": {**world.cfg["database"], "name": "mp_test_never_built_audit"}}
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda c: world.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda c: world.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _c: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _c: world.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     world.kavita_series("Solo Leveling")
     cli.metadata_audit(cfg, argparse.Namespace(state=None))

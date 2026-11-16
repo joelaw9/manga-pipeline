@@ -21,7 +21,7 @@ def ctx(tmp_path):
 
 
 def returns(outcome):
-    return lambda ctx, chapter: outcome
+    return lambda _ctx, _chapter: outcome
 
 
 def raises(error):
@@ -272,7 +272,7 @@ def test_outcome_does_not_overwrite_a_persons_change(ctx):
 @budget(load="db")
 def test_no_transaction_is_open_while_a_stage_runs(ctx):
     seen = []
-    workflow.work(ctx, claimed(ctx), lambda ctx, chapter: seen.append(db.in_transaction(ctx.conn)) or Done())
+    workflow.work(ctx, claimed(ctx), lambda ctx, _chapter: seen.append(db.in_transaction(ctx.conn)) or Done())
     assert seen == [False]
 
 
@@ -308,9 +308,9 @@ def test_claims_are_kept_when_locks_are_off(ctx):
 def test_end_waits_readies_a_chapter_whose_condition_holds(ctx):
     row = claimed(ctx)
     workflow.work(ctx, row, returns(Waiting("junk_decision")))
-    workflow.end_waits(ctx, "junk_decision", lambda ctx, chapter: False)
+    workflow.end_waits(ctx, "junk_decision", lambda _ctx, _chapter: False)
     assert chapter(ctx.conn, row["id"])["status"] == "waiting"
-    workflow.end_waits(ctx, "junk_decision", lambda ctx, chapter: True)
+    workflow.end_waits(ctx, "junk_decision", lambda _ctx, _chapter: True)
     after = chapter(ctx.conn, row["id"])
     assert (after["stage"], after["status"], after["waiting_on"]) == ("junk", "ready", None)
 
@@ -322,7 +322,7 @@ def test_end_waits_never_checks_a_wait_of_an_out_of_scope_series(ctx):
     cfg = {**ctx.cfg, "series": {"only": ["Other"]}}
     asked = []
     workflow.end_waits(
-        workflow.Context(cfg, ctx.conn, "process"), "junk_decision", lambda ctx, chapter: asked.append(chapter["id"])
+        workflow.Context(cfg, ctx.conn, "process"), "junk_decision", lambda _ctx, chapter: asked.append(chapter["id"])
     )
     assert asked == [], "SPEC 'Parts': nothing out of scope is read"
     assert chapter(ctx.conn, row["id"])["status"] == "waiting"
@@ -346,7 +346,7 @@ def meta(ctx):
 
 @budget(load="db")
 def test_run_records_start_end_result_and_success(ctx):
-    workflow.run_part(ctx, lambda ctx: None)
+    workflow.run_part(ctx, lambda _ctx: None)
     got = meta(ctx)
     assert set(got) == {"process.last_start", "process.last_end", "process.last_result", "process.last_success"}
     assert got["process.last_result"] == "ok"
@@ -428,7 +428,7 @@ def test_crash_after_an_unreachable_stage_records_error_and_raises(ctx):
 def test_dropped_ends_the_chapter_done_where_it_stands_and_runs_its_record(ctx):
     row = claimed(ctx, "junk")
     written = []
-    workflow.work(ctx, row, returns(Dropped("same pages again", lambda conn: written.append(row["id"]))))
+    workflow.work(ctx, row, returns(Dropped("same pages again", lambda _conn: written.append(row["id"]))))
     after = chapter(ctx.conn, row["id"])
     assert (after["stage"], after["status"]) == ("junk", "done"), "a dropped chapter is done at its own stage"
     assert written == [row["id"]], "its record runs with the outcome"
@@ -451,7 +451,7 @@ def test_drain_returns_how_many_ended_done(ctx):
     for name in ("a", "b", "c"):
         add_chapter(ctx.conn, series, name, "junk")
     outcomes = iter([Done(), Failed("x"), Done()])
-    assert workflow.drain(ctx, {"junk": lambda ctx, chapter: next(outcomes)}) == 2
+    assert workflow.drain(ctx, {"junk": lambda _ctx, _chapter: next(outcomes)}) == 2
 
 
 @budget(load="db")

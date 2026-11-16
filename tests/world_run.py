@@ -18,8 +18,8 @@ from tests.world import fakes_from
 
 if __name__ == "__main__":
     fake_suwayomi, fake_kavita = fakes_from(Path(sys.argv[1]))
-    suwayomi.from_config = lambda cfg: fake_suwayomi
-    kavita.from_config = lambda cfg: fake_kavita
+    suwayomi.from_config = lambda _cfg: fake_suwayomi
+    kavita.from_config = lambda _cfg: fake_kavita
     sources = fake_sources()
     check.new_sources = lambda: sources
     fake_convert.install(setattr)

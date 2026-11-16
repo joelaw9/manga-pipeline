@@ -198,7 +198,7 @@ def test_a_target_already_in_the_library_is_never_overwritten(world):
 def test_a_rewrite_failing_before_its_rename_is_retried_then_stuck_and_dropped(world, monkeypatch):
     library(world)
     override(world, {2: "2-"})
-    monkeypatch.setattr(retention, "put_library", lambda *a: (_ for _ in ()).throw(PermissionError("denied")))
+    monkeypatch.setattr(retention, "put_library", lambda *_a: (_ for _ in ()).throw(PermissionError("denied")))
     for _ in range(4):  # workflow.attempt_limit 3: tried 3 times, then left for a person
         world.run(export)
     monkeypatch.undo()

@@ -58,7 +58,7 @@ def measure_piece(im):
 # ---------------------------------------------------------------- scan (decodes)
 
 
-def scan(st, ocr_text=None, undecided=lambda sig: True):
+def scan(st, ocr_text=None, undecided=lambda _sig: True):
     """The scan of a Strip (strip.make_strip over the chapter's non-cover pages). ocr_text(image) -> text, called for
     every edge block and non-uniform hard-join piece whose signature `undecided(sig)` (no stored decision) says so;
     None: no OCR. Returns a JSON-able dict."""
