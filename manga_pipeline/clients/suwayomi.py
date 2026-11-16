@@ -98,7 +98,9 @@ class Suwayomi:
                 "GET",
                 f"{self.base}/api/v1/manga/{int(manga_id)}/thumbnail",
                 headers={"Accept": "image/*"},
-                retry=http.Retry(timeout=SOURCE_TIMEOUT, retry_timeout=False, retries=0),
+                timeout=SOURCE_TIMEOUT,
+                retry_timeout=False,
+                retries=0,
             )
         except http.HttpTimeoutError:
             return None
@@ -167,7 +169,8 @@ class Suwayomi:
                 "POST",
                 f"{self.base}/api/graphql",
                 json=_body(query, variables),
-                retry=http.Retry(timeout=SOURCE_TIMEOUT, retry_timeout=False),
+                timeout=SOURCE_TIMEOUT,
+                retry_timeout=False,
             )
         except http.HttpTimeoutError as e:
             self.ping()

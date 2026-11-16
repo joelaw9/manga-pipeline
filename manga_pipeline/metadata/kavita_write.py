@@ -125,8 +125,7 @@ def write(ctx, series_id, rules):
     if changed:
         kv.update_metadata(meta)
     record()
-    for name, list_field in LISTS.items():
-        key, lock, label = list_field
+    for name, (key, lock, label) in LISTS.items():
         values = getattr(fields, name)
         if not values:
             continue  # a source that gives nothing never clears a list
@@ -138,7 +137,7 @@ def write(ctx, series_id, rules):
             state["written"][name] = key_now  # what Kavita holds once the add step went through
             record()
 
-        _set_list(kv, kid, list_field, values, added)
+        _set_list(kv, kid, key, lock=lock, label=label, values=values, added_step=added)
         state["written"][name] = _key(values)
         record()
     for name, (key, lock) in PEOPLE.items():
@@ -191,11 +190,9 @@ def _list_key(entries, label):
     return _key(v[label] for v in entries or []) or None
 
 
-def _set_list(kv, kid, list_field, values, added_step):
+def _set_list(kv, kid, key, *, lock, label, values, added_step):
     """Add the missing entries (in the sources' spelling), then drop the others, in 2 updates of this list alone;
-    lock it. list_field: its LISTS entry (key, lock, label). added_step(key) is told what Kavita holds after the add
-    step, before the prune can fail."""
-    key, lock, label = list_field
+    lock it. added_step(key) is told what Kavita holds after the add step, before the prune can fail."""
     wanted = {normalize(v) for v in values}
     meta = kv.metadata(kid)
     have = {normalize(v[label]) for v in meta.get(key) or []}

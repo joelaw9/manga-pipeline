@@ -31,7 +31,7 @@ def scripted(monkeypatch, *script):
 @budget(load="pure")
 def test_reply_is_returned_with_status_headers_and_body(monkeypatch, clock):
     urlopen = scripted(monkeypatch, Reply({"a": 1}))
-    got = http.Service("svc").request("POST", URL, json={"q": 2}, headers={"X-Extra": "1"}, retry=http.Retry(timeout=7))
+    got = http.Service("svc").request("POST", URL, json={"q": 2}, headers={"X-Extra": "1"}, timeout=7)
     assert (got.status, got.json(), got.headers.get("content-type")) == (200, {"a": 1}, "application/json")
     sent = urlopen.requests[0]
     assert (sent.get_method(), sent.full_url, sent.data) == ("POST", URL, b'{"q": 2}')
@@ -254,7 +254,7 @@ def test_a_timeout_not_to_be_retried_raises_timeout_and_marks_nothing(monkeypatc
     urlopen = scripted(monkeypatch, failure, Reply())
     service = http.Service("svc")
     with pytest.raises(http.HttpTimeoutError):
-        service.request("GET", URL, retry=http.Retry(retry_timeout=False))
+        service.request("GET", URL, retry_timeout=False)
     assert len(urlopen.requests) == 1
     assert clock.sleeps == []
     assert service.request("GET", URL).status == 200, "the service is still asked"
@@ -264,7 +264,7 @@ def test_a_timeout_not_to_be_retried_raises_timeout_and_marks_nothing(monkeypatc
 @pytest.mark.usefixtures("clock")
 def test_other_failures_are_still_retried_without_timeout_retry(monkeypatch):
     urlopen = scripted(monkeypatch, ConnectionResetError("reset"), Reply())
-    assert http.Service("svc").request("GET", URL, retry=http.Retry(retry_timeout=False)).status == 200
+    assert http.Service("svc").request("GET", URL, retry_timeout=False).status == 200
     assert len(urlopen.requests) == 2
 
 

@@ -113,7 +113,10 @@ def compare(ctx):
             for file_id, change in todo.items():
                 if made >= room:
                     break
-                made += _queue_chapter(ctx, series, file_id, change)
+                volume, source, cover, title, unedited = change
+                made += _queue_chapter(
+                    ctx, series, file_id, volume=volume, source=source, cover=cover, title=title, unedited=unedited
+                )
             if made >= room and len(todo) > room:
                 continue  # cut short: compared again next run
             conn.execute(
@@ -254,12 +257,10 @@ def _hash(ctx, series):
     return hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _queue_chapter(ctx, series, file_id, change):
+def _queue_chapter(ctx, series, file_id, *, volume, source, cover, title, unedited):
     """1 rewrite chapter for a confirmed published file with no open chapter and nothing queued or awaited, at convert
     when its cover changes (an insert's cover handed over as a volume_cover row), else at comicinfo; it carries the
-    file's title and unedited values afterwards (title "" = untitled). change: the file's (volume, source, cover,
-    title, unedited). Returns 1 when made, else 0."""
-    volume, source, cover, title, unedited = change
+    file's title and unedited values afterwards (title "" = untitled). Returns 1 when made, else 0."""
     conn = ctx.conn
     row = conn.execute(
         sql.SQL("SELECT * FROM published_file p WHERE p.id = %s AND p.state = 'confirmed' AND NOT {}").format(
