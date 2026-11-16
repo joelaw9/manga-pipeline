@@ -93,9 +93,7 @@ class Item:
     bytes: int = 0
     date: str | None = None
     season: str | None = None  # leading season tag ("S1 - ", "(S2) ", "[Season 2] "), kept off the title
-    story_kind: str | None = None  # NON_CHAPTER items: the class they have if kept (numbered "Author's Note [END]")
     error: bool = False  # unreadable CBZ: integrity's to judge, never trashed here
-    bad_number: str | None = None  # a file-name number with no single reading ("045.5-1"): a structure error
     notes: list = field(default_factory=list)
 
     @property
@@ -228,51 +226,61 @@ def parse_name(stem, ci=None, non_chapter_names=()):
     item = Item(file=stem, group=group.strip("_ ") or (ci or {}).get("Translator", ""))
     hit = _match(body)
     if hit:
-        season, tags, shape, m = hit
-        item.season = season
-        if shape == "label":
-            label = re.sub(r"\s+", " ", m.group("label").lower())
-            item.label, item.volume, item.number = label, m.group("vol"), _hyphen_part(m.group("num"))
-        elif shape == "volume":
-            item.label, item.volume = "volume", m.group("vol")
-        else:
-            item.number = m.group("num")
-        # other leading tags stay with the title ("[Side Story] Chapter 1" -> "[Side Story]")
-        item.title = " ".join(x for x in (tags, clean_title(m.group("rest"))) if x)
-        if item.label in SIDE_LABELS or SIDE_MARKER.match(item.title):
-            item.kind = SIDE
-        if item.label == "prologue" and item.number is None:
-            item.number, item.notes = "0", ["prologue without number -> chapter 0"]
-        if m.groupdict().get("num") and "-" in m.group("num"):
-            if item.number is None:
-                msg = f"{stem!r}: the num group set no number"
-                raise ValueError(msg)
-            if not CI_NUMBER.fullmatch(item.number):  # "045.5-1": a decimal with a hyphen part
-                item.bad_number, item.number = m.group("num"), None
-            else:
-                item.notes.append(f"hyphen part {m.group('num')} -> {item.number}")
+        _read_shape(item, stem, hit)
     else:
         item.title = clean_title(body)
-    ci_num = (ci or {}).get("Number") or ""
+    _number_from_comicinfo(item, hit[3].groupdict().get("num") if hit else None, (ci or {}).get("Number") or "")
+    item.kind = _kind(item, [item.title] if hit else [item.title, body], non_chapter_names)
+    return item
+
+
+def _read_shape(item, stem, hit):
+    """Fill item from its name's shape match (_match): season, label, volume, number and title. A prologue without a
+    number is chapter 0; a hyphen part is the decimal part, and a decimal with a hyphen part ("045.5-1") has no
+    single reading, so no number."""
+    season, tags, shape, m = hit
+    item.season = season
+    if shape == "label":
+        label = re.sub(r"\s+", " ", m.group("label").lower())
+        item.label, item.volume, item.number = label, m.group("vol"), _hyphen_part(m.group("num"))
+    elif shape == "volume":
+        item.label, item.volume = "volume", m.group("vol")
+    else:
+        item.number = m.group("num")
+    # other leading tags stay with the title ("[Side Story] Chapter 1" -> "[Side Story]")
+    item.title = " ".join(x for x in (tags, clean_title(m.group("rest"))) if x)
+    if item.label == "prologue" and item.number is None:
+        item.number, item.notes = "0", ["prologue without number -> chapter 0"]
+    if m.groupdict().get("num") and "-" in m.group("num"):
+        if item.number is None:
+            msg = f"{stem!r}: the num group set no number"
+            raise ValueError(msg)
+        if not CI_NUMBER.fullmatch(item.number):  # "045.5-1": a decimal with a hyphen part
+            item.number = None
+        else:
+            item.notes.append(f"hyphen part {m.group('num')} -> {item.number}")
+
+
+def _number_from_comicinfo(item, name_number, ci_num):
+    """Number an item its file name left unnumbered from ComicInfo Number (ci_num, "" when absent); note a file
+    name's hyphen-part number (name_number: the number as the name writes it) that ComicInfo disagrees with."""
     if item.number is None and ci_num:
         if CI_NUMBER.fullmatch(ci_num):  # not "-1" (Tachiyomi's unknown number), "1e3", "nan"
             item.number = ci_num
             item.notes.append("number from ComicInfo")
-    elif (
-        item.number is not None
-        and "-" in ((hit and hit[3].groupdict().get("num")) or "")
-        and ci_num
-        and number_key(ci_num) != item.key
-    ):
+    elif item.number is not None and "-" in (name_number or "") and ci_num and number_key(ci_num) != item.key:
         item.notes.append(f"hyphen part {item.number} disagrees with ComicInfo Number {ci_num}")
-    if not hit and item.number is not None:
-        item.kind = SIDE if SIDE_MARKER.match(item.title) else MAIN
-    if item.number is None:
-        item.kind = UNNUMBERED
+
+
+def _kind(item, texts, non_chapter_names):
+    """An item's kind: a non-chapter when one of texts (its title, and an unmatched name's whole body) is a
+    non-chapter name, else unnumbered without a number, else a side story by its label or side tag, else main."""
     names = {normalize_title(n) for n in non_chapter_names}
-    if normalize_title(item.title) in names or (not hit and normalize_title(body) in names):
-        item.story_kind, item.kind = item.kind, NON_CHAPTER
-    return item
+    if any(normalize_title(t) in names for t in texts):
+        return NON_CHAPTER
+    if item.number is None:
+        return UNNUMBERED
+    return SIDE if item.label in SIDE_LABELS or SIDE_MARKER.match(item.title) else MAIN
 
 
 def side_label(item):
