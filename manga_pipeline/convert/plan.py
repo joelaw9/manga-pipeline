@@ -390,7 +390,7 @@ def avif_groups(plan):
     return sorted({quality_group(y) for y in yuvs})
 
 
-def build(name, measured, files, edit, layout, page_aspect, quality):
+def build(name, measured, files, edit, layout, *, page_aspect, quality):
     """The ChapterPlan of 1 chapter. measured: images.measure_pages of the download; files: its pages' extracted files
     (pages.extract), in the same order; edit: check_edit's dict; layout: "strip" or "pages"; page_aspect: the series'
     page aspects (a list) or None; quality: {encode group: q}. Raises NeedsHuman (an EXIF rotation, a strip edit that

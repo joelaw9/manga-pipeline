@@ -67,7 +67,7 @@ def _samples_wanted(row, chapter_id):
     )
 
 
-def _calibrate(ctx, chapter, chapter_plan, x_dir, rendered, work, pool, scorer, tool_paths):
+def _calibrate(ctx, chapter, chapter_plan, x_dir, rendered, *, work, pool, scorer, tool_paths):
     """Add this chapter's samples to the series' open groups its AVIF outcome encodes; returns {group: q} after."""
     stored = calibrate.rows(ctx.conn, chapter["series_id"])
     if not any(_samples_wanted(stored.get(g), chapter["id"]) for g in plan.avif_groups(chapter_plan)):
@@ -91,7 +91,12 @@ def _calibrate(ctx, chapter, chapter_plan, x_dir, rendered, work, pool, scorer, 
             for u in picked
         ]
         stored[group] = calibrate.add(
-            ctx.conn, chapter["series_id"], group, chapter["id"], new, lambda _conn: workflow.holds_claim(ctx, chapter)
+            ctx.conn,
+            chapter["series_id"],
+            group,
+            chapter["id"],
+            new,
+            guard=lambda _conn: workflow.holds_claim(ctx, chapter),
         )
         log.info("series %s %s calibration: %s", chapter["series_id"], group, stored[group]["why"])
     return calibrate.quality(stored)
@@ -135,7 +140,7 @@ def run(ctx, chapter):
     layout, aspect = _layout(ctx.conn, chapter["series_id"])
     scratch = config.abs_path(cfg["paths"]["scratch"]) / workflow.claim_name(chapter)
     try:
-        return _convert(ctx, chapter, edit, layout, aspect, scratch)
+        return _convert(ctx, chapter, edit, layout, aspect, scratch=scratch)
     finally:
         try:
             shutil.rmtree(scratch)
@@ -145,7 +150,7 @@ def run(ctx, chapter):
             log.warning("chapter %s: scratch folder %s not removed: %s", chapter["id"], scratch, e)
 
 
-def _convert(ctx, chapter, edit, layout, aspect, scratch):
+def _convert(ctx, chapter, edit, layout, aspect, *, scratch):
     cfg = ctx.cfg
     cbz = config.to_local(cfg, chapter["download_path"])
     x_dir, render_dir, out_dir, work = scratch / "x", scratch / "render", scratch / "out", scratch / "work"
@@ -155,7 +160,9 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
     measured = images.measure_pages(cbz, known=page_store.load(ctx.conn, chapter["id"]))
     stored = calibrate.quality(calibrate.rows(ctx.conn, chapter["series_id"]))
     try:
-        chapter_plan = plan.build(f"chapter {chapter['id']}", measured, files, edit, layout, aspect, stored)
+        chapter_plan = plan.build(
+            f"chapter {chapter['id']}", measured, files, edit, layout, page_aspect=aspect, quality=stored
+        )
     except (plan.NeedsHuman, plan.EditError) as e:
         return workflow.NeedsHuman(str(e))
     if not chapter_plan.kept():
@@ -170,7 +177,7 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
     with image.pool(cfg["convert"]["workers"]) as workers:
         if cover is not None:  # before the route: an AVIF cover that passed can make the chapter AVIF
             cover["avif"] = image.encode_cover(
-                workers, scorer, cover["data"], cover["width"], work / "cover", tool_paths
+                workers, scorer, cover["data"], cover["width"], work / "cover", tool_paths=tool_paths
             )
         plan.routes(chapter_plan, None if cover is None else cover["avif"]["ok"])
         if chapter_plan.route == "untouched-flag":
@@ -193,10 +200,19 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
                 sources = image.sources(chapter_plan, x_dir, blanked, scratch / "sources")
                 encoded = image.render(chapter_plan, sources, scratch / "render-blanked")
         chapter_plan.quality = _calibrate(
-            ctx, chapter, chapter_plan, x_dir, rendered, work, workers, scorer, tool_paths
+            ctx, chapter, chapter_plan, x_dir, rendered, work=work, pool=workers, scorer=scorer, tool_paths=tool_paths
         )
         rec = image.process_chapter(
-            x_dir, encoded, blanked, cover, out_dir, work / "encode", workers, scorer, chapter_plan, tool_paths
+            x_dir,
+            encoded,
+            blanked,
+            cover,
+            out_dir,
+            work_dir=work / "encode",
+            pool=workers,
+            scorer=scorer,
+            chapter_plan=chapter_plan,
+            tool_paths=tool_paths,
         )
     staged = config.abs_path(cfg["paths"]["staging"]) / staged_name(ctx.conn, chapter)
     try:

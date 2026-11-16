@@ -160,7 +160,7 @@ def encode_avif_pages(pool, scorer, tasks, *, stop_on_fail=False):
     return [recs[i] for i in sorted(recs)], failed
 
 
-def encode_cover(pool, scorer, data, page_width, work_dir, tool_paths):
+def encode_cover(pool, scorer, data, page_width, work_dir, *, tool_paths):
     """A volume cover's AVIF (covers) at page_width, through the AVIF gate at q80 (q90 retry), at its own class and
     chroma. Returns {"path" (in work_dir; None when it failed), "score", "bytes", "ok", "class", "yuv"}."""
     work_dir = Path(work_dir)
@@ -303,7 +303,7 @@ def render(chapter_plan, x_dir, out_dir):
 class ChapterRun:
     """1 chapter plan executed into out_dir (the attempts of process_chapter)."""
 
-    def __init__(self, x_dir, rendered, blanked, out_dir, tmp, pool, scorer, chapter_plan, tool_paths):
+    def __init__(self, x_dir, rendered, blanked, out_dir, tmp, *, pool, scorer, chapter_plan, tool_paths):
         self.x, self.rendered, self.blanked, self.out, self.tmp = x_dir, rendered, blanked, out_dir, tmp
         self.pool, self.scorer, self.plan, self.tools = pool, scorer, chapter_plan, tool_paths
         self.kept = chapter_plan.kept()
@@ -422,7 +422,7 @@ def output_gray(chapter_plan, outcome):
     return all(cls == images.GRAY for cls, _ in kept)
 
 
-def process_chapter(x_dir, rendered, blanked, cover, out_dir, work_dir, pool, scorer, chapter_plan, tool_paths):
+def process_chapter(x_dir, rendered, blanked, cover, out_dir, *, work_dir, pool, scorer, chapter_plan, tool_paths):
     """Execute a chapter plan: pages in x_dir (the extraction), rendered (the plan's rendered PNGs, in order, made
     from the blanked sources; [] when it renders nothing), blanked (blank_pages: {page name: blanked PNG}), cover (the
     volume cover: None, or {"data", "width", "avif": encode_cover's result}), output pages in out_dir, work files in
@@ -437,7 +437,17 @@ def process_chapter(x_dir, rendered, blanked, cover, out_dir, work_dir, pool, sc
     out_dir.mkdir(parents=True, exist_ok=True)
     tmp.mkdir(parents=True, exist_ok=True)
     ch = chapter_plan
-    run = ChapterRun(x_dir, [Path(p) for p in rendered], blanked, out_dir, tmp, pool, scorer, ch, tool_paths)
+    run = ChapterRun(
+        x_dir,
+        [Path(p) for p in rendered],
+        blanked,
+        out_dir,
+        tmp,
+        pool=pool,
+        scorer=scorer,
+        chapter_plan=ch,
+        tool_paths=tool_paths,
+    )
     rec = {
         "route": ch.route,
         "pages": len(run.kept),

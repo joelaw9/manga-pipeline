@@ -674,7 +674,7 @@ def test_a_blanked_rendered_chapter_samples_its_unblanked_render_and_records_the
 # ---------------------------------------------------------------- volume covers
 
 
-def add_cover(site, chapter_id, data, rel="vol/1.jpg", sha256=None, volume="1"):
+def add_cover(site, chapter_id, data, rel="vol/1.jpg", sha256=None, *, volume="1"):
     """Hand chapter_id a volume cover as intake does: the file under paths.covers and its volume_cover row."""
 
     path = config.abs_path(site.cfg["paths"]["covers"]) / rel
@@ -790,7 +790,7 @@ def test_pages_sharing_no_cover_format_go_out_without_it(site):
     ],
 )
 def test_a_cover_that_is_not_as_handed_over_fails_the_attempt_naming_its_path(
-    site, tmp_path, rel, sha256, write, match
+    site, tmp_path, rel, sha256, write, *, match
 ):
     chapter_id = site.chapter(site.series(), pages(1))
     if rel == "ABSOLUTE":
@@ -878,9 +878,9 @@ def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(sit
     encoded = []
     real = image.process_chapter
 
-    def spy(x_dir, rendered, *rest):
+    def spy(x_dir, rendered, *rest, **named):
         encoded.extend(p.parent.name for p in rendered)
-        return real(x_dir, rendered, *rest)
+        return real(x_dir, rendered, *rest, **named)
 
     monkeypatch.setattr(image, "process_chapter", spy)
     renders = []

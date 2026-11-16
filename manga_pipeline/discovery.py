@@ -167,7 +167,7 @@ def record_found(ctx, found, unmatched):
             # Checked after the row: confirm moves a download away before its chapter is done, so a file still here
             # once its chapter reads done is a new download, not one an export confirmed since the listing.
             if not open_ and workflow.exists(config.to_local(ctx.cfg, path)):
-                workflow.add_chapter(ctx.conn, series_id, identity, path, chapter_id, source, url)
+                workflow.add_chapter(ctx.conn, series_id, identity, path, chapter_id, source=source, source_url=url)
                 check.make_urgent(ctx.conn, series_id)  # a new chapter makes its series' check due at once
                 added += 1
         seen = dict(ctx.conn.execute("SELECT path, first_seen FROM unmatched_download").fetchall())

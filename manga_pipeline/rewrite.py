@@ -174,7 +174,7 @@ def _plan(ctx, series):
         }
         shas = {v: r["sha256"] for v, r in images.items()}
         for fid, (action, v) in rewrite_plan.cover_changes(
-            basis, rows, overrides, mangadex, moved, states, taken, shas
+            basis, rows, overrides, mangadex, moved, states=states, taken=taken, images=shas
         ).items():
             if action == "drop":
                 cover[fid] = ("drop",)

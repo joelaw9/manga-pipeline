@@ -75,7 +75,7 @@ NAMES = [
 ]
 
 
-def badge_page(x0, y0, x1, y1, colour=(255, 0, 0), size=200):
+def badge_page(x0, y0, x1, y1, colour=(255, 0, 0), *, size=200):
     """A white size x size page with a solid `colour` badge in the box (x0, y0, x1, y1)."""
     rgb = np.full((size, size, 3), 255, np.uint8)
     rgb[y0:y1, x0:x1] = colour

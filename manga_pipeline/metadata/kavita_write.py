@@ -144,7 +144,7 @@ def write(ctx, series_id, rules):
     for name, (key, lock) in PEOPLE.items():
         _add_people(kv, kid, key, lock, getattr(fields, name))
     _links_and_ids(kv, kid, fields)
-    state["cover"] = _cover(ctx, series, kid, state, imported, guard, record)
+    state["cover"] = _cover(ctx, series, kid, state, imported, guard=guard, record=record)
     record(final=True)
     log.info("series %s (%s): fields written to Kavita", series_id, series["name"])
 
@@ -238,7 +238,7 @@ def _links_and_ids(kv, kid, fields):
         kv.update_series(series, **changes)
 
 
-def _cover(ctx, series, kid, state, imported, guard, record):
+def _cover(ctx, series, kid, state, imported, *, guard, record):
     """Upload the series' cover when Kavita does not hold it from the pipeline; the sha256 Kavita now holds from it.
     A cover uploaded to Kavita before the pipeline's first upload, and not by the old tool, is a person's: kept.
     (Kavita names every upload alike, so a person's upload after the pipeline's is not told apart.)"""

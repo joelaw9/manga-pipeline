@@ -90,7 +90,7 @@ CALIBRATION = {
 }
 
 
-def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none", covers=None):
+def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none", *, covers=None):
     """A valid finished .optimizer.json: chapters = [(output, source file, number, source bytes[, volume])]; basis:
     its series.naming.basis (where a new chapter's volume comes from); covers: {volume: output holding its cover}."""
     volume_covers = {str(v): {"chapter": o, "url": f"https://covers/{v}", "sha256": "0" * 64}
@@ -186,10 +186,10 @@ class World:
         series_id = self.kavita.add_series(name, folder, LIBRARY_ID, **names)
         self.kavita_specs.append((series_id, name, folder, names))
         if record:
-            self.write_record(name, series_id, folder, chapters, basis, layout, covers)
+            self.write_record(name, series_id, folder, chapters, basis, layout=layout, covers=covers)
         return series_id
 
-    def write_record(self, name, series_id, folder, chapters, basis="none", layout="pages", covers=None):
+    def write_record(self, name, series_id, folder, chapters, basis="none", *, layout="pages", covers=None):
         (self.library / folder / ".optimizer.json").write_text(
             json.dumps(bulk_record(name, series_id, chapters, layout=layout, basis=basis, covers=covers)),
             encoding="utf-8",

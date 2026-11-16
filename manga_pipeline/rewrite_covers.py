@@ -185,7 +185,7 @@ def _encode(cfg, data, kept, scratch):
     if fmt == images.AVIF:
         scorer = convert.loaded_scorer(vship.Scorer, config.abs_path(cfg["tools"]["vship"]))
         with image.pool(cfg["convert"]["workers"]) as workers:
-            avif = image.encode_cover(workers, scorer, data, width, scratch / "cover", tool_paths)
+            avif = image.encode_cover(workers, scorer, data, width, scratch / "cover", tool_paths=tool_paths)
         if not avif["ok"]:
             return None, f"its AVIF cover scored {avif['score']}, below the floor"
     out_dir = scratch / "out"

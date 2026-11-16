@@ -41,6 +41,7 @@ def published_copy(
     source=BEST,
     pages_in=3,
     width=16,
+    *,
     strip=4500,
     season=None,
     name=None,

@@ -15,7 +15,7 @@ from tests.timing import budget
 MAIN, SIDE = names.MAIN, names.SIDE
 
 
-def pub(file_id, number, volume, source, kind=MAIN, season=None):
+def pub(file_id, number, volume, source, kind=MAIN, *, season=None):
     return Row(
         key=("published", file_id),
         settled=True,

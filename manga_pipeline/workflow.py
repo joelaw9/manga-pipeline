@@ -184,7 +184,7 @@ def after(stamp, delta):
     return (datetime.fromisoformat(stamp) + delta).isoformat(timespec="seconds")
 
 
-def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, source, source_url):
+def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, *, source, source_url):
     """Record a discovered download as a chapter ready at the first stage; runs inside the caller's transaction."""
     if not db.in_transaction(conn):
         msg = "add_chapter runs inside the caller's transaction"

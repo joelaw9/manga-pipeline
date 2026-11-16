@@ -99,7 +99,7 @@ def add_series(conn, name, origin="new", status="ok", kavita_library_id=None):
     return series_id
 
 
-def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None, download_path=None, **columns):
+def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None, *, download_path=None, **columns):
     """A ready chapter at stage (discovered_at defaults to now); columns set other chapter columns as given."""
     stamp = discovered_at or workflow.now(conn)
     with db.transaction(conn):
