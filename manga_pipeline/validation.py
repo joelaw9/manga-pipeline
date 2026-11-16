@@ -35,28 +35,42 @@ def check(cbz, key, published, same=lambda _p: True):
         members = archive.pages(cbz)
     except archive.UNREADABLE as e:
         return Verdict("bad", f"the archive cannot be read: {type(e).__name__}: {e}")
-    if not members:
-        return Verdict("bad", "the archive holds no pages")
     # In this order (SPEC "Validation"): each page's bytes and format, page by page; then every page decoded; then
     # every page's orientation. The first defect found decides.
+    defect = _page_bytes(members)
+    if defect:
+        return defect
+    try:
+        pages = images.measure_pages(cbz)
+    except ValueError as e:
+        return Verdict("bad", str(e))
+    held = _rotated(members) or _mislabelled(pages, key, published, same)
+    if held:
+        return Verdict("human", held)
+    return Verdict("ok", pages=pages, notes=_duplicates(pages) + _short(pages, published))
+
+
+def _page_bytes(members):
+    """The verdict on the first page that is empty (bad) or in a format nothing here decodes (human), else None; bad
+    for an archive with no pages."""
+    if not members:
+        return Verdict("bad", "the archive holds no pages")
     for name, data in members:
         if not data:
             return Verdict("bad", f"page {name} is empty (0 bytes)")
         fmt = images.detect(data)
         if fmt in UNDECODABLE_FORMATS:
             return Verdict("human", f"page {name} is in a format the pipeline cannot read ({fmt})")
-    try:
-        pages = images.measure_pages(cbz)
-    except ValueError as e:
-        return Verdict("bad", str(e))
+    return None
+
+
+def _rotated(members):
+    """Why the first page whose EXIF orientation turns or mirrors it is not upright, or None."""
     for name, data in members:
         orientation = images.exif_orientation(data)
         if orientation in ROTATED:
-            return Verdict("human", f"page {name} has EXIF orientation {orientation} (not upright)")
-    mislabel = _mislabelled(pages, key, published, same)
-    if mislabel:
-        return Verdict("human", mislabel)
-    return Verdict("ok", pages=pages, notes=_duplicates(pages) + _short(pages, published))
+            return f"page {name} has EXIF orientation {orientation} (not upright)"
+    return None
 
 
 def _hamming(a, b):
