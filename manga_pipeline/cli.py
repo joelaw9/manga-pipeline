@@ -187,7 +187,7 @@ def series_new(cfg, args):
 def series_edit(cfg, args):
     data = hand_edits.load(args.file)
     with _database(cfg, "edit") as conn:
-        lines = hand_edits.apply(workflow.Context(cfg, conn, "export"), data, args.series_id)
+        lines = hand_edits.apply(workflow.context(cfg, conn, "export"), data, args.series_id)
     for line in lines:
         print(line)
 
@@ -196,7 +196,7 @@ def naming_diff(cfg, args):
     """Read-only: what the comparison would rewrite, and the differences 7e never applies (SPEC "Retroactive
     updates")."""
     with db.read_only(cfg) as conn:
-        ctx = workflow.Context(cfg, conn, "export")
+        ctx = workflow.context(cfg, conn, "export")
         where = sql.SQL("s.id = %(series)s") if args.series_id else sql.SQL("s.kavita_series_id IS NOT NULL")
         series_rows = conn.execute(
             sql.SQL("SELECT s.* FROM series s WHERE {where} AND {scope} ORDER BY s.id").format(
@@ -241,13 +241,13 @@ def rewrite_retry(cfg, args):
 
 def metadata_import(cfg, args, conn):
     state, overrides = importer.read_state(args.state_file), importer.read_overrides(args.config_file)
-    importer.run(workflow.Context(cfg, conn, "intake"), state, overrides)
+    importer.run(workflow.context(cfg, conn, "intake"), state, overrides)
 
 
 def metadata_audit(cfg, args):
     """Opens no database (SPEC "Metadata checks", Audit): it runs before cutover, with or without one."""
     state = importer.read_state(args.state) if args.state else None
-    audit.run(workflow.Context(cfg, None, "intake"), sources.new_sources(), state)
+    audit.run(cfg, kavita.from_config(cfg), suwayomi.from_config(cfg), sources.new_sources(), state)
 
 
 def junk_import(cfg, args):

@@ -8,10 +8,11 @@ from manga_pipeline.clients.kavita_match import normalize, series_names
 from manga_pipeline.metadata import ids, importer
 
 
-def run(ctx, clients, state=None):
-    """Print the audit; state: the old tool's state file as importer.read_state gives it, or None."""
-    listing = ctx.kavita.series_in_library(ctx.cfg["kavita"]["library_id"])
-    manga = list(ctx.suwayomi.library_manga())
+def run(cfg, kavita, suwayomi, clients, state=None):
+    """Print the audit; clients: the metadata sources' clients; state: the old tool's state file as
+    importer.read_state gives it, or None."""
+    listing = kavita.series_in_library(cfg["kavita"]["library_id"])
+    manga = list(suwayomi.library_manga())
     by_title = {}
     for m in manga:
         by_title.setdefault(normalize(m["title"]), []).append(m)
@@ -20,7 +21,7 @@ def run(ctx, clients, state=None):
     for kseries in listing:
         mine = list({m["id"]: m for n in series_names(kseries) for m in by_title.get(normalize(n), [])}.values())
         matched |= {m["id"] for m in mine}
-        known = _known(ctx, clients, kseries, mine, state)
+        known = _known(kavita, clients, kseries, mine, state)
         agreed, problem = ids.resolve(known)
         if problem:
             disagree.append(f"{kseries['name']} (Kavita {kseries['id']}): {problem}")
@@ -34,8 +35,8 @@ def run(ctx, clients, state=None):
     _print("Suwayomi library manga no series matches by name", unmatched)
 
 
-def _known(ctx, clients, kseries, mangas, state):
-    known = [(s, "kavita", v) for s, v in ids.kavita_ids(kseries, ctx.kavita.metadata(kseries["id"]))]
+def _known(kavita, clients, kseries, mangas, state):
+    known = [(s, "kavita", v) for s, v in ids.kavita_ids(kseries, kavita.metadata(kseries["id"]))]
     for m in mangas:
         known += [(s, "suwayomi", v) for s, v in ids.suwayomi_ids(m)]
     if state is not None:

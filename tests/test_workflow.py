@@ -8,6 +8,7 @@ import pytest
 
 from manga_pipeline import db, workflow
 from manga_pipeline.db import sql
+from manga_pipeline.metadata import sources as metadata_sources
 from manga_pipeline.workflow import Done, Dropped, Failed, NeedsHuman, Waiting
 
 from tests.builders import add_chapter, add_series, chapter, one, site_cfg
@@ -18,7 +19,16 @@ from tests.timing import budget
 def ctx(tmp_path):
     cfg = site_cfg(tmp_path)
     with closing(db.connect(cfg)) as conn:
-        yield workflow.Context(cfg, conn, "process")
+        yield workflow.context(cfg, conn, "process")
+
+
+def executes(statement):
+    """An outcome's record: runs statement on the outcome's connection."""
+
+    def record(conn):
+        conn.execute(statement)
+
+    return record
 
 
 def returns(outcome):
@@ -92,7 +102,7 @@ def test_needs_human_series_holds_its_chapters(ctx):
 def test_out_of_scope_series_is_not_claimed(ctx):
     cfg = {**ctx.cfg, "series": {"only": ["Other"]}}
     add_chapter(ctx.conn, add_series(ctx.conn, "S"), "c1", "junk")
-    assert workflow.claim(workflow.Context(cfg, ctx.conn, "process"), ("junk",)) is None
+    assert workflow.claim(workflow.context(cfg, ctx.conn, "process"), ("junk",)) is None
 
 
 # (case, series.only, the series' Kavita library, in scope) with kavita.library_id 4 and the series named "S".
@@ -137,10 +147,10 @@ def test_the_sql_scope_agrees_with_in_scope_on_every_case(ctx):
 
 @budget(load="db")
 def test_a_run_has_1_client_of_each_service(ctx):
-    assert ctx.suwayomi.base == ctx.cfg["suwayomi"]["url"]
-    assert ctx.kavita.base == ctx.cfg["kavita"]["url"]
-    given = workflow.Context(ctx.cfg, ctx.conn, "intake", suwayomi="a suwayomi", kavita="a kavita")
-    assert (given.suwayomi, given.kavita) == ("a suwayomi", "a kavita"), "a test's fakes are used as given"
+    assert ctx.suwayomi.base == ctx.cfg["suwayomi"]["url"], "Suwayomi's client is built from the config"
+    assert ctx.kavita.base == ctx.cfg["kavita"]["url"], "Kavita's client is built from the config"
+    assert isinstance(ctx.sources, metadata_sources.Sources), "the metadata sources' clients are built"
+    assert ctx.owner == workflow.owner("process"), "the run's claims name the part's owner"
 
 
 @budget(load="db")
@@ -165,7 +175,7 @@ def test_done_moves_to_the_next_stage_with_attempts_reset(ctx):
 
 @budget(load="db")
 def test_done_at_the_last_stage_is_done(ctx):
-    ctx = workflow.Context(ctx.cfg, ctx.conn, "export")
+    ctx = workflow.context(ctx.cfg, ctx.conn, "export")
     row = claimed(ctx, "confirm")
     workflow.work(ctx, row, returns(Done()))
     assert (chapter(ctx.conn, row["id"])["stage"], chapter(ctx.conn, row["id"])["status"]) == ("confirm", "done")
@@ -174,14 +184,14 @@ def test_done_at_the_last_stage_is_done(ctx):
 @budget(load="db")
 def test_done_record_runs_with_the_outcome(ctx):
     row = claimed(ctx)
-    workflow.work(ctx, row, returns(Done(lambda conn: conn.execute("INSERT INTO meta VALUES ('rec', 'x')"))))
+    workflow.work(ctx, row, returns(Done(executes("INSERT INTO meta VALUES ('rec', 'x')"))))
     assert one(ctx.conn, "SELECT value FROM meta WHERE key = 'rec'") == "x"
 
 
 @budget(load="db")
 def test_failing_record_is_a_failed_attempt(ctx):
     row = claimed(ctx)
-    workflow.work(ctx, row, returns(Done(lambda conn: conn.execute("INSERT INTO meta VALUES ('database_id', 'x')"))))
+    workflow.work(ctx, row, returns(Done(executes("INSERT INTO meta VALUES ('database_id', 'x')"))))
     after = chapter(ctx.conn, row["id"])
     assert (after["stage"], after["status"], after["attempts"]) == ("junk", "ready", 1), "the whole outcome rolls back"
     assert after["last_error"].startswith("recording the outcome: UniqueViolation")
@@ -214,10 +224,11 @@ def test_attempt_limit_makes_the_chapter_needs_human(ctx, caplog):
     for _ in range(ctx.cfg["workflow"]["attempt_limit"] - 1):
         workflow.work(ctx, row, returns(Failed("bad page")))
         assert workflow.claim(ctx, ("junk",)) is None, "a chapter that failed is tried again by a later run"
-        ctx = workflow.Context(ctx.cfg, ctx.conn, ctx.part)  # the next run, once the retry pause is over
+        ctx = workflow.context(ctx.cfg, ctx.conn, ctx.part)  # the next run, once the retry pause is over
         with db.transaction(ctx.conn):
             ctx.conn.execute("UPDATE chapter SET retry_after = %s", (workflow.now(ctx.conn),))
         row = workflow.claim(ctx, ("junk",))
+        assert row is not None, "the next run claims the chapter once its retry pause is over"
     workflow.work(ctx, row, returns(Failed("bad page")))
     after = chapter(ctx.conn, row["id"])
     assert (after["status"], after["attempts"]) == ("needs_human", 3)
@@ -282,7 +293,8 @@ def test_no_transaction_is_open_while_a_stage_runs(ctx):
 def test_release_own_claims_frees_only_this_parts_claims(ctx):
     mine = claimed(ctx)
     add_chapter(ctx.conn, mine["series_id"], "c2", "comicinfo")
-    other = workflow.claim(workflow.Context(ctx.cfg, ctx.conn, "export"), ("comicinfo",))
+    other = workflow.claim(workflow.context(ctx.cfg, ctx.conn, "export"), ("comicinfo",))
+    assert other is not None, "export claims its ready chapter"
     with db.transaction(ctx.conn):
         ctx.conn.execute("UPDATE chapter SET attempts = 1 WHERE id = %s", (mine["id"],))
     workflow.release_own_claims(ctx)
@@ -294,7 +306,7 @@ def test_release_own_claims_frees_only_this_parts_claims(ctx):
 def test_release_own_claims_frees_a_claim_on_a_series_now_out_of_scope(ctx):
     row = claimed(ctx)
     cfg = {**ctx.cfg, "series": {"only": ["Other"]}}
-    workflow.release_own_claims(workflow.Context(cfg, ctx.conn, "process"))
+    workflow.release_own_claims(workflow.context(cfg, ctx.conn, "process"))
     assert chapter(ctx.conn, row["id"])["status"] == "ready", "SPEC 'Parts': a dead run's claim is freed in any scope"
 
 
@@ -302,7 +314,7 @@ def test_release_own_claims_frees_a_claim_on_a_series_now_out_of_scope(ctx):
 def test_claims_are_kept_when_locks_are_off(ctx):
     row = claimed(ctx)
     cfg = {**ctx.cfg, "lock": {**ctx.cfg["lock"], "enabled": False}}
-    workflow.release_own_claims(workflow.Context(cfg, ctx.conn, "process"))
+    workflow.release_own_claims(workflow.context(cfg, ctx.conn, "process"))
     assert chapter(ctx.conn, row["id"])["status"] == "claimed", "with locks off another live run may hold it"
 
 
@@ -324,7 +336,7 @@ def test_end_waits_never_checks_a_wait_of_an_out_of_scope_series(ctx):
     cfg = {**ctx.cfg, "series": {"only": ["Other"]}}
     asked = []
     workflow.end_waits(
-        workflow.Context(cfg, ctx.conn, "process"), "junk_decision", lambda _ctx, chapter: asked.append(chapter["id"])
+        workflow.context(cfg, ctx.conn, "process"), "junk_decision", lambda _ctx, chapter: asked.append(chapter["id"])
     )
     assert asked == [], "SPEC 'Parts': nothing out of scope is read"
     assert chapter(ctx.conn, row["id"])["status"] == "waiting"

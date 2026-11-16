@@ -56,6 +56,7 @@ class Row(tuple):
     __slots__ = ()
     _keys: tuple[str, ...] = ()
 
+    # Any: a column's value is whatever type its column holds, which only the query knows.
     @overload
     def __getitem__(self, key: SupportsIndex | str) -> Any: ...
     @overload
@@ -84,6 +85,10 @@ class Row(tuple):
 
     def __repr__(self):
         return f"Row({dict(zip(self._keys, self, strict=True))!r})"
+
+
+# A connection of the program (open_connection), for callers that annotate one without importing the driver.
+type Connection = psycopg.Connection[Row]
 
 
 @functools.cache

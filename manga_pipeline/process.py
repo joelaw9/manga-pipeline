@@ -26,7 +26,7 @@ STAGED_KEEP_S = 24 * 3600  # a staged file no chapter names is deleted once this
 
 def run(cfg, conn):
     """conn: the command's connection, holding its run lock (cli.main)."""
-    workflow.run_part(workflow.Context(cfg, conn, "process"), work)
+    workflow.run_part(workflow.context(cfg, conn, "process"), work)
 
 
 def work(ctx):

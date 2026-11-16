@@ -64,7 +64,7 @@ def test_a_windows_machine_skips_names_windows_cannot_use(tmp_path, monkeypatch,
         with db.transaction(conn):
             conn.execute("UPDATE series SET folder = %s WHERE id = %s", (folder, series_id))
         add_chapter(conn, series_id, "c1", "junk", download_path=download)
-        ctx = workflow.Context(cfg, conn, "process", suwayomi=object(), kavita=object())
+        ctx = workflow.context(cfg, conn, "process")
         monkeypatch.setattr(os, "name", "nt")
         assert (workflow.claim(ctx, ("junk",)) is not None) == windows_takes
         monkeypatch.setattr(os, "name", "posix")

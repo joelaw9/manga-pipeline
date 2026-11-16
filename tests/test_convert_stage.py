@@ -36,7 +36,7 @@ def site(tmp_path):
 class Site:
     def __init__(self, cfg, conn):
         self.cfg, self.conn = cfg, conn
-        self.ctx = workflow.Context(cfg, conn, "process", suwayomi=object(), kavita=object())
+        self.ctx = workflow.context(cfg, conn, "process")
         self.n = 0
 
     def series(self, name="S", layout="pages", aspect=None):

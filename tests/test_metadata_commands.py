@@ -109,8 +109,7 @@ def test_audit_lists_disagreements_missing_ids_and_unmatched_manga(world, capsys
     world.kavita.metadata_rows[kavita_id] = {"webLinks": "https://anilist.co/manga/1"}
     world.suwayomi.add_tracker(world.manga("Solo Leveling"), 2, 2)
     world.manga("Nobody's Manga")
-    with closing(db.connect(world.cfg)) as conn:
-        audit.run(world.context(conn, "intake"), world.sources)
+    audit.run(world.cfg, world.kavita, world.suwayomi, world.sources)
     out = capsys.readouterr().out
     assert "series whose ids disagree: 1\n  Solo Leveling" in out
     assert "1 (kavita), 2 (suwayomi)" in out

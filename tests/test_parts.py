@@ -251,11 +251,12 @@ def test_an_export_stage_that_lost_its_claim_leaves_every_file_untouched(site):
     run_part(site.cfg, intake)
     run_part(site.cfg, process)
     with closing(db.connect(site.cfg)) as conn:
-        ctx = workflow.Context(site.cfg, conn, "export")
+        ctx = workflow.context(site.cfg, conn, "export")
 
         def lost(stage, run):
             """The chapter's claim at stage, freed and taken by another run before the stage's act."""
             row = workflow.claim(ctx, (stage,))
+            assert row is not None, f"the chapter is ready at {stage}"
             with db.transaction(conn):
                 conn.execute(
                     "UPDATE chapter SET claimed_by = 'export@elsewhere', claim_count = claim_count + 1 WHERE id = %s",
