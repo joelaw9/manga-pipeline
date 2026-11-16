@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import PurePosixPath
 
-from manga_pipeline import config, measures, page_store, workflow
+from manga_pipeline import config, measures, page_store, rewrite_covers, workflow
 
 
 def row_values(conn, chapter):
@@ -46,7 +46,10 @@ def row_values(conn, chapter):
         "source_name": PurePosixPath(chapter["download_path"]).stem,
         "kind": chapter["naming_kind"],
         "volume_source": chapter["naming_volume_source"],
-        "cover_state": f"volume:{cover['volume']}" if cover else "none",  # the volume cover convert inserted
+        # the volume cover convert inserted; stale when MangaDex has a new image of that volume since
+        "cover_state": rewrite_covers.current_state(
+            conn, chapter["id"], chapter["series_id"], f"volume:{cover['volume']}" if cover else "none"
+        ),
     }
 
 

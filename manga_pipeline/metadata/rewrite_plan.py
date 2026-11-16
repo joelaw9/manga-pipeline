@@ -103,8 +103,9 @@ def cover_changes(basis, rows, overrides, mangadex, moved, states, taken, images
     change (SPEC "Retroactive updates"). moved: changes' result; states: {file id: cover_state} (every one known);
     taken: the volumes whose cover an open chapter took; images: {volume: sha256} of the series' stored cover images.
     A covered volume whose files hold none of its cover gets it in its lowest-numbered published file; a file holding
-    another volume's cover drops it, unless it is that file; every other file keeps what it holds. An insert recorded
-    unfit for the volume's current image is not made again."""
+    another volume's cover drops it, unless it is that file; every other file keeps what it holds. A file holding an
+    old image of a volume (stale: MangaDex had a new one) takes the new image when the volume is its own, else drops
+    it. An insert recorded unfit for the volume's current image is not made again."""
     override = (overrides or {}).get("volumes") or {}
     now = list(rows)
     for i, r in enumerate(rows):
@@ -116,11 +117,12 @@ def cover_changes(basis, rows, overrides, mangadex, moved, states, taken, images
     )
     volume = {now[i].key[1]: _fmt(now[i].volume) for i in published}
     held = {fid: (states[fid] or "").removeprefix("volume:") for fid in volume if states[fid].startswith("volume:")}
+    stale = {fid: states[fid].removeprefix("stale:") for fid in volume if states[fid].startswith("stale:")}
     chosen = {}
     for v in naming.covered_volumes(basis, now, override, mangadex):
         v = _fmt(v)
         files = [fid for fid in (now[i].key[1] for i in published) if volume[fid] == v]
-        if v in taken or not files or any(held.get(fid) == v for fid in files):
+        if v in taken or not files or any(v in (held.get(fid), stale.get(fid)) for fid in files):
             continue
         chosen[files[0]] = v
     out = {}
@@ -129,8 +131,10 @@ def cover_changes(basis, rows, overrides, mangadex, moved, states, taken, images
             v = chosen[fid]
             if held.get(fid) != v and not (v in images and states[fid] == f"unfit:{images[v]}"):
                 out[fid] = ("insert", v)
-        elif fid in held and held[fid] != volume[fid]:
-            out[fid] = ("drop", None)
+        elif fid in stale and stale[fid] == volume[fid] and stale[fid] in images:
+            out[fid] = ("insert", stale[fid])  # its volume's new image replaces the old one
+        elif fid in held and held[fid] != volume[fid] or fid in stale:
+            out[fid] = ("drop", None)  # another volume's cover (an old image included)
     return out
 
 
