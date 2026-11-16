@@ -12,6 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import Any
 
 from manga_pipeline.errors import Unreachable
@@ -118,7 +119,7 @@ class Service:
                 return _send(self.name, method, url, shown, headers, data, timeout)
             except urllib.error.HTTPError as e:
                 failed = (e.code, _error_body(e))
-                if e.code != 429 and e.code < 500:
+                if e.code != HTTPStatus.TOO_MANY_REQUESTS and e.code < HTTPStatus.INTERNAL_SERVER_ERROR:
                     raise HttpError(e.code, url, failed[1]) from None
                 problem = f"HTTP {e.code}"
                 asked = _retry_after(e.headers)

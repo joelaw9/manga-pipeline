@@ -9,6 +9,7 @@ import io
 import logging
 import time
 from dataclasses import dataclass
+from http import HTTPStatus
 
 from PIL import Image, UnidentifiedImageError
 
@@ -69,7 +70,7 @@ def _gone_is_none(fetch, *args):
     try:
         return fetch(*args)
     except http.HttpError as e:
-        if e.status == 404:
+        if e.status == HTTPStatus.NOT_FOUND:
             return None
         raise
 
@@ -207,7 +208,9 @@ def refresh_volumes(ctx, series_id):
             volume_cover(ctx, series_id, volume)
         except (NotAnImageError, errors.Unreachable, http.HttpTimeoutError, http.HttpError) as e:
             log.warning("%s: series %s volume %s cover not refreshed: %s", ctx.part, series_id, volume, e)
-            if isinstance(e, NotAnImageError) or (isinstance(e, http.HttpError) and e.status < 500):
+            if isinstance(e, NotAnImageError) or (
+                isinstance(e, http.HttpError) and e.status < HTTPStatus.INTERNAL_SERVER_ERROR
+            ):
                 continue
             with db.transaction(ctx.conn):  # MangaDex down: the next intake checks the series again
                 ctx.conn.execute(
@@ -234,7 +237,7 @@ def fetch_wanted(ctx):
         except Exception as e:
             if (
                 isinstance(e, (db.Error, errors.Unreachable, http.HttpTimeoutError))
-                or (isinstance(e, http.HttpError) and e.status >= 500)
+                or (isinstance(e, http.HttpError) and e.status >= HTTPStatus.INTERNAL_SERVER_ERROR)
                 or (isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS))
             ):
                 raise

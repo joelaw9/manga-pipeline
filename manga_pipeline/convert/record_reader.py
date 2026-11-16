@@ -26,6 +26,7 @@ CHAPTER_KEYS = ("output", "file", "sources", "kind", "volume", "volume_source", 
 CHAPTER, MERGED, DUPLICATE, DELETED, REPLACED = "chapter", "merged", "duplicate", "deleted", "replaced"
 CARRIED, FAILED = "carried", "failed"
 FATES = (CHAPTER, MERGED, DUPLICATE, DELETED, REPLACED, CARRIED, FAILED)
+QUALITY_MAX = 100  # the top calibration quality
 
 
 class RecordError(ValueError):
@@ -96,7 +97,7 @@ def check(rec):
     if not isinstance(groups, dict) or any(
         not isinstance(g, dict)
         or type(g.get("q")) is not int
-        or not 0 <= g["q"] <= 100
+        or not 0 <= g["q"] <= QUALITY_MAX
         or not isinstance(g.get("probes", []), list)
         for g in groups.values()
     ):

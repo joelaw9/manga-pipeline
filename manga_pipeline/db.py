@@ -31,6 +31,7 @@ WORKFLOW_TABLES = ("page", "chapter", "unmatched_download", "junk_candidate", "s
 MAINTENANCE_DATABASE = "postgres"  # where a missing database is created from
 
 Error = psycopg.Error  # any database error, for callers that report one without importing the driver
+PORT_MAX = 65535  # the highest TCP port
 
 
 class SchemaError(RuntimeError):
@@ -102,7 +103,7 @@ def _login(cfg):
             msg = f"database.{key} must be a non-empty string"
             raise config.ConfigError(msg)
     port = settings["port"]
-    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= PORT_MAX:
         msg = f"database.port must be a whole number from 1 to 65535, got {port!r}"
         raise config.ConfigError(msg)
     if settings["password"] is not None and (not isinstance(settings["password"], str) or not settings["password"]):

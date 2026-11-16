@@ -31,6 +31,7 @@ SIDE_TITLE = "Side Story {n}"
 MANGADEX_SHARE = 0.5  # choose: half volumed, half loose reads worse than no volumes
 
 VolumeError = volumes.VolumeError  # a volume that cannot be written: a person must act
+TOKEN_PARTS = 2  # a chapter token with a prefix: "S2 10", "side 3"
 
 
 @dataclass(frozen=True)
@@ -86,9 +87,9 @@ def edit_token(kind, season, number):
 def parse_token(text):
     """edit_key of an edit file's chapter: "10", "S2 10" (season 2), "side 3" (Side Story 3). ValueError otherwise."""
     parts = str(text).split()
-    if len(parts) == 2 and parts[0].lower() == "side":
+    if len(parts) == TOKEN_PARTS and parts[0].lower() == "side":
         kind, season, number = names.SIDE, None, parts[1]
-    elif len(parts) == 2 and parts[0][:1] in "sS" and parts[0][1:].isdigit():
+    elif len(parts) == TOKEN_PARTS and parts[0][:1] in "sS" and parts[0][1:].isdigit():
         kind, season, number = names.MAIN, int(parts[0][1:]), parts[1]
     elif len(parts) == 1:
         kind, season, number = names.MAIN, None, parts[0]

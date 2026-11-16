@@ -14,6 +14,8 @@ ORIGINS = ("suwayomi", "kavita", "anilist", "mangabaka", "mangadex", "search", "
 TRACKER_ANILIST = 2  # Suwayomi's tracker ids
 TRACKER_MANGAUPDATES = 7
 KAVITA_ID_FIELDS = {"aniListId": "anilist", "malId": "myanimelist", "mangaBakaId": "mangabaka"}
+UUID_TEXT_LEN = 36  # a UUID's 32 hex digits and 4 hyphens
+KIND_ID_PARTS = 2  # a link path's /<kind>/<id>
 
 
 def form(source, value):
@@ -26,7 +28,7 @@ def form(source, value):
         return None
     if source == "mangadex":
         try:
-            return str(uuid.UUID(text)) if len(text) == 36 else None
+            return str(uuid.UUID(text)) if len(text) == UUID_TEXT_LEN else None
         except ValueError:
             return None
     if source == "mangaupdates" and not text.isdigit():
@@ -44,14 +46,14 @@ def link_id(url):
     parts = urllib.parse.urlsplit(url.strip())
     host = (parts.hostname or "").removeprefix("www.")
     path = [p for p in parts.path.split("/") if p]
-    if host == "anilist.co" and len(path) >= 2 and path[0] == "manga":
+    if host == "anilist.co" and len(path) >= KIND_ID_PARTS and path[0] == "manga":
         return _pair("anilist", path[1])
-    if host == "myanimelist.net" and len(path) >= 2 and path[0] == "manga":
+    if host == "myanimelist.net" and len(path) >= KIND_ID_PARTS and path[0] == "manga":
         return _pair("myanimelist", path[1])
-    if host == "mangadex.org" and len(path) >= 2 and path[0] == "title":
+    if host == "mangadex.org" and len(path) >= KIND_ID_PARTS and path[0] == "title":
         return _pair("mangadex", path[1])
     if host == "mangaupdates.com" and path:
-        if path[0] == "series" and len(path) >= 2:
+        if path[0] == "series" and len(path) >= KIND_ID_PARTS:
             found = mangaupdates_link(path[1])
             return ("mangaupdates", found) if found else None
         if path[0] == "series.html":
@@ -79,7 +81,7 @@ def suwayomi_ids(manga):
             found.append(_pair(source, str(record["remoteId"])))
     if "mangadex" in ((manga.get("source") or {}).get("name") or "").lower():
         path = [p for p in urllib.parse.urlsplit(manga.get("url") or "").path.split("/") if p]
-        if len(path) >= 2 and path[0] in ("title", "manga"):
+        if len(path) >= KIND_ID_PARTS and path[0] in ("title", "manga"):
             found.append(_pair("mangadex", path[1]))
     return [pair for pair in found if pair]
 

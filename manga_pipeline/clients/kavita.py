@@ -8,6 +8,7 @@ ported from. 1 object per run: it keeps the token, the library folders and wheth
 import base64
 import logging
 import urllib.parse
+from http import HTTPStatus
 from pathlib import Path
 
 from manga_pipeline.clients import http
@@ -86,7 +87,7 @@ class Kavita:
         try:
             reply = self._call("GET", f"/api/Series/{int(series_id)}")
         except http.HttpError as e:
-            if e.status == 404:
+            if e.status == HTTPStatus.NOT_FOUND:
                 return None
             raise
         return reply.json() if reply.body.strip() else None
@@ -124,7 +125,7 @@ class Kavita:
         try:
             return bool(self._call("GET", f"/api/Image/series-cover?seriesId={int(series_id)}").body)
         except http.HttpError as e:
-            if e.status == 404:
+            if e.status == HTTPStatus.NOT_FOUND:
                 return False
             raise
 
@@ -235,7 +236,7 @@ class Kavita:
             try:
                 return self._service.request(method, self.base + path, headers=headers, json=json)
             except http.HttpError as e:
-                if e.status != 401:
+                if e.status != HTTPStatus.UNAUTHORIZED:
                     raise
                 self._token = None
         msg = "HTTP 401 after re-authentication"
@@ -247,7 +248,7 @@ class Kavita:
             try:
                 reply = self._service.request("POST", f"{self.base}/api/Plugin/authenticate?{query}")
             except http.HttpError as e:
-                if e.status != 401:
+                if e.status != HTTPStatus.UNAUTHORIZED:
                     raise
                 msg = "HTTP 401 from authenticate: the API key was refused"
                 raise self._refused(msg) from None

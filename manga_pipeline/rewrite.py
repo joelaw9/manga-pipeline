@@ -57,6 +57,8 @@ OPEN_REWRITES = sql.SQL("published_file_id IS NOT NULL AND status NOT IN ('done'
 BUSY = sql.SQL("""({p}.pending_path IS NOT NULL OR {p}.indexed_since IS NOT NULL OR {p}.pending_error IS NOT NULL
     OR {p}.carry_cover IS TRUE OR EXISTS (
         SELECT 1 FROM chapter b WHERE b.published_file_id = {p}.id AND b.status <> 'done'))""")
+# finish's file acts, each recorded in published_file.pending_step once done
+STEP_DATED, STEP_RETAINED, STEP_RENAMED, STEP_OLD_REMOVED = 1, 2, 3, 4
 
 
 def _set_null(columns):
@@ -515,31 +517,31 @@ def finish(ctx, row):
     target = config.to_local(cfg, row["pending_path"])
     old = config.to_local(cfg, row["library_path"])
     step = row["pending_step"]
-    if step < 3 and not workflow.exists(staged):
+    if step < STEP_RENAMED and not workflow.exists(staged):
         if workflow.exists(target) and target.stat().st_size == row["pending_size"] and target != old:
-            step = record_step(conn, row["id"], 3)  # renamed in before a crash recorded it
+            step = record_step(conn, row["id"], STEP_RENAMED)  # renamed in before a crash recorded it
         elif target == old and is_new(target, row):
-            step = record_step(conn, row["id"], 3)
+            step = record_step(conn, row["id"], STEP_RENAMED)
         else:
             _clear(conn, row["id"])
             log.warning("%s: rewrite of %s dropped: its staged file is gone", ctx.part, row["library_path"])
             return
-    if step < 1:
+    if step < STEP_DATED:
         os.utime(staged)  # the rename keeps it: Kavita skips a file it judges unchanged by its date
-        step = record_step(conn, row["id"], 1)
-    if step < 2:
+        step = record_step(conn, row["id"], STEP_DATED)
+    if step < STEP_RETAINED:
         retention.put_library(cfg, old)
-        step = record_step(conn, row["id"], 2)
-    if step < 3:
+        step = record_step(conn, row["id"], STEP_RETAINED)
+    if step < STEP_RENAMED:
         if target != old and workflow.exists(target):
             msg = f"{target} is already in the library; a library file is never overwritten"
             raise FileExistsError(msg)
         staged.replace(target)
-        step = record_step(conn, row["id"], 3)
-    if step < 4:
+        step = record_step(conn, row["id"], STEP_RENAMED)
+    if step < STEP_OLD_REMOVED:
         if target != old and workflow.exists(old):
             old.unlink()
-        step = record_step(conn, row["id"], 4)
+        step = record_step(conn, row["id"], STEP_OLD_REMOVED)
     with db.transaction(conn):
         if row["pending_copy"]:  # a better copy: the row describes it now (SPEC "Retroactive updates")
             values = {k: v for k, v in row["pending_copy"]["values"].items() if k not in ("size", "cover_state")}
@@ -622,7 +624,7 @@ def drop(conn, file_id, limit):
     ):
         msg = f"published file {file_id} has no stuck rewrite"
         raise workflow.Refused(msg)
-    if row["pending_path"] is not None and row["pending_step"] >= 3:
+    if row["pending_path"] is not None and row["pending_step"] >= STEP_RENAMED:
         msg = f"published file {file_id}'s rewrite has renamed its file in: rewrite retry {file_id} finishes it"
         raise workflow.Refused(msg)
     with db.transaction(conn):

@@ -30,6 +30,7 @@ PAST_MIN_WEIGHTS = ("core", "defining", "recurrent")  # only these are added pas
 RULE_WEIGHTS = ("core", "defining", "recurrent", "incidental")
 SMALL_WORDS = {"a", "an", "and", "as", "at", "for", "in", "of", "on", "or", "the", "to"}
 PLURAL_MARKER = re.compile(r"/(?:ies|ves|e?s)\b", re.IGNORECASE)  # MangaUpdates' "Concubine/s", "Elf/ves"
+SHORT_KEY_MAX = 4  # a key this short keeps its final "s"
 
 
 @dataclass(frozen=True)
@@ -104,7 +105,7 @@ def display_name(name):
 def term_key(term):
     """The key a tag or genre name matches by: plural markers and a final "s" dropped, case and punctuation ignored."""
     key = names.key(display_name(term))
-    return key[:-1] if len(key) > 4 and key.endswith("s") else key
+    return key[:-1] if len(key) > SHORT_KEY_MAX and key.endswith("s") else key
 
 
 def _unique(values):

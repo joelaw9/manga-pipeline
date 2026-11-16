@@ -21,6 +21,7 @@ from manga_pipeline.metadata import ids as metadata_ids
 from manga_pipeline.metadata import search
 
 log = logging.getLogger(__name__)
+FOLDER_LINK_PARTS = 2  # SOURCE_FOLDER/TITLE_FOLDER
 
 
 @dataclass(frozen=True)
@@ -371,7 +372,7 @@ def folder_key(cfg, suwayomi, text):
     another spelling, which discovery never keys by), and no library manga maps to it (discovery would never read the
     link)."""
     parts = text.split("/")
-    if len(parts) != 2 or any(part in ("", ".", "..") or "\\" in part for part in parts):
+    if len(parts) != FOLDER_LINK_PARTS or any(part in ("", ".", "..") or "\\" in part for part in parts):
         msg = f"--folder takes SOURCE_FOLDER/TITLE_FOLDER under the downloads' mangas folder: {text}"
         raise workflow.Refused(msg)
     root = config.abs_path(cfg["paths"]["downloads"]) / suwayomi_client.MANGAS_FOLDER

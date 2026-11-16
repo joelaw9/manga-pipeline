@@ -31,6 +31,11 @@ EXTENSION = {
     JXL: ".jxl",
 }
 HEADER_BYTES = 256 * 1024  # enough of a file for dimensions() on every format we meet but AVIF (the whole file)
+# WebP header bytes read for the canvas size: through it (VP8X, VP8), through the VP8L size field
+VP8X_HEAD, VP8_HEAD, VP8L_HEAD = 30, 30, 25
+VP8L_SIGNATURE = 0x2F  # a lossless bitstream's first byte
+CHANNEL_MAX = 255  # an 8-bit channel's top value (opaque, for alpha)
+RGB_CHANNELS = 3
 
 
 def _webp_kind(data):
@@ -82,11 +87,11 @@ def dimensions(head):
     AVIF cut short, whose size Pillow reads only from the whole file."""
     if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         chunk = head[12:16]
-        if chunk == b"VP8X" and len(head) >= 30:
+        if chunk == b"VP8X" and len(head) >= VP8X_HEAD:
             return int.from_bytes(head[24:27], "little") + 1, int.from_bytes(head[27:30], "little") + 1
-        if chunk == b"VP8 " and len(head) >= 30 and head[23:26] == b"\x9d\x01\x2a":
+        if chunk == b"VP8 " and len(head) >= VP8_HEAD and head[23:26] == b"\x9d\x01\x2a":
             return struct.unpack("<H", head[26:28])[0] & 0x3FFF, struct.unpack("<H", head[28:30])[0] & 0x3FFF
-        if chunk == b"VP8L" and len(head) >= 25 and head[20] == 0x2F:
+        if chunk == b"VP8L" and len(head) >= VP8L_HEAD and head[20] == VP8L_SIGNATURE:
             bits = int.from_bytes(head[21:25], "little")
             return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
         return None
@@ -151,7 +156,7 @@ def from_loaded(im):
         im = _to_srgb(im, profile)
     elif im.mode in ("I;16", "I;16L", "I;16B", "I;16N", "I"):
         a = np.asarray(im).astype(np.uint32)
-        shift = 8 if a.max() > 255 else 0
+        shift = 8 if a.max() > CHANNEL_MAX else 0
         im = Image.fromarray((a >> shift).astype(np.uint8), "L")
     elif im.mode in ("P", "PA"):
         im = im.convert("RGBA" if im.has_transparency_data else "RGB")
@@ -164,7 +169,7 @@ def from_loaded(im):
         im = _to_srgb(im.convert("RGB"), profile)
         if alpha is not None:
             im.putalpha(alpha)
-    has_alpha = "A" in im.getbands() and np.asarray(im.getchannel("A")).min() < 255
+    has_alpha = "A" in im.getbands() and np.asarray(im.getchannel("A")).min() < CHANNEL_MAX
     if "A" in im.getbands() and not has_alpha:  # fully opaque alpha carries nothing
         im = im.convert("L" if im.mode == "LA" else "RGB")
     return im, has_alpha
@@ -514,7 +519,7 @@ def blank(rgb, box, fill):
     if not (0 <= x0 < x1 <= w and 0 <= y0 < y1 <= h):
         msg = f"blank box {tuple(box)} is not inside the {w}x{h} page"
         raise ValueError(msg)
-    if len(fill) != 3 or not all(0 <= int(v) <= 255 for v in fill):
+    if len(fill) != RGB_CHANNELS or not all(0 <= int(v) <= CHANNEL_MAX for v in fill):
         msg = f"blank fill {fill!r} is not an RGB colour"
         raise ValueError(msg)
     out[y0:y1, x0:x1] = fill

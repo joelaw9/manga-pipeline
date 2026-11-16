@@ -31,6 +31,7 @@ RING_FRAC = 0.95  # share of ring pixels that must pass
 ASPECT_TOL = 0.10  # variants: box aspect ratios within this fraction (the same badge comes in several scales)
 IOU_MIN = 0.7  # variants: coloured-pixel mask IoU
 DELTA_MAX = 40  # variants: mean |dRGB| over the template's coloured pixels (same badge: median 25, max 50; others 53+)
+MASK_HALF = 127  # 0-255: a value above it is set in a mask
 
 
 # ---------------------------------------------------------------- template
@@ -57,7 +58,7 @@ class Template:
     @classmethod
     def from_png(cls, data):
         a = np.asarray(Image.open(io.BytesIO(data)).convert("RGBA"))
-        return cls(a[..., :3], a[..., 3] > 127)
+        return cls(a[..., :3], a[..., 3] > MASK_HALF)
 
     def key_text(self):
         """The template as a decision key: its RGBA PNG, base64."""
@@ -80,7 +81,10 @@ def same_variant(a, b):
         return False
     if b.size != a.size:
         rgb = np.asarray(Image.fromarray(b.rgb).resize(a.size, Image.Resampling.BILINEAR))
-        mask = np.asarray(Image.fromarray(b.mask.astype(np.uint8) * 255).resize(a.size, Image.Resampling.NEAREST)) > 127
+        mask = (
+            np.asarray(Image.fromarray(b.mask.astype(np.uint8) * 255).resize(a.size, Image.Resampling.NEAREST))
+            > MASK_HALF
+        )
     else:
         rgb, mask = b.rgb, b.mask
     if (a.mask & mask).sum() / (a.mask | mask).sum() < IOU_MIN:

@@ -16,6 +16,7 @@ EXIF_ORIENTATION = 0x0112
 LUMA_TOLERANCE = 2  # gray re-encodes (jpegtran -grayscale) differ from RGB->L by colour-conversion rounding
 EXT_ALIASES = {images.JPEG: (".jpg", ".jpeg")}
 RGB_COMPONENT_IDS = [ord("R"), ord("G"), ord("B")]  # libjpeg reads these ids as RGB when no JFIF / Adobe marker says
+COLOUR_COMPONENTS = 3  # a JPEG's colour components (Pillow's layers): Y, Cb, Cr or R, G, B
 
 
 def jpeg_feed(data):
@@ -43,7 +44,12 @@ def _jpeg_kind(im):
         and "adobe" not in im.info
         and [c[0] for c in getattr(im, "layer", [])] == RGB_COMPONENT_IDS
     )
-    if im.mode == "RGB" and getattr(im, "layers", 0) == 3 and im.info.get("adobe_transform") != 0 and not rgb_ids:
+    if (
+        im.mode == "RGB"
+        and getattr(im, "layers", 0) == COLOUR_COMPONENTS
+        and im.info.get("adobe_transform") != 0
+        and not rgb_ids
+    ):
         return "ycc"
     return None
 

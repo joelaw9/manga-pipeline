@@ -55,6 +55,8 @@ TEXT_PLAIN = 12  # ... plain: luma at most this far from the background
 TEXT_MID = 20  # ... mid-tone: luma more than this far from it, within TEXT_MID_LUMA, not chroma
 TEXT_MID_LUMA = (40, 215)
 TEXT_CHROMA = 40  # ... chroma: channel spread (max - min) above this
+CREDIT_MIN_PAGES = 2  # the last page and 1 other to compare it with
+BOTH_BANDS = 2  # a page's top and bottom band
 
 
 # ---------------------------------------------------------------- page measurements
@@ -216,7 +218,7 @@ def end_text_page(sizes, texts, cfg=END_PAGES):
     """Content index of the last page when it is a credit page of the modal size, mostly plain, little mid-tone, some
     colour, in a gray chapter (every other tail page under gray_chroma); else None. texts: {content index: features}."""
     n = len(sizes)
-    if n < 2:
+    if n < CREDIT_MIN_PAGES:
         return None
     last = n - 1
     (mw, mh), (w, h) = Counter(sizes).most_common(1)[0][0], sizes[last]
@@ -316,7 +318,7 @@ def _crop(found, size):
 def _crop_boxes(found, size):
     """Every box a page can be cropped to by a non-empty subset of its bands."""
     out = [_crop([b], size) for b in found]
-    if len(found) == 2:
+    if len(found) == BOTH_BANDS:
         out.append(_crop(found, size))
     return [b for b in out if b is not None]
 

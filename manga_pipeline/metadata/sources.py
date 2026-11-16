@@ -9,6 +9,7 @@ per source per run, each on its own `http.Service` with the source's minimum gap
 import urllib.parse
 from datetime import UTC, datetime
 from html.parser import HTMLParser
+from http import HTTPStatus
 from typing import override
 
 from manga_pipeline.clients import http
@@ -55,7 +56,7 @@ def _unless_gone(call):
     try:
         return call()
     except http.HttpError as e:
-        if e.status == 404:
+        if e.status == HTTPStatus.NOT_FOUND:
             return None
         raise
 
@@ -211,7 +212,7 @@ class Tapas:
         try:
             return self.service.request("GET", url, headers={"Accept": accept})
         except http.HttpError as e:
-            if e.status == 403:
+            if e.status == HTTPStatus.FORBIDDEN:
                 msg = f"HTTP 403 from {http.redact_url(url)}: blocked"
                 raise self.service.mark_unreachable(msg) from None
             raise

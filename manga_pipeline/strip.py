@@ -64,6 +64,9 @@ SAMPLE_PAGES = 25  # ... first pages of each
 MIN_EDGE_BLOCK_PX = 40  # content blocks shorter than this at a chapter's ends are never junk candidates
 SPAN_BREAK_PX = 2  # a walkable run at least this tall (strip px) separates two spans (spans)
 STEM_WIDTH = 3  # rendered page names: 001.png, 002.png, ...
+CACHED_PAGES = 3  # decoded source pages render_rows keeps
+PAGE_ASPECT_MIN = 0.9  # h/w: shorter shapes are slivers, not pages
+ASPECT_MIN_PAGES = 3  # pages a shape needs to be a candidate
 
 
 # ---------------------------------------------------------------- shared measurements
@@ -275,7 +278,7 @@ def render_rows(pages, width, start, end, cache=None):
         if lo >= hi:
             continue
         if p["path"] not in cache:
-            if len(cache) >= 3:
+            if len(cache) >= CACHED_PAGES:
                 cache.pop(next(iter(cache)))
             im = open_page(p["path"])
             cache[p["path"]] = im if im.width == width else im.resize((width, p["th"]), Image.Resampling.LANCZOS)
@@ -467,9 +470,9 @@ def page_aspect(chapter_pages, stitched_ratio=SLICE_REPAIR["stitched_ratio"]):
     aspects = Counter()
     for pages in chapter_pages:
         for d in pages:
-            if d and d[0] and 0.9 <= d[1] / d[0] < stitched_ratio:  # page-like shapes only, no slivers
+            if d and d[0] and PAGE_ASPECT_MIN <= d[1] / d[0] < stitched_ratio:  # page-like shapes only, no slivers
                 aspects[round(d[1] / d[0], 3)] += 1
-    common = [a for a, n in aspects.most_common(3) if n >= 3]
+    common = [a for a, n in aspects.most_common(3) if n >= ASPECT_MIN_PAGES]
     return common or None
 
 

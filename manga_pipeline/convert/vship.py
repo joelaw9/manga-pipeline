@@ -29,6 +29,7 @@ ALPHA_BACKGROUNDS = (26, 230)  # a page with alpha: min score over dark / light 
 # Vship enum values (VshipColor.h)
 _UINT8, _FULL_RANGE, _RGB_FAMILY, _RGB_MATRIX, _SRGB_TRANSFER, _BT709 = 2, 1, 1, 0, 13, 1
 _INIT_STRUCT, _SCORE_STRUCT = 1, 4
+RGB_NDIM, RGB_CHANNELS = 3, 3  # an RGB image array: (height, width, channel), 3 channels
 
 
 class VshipError(RuntimeError):
@@ -157,8 +158,8 @@ class Scorer:
         """SSIMULACRA2 of dist against ref: HxWx3 uint8 RGB arrays of 1 size. Thread-safe (a handle per thread)."""
         if (
             ref.shape != dist.shape
-            or ref.ndim != 3
-            or ref.shape[2] != 3
+            or ref.ndim != RGB_NDIM
+            or ref.shape[2] != RGB_CHANNELS
             or ref.dtype != np.uint8
             or dist.dtype != np.uint8
         ):

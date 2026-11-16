@@ -16,6 +16,9 @@ MANGA = (
     " trackRecords { nodes { trackerId remoteId } }"
 )
 CHAPTER = "id mangaId name scanlator chapterNumber sourceOrder isDownloaded pageCount uploadDate url realUrl"
+# the last code point UTF-8 writes in 1, 2 and 3 bytes
+UTF8_1_BYTE_LAST, UTF8_2_BYTES_LAST, UTF8_3_BYTES_LAST = 0x7F, 0x7FF, 0xFFFF
+FIRST_PRINTABLE = 0x20  # code points below it are control characters
 
 
 class GraphQLError(Exception):
@@ -231,9 +234,11 @@ def valid_filename(name):
     kept, size = [], 0
     for char in name:
         code = ord(char)
-        char_bytes = 1 if code <= 0x7F else 2 if code <= 0x7FF else 3 if code <= 0xFFFF else 4
+        char_bytes = (
+            1 if code <= UTF8_1_BYTE_LAST else 2 if code <= UTF8_2_BYTES_LAST else 3 if code <= UTF8_3_BYTES_LAST else 4
+        )
         if size + char_bytes > MAX_NAME_BYTES:
             break
-        kept.append("_" if code < 0x20 or char in REPLACED else char)
+        kept.append("_" if code < FIRST_PRINTABLE or char in REPLACED else char)
         size += char_bytes
     return "".join(kept)
