@@ -46,12 +46,15 @@ REFS = {TAPAS: tapas_ref, WEBTOONS: webtoons_ref}
 
 def anilist_links(media):
     """The English Tapas and WEBTOON streaming links of an AniList media record."""
-    out = []
-    for link in (media or {}).get("externalLinks") or []:
-        if link.get("type") == "STREAMING" and link.get("site") in ANILIST_SITES and link.get("url"):
-            if link.get("language") in (ENGLISH, None) and _english_path(ANILIST_SITES[link["site"]], link["url"]):
-                out.append(link["url"])
-    return out
+    return [
+        link["url"]
+        for link in (media or {}).get("externalLinks") or []
+        if link.get("type") == "STREAMING"
+        and link.get("site") in ANILIST_SITES
+        and link.get("url")
+        and link.get("language") in (ENGLISH, None)
+        and _english_path(ANILIST_SITES[link["site"]], link["url"])
+    ]
 
 
 def _english_path(platform, url):

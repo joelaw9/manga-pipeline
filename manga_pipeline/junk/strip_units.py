@@ -55,7 +55,7 @@ def measure_piece(im):
     }
 
 
-# ---------------------------------------------------------------- scan (decodes)
+# ---------------------------------------------------------------- the scan, which decodes
 
 
 def scan(st, ocr_text=None, undecided=lambda _sig: True):

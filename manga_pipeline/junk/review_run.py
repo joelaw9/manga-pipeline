@@ -167,6 +167,7 @@ def _claude(cfg, prefix, review_id):
             env=env,
             cwd=cwd,
             timeout=TIMEOUT_S,
+            check=False,  # the exit is judged below
         )
     except subprocess.TimeoutExpired:
         return f"error: claude was killed after {TIMEOUT_S} s"

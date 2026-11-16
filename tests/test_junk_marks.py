@@ -404,9 +404,9 @@ def test_representatives_skip_templates_an_earlier_one_covers():
 
 # Variant rule (marks.resolve): one logo variant (e.g. Reset Scans' RESET-SCANS.CO, 63 pilot pages, several
 # representatives) decided from its representatives' deciding rows.
-def row(id, verdict, series_key):
+def row(row_id, verdict, series_key):
     """A store row as a lookup returns it."""
-    return {"id": id, "verdict": verdict, "series_key": series_key}
+    return {"id": row_id, "verdict": verdict, "series_key": series_key}
 
 
 A, G = row(1, "junk", ""), row(2, "junk", AK)

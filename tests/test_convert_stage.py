@@ -189,7 +189,7 @@ def test_a_share_error_while_staging_reaches_the_workflow_as_an_oserror(site, mo
 
     chapter_id = site.chapter(site.series(), pages(1))
     monkeypatch.setattr(archive, "write", eio)
-    with pytest.raises(OSError) as e:
+    with pytest.raises(OSError, match="Input/output error") as e:
         site.run(chapter_id)
     assert e.value.errno == errno.EIO, "workflow.share_errors turns it into Unreachable('share')"
     assert not site.scratch(chapter_id).exists()

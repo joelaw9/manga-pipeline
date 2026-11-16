@@ -20,7 +20,7 @@ def p(stem):
     return parse_name(stem, None, NAMES)
 
 
-# classification (parse_name)
+# classification, by parse_name
 
 
 @budget(load="pure")

@@ -24,7 +24,7 @@ def run(*args):
     command, exit and seconds at DEBUG."""
     args = [str(a) for a in args]
     t0 = time.perf_counter()
-    p = subprocess.run(args, capture_output=True)
+    p = subprocess.run(args, capture_output=True, check=False)  # the exit is checked below
     log.debug("%s -> exit %d %.3fs", subprocess.list2cmdline(args), p.returncode, time.perf_counter() - t0)
     if p.returncode:
         raise ToolError(p.returncode, p.args, p.stdout, p.stderr)

@@ -235,7 +235,7 @@ def test_a_write_that_fails_leaves_no_part_file_and_dest_untouched(tmp_path):
 
     dest = tmp_path / "a.cbz"
     dest.write_bytes(b"old")
-    with pytest.raises(OSError) as e:
+    with pytest.raises(OSError, match="No space left on device") as e:
         archive.write(dest, members())
     assert e.value.errno == errno.ENOSPC, "the write's own error reaches the caller"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["a.cbz"], "a failed write removes its .part file"
@@ -277,7 +277,7 @@ def test_test_refuses_a_crc_failure(tmp_path):
     size = archive.write(cbz, [("001.jpg", b"page one")])
     data = cbz.read_bytes()
     cbz.write_bytes(data.replace(b"page one", b"page 0ne"))  # same size, member bytes no longer match their CRC
-    with pytest.raises(zipfile.BadZipFile, match="001.jpg"):
+    with pytest.raises(zipfile.BadZipFile, match=r"001\.jpg"):
         archive.test(cbz, size)
 
 

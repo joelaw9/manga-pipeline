@@ -23,10 +23,14 @@ def held(_cfg, conn, name):
 
 @budget(load="db")
 def test_a_second_session_is_refused_a_held_lock_naming_it(cfg):
-    with closing(db.connect(cfg)) as a, closing(db.connect(cfg)) as b, lock.held(a, cfg, ["intake"]):
-        with pytest.raises(lock.LockHeld, match="another run holds the lock 'intake'"):
-            with lock.held(b, cfg, ["intake"]):
-                pass
+    with (
+        closing(db.connect(cfg)) as a,
+        closing(db.connect(cfg)) as b,
+        lock.held(a, cfg, ["intake"]),
+        pytest.raises(lock.LockHeld, match="another run holds the lock 'intake'"),
+        lock.held(b, cfg, ["intake"]),
+    ):
+        pass
 
 
 @budget(load="db")
@@ -51,14 +55,20 @@ def test_several_locks_are_all_or_nothing(cfg):
 @budget(load="db")
 def test_parts_share_the_idle_lock_and_a_state_command_needs_it_alone(cfg):
     with closing(db.connect(cfg)) as a, closing(db.connect(cfg)) as b:
-        with lock.held(a, cfg, ["intake"], lock.SHARED), lock.held(b, cfg, ["export"], lock.SHARED):
-            with closing(db.connect(cfg)) as c:
-                with pytest.raises(lock.LockHeld, match="a running command holds"):
-                    with lock.held(c, cfg, [], lock.EXCLUSIVE):
-                        pass
-        with lock.held(a, cfg, [], lock.EXCLUSIVE), pytest.raises(lock.LockHeld):
-            with lock.held(b, cfg, ["intake"], lock.SHARED):
-                pass
+        with (
+            lock.held(a, cfg, ["intake"], lock.SHARED),
+            lock.held(b, cfg, ["export"], lock.SHARED),
+            closing(db.connect(cfg)) as c,
+            pytest.raises(lock.LockHeld, match="a running command holds"),
+            lock.held(c, cfg, [], lock.EXCLUSIVE),
+        ):
+            pass
+        with (
+            lock.held(a, cfg, [], lock.EXCLUSIVE),
+            pytest.raises(lock.LockHeld),
+            lock.held(b, cfg, ["intake"], lock.SHARED),
+        ):
+            pass
 
 
 @budget(load="db")
@@ -78,19 +88,26 @@ def test_a_lock_dies_with_its_session(cfg):
 @budget(load="db")
 def test_locks_of_another_database_are_not_held_here(cfg, tmp_path):
     other_cfg = site_cfg(tmp_path / "other")
-    with closing(db.connect(other_cfg)) as other, closing(db.connect(cfg)) as here:
-        with lock.held(other, other_cfg, ["process@elsewhere"]):
-            assert not held(cfg, here, "process@elsewhere"), "a lock is this database's only"
-            with lock.held(here, cfg, ["process@elsewhere"]):
-                pass
+    with (
+        closing(db.connect(other_cfg)) as other,
+        closing(db.connect(cfg)) as here,
+        lock.held(other, other_cfg, ["process@elsewhere"]),
+    ):
+        assert not held(cfg, here, "process@elsewhere"), "a lock is this database's only"
+        with lock.held(here, cfg, ["process@elsewhere"]):
+            pass
 
 
 @budget(load="db")
 def test_no_lock_when_locks_are_off(cfg):
     off = {**cfg, "lock": {**config.cached()["lock"], "enabled": False}}
-    with closing(db.connect(cfg)) as a, closing(db.connect(cfg)) as b:
-        with lock.held(a, off, ["intake"], lock.EXCLUSIVE), lock.held(b, off, ["intake"], lock.EXCLUSIVE):
-            assert not held(cfg, a, "intake")
+    with (
+        closing(db.connect(cfg)) as a,
+        closing(db.connect(cfg)) as b,
+        lock.held(a, off, ["intake"], lock.EXCLUSIVE),
+        lock.held(b, off, ["intake"], lock.EXCLUSIVE),
+    ):
+        assert not held(cfg, a, "intake")
 
 
 @budget(load="pure")

@@ -301,5 +301,5 @@ def test_decisions_of_any_object_shape_pass():
 def test_a_malformed_calibration_is_a_broken_record(groups):
     rec = pilot_record()
     rec["series"]["calibration"] = {"groups": groups}
-    with pytest.raises(record.RecordError, match="calibration.groups"):
+    with pytest.raises(record.RecordError, match=r"calibration\.groups"):
         record.check(rec)

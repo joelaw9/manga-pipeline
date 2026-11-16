@@ -123,10 +123,15 @@ def test_reopen_keeps_data_and_id(tmp_path):
 @budget(load="db")
 def test_transaction_rolls_back_when_the_block_raises(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
-        with pytest.raises(RuntimeError, match="stage failed"), db.transaction(conn):
-            conn.execute("INSERT INTO meta (key, value) VALUES ('probe', 'x')")
-            msg = "stage failed"
-            raise RuntimeError(msg)
+
+        def failing_block():
+            with db.transaction(conn):
+                conn.execute("INSERT INTO meta (key, value) VALUES ('probe', 'x')")
+                msg = "stage failed"
+                raise RuntimeError(msg)
+
+        with pytest.raises(RuntimeError, match="stage failed"):
+            failing_block()
         assert conn.execute("SELECT 1 FROM meta WHERE key = 'probe'").fetchone() is None
         assert not db.in_transaction(conn)
 
@@ -576,6 +581,7 @@ def _cli_status(tmp_path, cfg):
         cwd=config.ROOT,
         capture_output=True,
         text=True,
+        check=False,
         timeout=60,
     )
 
@@ -626,10 +632,14 @@ def test_a_bad_database_setting_exits_2_and_a_refused_login_exits_4(tmp_path, ca
 def test_a_wait_on_the_write_lock_longer_than_lock_timeout_raises(tmp_path, monkeypatch):
     cfg = db_cfg(tmp_path)
     monkeypatch.setattr(db, "LOCK_TIMEOUT", "200ms")  # the shipped 30 s, shortened for the test
-    with closing(db.connect(cfg)) as holder, closing(db.connect(cfg)) as waiter, db.transaction(holder):
-        with pytest.raises(psycopg.errors.LockNotAvailable):
-            with db.transaction(waiter):
-                pass
+    with (
+        closing(db.connect(cfg)) as holder,
+        closing(db.connect(cfg)) as waiter,
+        db.transaction(holder),
+        pytest.raises(psycopg.errors.LockNotAvailable),
+        db.transaction(waiter),
+    ):
+        pass
 
 
 @budget(load="db")

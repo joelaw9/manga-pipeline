@@ -70,7 +70,8 @@ def baseline_pass(ctx):
         workflow.scope_params(ctx.cfg),
     ).fetchall()
     taken = 0
-    for series in rows:
+    for listed in rows:
+        series = listed  # refreshed below once its folder is stored
         if not baseline.needed(conn, series):
             continue
         if series["folder"] is None:

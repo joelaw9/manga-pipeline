@@ -122,7 +122,7 @@ def test_a_download_in_error_is_dequeued_and_the_next_source_tried(world):
 @budget(load="db")
 def test_a_download_older_than_the_timeout_is_given_up(world):
     bad_download(world)
-    with world_conn(world) as conn:
+    with WorldConn(world) as conn:
         old = "2000-01-01T00:00:00+00:00"
         conn.execute(
             "UPDATE chapter SET redownload = jsonb_set(redownload::jsonb, '{expected,enqueued_at}',"
@@ -240,7 +240,7 @@ def test_chapter_use_on_a_chapter_whose_file_is_in_hand_rejects_that_file_first(
 def test_chapter_use_and_drop_refuse_a_chapter_that_is_not_needs_human(world, status):
     world.download(world.manga_id, "Chapter 12")
     world.run(intake)
-    with world_conn(world) as conn:
+    with WorldConn(world) as conn:
         conn.execute("UPDATE chapter SET status = %s", (status,))
     with pytest.raises(workflow.Refused, match="not needs_human"):
         command(cli.chapter_use, world, chapter=1, suwayomi_chapter=5)
@@ -296,7 +296,7 @@ def test_an_interrupted_chapter_use_keeps_the_choice(world, monkeypatch):
 def test_a_download_finished_after_the_timeout_is_still_taken(world):
     _chapter_id, _path = bad_download(world)
     world.suwayomi.finish_downloads(cbz(seed="late"))
-    with world_conn(world) as conn:
+    with WorldConn(world) as conn:
         old = "2000-01-01T00:00:00+00:00"
         conn.execute(
             "UPDATE chapter SET redownload = jsonb_set(redownload::jsonb, '{expected,enqueued_at}',"
@@ -388,7 +388,7 @@ def test_a_refused_choice_stays_recorded_until_retry(world):
 @budget(load="db")
 def test_chapter_drop_is_refused_while_re_download_work_is_outstanding(world):
     exhausted(world)
-    with world_conn(world) as conn:
+    with WorldConn(world) as conn:
         conn.execute(
             "UPDATE chapter SET redownload = jsonb_set(redownload::jsonb, '{remove}',"
             " jsonb_build_array(jsonb_build_object('path', 'x.cbz')))::text"
@@ -452,7 +452,7 @@ def test_a_replacement_repeating_another_published_chapter_is_mislabelled(world)
     probe.write_bytes(copy)
     phashes = measures.summary(images.measure_pages(probe))["page_phashes"]
     probe.unlink()
-    with world_conn(world) as conn:
+    with WorldConn(world) as conn:
         for n in (30, 31, 32):
             conn.execute(
                 """INSERT INTO published_file (library_path, series_id, identity, state, page_phashes, strip_length,
@@ -534,7 +534,7 @@ def _cbz_with(page):
     return out.getvalue()
 
 
-class world_conn:
+class WorldConn:
     """A connection with an open transaction, for a test's direct changes."""
 
     def __init__(self, world):

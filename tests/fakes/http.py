@@ -104,10 +104,9 @@ class CannedService(http.Service):
         self.sent.append((method, path, json))
         self.options.append((timeout, retry_timeout))
         self.headers = headers
-        for prefix, value in self.answers.items():
+        for prefix, answer in self.answers.items():
             if path.startswith(prefix):
-                if isinstance(value, Each):
-                    value = value.pop(0)
+                value = answer.pop(0) if isinstance(answer, Each) else answer
                 if callable(value):
                     value = value(method, path, json)
                 if isinstance(value, BaseException):

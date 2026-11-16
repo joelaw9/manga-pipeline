@@ -187,7 +187,8 @@ def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset(), e
             e = edits.get(edit_key(names.MAIN, rows[i].season, rows[i].number))
             title = e.title if e is not None and e.title is not None else title
             out[rows[i].key] = Naming(names.MAIN, v, rows[i].number, title, source, i in covered)
-    for key, named in _side_stories(rows, side, [vol[i][0] for i in main], platform, past).items():
+    for key, side_named in _side_stories(rows, side, [vol[i][0] for i in main], platform, past).items():
+        named = side_named
         e = edits.get(edit_key(names.SIDE, None, named.number))
         if e is not None and e.title is not None:
             named = dataclasses.replace(named, title=edited_title(names.SIDE, named.number, e.title))

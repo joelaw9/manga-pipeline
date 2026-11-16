@@ -174,7 +174,7 @@ def test_a_chapter_token_reads_back_as_written(token, key):
 @budget(load="pure", seconds=1)
 @pytest.mark.parametrize("token", ["", "ten", "S 3", "side", "S2 x", "1 2 3"])
 def test_a_token_that_is_no_chapter_is_refused(token):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not a"):
         naming.parse_token(token)
 
 

@@ -7,6 +7,7 @@ bulk converter settled on over its library.
 """
 
 import json
+import math
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -368,7 +369,7 @@ def to_volume(v):
         f = float(str(v).strip())
     except (TypeError, ValueError):
         return None
-    if f != f or f < 0 or f == float("inf"):
+    if math.isnan(f) or f < 0 or f == float("inf"):
         return None
     return int(f) if f == int(f) else f
 

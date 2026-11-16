@@ -112,21 +112,25 @@ def folder_layout(cfg):
         for name, path in {**kept, **others}.items():
             if path.is_relative_to(folder):
                 problems.append(f"paths.{key} {folder} contains {name} {path}")
-        for name in ("paths.downloads", "paths.library"):
-            if folder.is_relative_to(kept[name]) and folder != kept[name]:
-                problems.append(f"paths.{key} {folder} lies inside {name} {kept[name]}")
+        problems.extend(
+            f"paths.{key} {folder} lies inside {name} {kept[name]}"
+            for name in ("paths.downloads", "paths.library")
+            if folder.is_relative_to(kept[name]) and folder != kept[name]
+        )
     retention = paths["retention"]
-    for name in ("paths.downloads", "paths.library"):
-        if retention.is_relative_to(kept[name]) or kept[name].is_relative_to(retention):
-            problems.append(f"paths.retention {retention} and {name} {kept[name]} overlap")
+    problems.extend(
+        f"paths.retention {retention} and {name} {kept[name]} overlap"
+        for name in ("paths.downloads", "paths.library")
+        if retention.is_relative_to(kept[name]) or kept[name].is_relative_to(retention)
+    )
     return "; ".join(problems) or None
 
 
 def _missing_folders(cfg, keys):
     """keys: paths.<key> names, or (key, subfolder) for a folder below one."""
     problems = []
-    for key in keys:
-        key, sub = key if isinstance(key, tuple) else (key, None)
+    for entry in keys:
+        key, sub = entry if isinstance(entry, tuple) else (entry, None)
         folder = config.abs_path(cfg["paths"][key])
         name = f"paths.{key}" if sub is None else f"the {sub} folder of paths.{key}"
         folder = folder if sub is None else folder / sub

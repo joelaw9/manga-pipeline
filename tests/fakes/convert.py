@@ -16,6 +16,7 @@ process run as a world (tests/world_run.py).
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import ClassVar
 
 from PIL import Image
 
@@ -42,8 +43,8 @@ def fake_run(*args):
     CALLS.append((name, rest))
     if name == "avifenc":
         feed, out = rest[-2], rest[-1]
-        with Image.open(feed) as im:
-            im = im.convert("L" if _after(rest, "--yuv") == "400" else "RGB")
+        with Image.open(feed) as src:
+            im = src.convert("L" if _after(rest, "--yuv") == "400" else "RGB")
             im.save(out, "AVIF", quality=int(_after(rest, "-q")), speed=10)
     elif name == "avifdec":
         with Image.open(rest[-2]) as im:
@@ -58,7 +59,7 @@ def fake_run(*args):
 
 
 class FakeScorer:
-    made = []  # every construction's path: a test can count them
+    made: ClassVar[list[Path]] = []  # every construction's path: a test can count them
 
     def __init__(self, path):
         FakeScorer.made.append(Path(path))
@@ -73,16 +74,16 @@ class FakeScorer:
 FAKE_TOOL_VERSIONS = {"avifenc": "fake", "avifdec": "fake", "jpegtran": "fake", "oxipng": "fake", "vship": "fake"}
 
 
-def install(setattr):
-    """Put the fakes in place (setattr(target, name, value), e.g. monkeypatch.setattr) and create the tool files the
+def install(patch):
+    """Put the fakes in place (patch(target, name, value), e.g. monkeypatch.setattr) and create the tool files the
     config names, so the "image tools" preflight check passes."""
     for name in (*tools.NAMES, "vship"):
         path = config.abs_path(config.cached()["tools"][name])
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
-    setattr(tools, "run", fake_run)
-    setattr(image, "pool", ThreadPoolExecutor)  # threads: the fake tools reach the workers
-    setattr(vship, "Scorer", FakeScorer)
-    setattr(fleet, "_tools", lambda _cfg: dict(FAKE_TOOL_VERSIONS))  # the fakes have no version to print
+    patch(tools, "run", fake_run)
+    patch(image, "pool", ThreadPoolExecutor)  # threads: the fake tools reach the workers
+    patch(vship, "Scorer", FakeScorer)
+    patch(fleet, "_tools", lambda _cfg: dict(FAKE_TOOL_VERSIONS))  # the fakes have no version to print
     CALLS.clear()
     SCORE[0] = lambda _ref, _dec: DEFAULT_SCORE

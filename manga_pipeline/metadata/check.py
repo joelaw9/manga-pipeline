@@ -235,9 +235,12 @@ def _store_platform(conn, series_id, platform, now):
         "SELECT source, payload FROM fetched WHERE series_id = %s AND kind = %s", (series_id, platforms.KIND)
     ).fetchone()
     same = stored is not None and platform is not None and stored["payload"]["ref"] == platform["ref"]
-    if same and stored["source"] == platform["name"]:
-        if platforms.main_episodes(platform) < platforms.main_episodes(stored["payload"]):
-            return
+    if (
+        same
+        and stored["source"] == platform["name"]
+        and platforms.main_episodes(platform) < platforms.main_episodes(stored["payload"])
+    ):
+        return
     conn.execute("DELETE FROM fetched WHERE series_id = %s AND kind = %s", (series_id, platforms.KIND))
     if platform is not None:
         conn.execute(

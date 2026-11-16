@@ -111,9 +111,12 @@ def _own_files(ctx, series, folder):
         (series["id"],),
     ):
         target = folder / PurePosixPath(chapter["library_path"]).name
-        if not workflow.exists(config.to_local(ctx.cfg, chapter["staged_path"])) and workflow.exists(target):
-            if target.stat().st_size == chapter["staged_size"]:
-                own.add(target.name)
+        if (
+            not workflow.exists(config.to_local(ctx.cfg, chapter["staged_path"]))
+            and workflow.exists(target)
+            and target.stat().st_size == chapter["staged_size"]
+        ):
+            own.add(target.name)
     return own
 
 

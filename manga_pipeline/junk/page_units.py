@@ -232,7 +232,7 @@ def end_text_page(sizes, texts, cfg=END_PAGES):
     return None
 
 
-# ---------------------------------------------------------------- scan (decodes)
+# ---------------------------------------------------------------- the scan, which decodes
 
 
 def _box_key(index, box):
@@ -314,9 +314,7 @@ def _crop(found, size):
 
 def _crop_boxes(found, size):
     """Every box a page can be cropped to by a non-empty subset of its bands."""
-    out = []
-    for subset in ([b] for b in found):
-        out.append(_crop(subset, size))
+    out = [_crop([b], size) for b in found]
     if len(found) == 2:
         out.append(_crop(found, size))
     return [b for b in out if b is not None]
@@ -357,12 +355,12 @@ def decide(sc, decide_unit):
         trail = next(n for n in range(len(rest) - 1, -1, -1) if rest[n] not in white)
         drops |= set(rest[:lead]) | set(rest[trail + 1 :])
     crops, band_units, banded, too_much = {}, [], set(), set()
-    for key, found in sc["bands"].items():
+    for key, listed in sc["bands"].items():
         i = int(key)
         if i in drops or i in framed:
             continue
         # An unsignable band is no band (no decision could be written on it): the page is judged as a page.
-        found = [b for b in found if not store.unsignable("band", b["sig"])]
+        found = [b for b in listed if not store.unsignable("band", b["sig"])]
         if not found:
             continue
         banded.add(i)

@@ -147,16 +147,19 @@ def test_a_manga_folder_that_cannot_be_listed_is_listed_and_the_rest_is_taken(wo
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    ("error", "root_fails"),
-    [((22, "An unexpected network error occurred"), True), ((errno.EIO, "Input/output error"), False)],
+    ("error", "root_fails", "raised"),
+    [
+        ((22, "An unexpected network error occurred"), True, "The network name cannot be found"),
+        ((errno.EIO, "Input/output error"), False, "Input/output error"),
+    ],
     ids=["root-gone-after-listing", "share-errno"],
 )
-def test_a_manga_folder_error_ends_the_scan_when_the_share_is_failing(world, monkeypatch, error, root_fails):
+def test_a_manga_folder_error_ends_the_scan_when_the_share_is_failing(world, monkeypatch, error, root_fails, raised):
     world.kavita_series("Solo Leveling")
     _, path = world.download(world.manga("Solo Leveling"), "Chapter 2")
     root = path.parent.parent.parent
     _unlistable(monkeypatch, path.parent, error=error, root=root if root_fails else None)
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match=raised):
         scan(world)
     assert world.rows("SELECT count(*) FROM unmatched_download") == [(0,)], "a failing share lists nothing"
 

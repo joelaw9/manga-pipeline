@@ -224,7 +224,7 @@ def test_bad_set_is_refused(tmp_path, item, message):
 @budget(load="fs")
 def test_set_below_a_non_mapping_file_value_is_refused(tmp_path):
     text = EXAMPLE.replace('logging:\n  dir: "state/logs"\n  keep_days: 14\n', "logging: 1\n")
-    with pytest.raises(config.ConfigError, match="--set logging.dir: logging in the config file is not a mapping"):
+    with pytest.raises(config.ConfigError, match=r"--set logging\.dir: logging in the config file is not a mapping"):
         check(tmp_path, text, sets=["logging.dir=x"])
 
 

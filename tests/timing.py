@@ -15,6 +15,7 @@ import sys
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import override
 
 # Default budget in seconds per load: the costliest resource a test touches. "sleep" has no default.
 LOADS = {"pure": 0.1, "fs": 0.5, "db": 1.0, "network": 2.0, "subprocess": 5.0, "pool": 5.0, "sleep": None}
@@ -102,6 +103,7 @@ class TimedResult(unittest.TextTestResult):
         super().__init__(*args, **kwargs)
         self.timing_rows = []
 
+    @override
     def addDuration(self, test, elapsed):
         super().addDuration(test, elapsed)
         if isinstance(test, unittest.TestCase):

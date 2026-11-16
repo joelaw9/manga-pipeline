@@ -181,6 +181,7 @@ def test_module_run_writes_the_log(site, tmp_path):
         cwd=config.ROOT,
         capture_output=True,
         text=True,
+        check=False,
     )
     assert done.returncode == 0, done.stderr
     assert "export: run ended: ok" in (tmp_path / "logs" / "export.log").read_text(encoding="utf-8")

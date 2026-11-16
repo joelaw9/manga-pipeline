@@ -492,12 +492,12 @@ def test_text_features_shares(fill, want):
 # ---------------------------------------------------------------- decide
 
 
-def row(id, verdict, series_key="Series", decider="import", decided_at="2026-01-01T00:00:00+00:00"):
+def row(row_id, verdict, series_key="Series", decider="import", decided_at="2026-01-01T00:00:00+00:00"):
     return {
-        "id": id,
+        "id": row_id,
         "verdict": verdict,
         "series_key": series_key,
-        "key": f"k{id}",
+        "key": f"k{row_id}",
         "decider": decider,
         "decided_at": decided_at,
     }

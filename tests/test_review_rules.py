@@ -30,7 +30,7 @@ def test_a_database_holding_old_absolute_paths_is_refused(tmp_path, monkeypatch)
         with db.transaction(conn):
             conn.execute("UPDATE series SET folder = '/mnt/share/library/S' WHERE id = %s", (series_id,))
     monkeypatch.undo()
-    with pytest.raises(db.SchemaError, match="stored by an older version.*build a new database"):
+    with pytest.raises(db.SchemaError, match=r"stored by an older version.*build a new database"):
         db.connect(cfg)
 
 
@@ -113,7 +113,7 @@ def test_junk_review_records_an_unreachable_share_and_exits_quietly(tmp_path, mo
 @budget(load="pure")
 def test_a_path_with_a_parent_step_is_never_stored(tmp_path):
     cfg = {"paths": {root: str(tmp_path / "share" / root) for root in config.SHARE_ROOTS}}
-    with pytest.raises(config.PathError, match="'..'"):
+    with pytest.raises(config.PathError, match=r"'\.\.'"):
         config.to_stored(cfg, tmp_path / "share" / "library" / ".." / "elsewhere")
 
 

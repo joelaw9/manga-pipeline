@@ -18,12 +18,12 @@ from manga_pipeline import names
 
 MAIN, SPECIAL, NON_CHAPTER = "main", "special", "non-chapter"
 
-# "Ep. 1 - Memento Mortem", "Episode 30 (Season Finale)", "Chapter 4: X", "1. The Grand Sorcerer"
+# labels as in: Ep. 1 - Memento Mortem; Episode 30 (Season Finale); Chapter 4: X; 1. The Grand Sorcerer
 LABEL = re.compile(
     r"^\s*(?:(?:Episode|Ep|Chapter|Ch)\.?\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\.(?=\s))\s*(?:[-\u2013\u2014:.|]\s*)?",
     re.IGNORECASE,
 )
-# "SE 1. He's Just a Puppy", "SP 2 - X", "Special Episode 3: X", "Side Story 1 - X", "Extra: The First Day"
+# labels as in: SE 1. He's Just a Puppy; SP 2 - X; Special Episode 3: X; Side Story 1 - X; Extra: The First Day
 SPECIAL_LABEL = re.compile(
     r"^\s*(?:(?:SE|SP)(?=\s*\d)|(?:Special(?:\s+Episode)?|Side\s+Story|Extra|Bonus(?:\s+Episode)?)\b)\s*\.?\s*"
     r"(\d+(?:\.\d+)?)?\s*(?:[-\u2013\u2014:.|]\s*)?",
@@ -54,7 +54,7 @@ START_MARKERS = [  # "Season 3 is Coming Soon!" / "Season 2 Teaser" posts sit be
 ]
 MAIN_END = re.compile(r"\bMain\s+Story\s+Finale\b|\bEnd\s+of\s+(?:the\s+)?Main\s+Story\b", re.IGNORECASE)
 # bracketed markers removed from titles once read: "(Season Finale)", "(Season 2 Premiere)", "[S1 END]",
-# "(End of Season 1)", "(Main Story Finale)", "(Series Finale)", "(Season 1 Prequel Finale)", "(End)"
+# and "(End of Season 1)", "(Main Story Finale)", "(Series Finale)", "(Season 1 Prequel Finale)", "(End)"
 BRACKETED_MARKER = re.compile(
     r"\s*[(\[{]\s*(?:[^()\[\]{}]*\b(?:Finale|Premiere)|(?:Mid-?\s*)?Season\s*\w*\s*(?:END|Begins|START)|"
     r"End\s+of\s+(?:the\s+)?(?:Season\s*\w*|Main\s+Story)|S\d+\s*-?\s*(?:END|START)|"
@@ -152,10 +152,9 @@ def build(items):
     numbered = sum(1 for k, stated, _ in kinds if k == MAIN and stated is not None)
     unnumbered_are_chapters = numbered < len(parsed) / 2
     out, prev_main, last_end, started = [], None, 0, None
-    for (number, raw, date, eid), (kind, stated, rest) in zip(parsed, kinds, strict=True):
+    for (number, raw, date, eid), (classified, stated, rest) in zip(parsed, kinds, strict=True):
         chapter, title = None, raw
-        if kind == MAIN and stated is None and not unnumbered_are_chapters:
-            kind = NON_CHAPTER
+        kind = NON_CHAPTER if classified == MAIN and stated is None and not unnumbered_are_chapters else classified
         if kind == MAIN:
             expected = int(prev_main) + 1 if prev_main is not None else None
             # the label is the episode's own number when it repeats the site index or the running chapter count; in a

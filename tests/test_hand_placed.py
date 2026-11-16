@@ -206,7 +206,7 @@ def test_a_file_the_comicinfo_read_cannot_open_says_nothing_but_a_failing_share_
 
     monkeypatch.setattr(archive, "read_comicinfo", share_gone)
     place(world, "Local/Other export", "Chapter 1")
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="I/O error"):
         scan(world)
 
 

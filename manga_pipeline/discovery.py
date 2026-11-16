@@ -27,10 +27,10 @@ def scan(ctx):
     listed, unlistable = _list(root)
     settled_by = time.time() - ctx.cfg["intake"]["settle_minutes"] * 60
     folders = {}
-    for key, files in listed.items():
+    for key, listed_files in listed.items():
         files = [
             n
-            for n in files
+            for n in listed_files
             if config.to_stored(ctx.cfg, root / key[0] / key[1] / n) not in held
             and _settled(root / key[0] / key[1] / n, settled_by)
         ]

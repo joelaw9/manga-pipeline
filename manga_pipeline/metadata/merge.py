@@ -133,7 +133,7 @@ def _base36(number):
 class _Text(html.parser.HTMLParser):
     """An HTML fragment's text: a line break for <br>, <p> and </p>, every other tag dropped, entities decoded."""
 
-    BREAKS = {"br", "p"}
+    BREAKS = frozenset({"br", "p"})
 
     def __init__(self):
         super().__init__(convert_charrefs=True)

@@ -32,7 +32,7 @@ def test_keyword_hits_follow_the_weak_paired_and_suppress_rules(text, height, hi
 
 @budget()
 def test_weak_and_paired_terms_must_be_keywords():
-    with pytest.raises(ValueError, match="junk.paired"):
+    with pytest.raises(ValueError, match=r"junk\.paired"):
         ocr.text_hits("x", 10, words(paired=["nonsense"]))
 
 
