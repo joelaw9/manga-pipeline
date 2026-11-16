@@ -118,6 +118,7 @@ def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none", 
                 "number": number,
                 "title": "",
                 "pages_out": len(_pages_of(data)),
+                "edits": {"drops": [], "reshape": None, "blanks": [], "mark_gray": []},
             }
         )
     return {

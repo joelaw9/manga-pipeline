@@ -9,6 +9,7 @@ decode: done with its chapter edit, waiting on junk_decision with its candidates
 needs_human (a removal that would leave too little; a candidate Claude was unsure of or past the review limit).
 """
 
+import dataclasses
 import json
 import os
 import re
@@ -282,6 +283,17 @@ def decide(ctx, chapter, key, row):
         )
 
     if not picks:
+        copy = library_copy.after_junk(ctx, chapter, edit)
+        if copy is not None:  # a duplicate (dropped) or a better copy of a busy file (held): no edit kept
+
+            def closed(conn):
+                remember(conn)
+                if isinstance(copy, workflow.Dropped):  # a held copy keeps its scan for its retry
+                    conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
+                if copy.record:
+                    copy.record(conn)
+
+            return dataclasses.replace(copy, record=closed)
 
         def done(conn):
             remember(conn)

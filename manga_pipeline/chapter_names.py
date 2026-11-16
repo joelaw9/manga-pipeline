@@ -81,6 +81,7 @@ def _open(ctx, series_id, downloads):
     out = []
     chapters = ctx.conn.execute(
         """SELECT * FROM chapter WHERE series_id = %s AND kind = 'download' AND stage != 'discover'
+            AND published_file_id IS NULL
             AND (status = ANY(%s) OR (status = 'needs_human' AND naming_kind IS NOT NULL))""",
         (series_id, list(OPEN)),
     )

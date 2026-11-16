@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from PIL import Image, UnidentifiedImageError
 
-from manga_pipeline import config, db, errors, names, workflow
+from manga_pipeline import config, db, errors, images, names, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.metadata import sources
 
@@ -208,6 +208,15 @@ def fetch_wanted(ctx):
             "%s: series %s volume %s cover %s", ctx.part, r["series_id"], r["volume"],
             "fetched" if found else "not on MangaDex",
         )  # fmt: skip
+
+
+def store_volume_image(cfg, data):
+    """(path below paths.covers, sha256) of a volume cover image stored content-addressed under VOLUME_FOLDER, as a
+    fetched one is (a better copy taking its file's own cover page: SPEC "Retroactive updates")."""
+    sha256 = hashlib.sha256(data).hexdigest()
+    rel = f"{VOLUME_FOLDER}/{sha256}{images.EXTENSION[images.detect(data)]}"
+    _put(config.abs_path(cfg["paths"]["covers"]) / rel, data, sha256)
+    return rel, sha256
 
 
 def volume_choice(manga, covers, volume):

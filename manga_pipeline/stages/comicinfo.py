@@ -11,7 +11,7 @@ Number, Title, Volume and the file name are the bulk converter's, resolved with 
 import json
 
 from manga_pipeline import archive, baseline, chapter_names, comicinfo, config, names, volumes, workflow
-from manga_pipeline.metadata import merge, tags
+from manga_pipeline.metadata import merge, naming, tags
 
 # Elements this stage writes itself: the download's own are never kept (Count is never written: SPEC "Metadata").
 OWN = {
@@ -45,7 +45,7 @@ def run(ctx, chapter):
     fields = {k: v for k, v in fields.items() if k not in OWN}
     overrides = config.abs_path(ctx.cfg["paths"]["naming_overrides"])
     try:
-        named = chapter_names.resolve(ctx, series)[chapter["id"]]
+        named = _copy_name(ctx, chapter) or chapter_names.resolve(ctx, series)[chapter["id"]]
         group = volumes.series_group(overrides, series["rules_key"])
     except volumes.VolumeError as e:
         return workflow.NeedsHuman(str(e))
@@ -67,6 +67,8 @@ def run(ctx, chapter):
     workflow.holds_claim(ctx, chapter)
     size = archive.replace_member(config.to_local(ctx.cfg, chapter["staged_path"]), archive.COMICINFO, xml)
     target = config.to_local(ctx.cfg, series["folder"]) / names.file_name(named.number, named.title, named.volume)
+    if chapter["published_file_id"] is not None:  # a better copy takes its file's place, under its name
+        target = config.to_local(ctx.cfg, _file(ctx, chapter)["library_path"])
 
     def record(conn):
         conn.execute(
@@ -89,6 +91,20 @@ def run(ctx, chapter):
         )
 
     return workflow.Done(record)
+
+
+def _file(ctx, chapter):
+    return ctx.conn.execute("SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],)).fetchone()
+
+
+def _copy_name(ctx, chapter):
+    """A better copy's naming: its file's as it is now (SPEC "Retroactive updates"); None for any other chapter."""
+    if chapter["published_file_id"] is None:
+        return None
+    f = _file(ctx, chapter)
+    volume = names.to_volume(f["comicinfo_volume"])
+    return naming.Naming(f["kind"], volume, float(f["comicinfo_number"]), f["comicinfo_title"] or "",
+                         f["volume_source"], False)  # fmt: skip
 
 
 def series_fields(ctx, series, chapter, group):

@@ -10,6 +10,46 @@ from pathlib import PurePosixPath
 from manga_pipeline import config, measures, page_store, workflow
 
 
+def row_values(conn, chapter):
+    """{published_file column: value} of a chapter's download as publish records it (a better copy's are applied to
+    its file's row: SPEC "Retroactive updates"): its identity, source, names and the original measurements a later copy
+    of the chapter is judged against (SPEC "Library copies": none for a chapter with no page rows)."""
+    pages = list(page_store.load(conn, chapter["id"]).values())
+    m = measures.summary(pages)
+    cover = json.loads(chapter["convert_result"])["cover"]
+    edit = conn.execute("SELECT edit FROM chapter_edit WHERE chapter_id = %s", (chapter["id"],)).fetchone()
+    layout = conn.execute(
+        "SELECT layout FROM series_conversion WHERE series_id = %s", (chapter["series_id"],)
+    ).fetchone()
+    junk = None
+    if pages and edit is not None and layout is not None:
+        junk = measures.junk(json.loads(edit["edit"]), layout["layout"], m["median_page_width"])
+    return {
+        "series_id": chapter["series_id"],
+        "identity": chapter["identity"],
+        "source": chapter["source"],
+        "size": chapter["staged_size"],
+        "median_page_width": m["median_page_width"],
+        "strip_length": m["strip_length"],
+        "page_phashes": None if m["page_phashes"] is None else json.dumps(m["page_phashes"]),
+        "pages_in": m["pages_in"],
+        "bpp": measures.bits_per_pixel(pages) if pages else None,
+        "junk": junk,
+        "pages_out": None,
+        "parse_fields": None,
+        "comicinfo_series": chapter["comicinfo_series"],
+        "comicinfo_volume": chapter["comicinfo_volume"],
+        "comicinfo_number": chapter["comicinfo_number"],
+        "comicinfo_title": chapter["comicinfo_title"],
+        "comicinfo_date": chapter["comicinfo_date"],
+        "origin": "pipeline",
+        "source_name": PurePosixPath(chapter["download_path"]).stem,
+        "kind": chapter["naming_kind"],
+        "volume_source": chapter["naming_volume_source"],
+        "cover_state": f"volume:{cover['volume']}" if cover else "none",  # the volume cover convert inserted
+    }
+
+
 def run(ctx, chapter):
     # The series' folder as it is now (a person may have linked it again since comicinfo named the file): the name
     # comicinfo settled, in that folder.
@@ -31,48 +71,14 @@ def run(ctx, chapter):
         return workflow.NeedsHuman(f"{target} is already in the library at another size; the staged file is gone")
     # else: the rename happened before a crash; carry on
 
-    cover = json.loads(chapter["convert_result"])["cover"]
-
     def record(conn):
-        # The download's original measurements, which a later copy of the chapter is judged against (SPEC "Library
-        # copies"); none for a chapter that has no page rows.
-        m = measures.summary(list(page_store.load(conn, chapter["id"]).values()))
-        phashes = None if m["page_phashes"] is None else json.dumps(m["page_phashes"])
+        values = {"library_path": library_path, "state": "unconfirmed", **row_values(conn, chapter)}
         # A row already at the target describes a file that is gone (the target was free): the new file replaces it.
         conn.execute(
-            """INSERT INTO published_file (library_path, series_id, identity, source, state, size, median_page_width,
-                strip_length, page_phashes, pages_in, comicinfo_series, comicinfo_volume, comicinfo_number,
-                comicinfo_title, comicinfo_date, origin, source_name, kind, volume_source, cover_state)
-            VALUES (%s, %s, %s, %s, 'unconfirmed', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pipeline', %s, %s, %s, %s)
-            ON CONFLICT (library_path) DO UPDATE SET series_id = excluded.series_id, identity = excluded.identity,
-                source = excluded.source, parse_fields = NULL, state = excluded.state, size = excluded.size,
-                median_page_width = excluded.median_page_width, strip_length = excluded.strip_length,
-                page_phashes = excluded.page_phashes, pages_in = excluded.pages_in,
-                pages_out = NULL, comicinfo_series = excluded.comicinfo_series,
-                comicinfo_volume = excluded.comicinfo_volume, comicinfo_number = excluded.comicinfo_number,
-                comicinfo_title = excluded.comicinfo_title, comicinfo_date = excluded.comicinfo_date,
-                origin = excluded.origin, source_name = excluded.source_name, kind = excluded.kind,
-                volume_source = excluded.volume_source, cover_state = excluded.cover_state""",
-            (
-                library_path,
-                chapter["series_id"],
-                chapter["identity"],
-                chapter["source"],
-                chapter["staged_size"],
-                m["median_page_width"],
-                m["strip_length"],
-                phashes,
-                m["pages_in"],
-                chapter["comicinfo_series"],
-                chapter["comicinfo_volume"],
-                chapter["comicinfo_number"],
-                chapter["comicinfo_title"],
-                chapter["comicinfo_date"],
-                PurePosixPath(chapter["download_path"]).stem,
-                chapter["naming_kind"],
-                chapter["naming_volume_source"],
-                f"volume:{cover['volume']}" if cover else "none",  # the volume cover convert inserted
-            ),
+            f"""INSERT INTO published_file ({", ".join(values)}) VALUES ({", ".join(["%s"] * len(values))})
+            ON CONFLICT (library_path) DO UPDATE SET
+                {", ".join(f"{c} = excluded.{c}" for c in values if c != "library_path")}""",
+            tuple(values.values()),
         )
         conn.execute(
             """INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at)

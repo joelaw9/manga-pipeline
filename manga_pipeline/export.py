@@ -130,7 +130,8 @@ def _comicinfo(ctx, chapter):
 
 
 def _publish(ctx, chapter):
-    return (rewrite.publish_run if chapter["kind"] == "rewrite" else publish.run)(ctx, chapter)
+    # a rewrite, or a better copy, queues on its file's row (SPEC "Retroactive updates")
+    return (rewrite.publish_run if chapter["published_file_id"] is not None else publish.run)(ctx, chapter)
 
 
 def _in_kavita(ctx, series_id):

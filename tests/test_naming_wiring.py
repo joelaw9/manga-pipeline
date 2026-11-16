@@ -215,7 +215,10 @@ def test_a_passing_replacement_whose_naming_fails_becomes_the_chapters_download(
 @budget(load="db", seconds=4)
 @pytest.mark.parametrize(
     ("basis", "want"),
-    [("mangadex", ("junk", "a better copy than the published")), ("filename", ("validate", "not a whole number"))],
+    [
+        ("mangadex", ("junk", "done", "a duplicate of the published")),
+        ("filename", ("validate", "needs_human", "not a whole number")),
+    ],
 )
 def test_a_fractional_volume_is_only_read_against_a_file_name_volume(world, basis, want):
     """D7.21: a published chapter whose volume a source assigned is the same chapter whatever the download's volume,
@@ -226,4 +229,4 @@ def test_a_fractional_volume_is_only_read_against_a_file_name_volume(world, basi
     world.run(intake)
     world.run(process)
     ((stage, status, error),) = world.rows("SELECT stage, status, last_error FROM chapter")
-    assert (stage, status) == (want[0], "needs_human") and want[1] in error, f"{basis}: {stage}: {error}"
+    assert (stage, status) == want[:2] and want[2] in error, f"{basis}: {stage}: {error}"
