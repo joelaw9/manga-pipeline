@@ -327,13 +327,20 @@ def row(fid, number, volume, source="override"):
                       order=fid)  # fmt: skip
 
 
+def cover_changes(rows, moved, **kw):
+    """rewrite_plan.cover_changes of an override-basis series without an override file, its files moved as _plan
+    moves them."""
+    now = rewrite_plan.moved_rows(rows, moved)
+    return rewrite_plan.cover_changes(now, naming.covered_volumes("override", now, {}, {}), **kw)
+
+
 @budget(load="pure", seconds=1)
 def test_cover_changes_keep_a_held_cover_and_skip_a_taken_volume_and_an_unfit_image():
     rows = [row(1, 1, 1), row(2, 2, 1), row(3, 3, 2), row(4, 4, 2), row(5, 5, 3)]
     states = {1: "none", 2: "volume:1", 3: "none", 4: "none", 5: "unfit:abc"}
-    got = rewrite_plan.cover_changes("override", rows, None, {}, {}, states=states, taken={"2"}, images={"3": "abc"})
+    got = cover_changes(rows, {}, states=states, taken={"2"}, images={"3": "abc"})
     assert got == {}, "volume 1 held by a later file (kept); volume 2 taken by an open chapter; 3 unfit for its image"
-    got = rewrite_plan.cover_changes("override", rows, None, {}, {}, states=states, taken=set(), images={"3": "new"})
+    got = cover_changes(rows, {}, states=states, taken=set(), images={"3": "new"})
     assert got == {3: ("insert", "2"), 5: ("insert", "3")}, "the lowest published file; a new image is tried"
 
 
@@ -342,7 +349,7 @@ def test_cover_changes_replace_a_moved_files_cover_on_its_new_volumes_first():
     rows = [row(1, 1, 1), row(2, 2, 1), row(3, 3, 2)]
     states = {1: "volume:1", 2: "none", 3: "volume:2"}
     moved = {1: (2, "override"), 3: (3, "override")}  # 1 is now volume 2's first; 3 moves on to volume 3
-    got = rewrite_plan.cover_changes("override", rows, None, {}, moved, states=states, taken=set(), images={})
+    got = cover_changes(rows, moved, states=states, taken=set(), images={})
     assert got == {1: ("insert", "2"), 2: ("insert", "1"), 3: ("insert", "3")}
 
 
@@ -351,7 +358,7 @@ def test_cover_changes_drop_a_moved_files_cover_where_its_new_volume_has_one():
     rows = [row(1, 1, 2), row(4, 4, 2), row(5, 5, 3)]
     states = {1: "volume:2", 4: "volume:2", 5: "volume:3"}
     moved = {4: (3, "override")}  # 4 moves into volume 3, whose cover 5 holds (kept)
-    got = rewrite_plan.cover_changes("override", rows, None, {}, moved, states=states, taken=set(), images={})
+    got = cover_changes(rows, moved, states=states, taken=set(), images={})
     assert got == {4: ("drop", None)}, "a later holder keeps its cover; the moved file drops volume 2's"
 
 

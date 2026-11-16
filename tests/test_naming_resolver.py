@@ -1,6 +1,7 @@
 """A new chapter's name next to its series' published chapters (metadata/naming; SPEC "Publishing"): the bulk
 converter's settled path per rule, its MangaDex aggregate reading, and real bulk records resolved back."""
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -19,11 +20,12 @@ RECORDS = Path(__file__).with_name("fixtures_api") / "records"
 OVERRIDE_1_2 = {"volumes": {1: "1-2", 2: "3-"}}
 
 
-def settled(number, volume, source, kind=MAIN, marker="", *, season=None, order=None):
+def settled(number, volume, source, marker="", *, season=None):
+    """A settled main chapter."""
     return Row(
-        key=("p", number, kind),
+        key=("p", number, MAIN),
         settled=True,
-        kind=kind,
+        kind=MAIN,
         number=float(number),
         season=season,
         src_volume=None,
@@ -32,24 +34,37 @@ def settled(number, volume, source, kind=MAIN, marker="", *, season=None, order=
         marker_title=marker,
         title="",
         date=None,
-        order=order or 0,
+        order=0,
     )
 
 
-def new(number, kind=MAIN, src_volume=None, season=None, marker="", *, title="", date=None, order=0):
+def settled_side(number, volume):
+    """A settled side story, its volume from the side-story rule."""
+    return dataclasses.replace(settled(number, volume, "side"), key=("p", number, SIDE), kind=SIDE)
+
+
+def new(number, src_volume=None, season=None, marker=""):
+    """An open main chapter."""
     return Row(
-        key=("c", number, kind),
+        key=("c", number, MAIN),
         settled=False,
-        kind=kind,
+        kind=MAIN,
         number=float(number),
         season=season,
         src_volume=src_volume,
         volume=None,
         volume_source=None,
         marker_title=marker,
-        title=title,
-        date=date,
-        order=order,
+        title="",
+        date=None,
+        order=0,
+    )
+
+
+def new_side(number, *, src_volume=None, title="", date=None, order=0):
+    """An open side story."""
+    return dataclasses.replace(
+        new(number, src_volume), key=("c", number, SIDE), kind=SIDE, title=title, date=date, order=order
     )
 
 
@@ -179,27 +194,25 @@ def test_a_none_series_with_an_override_file_takes_its_volumes():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    ("basis", "rows", "overrides", "mangadex", "number", "want"),
+    ("basis", "rows", "overrides", "mangadex", "want"),
     [
         (
             "filename",
             [settled(1, 1, "filename"), settled(2, 1, "filename"), new(3)],
             {"volumes": {1: "1-3"}},
             None,
-            3,
             (1, "override"),
         ),
-        ("filename", [settled(1, 1, "filename"), new(2)], None, {"1": "1", "2": "1"}, 2, (1, "mangadex")),
-        ("filename", [settled(5, 2, "filename"), new(6)], None, {"6": "1"}, 6, (None, "none")),
+        ("filename", [settled(1, 1, "filename"), new(2)], None, {"1": "1", "2": "1"}, (1, "mangadex")),
+        ("filename", [settled(5, 2, "filename"), new(6)], None, {"6": "1"}, (None, "none")),
         (
             "filename",
             [settled(1, 1, "filename"), new(2)],
             {"volumes": {2: "2"}},
             {"1": "1", "2": "1"},
-            2,
             (2, "override"),
         ),
-        ("mangadex", [settled(1, 1, "mangadex"), new(2)], {"volumes": {1: "1-2"}}, {"1": "1"}, 2, (1, "override")),
+        ("mangadex", [settled(1, 1, "mangadex"), new(2)], {"volumes": {1: "1-2"}}, {"1": "1"}, (1, "override")),
     ],
     ids=[
         "filename-override-fills",
@@ -209,8 +222,9 @@ def test_a_none_series_with_an_override_file_takes_its_volumes():
         "mangadex-override-fills",
     ],
 )
-def test_a_gap_fill_fills_only_what_agrees_and_keeps_order(basis, rows, overrides, mangadex, number, *, want):
-    assert volume_of(basis, rows, number, overrides, mangadex) == want, (
+def test_a_gap_fill_fills_only_what_agrees_and_keeps_order(basis, rows, overrides, mangadex, want):
+    (got,) = named(basis, rows, overrides, mangadex).values()  # each case's 1 open chapter
+    assert (got.volume, got.volume_source) == want, (
         "a filler fills nothing when it clashes with the basis, and no fill breaks the volume order"
     )
 
@@ -282,8 +296,8 @@ def test_a_missing_override_file_on_another_basis_is_no_override():
 
 @budget(load="pure")
 def test_side_stories_arriving_together_number_after_the_settled_ones():
-    rows = [settled(1, 1, "override"), settled(2, 2, "override"), settled(1, 3, "side", kind=SIDE)]
-    rows += [new(10, kind=SIDE, order=1), new(2, kind=SIDE, order=2)]  # "Extra 10", "Extra 2": no title
+    rows = [settled(1, 1, "override"), settled(2, 2, "override"), settled_side(1, 3)]
+    rows += [new_side(10, order=1), new_side(2, order=2)]  # "Extra 10", "Extra 2": no title
     got = resolve("override", rows, OVERRIDE_1_2, {})
     side = {k[1]: (v.volume, v.number, v.title, v.volume_source) for k, v in got.items()}
     assert side == {2: (3, 2.0, "Side Story 2", "side"), 10: (3, 3.0, "Side Story 3", "side")}, (
@@ -298,7 +312,7 @@ def test_side_stories_arriving_together_number_after_the_settled_ones():
     ids=["after-main", "no-main-volume", "no-main"],
 )
 def test_a_first_side_story_goes_in_the_volume_after_the_main_story(main, want):
-    got = named("none", [*main, new(1, kind=SIDE)])[(SIDE, 1)]
+    got = named("none", [*main, new_side(1)])[(SIDE, 1)]
     assert (got.volume, got.number, got.title) == (want, 1.0, "Side Story 1"), "highest main volume + 1, else 2"
 
 
@@ -314,15 +328,15 @@ def test_a_first_side_story_goes_in_the_volume_after_the_main_story(main, want):
     ids=["marker-only", "marker-and-title", "bare-label", "status-marker"],
 )
 def test_a_side_story_title_drops_the_side_marker_and_a_bare_label(title, want):
-    assert named("none", [new(1, kind=SIDE, title=title)])[(SIDE, 1)].title == want, "Side Story <n>[: <title>]"
+    assert named("none", [new_side(1, title=title)])[(SIDE, 1)].title == want, "Side Story <n>[: <title>]"
 
 
 @budget(load="pure")
 def test_side_stories_order_by_source_volume_then_number_then_date():
     rows = [
-        new(1, kind=SIDE, src_volume="2", title="b", order=1),
-        new(5, kind=SIDE, title="a", date="2024-02-01", order=2),
-        new(5.5, kind=SIDE, title="c", date="2024-01-01", order=3),
+        new_side(1, src_volume="2", title="b", order=1),
+        new_side(5, title="a", date="2024-02-01", order=2),
+        new_side(5.5, title="c", date="2024-01-01", order=3),
     ]
     got = sorted((v.number, v.title) for v in resolve("none", rows, None, {}).values())
     assert got == [(1.0, "Side Story 1: a"), (2.0, "Side Story 2: c"), (3.0, "Side Story 3: b")], (
@@ -435,13 +449,16 @@ def _rows(fixture):
         item = names.parse(stem)
         season = int(item.season) if item.season else None
         if c["open"]:
+            number = item.num
+            if number is None:
+                continue  # the resolver's caller leaves out an open chapter without a number (chapter_names)
             title = names.chapter_title(item, "")
             rows.append(
                 Row(
                     key=k,
                     settled=False,
                     kind=item.kind,
-                    number=item.num,
+                    number=number,
                     season=season,
                     src_volume=item.volume,
                     volume=None,

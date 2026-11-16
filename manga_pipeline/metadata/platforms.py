@@ -79,11 +79,24 @@ def candidates(kavita_links, anilist_links_, basis):
     return out
 
 
-def record(platform, ref, items, listed_total=None, *, app_only=False, list_page_read=True, **extra):
-    """A stored platform list: {"name", "ref", "episodes", "coverage", "seasons"} (and extra, e.g. Tapas' series id)
-    from the site's items [(site number, title, date, id)]."""
+def tapas_record(ref, items, listed_total, series_id):
+    """A stored Tapas list (record) from the site's items [(site number, title, date, id)], the number of episodes the
+    series says it has and its series id."""
     eps = episodes.build(items)
-    cover = episodes.coverage(eps, listed_total, app_only=app_only, list_page_read=list_page_read)
+    return _record(TAPAS, ref, eps, episodes.coverage(eps, listed_total), series_id=series_id)
+
+
+def webtoons_record(ref, items, app_only):
+    """A stored Webtoons list (record) from the site's items [(site number, title, date, id)] and whether the series
+    keeps episodes to its app (None: its page was not read)."""
+    eps = episodes.build(items)
+    cover = episodes.coverage(eps, app_only=bool(app_only), list_page_read=app_only is not None)
+    return _record(WEBTOONS, ref, eps, cover)
+
+
+def _record(platform, ref, eps, cover, **extra):
+    """A stored platform list: {"name", "ref", "episodes", "coverage", "seasons"} (and extra, e.g. Tapas' series id)
+    from the site's episode records (episodes.build) and their coverage (episodes.coverage)."""
     return {
         "name": platform,
         "ref": ref,

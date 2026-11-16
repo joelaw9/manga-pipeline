@@ -14,6 +14,7 @@ import os
 import zipfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
 from manga_pipeline import (
     archive,
@@ -90,53 +91,73 @@ def compare(ctx: workflow.Context):
             return
         if not rewrite_covers.fill_states(ctx, series):  # outside the lock: it may read many files once
             continue
-        # 1 transaction (the database-wide write lock): the hash and the comparison read the same inputs once.
-        # ponytail: it reads the series' open downloads' ComicInfo.xml under the lock, only when the hash changed
-        with db.transaction(conn):
-            try:
-                digest = _hash(ctx, series)
-                if digest == _stored_hash(conn, series["id"]):
-                    continue
-                todo, wants, _ = _plan(ctx, series)
-            except volumes.OverrideError as e:  # the series' own file: a person must fix it, as at comicinfo
-                workflow.needs_human(conn, "series", series["id"], f"{e} (comparing its published files)")
-                log.warning("%s: series %s (%s): %s", ctx.part, series["id"], series["name"], e)
-                continue
-            except volumes.VolumeError as e:  # a download's volume: its chapter is held at comicinfo; compared again
-                log.warning("%s: series %s (%s): not compared: %s", ctx.part, series["id"], series["name"], e)
-                continue
-            for v in sorted(wants):
-                conn.execute(
-                    "INSERT INTO volume_cover_wanted (series_id, volume) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                    (series["id"], int(v)),  # a wanted volume is whole (_plan)
-                )
-            made = 0
-            for file_id, change in todo.items():
-                if made >= room:
-                    break
-                volume, source, cover, title, unedited = change
-                made += _queue_chapter(
-                    ctx, series, file_id, volume=volume, source=source, cover=cover, title=title, unedited=unedited
-                )
-            if made >= room and len(todo) > room:
-                continue  # cut short: compared again next run
+        _compare_series(ctx, series, room)
+
+
+def _compare_series(ctx: workflow.Context, series, room):
+    """Compare 1 series whose naming inputs changed since its stored hash: record the cover images wanted and queue
+    up to room rewrite chapters; store the hash once every change is queued. 1 transaction (the database-wide write
+    lock): the hash and the comparison read the same inputs once."""
+    conn = ctx.conn
+    # ponytail: it reads the series' open downloads' ComicInfo.xml under the lock, only when the hash changed
+    with db.transaction(conn):
+        try:
+            digest = _hash(ctx, series)
+            if digest == _stored_hash(conn, series["id"]):
+                return
+            todo, wants, _ = _plan(ctx, series)
+        except volumes.OverrideError as e:  # the series' own file: a person must fix it, as at comicinfo
+            workflow.needs_human(conn, "series", series["id"], f"{e} (comparing its published files)")
+            log.warning("%s: series %s (%s): %s", ctx.part, series["id"], series["name"], e)
+            return
+        except volumes.VolumeError as e:  # a download's volume: its chapter is held at comicinfo; compared again
+            log.warning("%s: series %s (%s): not compared: %s", ctx.part, series["id"], series["name"], e)
+            return
+        for v in sorted(wants):
             conn.execute(
-                """INSERT INTO series_naming (series_id, naming_hash, compared_at) VALUES (%s, %s, %s)
-                ON CONFLICT (series_id) DO UPDATE SET naming_hash = excluded.naming_hash,
-                    compared_at = excluded.compared_at""",
-                (series["id"], digest, workflow.now(conn)),
+                "INSERT INTO volume_cover_wanted (series_id, volume) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (series["id"], int(v)),  # a wanted volume is whole (_plan)
             )
-        if made:
-            log.info("%s: series %s (%s): %d rewrite(s) queued", ctx.part, series["id"], series["name"], made)
+        made = _queue(ctx, series, todo, room)
+        if made >= room and len(todo) > room:
+            return  # cut short: compared again next run
+        conn.execute(
+            """INSERT INTO series_naming (series_id, naming_hash, compared_at) VALUES (%s, %s, %s)
+            ON CONFLICT (series_id) DO UPDATE SET naming_hash = excluded.naming_hash,
+                compared_at = excluded.compared_at""",
+            (series["id"], digest, workflow.now(conn)),
+        )
+    if made:
+        log.info("%s: series %s (%s): %d rewrite(s) queued", ctx.part, series["id"], series["name"], made)
+
+
+def _queue(ctx: workflow.Context, series, todo, room):
+    """Queue a rewrite chapter for todo's files ({file id: Change}) in order until room are made; how many were."""
+    made = 0
+    for file_id, change in todo.items():
+        if made >= room:
+            break
+        made += _queue_chapter(ctx, series, file_id, change)
+    return made
+
+
+class Change(NamedTuple):
+    """The change a rewrite chapter makes to 1 published file (_plan): its volume and volume source, its cover (None,
+    ("insert", volume, its series_volume_cover row) or ("drop",)), its title ("" = untitled) and the unedited values
+    it keeps afterwards (rewrite_plan.edit_changes)."""
+
+    volume: float | None
+    source: str | None
+    cover: tuple | None
+    title: str
+    unedited: dict | None
 
 
 def _plan(ctx: workflow.Context, series):
-    """(todo, wants, unknown) of 1 series. todo: {published file id: (volume, volume source, cover, title, unedited)} of
-    the files whose volume, cover or (by a hand edit) title should change, in id order (cover: None, ("insert",
-    volume, its series_volume_cover row) or ("drop",); unedited: what the file keeps of its sources' values afterwards,
-    rewrite_plan.edit_changes); wants: the volumes whose cover image intake should fetch (that file's cover is then
-    left for later); unknown: some file's cover is not known yet (covers are then left out). VolumeError as
-    naming.resolve raises it."""
+    """(todo, wants, unknown) of 1 series. todo: {published file id: Change} of the files whose volume, cover or (by a
+    hand edit) title should change, in id order; wants: the volumes whose cover image intake should fetch (that file's
+    cover is then left for later); unknown: some file's cover is not known yet (covers are then left out). VolumeError
+    as naming.resolve raises it."""
     conn, sid = ctx.conn, series["id"]
     rows, overrides, mangadex, platform = chapter_names.inputs(ctx, series)
     basis = series["naming_basis"]
@@ -177,8 +198,10 @@ def _plan(ctx: workflow.Context, series):
             )
         }
         shas = {v: r["sha256"] for v, r in images.items()}
+        now = rewrite_plan.moved_rows(rows, moved)
+        covered = naming.covered_volumes(basis, now, (overrides or {}).get("volumes") or {}, mangadex)
         for fid, (action, v) in rewrite_plan.cover_changes(
-            basis, rows, overrides, mangadex, moved, states=states, taken=taken, images=shas
+            now, covered, states=states, taken=taken, images=shas
         ).items():
             if action == "drop":
                 cover[fid] = ("drop",)
@@ -202,7 +225,8 @@ def _plan(ctx: workflow.Context, series):
     for fid in sorted(set(moved) | set(cover) | set(edited)):
         current = (names.to_volume(files[fid]["comicinfo_volume"]), files[fid]["volume_source"])
         title, kept = edited.get(fid, (None, None, files[fid]["comicinfo_title"] or "", files[fid]["unedited"]))[2:]
-        todo[fid] = (*moved.get(fid, current), cover.get(fid), title, kept)
+        volume, source = moved.get(fid, current)
+        todo[fid] = Change(volume, source, cover.get(fid), title, kept)
     return todo, wants, unknown
 
 
@@ -261,7 +285,7 @@ def _hash(ctx: workflow.Context, series):
     return hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _queue_chapter(ctx: workflow.Context, series, file_id, *, volume, source, cover, title, unedited):
+def _queue_chapter(ctx: workflow.Context, series, file_id, change):
     """1 rewrite chapter for a confirmed published file with no open chapter and nothing queued or awaited, at convert
     when its cover changes (an insert's cover handed over as a volume_cover row), else at comicinfo; it carries the
     file's title and unedited values afterwards (title "" = untitled). Returns 1 when made, else 0."""
@@ -274,7 +298,7 @@ def _queue_chapter(ctx: workflow.Context, series, file_id, *, volume, source, co
     ).fetchone()
     if row is None:
         return 0
-    target = _target(row, volume, title)
+    target = _target(row, change.volume, change.title)
     now = workflow.now(conn)
     made = conn.execute(
         """INSERT INTO chapter (series_id, kind, identity, source, stage, status, published_file_id, library_path,
@@ -287,34 +311,34 @@ def _queue_chapter(ctx: workflow.Context, series, file_id, *, volume, source, co
             series["id"],
             row["identity"],
             row["source"],
-            "comicinfo" if cover is None else "convert",
+            "comicinfo" if change.cover is None else "convert",
             file_id,
             target,
             series["comicinfo_series"],
-            None if volume is None else names.fmt_num(volume),
+            None if change.volume is None else names.fmt_num(change.volume),
             row["comicinfo_number"],
-            title or None,
+            change.title or None,
             row["comicinfo_date"],
             row["kind"],
-            source,
-            cover == ("drop",),
-            None if unedited is None else json.dumps(unedited),
+            change.source,
+            change.cover == ("drop",),
+            None if change.unedited is None else json.dumps(change.unedited),
             now,
             now,
         ),
     ).fetchone()
     if made is None:
         return 0
-    if cover is not None and cover[0] == "insert":
+    if change.cover is not None and change.cover[0] == "insert":
         conn.execute(
             "INSERT INTO volume_cover (chapter_id, path, sha256, volume) VALUES (%s, %s, %s, %s)",
-            (made["id"], cover[2]["path"], cover[2]["sha256"], cover[1]),
+            (made["id"], change.cover[2]["path"], change.cover[2]["sha256"], change.cover[1]),
         )
     log.info(
         "%s: %s: volume %s -> %s (%s)%s%s%s", ctx.part, row["library_path"], row["comicinfo_volume"],
-        None if volume is None else names.fmt_num(volume), source,
-        f", title {title!r}" if title != (row["comicinfo_title"] or "") else "",
-        f", renamed {target}" if target != row["library_path"] else "", _cover_text(cover),
+        None if change.volume is None else names.fmt_num(change.volume), change.source,
+        f", title {change.title!r}" if change.title != (row["comicinfo_title"] or "") else "",
+        f", renamed {target}" if target != row["library_path"] else "", _cover_text(change.cover),
     )  # fmt: skip
     return 1
 
@@ -525,14 +549,11 @@ def finish(ctx: workflow.Context, row):
     old = config.to_local(cfg, row["library_path"])
     step = row["pending_step"]
     if step < STEP_RENAMED and not errors.exists(staged):
-        if errors.exists(target) and target.stat().st_size == row["pending_size"] and target != old:
-            step = record_step(conn, row["id"], STEP_RENAMED)  # renamed in before a crash recorded it
-        elif target == old and is_new(target, row):
-            step = record_step(conn, row["id"], STEP_RENAMED)
-        else:
+        if not _renamed(row, target, old):
             _clear(conn, row["id"])
             log.warning("%s: rewrite of %s dropped: its staged file is gone", ctx.part, row["library_path"])
             return
+        step = record_step(conn, row["id"], STEP_RENAMED)  # renamed in before a crash recorded it
     if step < STEP_DATED:
         os.utime(staged)  # the rename keeps it: Kavita skips a file it judges unchanged by its date
         step = record_step(conn, row["id"], STEP_DATED)
@@ -549,6 +570,21 @@ def finish(ctx: workflow.Context, row):
         if target != old and errors.exists(old):
             old.unlink()
         step = record_step(conn, row["id"], STEP_OLD_REMOVED)
+    _settle(conn, row)
+    log.info("%s: rewrote %s as %s", ctx.part, row["library_path"], row["pending_path"])
+
+
+def _renamed(row, target, old):
+    """Whether a queued rewrite whose staged file is gone was renamed over its target before a crash recorded it: a
+    new name holds a file of the queued size, or the same name holds the rewritten file (is_new)."""
+    if target != old:
+        return errors.exists(target) and target.stat().st_size == row["pending_size"]
+    return is_new(target, row)
+
+
+def _settle(conn, row):
+    """finish's last act: the row takes the new path, size, volume, title and cover (a better copy's values too),
+    its pending fields cleared; the series is due a scan."""
     with db.transaction(conn):
         if row["pending_copy"]:  # a better copy: the row describes it now (SPEC "Retroactive updates")
             values = {k: v for k, v in row["pending_copy"]["values"].items() if k not in ("size", "cover_state")}
@@ -569,7 +605,6 @@ def finish(ctx: workflow.Context, row):
             (workflow.now(conn), row["id"]),
         )
         conn.execute("UPDATE series SET scan_due = 1 WHERE id = %s", (row["series_id"],))
-    log.info("%s: rewrote %s as %s", ctx.part, row["library_path"], row["pending_path"])
 
 
 def is_new(path, row):

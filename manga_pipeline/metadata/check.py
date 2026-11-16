@@ -196,12 +196,11 @@ def _platform(clients, series, kavita_meta, records, stored):
             series_id = known or clients.tapas.series_id(ref)  # the /info page only when the id is not known
             listed = clients.tapas.episodes(series_id) if series_id is not None else None
             if listed is not None:
-                return platforms.record(name, ref, listed[0], listed_total=listed[1], series_id=series_id)
+                return platforms.tapas_record(ref, listed[0], listed[1], series_id)
         else:
             items = clients.webtoons.episodes(ref)
             if items is not None:
-                app_only = clients.webtoons.app_only(ref)
-                return platforms.record(name, ref, items, app_only=bool(app_only), list_page_read=app_only is not None)
+                return platforms.webtoons_record(ref, items, clients.webtoons.app_only(ref))
     return None
 
 

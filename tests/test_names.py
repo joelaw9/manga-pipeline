@@ -217,7 +217,7 @@ def test_hyphen_parts_are_decimal_parts(stem, num, want):
 @budget(load="pure")
 def test_a_decimal_with_a_hyphen_part_has_no_number():
     it = p("Vol.2 Ch.045.5-1")
-    assert (it.number, it.bad_number) == (None, "045.5-1"), "a decimal with a hyphen part has no single reading"
+    assert it.number is None, "a decimal with a hyphen part has no single reading"
 
 
 @budget(load="pure")

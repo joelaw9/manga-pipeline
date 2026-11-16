@@ -35,18 +35,32 @@ def schema():
     return elements, enums, page_attrs
 
 
+def _is_int(value):
+    return bool(INT.match(value))
+
+
+def _is_boolean(value):
+    return value in ("true", "false", "1", "0")
+
+
+def _is_rating(value):
+    try:
+        return Decimal(0) <= Decimal(value) <= Decimal(5)
+    except InvalidOperation:
+        return False
+
+
+VALUE_CHECKS = {"xs:int": _is_int, "xs:long": _is_int, "xs:boolean": _is_boolean, "Rating": _is_rating}
+LIST_TYPES = {"ComicPageType"}  # a space-separated list of its enumeration's values
+
+
 def _type_ok(value, xsd_type, enums):
-    if xsd_type in ("xs:int", "xs:long"):
-        return bool(INT.match(value))
-    if xsd_type == "xs:boolean":
-        return value in ("true", "false", "1", "0")
-    if xsd_type == "Rating":
-        try:
-            return Decimal(0) <= Decimal(value) <= Decimal(5)
-        except InvalidOperation:
-            return False
-    if xsd_type == "ComicPageType":
-        return all(v in enums["ComicPageType"] for v in value.split())
+    """Whether value is valid for a schema type: a type with a value check, then a list of an enumeration, then an
+    enumeration; any other type is text (xs:string)."""
+    if xsd_type in VALUE_CHECKS:
+        return VALUE_CHECKS[xsd_type](value)
+    if xsd_type in LIST_TYPES:
+        return all(v in enums[xsd_type] for v in value.split())
     if xsd_type in enums:
         return value in enums[xsd_type]
     return True  # xs:string
@@ -83,21 +97,29 @@ def validate(xml_bytes):
             errors.append(f"element {tag} out of schema order")
         last = max(last, order[tag])
         if tag == "Pages":
-            for page in child:
-                if page.tag != "Page":
-                    errors.append(f"unknown element Pages/{page.tag}")
-                    continue
-                if "Image" not in page.attrib:
-                    errors.append("Page missing required Image attribute")
-                for k, v in page.attrib.items():
-                    if k not in page_attrs:
-                        errors.append(f"unknown Page attribute {k}")
-                    elif not _type_ok(v, page_attrs[k], enums):
-                        errors.append(f"Page/@{k}={v!r} is not a valid {page_attrs[k]}")
+            errors += _page_errors(child, page_attrs, enums)
             continue
         value = (child.text or "").strip()
         if value and not _type_ok(value, kinds[tag], enums):
             errors.append(f"{tag}={value!r} is not a valid {kinds[tag]}")
+    return errors
+
+
+def _page_errors(pages, page_attrs, enums):
+    """The schema violations of the Pages element: an element other than Page, a Page without Image, an unknown
+    Page attribute or one whose value its type refuses."""
+    errors = []
+    for page in pages:
+        if page.tag != "Page":
+            errors.append(f"unknown element Pages/{page.tag}")
+            continue
+        if "Image" not in page.attrib:
+            errors.append("Page missing required Image attribute")
+        for k, v in page.attrib.items():
+            if k not in page_attrs:
+                errors.append(f"unknown Page attribute {k}")
+            elif not _type_ok(v, page_attrs[k], enums):
+                errors.append(f"Page/@{k}={v!r} is not a valid {page_attrs[k]}")
     return errors
 
 
