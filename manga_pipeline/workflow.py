@@ -722,16 +722,10 @@ def _outcome_columns(chapter, outcome, limit, stamp):
             sql.SQL("status = 'waiting', waiting_on = %s, wait_data = %s"),
             (outcome.on, json.dumps(outcome.data)),
         )
-    elif isinstance(outcome, Dropped):
-        set_, values = (
-            sql.SQL("status = 'done', last_error = %s, notes = NULL"),
-            (f"dropped: {outcome.reason}",),
-        )  # not listed
-    else:
-        set_, values = (
-            sql.SQL("status = 'ready'"),
-            (),
-        )  # Unreachable: no attempt; NeedsHuman: needs_human sets the status
+    elif isinstance(outcome, Dropped):  # not listed
+        set_, values = sql.SQL("status = 'done', last_error = %s, notes = NULL"), (f"dropped: {outcome.reason}",)
+    else:  # Unreachable: no attempt; NeedsHuman: needs_human sets the status
+        set_, values = sql.SQL("status = 'ready'"), ()
     return set_ + sql.SQL(", retry_after = NULL"), values, False
 
 
