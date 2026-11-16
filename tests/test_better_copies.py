@@ -39,7 +39,7 @@ def library(world, cover=()):
 
 
 def pages(width, n=4, seed=""):
-    """A CBZ of n PNG pages `width` px wide (1.5 × as tall), each its own colour."""
+    """A CBZ of n PNG pages `width` px wide (1.5 times as tall), each its own colour."""
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:
         for i in range(1, n + 1):

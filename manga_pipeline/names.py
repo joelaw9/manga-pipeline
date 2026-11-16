@@ -276,7 +276,7 @@ def rating(title):
 def normalize_title(t):
     """Lowercase words for comparison; bracketed markers ([END], [FIXED]) dropped, rating tags kept as tokens."""
     t = RATING.sub(lambda m: " rated_" + ("adult" if m.group("adult") else "r" + m.group("age")) + " ", t or "")
-    t = BRACKETS.sub(" ", t).lower().replace("’", "'")
+    t = BRACKETS.sub(" ", t).lower().replace("\u2019", "'")  # right single quotation mark
     return re.sub(r"[^a-z0-9'_]+", " ", t).strip()
 
 

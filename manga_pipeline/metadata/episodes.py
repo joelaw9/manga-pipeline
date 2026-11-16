@@ -20,12 +20,13 @@ MAIN, SPECIAL, NON_CHAPTER = "main", "special", "non-chapter"
 
 # "Ep. 1 - Memento Mortem", "Episode 30 (Season Finale)", "Chapter 4: X", "1. The Grand Sorcerer"
 LABEL = re.compile(
-    r"^\s*(?:(?:Episode|Ep|Chapter|Ch)\.?\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\.(?=\s))\s*(?:[-–—:.|]\s*)?", re.IGNORECASE
+    r"^\s*(?:(?:Episode|Ep|Chapter|Ch)\.?\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\.(?=\s))\s*(?:[-\u2013\u2014:.|]\s*)?",
+    re.IGNORECASE,
 )
 # "SE 1. He's Just a Puppy", "SP 2 - X", "Special Episode 3: X", "Side Story 1 - X", "Extra: The First Day"
 SPECIAL_LABEL = re.compile(
     r"^\s*(?:(?:SE|SP)(?=\s*\d)|(?:Special(?:\s+Episode)?|Side\s+Story|Extra|Bonus(?:\s+Episode)?)\b)\s*\.?\s*"
-    r"(\d+(?:\.\d+)?)?\s*(?:[-–—:.|]\s*)?",
+    r"(\d+(?:\.\d+)?)?\s*(?:[-\u2013\u2014:.|]\s*)?",
     re.IGNORECASE,
 )
 SPECIAL_WORDS = re.compile(
@@ -120,7 +121,7 @@ def _same(a, b):
 
 def _tidy(t):
     t = re.sub(r"\s+", " ", t or "").strip()
-    return re.sub(r"^[\s\-–—:|.]+|[\s\-–—:|]+$", "", t) or None
+    return re.sub(r"^[\s\-\u2013\u2014:|.]+|[\s\-\u2013\u2014:|]+$", "", t) or None
 
 
 def classify(raw_title):
@@ -131,7 +132,7 @@ def classify(raw_title):
         m = SPECIAL_LABEL.match(t)
         if m and m.group(1):
             return SPECIAL, m.group(1), t[m.end() :]
-        if m and re.search(r"[-–—:|]\s*$", m.group(0)) and t[m.end() :].strip():
+        if m and re.search(r"[-\u2013\u2014:|]\s*$", m.group(0)) and t[m.end() :].strip():
             return SPECIAL, None, t[m.end() :]
         return SPECIAL, None, t
     m = LABEL.match(t)

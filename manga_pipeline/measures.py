@@ -24,7 +24,7 @@ def summary(pages):
 
 
 def bits_per_pixel(pages):
-    """The download's bits per pixel: 8 × its pages' bytes over their pixels (pages: stored page rows)."""
+    """The download's bits per pixel: 8 times its pages' bytes over their pixels (pages: stored page rows)."""
     pixels = sum(p["width"] * p["height"] for p in pages)
     return 8 * sum(p["bytes"] for p in pages) / pixels if pixels else 0.0
 

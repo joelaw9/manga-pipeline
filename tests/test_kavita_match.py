@@ -201,7 +201,7 @@ def test_relevant(low, want):
     assert relevant(series(1, "x", low), ROOT) is want
 
 
-# normalize (Kavita v0.9.1.4 StringExtensions.ToNormalized: keep [\p{L}0-9+!＊！＋], then lower-case)
+# normalize (Kavita v0.9.1.4 StringExtensions.ToNormalized: keep [\p{L}0-9+!\uff0a\uff01\uff0b], then lower-case)
 
 
 @budget(load="pure")
@@ -212,7 +212,7 @@ def test_relevant(low, want):
             "Gal Maid & Villainess: Only Milady's Happy End Will Win!",
             "Gal Maid  Villainess: Only Miladys Happy End Will Win!",
         ),
-        ("Swordmaster’s Youngest Son", "Swordmaster's Youngest Son"),
+        ("Swordmaster\u2019s Youngest Son", "Swordmaster's Youngest Son"),
         ("SOLO LEVELING", "solo leveling"),
         ("Cafe\u0301", "Cafe"),
     ],
@@ -229,10 +229,13 @@ def test_normalize_same_key(a, b):
     ("a", "b"),
     [
         ("Master Villainess the Invincible!", "Master Villainess the Invincible"),  # sample library
-        ("Heavenly Demon Reborn!", "Heavenly Demon Reborn！"),  # ASCII vs fullwidth "!"
-        ("Ｓｏｌｏ Ｌｅｖｅｌｉｎｇ", "Solo Leveling"),  # no NFKC folding
+        ("Heavenly Demon Reborn!", "Heavenly Demon Reborn\uff01"),  # ASCII vs fullwidth "!"
+        (
+            "\uff33\uff4f\uff4c\uff4f \uff2c\uff45\uff56\uff45\uff4c\uff49\uff4e\uff47",
+            "Solo Leveling",
+        ),  # full-width; no NFKC folding
         ("Caf\u00e9", "Cafe\u0301"),  # precomposed letter kept, mark dropped
-        ("Kill Me Now ２", "Kill Me Now 2"),
+        ("Kill Me Now \uff12", "Kill Me Now 2"),
     ],  # only ASCII digits kept
     ids=[
         "exclamation-kept",
@@ -254,7 +257,7 @@ def test_normalize_different_key(a, b):
     [
         ("Kill Me Now 2", "killmenow2"),
         ("Trash Belongs in the Trash Can!", "trashbelongsinthetrashcan!"),
-        ("A+B＋C＊D！", "a+b＋c＊d！"),
+        ("A+B\uff0bC\uff0aD\uff01", "a+b\uff0bc\uff0ad\uff01"),
         ("Straße", "straße"),
         (None, ""),
         ("", ""),
@@ -275,9 +278,10 @@ def test_normalize_different_key(a, b):
     ],
 )
 def test_normalize_value(name, want):
-    """The key is letters, ASCII digits and + ! ＊ ！ ＋, lower-cased (not case-folded: ß stays); a missing name is the
-    empty key. Like .NET, each character is lowered on its own ("İ" gives "i", a final capital sigma "σ", never the
-    context-sensitive "ς"), and a letter above U+FFFF (a UTF-16 surrogate pair, not \\p{L} to .NET) is dropped."""
+    """The key is letters, ASCII digits, + ! and full-width * ! +, lower-cased (not case-folded: ß stays); a missing
+    name is the empty key. Like .NET, each character is lowered on its own ("İ" gives "i", a final capital sigma
+    "\u03c3", never the context-sensitive "ς"), and a letter above U+FFFF (a UTF-16 surrogate pair, not \\p{L} to .NET)
+    is dropped."""
     assert normalize(name) == want
 
 

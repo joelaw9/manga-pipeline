@@ -326,7 +326,7 @@ def test_rating_tags(title, want):
         ("Reunion [END]", "reunion"),
         ("SP2 [R15]", "sp2 rated_r15"),
         ("Chapter 99 [🔞]", "chapter 99 rated_adult"),
-        ("Where Is She’s Ring?", "where is she's ring"),
+        ("Where Is She\u2019s Ring?", "where is she's ring"),
     ],
     ids=["end-marker-dropped", "rating-kept", "adult-kept", "curly-apostrophe"],
 )
