@@ -24,10 +24,8 @@ def changes(basis, rows, overrides, mangadex, platform=None):
             out[rows[i].key[1]] = (v, naming.OVERRIDE)
     empty = [i for i in published if rows[i].volume is None and rows[i].key[1] not in out]
     opened, keys = _reopened(rows, empty)
-    got = naming.resolve(basis, opened, overrides, mangadex, platform, fill=keys) if keys else {}
+    got = _of(naming.resolve(basis, opened, overrides, mangadex, platform, fill=keys), keys) if keys else {}
     for key, named in got.items():
-        if key not in keys:
-            continue
         v = named.volume
         if named.kind == names.MAIN and v is not None and v == int(v):
             out[key[1]] = (int(v), named.volume_source)
@@ -112,11 +110,9 @@ def differences(basis, rows, overrides, mangadex, platform=None):
         i for i in published if rows[i].volume is not None and i not in ranged and rows[i].volume_source in rereadable
     ]
     opened, keys = _reopened(rows, held)
-    got = naming.resolve(basis, opened, overrides, mangadex, platform, fill=keys) if keys else {}
+    got = _of(naming.resolve(basis, opened, overrides, mangadex, platform, fill=keys), keys) if keys else {}
     out = {}
     for key, named in got.items():
-        if key not in keys:
-            continue
         stored = next(r.volume for r in rows if r.key == key)
         if named.volume != stored:
             out[key[1]] = (stored, named.volume)
@@ -203,6 +199,11 @@ def _reopened(rows, ids):
         for i, r in enumerate(rows)
     ]
     return opened, frozenset(rows[i].key for i in ids)
+
+
+def _of(named, keys):
+    """{key: naming.Naming} of the keys among a resolve result (it names every open row)."""
+    return {key: n for key, n in named.items() if key in keys}
 
 
 def _published(row):

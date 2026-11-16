@@ -54,12 +54,10 @@ def stored_list(platform, ref):
         client = tapas_client(ref)
         series_id = client.series_id(ref)
         items, total = present(client.episodes(series_id))
-        eps = episodes.build(items)
-        return platforms.record(platform, ref, eps, episodes.coverage(eps, total), series_id=series_id)
+        return platforms.tapas_record(ref, items, total, series_id)
     client = webtoons_client(*ref.split(":"))
     app_only = client.app_only(ref)
-    eps = episodes.build(client.episodes(ref))
-    return platforms.record(platform, ref, eps, episodes.coverage(eps, app_only=bool(app_only)))
+    return platforms.webtoons_record(ref, client.episodes(ref), app_only)
 
 
 @budget(load="pure")
@@ -336,8 +334,8 @@ def test_a_page_gone_after_the_first_is_an_error_not_no_list():
 
 @budget(load="pure")
 def test_a_titled_episode_past_the_finale_names_its_side_story():
-    eps = episodes.build([(1, "1. Start (Main Story Finale)", None, 1), (2, "2. After Story", None, 2)])
-    platform = platforms.record("tapas", "x", eps, episodes.coverage(eps, 2))
+    items = [(1, "1. Start (Main Story Finale)", None, 1), (2, "2. After Story", None, 2)]
+    platform = platforms.tapas_record("x", items, 2, None)
 
     def row(key, number):
         return naming.Row(
