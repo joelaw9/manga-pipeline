@@ -75,6 +75,8 @@ BARE_LABEL = re.compile(r"(?:chapter|ch\.?|episode|ep\.?)\s*\d+(?:\.\d+)?", re.I
 MONTHS = {
     m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)
 }
+ADULT_AGE = 18  # a rating tag from this age up is uncensored
+SAME_TITLE_SHARE = 0.6  # shared words over all words from which 2 titles are the same
 
 
 @dataclass
@@ -242,8 +244,10 @@ def parse_name(stem, ci=None, non_chapter_names=()):
         if item.label == "prologue" and item.number is None:
             item.number, item.notes = "0", ["prologue without number -> chapter 0"]
         if m.groupdict().get("num") and "-" in m.group("num"):
-            # "045.5-1": a decimal with a hyphen part (the num group set item.number)
-            if item.number is not None and not CI_NUMBER.fullmatch(item.number):
+            if item.number is None:
+                msg = f"{stem!r}: the num group set no number"
+                raise ValueError(msg)
+            if not CI_NUMBER.fullmatch(item.number):  # "045.5-1": a decimal with a hyphen part
                 item.bad_number, item.number = m.group("num"), None
             else:
                 item.notes.append(f"hyphen part {m.group('num')} -> {item.number}")
@@ -282,7 +286,7 @@ def side_label(item):
 def rating(title):
     """'uncensored' for [R19]/[R18]/[🔞], 'censored' for [R15]/[R12], None when untagged."""
     ages = [99 if m.group("adult") else int(m.group("age")) for m in RATING.finditer(title or "")]
-    return None if not ages else ("uncensored" if max(ages) >= 18 else "censored")
+    return None if not ages else ("uncensored" if max(ages) >= ADULT_AGE else "censored")
 
 
 def normalize_title(t):
@@ -300,7 +304,7 @@ def similar_titles(a, b):
     if not na or not nb:
         return False
     ta, tb = set(na.split()), set(nb.split())
-    return na == nb or len(ta & tb) / len(ta | tb) >= 0.6
+    return na == nb or len(ta & tb) / len(ta | tb) >= SAME_TITLE_SHARE
 
 
 DATE_PARTS = (("Year", 1, 9999), ("Month", 1, 12), ("Day", 1, 31))

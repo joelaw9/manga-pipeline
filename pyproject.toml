@@ -44,18 +44,16 @@ ignore = [
     "TRY004",                     # every isinstance check validates a parsed YAML file: a value error, not a type error
     "S105",                       # every hit is a false positive (a meta key name; a fake test token)
     # lint phase: pending (rules the next lint PRs resolve; this block shrinks to nothing)
-    "D", "N812", "N818", "PLW0603", "C901", "PLR0911", "PLR0912",
-    "PLR0913", "PLR0915", "PLR0917", "PLR2004", "SLF001",
+    "D", "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004", "S311"]                  # pytest asserts; literal expectations and test data; seeded data
-"tests/test_*.py" = ["D103", "PLR0913"]                   # a test's name is its statement; pytest injects fixtures by name
+"tests/test_*.py" = ["D103"]                              # a test's name is its statement
 "tests/fakes/**" = ["D1"]                                 # a fake imitates a documented real class
 "manga_pipeline/{cli,smoke,status}.py" = ["T201"]         # printing is these modules' job: a command's own output
 "manga_pipeline/metadata/audit.py" = ["T201"]
 "tests/fake_claude.py" = ["T201"]                         # a fake CLI whose stdout is its result
-"manga_pipeline/junk/ocr.py" = ["PLC0415"]                # lint phase: pending
 
 [tool.ruff.lint.isort]
 known-local-folder = ["tests"]

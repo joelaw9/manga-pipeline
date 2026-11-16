@@ -116,9 +116,9 @@ def test_source_calls_find_manga_outside_the_library_and_fail_when_the_source_is
     assert [m["id"] for m in suw.search_source(source, "re:zero")] == [other]
     assert [c["id"] for c in suw.fetch_manga_and_chapters(other)["chapters"]] == [chapter]
     suw.unavailable.add(source)
-    with pytest.raises(suwayomi.SourceUnavailable):
+    with pytest.raises(suwayomi.SourceUnavailableError):
         suw.search_source(source, "re:zero")
-    with pytest.raises(suwayomi.SourceUnavailable):
+    with pytest.raises(suwayomi.SourceUnavailableError):
         suw.fetch_manga_and_chapters(other)
 
 
@@ -350,4 +350,4 @@ def test_series_with_files_in_2_folders_has_no_usable_folder(kav, tmp_path):
 @budget(load="fs")
 def test_a_kavita_call_the_fake_does_not_answer_fails_loudly(kav):
     with pytest.raises(AssertionError, match="unexpected request"):
-        kav._call("GET", "/api/Series/metadata?seriesId=1")
+        kavita.Kavita.metadata(kav, 1)  # the real client's request: every public method the fake has answers it

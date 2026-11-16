@@ -22,6 +22,7 @@ from manga_pipeline import (
     comicinfo,
     config,
     db,
+    errors,
     handled,
     names,
     retention,
@@ -57,6 +58,8 @@ OPEN_REWRITES = sql.SQL("published_file_id IS NOT NULL AND status NOT IN ('done'
 BUSY = sql.SQL("""({p}.pending_path IS NOT NULL OR {p}.indexed_since IS NOT NULL OR {p}.pending_error IS NOT NULL
     OR {p}.carry_cover IS TRUE OR EXISTS (
         SELECT 1 FROM chapter b WHERE b.published_file_id = {p}.id AND b.status <> 'done'))""")
+# finish's file acts, each recorded in published_file.pending_step once done
+STEP_DATED, STEP_RETAINED, STEP_RENAMED, STEP_OLD_REMOVED = 1, 2, 3, 4
 
 
 def _set_null(columns):
@@ -111,7 +114,10 @@ def compare(ctx):
             for file_id, change in todo.items():
                 if made >= room:
                     break
-                made += _queue_chapter(ctx, series, file_id, *change)
+                volume, source, cover, title, unedited = change
+                made += _queue_chapter(
+                    ctx, series, file_id, volume=volume, source=source, cover=cover, title=title, unedited=unedited
+                )
             if made >= room and len(todo) > room:
                 continue  # cut short: compared again next run
             conn.execute(
@@ -172,16 +178,19 @@ def _plan(ctx, series):
         }
         shas = {v: r["sha256"] for v, r in images.items()}
         for fid, (action, v) in rewrite_plan.cover_changes(
-            basis, rows, overrides, mangadex, moved, states, taken, shas
+            basis, rows, overrides, mangadex, moved, states=states, taken=taken, images=shas
         ).items():
             if action == "drop":
                 cover[fid] = ("drop",)
             elif v in images:
                 cover[fid] = ("insert", v, images[v])
             else:
+                number = names.to_volume(v)
+                if number is None:  # cover_changes names volumes by fmt_num: always a number
+                    msg = f"cover change for {v!r}: not a volume number"
+                    raise ValueError(msg)
                 if (
                     v not in given_up
-                    and (number := names.to_volume(v)) is not None
                     and number == int(number)
                     and records.get("manga")
                     and cover_images.volume_choice(records["manga"], records.get("covers") or [], number)
@@ -252,7 +261,7 @@ def _hash(ctx, series):
     return hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _queue_chapter(ctx, series, file_id, volume, source, cover, title, unedited):
+def _queue_chapter(ctx, series, file_id, *, volume, source, cover, title, unedited):
     """1 rewrite chapter for a confirmed published file with no open chapter and nothing queued or awaited, at convert
     when its cover changes (an insert's cover handed over as a volume_cover row), else at comicinfo; it carries the
     file's title and unedited values afterwards (title "" = untitled). Returns 1 when made, else 0."""
@@ -423,7 +432,7 @@ def publish_run(ctx, chapter):
     clash = conn.execute(
         "SELECT id FROM published_file WHERE library_path = %s AND id <> %s", (chapter["library_path"], file["id"])
     ).fetchone()
-    if clash or (target != old and workflow.exists(target)):
+    if clash or (target != old and errors.exists(target)):
         return workflow.NeedsHuman(f"{target} is already in the library; a library file is never overwritten")
     copy = chapter["kind"] == "download"  # a better copy (SPEC "Library copies")
     read, old_pages = seen[0]["pages_read"], page_count(old)
@@ -515,31 +524,31 @@ def finish(ctx, row):
     target = config.to_local(cfg, row["pending_path"])
     old = config.to_local(cfg, row["library_path"])
     step = row["pending_step"]
-    if step < 3 and not workflow.exists(staged):
-        if workflow.exists(target) and target.stat().st_size == row["pending_size"] and target != old:
-            step = _record(conn, row["id"], 3)  # renamed in before a crash recorded it
-        elif target == old and _is_new(target, row):
-            step = _record(conn, row["id"], 3)
+    if step < STEP_RENAMED and not errors.exists(staged):
+        if errors.exists(target) and target.stat().st_size == row["pending_size"] and target != old:
+            step = record_step(conn, row["id"], STEP_RENAMED)  # renamed in before a crash recorded it
+        elif target == old and is_new(target, row):
+            step = record_step(conn, row["id"], STEP_RENAMED)
         else:
             _clear(conn, row["id"])
             log.warning("%s: rewrite of %s dropped: its staged file is gone", ctx.part, row["library_path"])
             return
-    if step < 1:
+    if step < STEP_DATED:
         os.utime(staged)  # the rename keeps it: Kavita skips a file it judges unchanged by its date
-        step = _record(conn, row["id"], 1)
-    if step < 2:
+        step = record_step(conn, row["id"], STEP_DATED)
+    if step < STEP_RETAINED:
         retention.put_library(cfg, old)
-        step = _record(conn, row["id"], 2)
-    if step < 3:
-        if target != old and workflow.exists(target):
+        step = record_step(conn, row["id"], STEP_RETAINED)
+    if step < STEP_RENAMED:
+        if target != old and errors.exists(target):
             msg = f"{target} is already in the library; a library file is never overwritten"
             raise FileExistsError(msg)
         staged.replace(target)
-        step = _record(conn, row["id"], 3)
-    if step < 4:
-        if target != old and workflow.exists(old):
+        step = record_step(conn, row["id"], STEP_RENAMED)
+    if step < STEP_OLD_REMOVED:
+        if target != old and errors.exists(old):
             old.unlink()
-        step = _record(conn, row["id"], 4)
+        step = record_step(conn, row["id"], STEP_OLD_REMOVED)
     with db.transaction(conn):
         if row["pending_copy"]:  # a better copy: the row describes it now (SPEC "Retroactive updates")
             values = {k: v for k, v in row["pending_copy"]["values"].items() if k not in ("size", "cover_state")}
@@ -563,10 +572,10 @@ def finish(ctx, row):
     log.info("%s: rewrote %s as %s", ctx.part, row["library_path"], row["pending_path"])
 
 
-def _is_new(path, row):
+def is_new(path, row):
     """Whether a same-name target already holds the rewritten file (a crash after the rename): its size and its
     ComicInfo Volume are the queued ones, and its Title too when the rewrite changes it."""
-    if not workflow.exists(path) or path.stat().st_size != row["pending_size"]:
+    if not errors.exists(path) or path.stat().st_size != row["pending_size"]:
         return False
     xml = archive.read_comicinfo(path)
     if xml is None:
@@ -579,7 +588,8 @@ def _is_new(path, row):
     return (fields.get("Volume") or None) == row["pending_volume"]
 
 
-def _record(conn, file_id, step):
+def record_step(conn, file_id, step):
+    """Record finish's act `step` done on the file (`pending_step`) and return it."""
     with db.transaction(conn):
         conn.execute("UPDATE published_file SET pending_step = %s WHERE id = %s", (step, file_id))
     return step
@@ -621,7 +631,7 @@ def drop(conn, file_id, limit):
     ):
         msg = f"published file {file_id} has no stuck rewrite"
         raise workflow.Refused(msg)
-    if row["pending_path"] is not None and row["pending_step"] >= 3:
+    if row["pending_path"] is not None and row["pending_step"] >= STEP_RENAMED:
         msg = f"published file {file_id}'s rewrite has renamed its file in: rewrite retry {file_id} finishes it"
         raise workflow.Refused(msg)
     with db.transaction(conn):

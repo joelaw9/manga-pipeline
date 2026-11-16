@@ -21,7 +21,7 @@ def changes(basis, rows, overrides, mangadex, platform=None):
         if v != rows[i].volume:
             out[rows[i].key[1]] = (v, naming.OVERRIDE)
     empty = [i for i in published if rows[i].volume is None and rows[i].key[1] not in out]
-    for key, named in _reopened(basis, rows, empty, overrides, mangadex, platform).items():
+    for key, named in _reopened(basis, rows, empty, overrides, mangadex, platform=platform).items():
         v = named.volume
         if named.kind == names.MAIN and v is not None and v == int(v):
             out[key[1]] = (int(v), named.volume_source)
@@ -90,14 +90,14 @@ def differences(basis, rows, overrides, mangadex, platform=None):
         i for i in published if rows[i].volume is not None and i not in ranged and rows[i].volume_source in rereadable
     ]
     out = {}
-    for key, named in _reopened(basis, rows, held, overrides, mangadex, platform).items():
+    for key, named in _reopened(basis, rows, held, overrides, mangadex, platform=platform).items():
         stored = next(r.volume for r in rows if r.key == key)
         if named.volume != stored:
             out[key[1]] = (stored, named.volume)
     return out
 
 
-def cover_changes(basis, rows, overrides, mangadex, moved, states, taken, images):
+def cover_changes(basis, rows, overrides, mangadex, moved, *, states, taken, images):
     """{published file id: ("insert", volume) | ("drop", None)} of the published main files whose volume cover should
     change (SPEC "Retroactive updates"). moved: changes' result; states: {file id: cover_state} (every one known);
     taken: the volumes whose cover an open chapter took; images: {volume: sha256} of the series' stored cover images.
@@ -141,7 +141,7 @@ def _fmt(volume):
     return "" if volume is None else names.fmt_num(volume)
 
 
-def _reopened(basis, rows, ids, overrides, mangadex, platform):
+def _reopened(basis, rows, ids, overrides, mangadex, *, platform):
     """{key: naming.Naming} of the rows ids, named as open rows beside the others as they are."""
     if not ids:
         return {}

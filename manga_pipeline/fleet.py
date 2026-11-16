@@ -97,10 +97,10 @@ def _packages():
     """{distribution: installed version} of pyproject's runtime group."""
     with (config.ROOT / "pyproject.toml").open("rb") as f:
         runtime = tomllib.load(f)["dependency-groups"]["runtime"]
-    return {_name(spec): metadata.version(_name(spec)) for spec in runtime}
+    return {package_name(spec): metadata.version(package_name(spec)) for spec in runtime}
 
 
-def _name(spec):
+def package_name(spec):
     """The distribution name at the start of a requirement ("psycopg[binary]==3.3.9" -> "psycopg")."""
     end = next((i for i, ch in enumerate(spec) if not (ch.isalnum() or ch in "._-")), len(spec))
     return spec[:end]

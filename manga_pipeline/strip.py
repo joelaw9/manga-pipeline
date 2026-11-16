@@ -64,12 +64,15 @@ SAMPLE_PAGES = 25  # ... first pages of each
 MIN_EDGE_BLOCK_PX = 40  # content blocks shorter than this at a chapter's ends are never junk candidates
 SPAN_BREAK_PX = 2  # a walkable run at least this tall (strip px) separates two spans (spans)
 STEM_WIDTH = 3  # rendered page names: 001.png, 002.png, ...
+CACHED_PAGES = 3  # decoded source pages render_rows keeps
+PAGE_ASPECT_MIN = 0.9  # h/w: shorter shapes are slivers, not pages
+ASPECT_MIN_PAGES = 3  # pages a shape needs to be a candidate
 
 
 # ---------------------------------------------------------------- shared measurements
 
 
-def _open(path, mode="RGB"):
+def open_page(path, mode="RGB"):
     """Decode fully (8-bit, sRGB, see images.open_image) and close the file; pages are read many times. A page with
     transparency is composited onto white (images.open_flat, as the plan's page scan reads it), the canvas rendered
     pages are built on (a plain convert would show the colour stored under transparent pixels, often black)."""
@@ -100,7 +103,7 @@ def geometry_share(chapter_pages, cfg=CONFIG):
     gap_std, max_seam = cfg["restitch"]["gap_row_std"], cfg["slice_repair"]["max_seam_score"]
     shares = []
     for pages in chapter_pages:
-        edges = [edge_rows(_open(p, "L")) for p in pages[:SAMPLE_PAGES]]
+        edges = [edge_rows(open_page(p, "L")) for p in pages[:SAMPLE_PAGES]]
         joins = [
             (bot[-1].std() < gap_std and top[0].std() < gap_std) or seam_score(bot, top) < max_seam
             for (_, bot), (top, _) in itertools.pairwise(edges)
@@ -275,9 +278,9 @@ def render_rows(pages, width, start, end, cache=None):
         if lo >= hi:
             continue
         if p["path"] not in cache:
-            if len(cache) >= 3:
+            if len(cache) >= CACHED_PAGES:
                 cache.pop(next(iter(cache)))
-            im = _open(p["path"])
+            im = open_page(p["path"])
             cache[p["path"]] = im if im.width == width else im.resize((width, p["th"]), Image.Resampling.LANCZOS)
         out.paste(cache[p["path"]].crop((0, lo - p["top"], width, hi - p["top"])), (0, lo - start))
     return out
@@ -439,7 +442,9 @@ def render(outputs, x_dir, out_dir, strip=None):
         elif not composited(o):
             im = images.open_image(x_dir / o["parts"][0][0])[0]
         else:
-            parts = [_open(x_dir / n) if box is None else _open(x_dir / n).crop(tuple(box)) for n, box in o["parts"]]
+            parts = [
+                open_page(x_dir / n) if box is None else open_page(x_dir / n).crop(tuple(box)) for n, box in o["parts"]
+            ]
             im, y = Image.new("RGB", (parts[0].width, sum(p.height for p in parts)), "white"), 0
             for p in parts:
                 im.paste(p, (0, y))
@@ -465,9 +470,9 @@ def page_aspect(chapter_pages, stitched_ratio=SLICE_REPAIR["stitched_ratio"]):
     aspects = Counter()
     for pages in chapter_pages:
         for d in pages:
-            if d and d[0] and 0.9 <= d[1] / d[0] < stitched_ratio:  # page-like shapes only, no slivers
+            if d and d[0] and PAGE_ASPECT_MIN <= d[1] / d[0] < stitched_ratio:  # page-like shapes only, no slivers
                 aspects[round(d[1] / d[0], 3)] += 1
-    common = [a for a, n in aspects.most_common(3) if n >= 3]
+    common = [a for a, n in aspects.most_common(3) if n >= ASPECT_MIN_PAGES]
     return common or None
 
 
@@ -581,7 +586,7 @@ def series_shape(aspects, cfg=SLICE_REPAIR):
     return aspects[0] if aspects else cfg["fallback_page_aspect"]
 
 
-def _content_indexes(pages):
+def content_indexes(pages):
     """Indexes of non-cover pages (cover-named pages are never reshaped or junk-checked)."""
     return [i for i, p in enumerate(pages) if not archive.is_cover_name(Path(str(p)).name)]
 
@@ -590,7 +595,7 @@ def band_pages(pages, sizes, shape, cfg: Mapping[str, float] = SLICE_REPAIR):
     """Indexes of the pages a credit band can sit on, the pages the band scan decodes: non-cover pages taller than the
     series shape (h > w * shape * (1 + band_tolerance)), anywhere in the chapter (Akuyaku Kizoku ch12/13: a Reset Scans
     ad on page 2). Sizes only; a page becomes a band page only when the scan finds a band on it."""
-    return [i for i in _content_indexes(pages) if sizes[i][1] > sizes[i][0] * shape * (1 + cfg["band_tolerance"])]
+    return [i for i in content_indexes(pages) if sizes[i][1] > sizes[i][0] * shape * (1 + cfg["band_tolerance"])]
 
 
 # ---------------------------------------------------------------- page-format: per-page credit review

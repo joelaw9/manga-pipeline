@@ -5,12 +5,12 @@ from manga_pipeline.clients import kavita, suwayomi
 SHOWN = 3  # chapter names and files printed
 
 
-class Failed(Exception):
+class SmokeError(Exception):
     """A smoke check failed; the entry point exits 1."""
 
 
 def run(cfg):
-    """Check both services, whatever the first one answers. Raises Failed naming every problem."""
+    """Check both services, whatever the first one answers. Raises SmokeError naming every problem."""
     problems = []
     for name, check in (("suwayomi", _suwayomi), ("kavita", _kavita)):
         try:
@@ -19,7 +19,7 @@ def run(cfg):
             problems.append(f"{name}: {type(e).__name__}: {e}")
             print(f"{name}: FAILED: {type(e).__name__}: {e}")
     if problems:
-        raise Failed("; ".join(problems))
+        raise SmokeError("; ".join(problems))
 
 
 def _suwayomi(cfg):

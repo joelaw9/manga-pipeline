@@ -23,13 +23,15 @@ CLASS_RANK = {images.GRAY: 0, images.TINTED: 1, images.GRAY_MARK: 2, images.COLO
 CHROMA_RANK = {"420": 0, "422": 1, "444": 2}  # rendered page = max
 TURNED = range(2, 9)  # EXIF orientations readers apply: a rotation or mirror
 EDIT_KEYS = {"drop_pages": list, "strip_removed": list, "bands": list, "join": list, "split": bool, "blank": list}
+BOX_SIDES = 4  # a box: [left, top, right, bottom]
+PAIR_LEN = 2  # a join entry: [page, sliver]
 
 
 class EditError(ValueError):
     """A chapter_edit whose keys or value types are wrong."""
 
 
-class NeedsHuman(ValueError):
+class NeedsHuman(ValueError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """The chapter cannot be planned and no attempt can change that (the stage makes it needs_human)."""
 
 
@@ -85,12 +87,17 @@ def check_edit(text):
             msg = f"chapter_edit strip_removed rows {r['start']}-{r['end']} are not 0 <= start < end"
             raise EditError(msg)
     for b in edit["bands"]:
-        if not isinstance(b, dict) or set(b) != {"page", "box"} or not isinstance(b["box"], list) or len(b["box"]) != 4:
+        if (
+            not isinstance(b, dict)
+            or set(b) != {"page", "box"}
+            or not isinstance(b["box"], list)
+            or len(b["box"]) != BOX_SIDES
+        ):
             msg = f"chapter_edit bands entries are {{page, box: [l, t, r, b]}}, got {b!r}"
             raise EditError(msg)
         ints([b["page"], *b["box"]], "bands page / box")
     for pair in edit["join"]:
-        if not isinstance(pair, list) or len(pair) != 2:
+        if not isinstance(pair, list) or len(pair) != PAIR_LEN:
             msg = f"chapter_edit join entries are [page, sliver] pairs, got {pair!r}"
             raise EditError(msg)
         ints(pair, "join")
@@ -99,9 +106,9 @@ def check_edit(text):
             not isinstance(b, dict)
             or set(b) != {"page", "box", "fill"}
             or not isinstance(b["box"], list)
-            or len(b["box"]) != 4
+            or len(b["box"]) != BOX_SIDES
             or not isinstance(b["fill"], list)
-            or len(b["fill"]) != 3
+            or len(b["fill"]) != images.RGB_CHANNELS
         ):
             msg = f"chapter_edit blank entries are {{page, box: [l, t, r, b], fill: [r, g, b]}}, got {b!r}"
             raise EditError(msg)
@@ -267,7 +274,7 @@ def _blanks(entries, edit, name):
         if not (0 <= left < right <= w and 0 <= top < bottom <= h):
             msg = f"chapter_edit blank box {b['box']} is not inside page {b['page']} ({w} x {h})"
             raise EditError(msg)
-        if not all(0 <= v <= 255 for v in b["fill"]):
+        if not all(0 <= v <= images.CHANNEL_MAX for v in b["fill"]):
             msg = f"chapter_edit blank fill {b['fill']} is not an RGB colour"
             raise EditError(msg)
         out.append({"page": page, "box": list(b["box"]), "fill": list(b["fill"])})
@@ -381,7 +388,7 @@ def avif_groups(plan):
     return sorted({quality_group(y) for y in yuvs})
 
 
-def build(name, measured, files, edit, layout, page_aspect, quality):
+def build(name, measured, files, edit, layout, *, page_aspect, quality):
     """The ChapterPlan of 1 chapter. measured: images.measure_pages of the download; files: its pages' extracted files
     (pages.extract), in the same order; edit: check_edit's dict; layout: "strip" or "pages"; page_aspect: the series'
     page aspects (a list) or None; quality: {encode group: q}. Raises NeedsHuman (an EXIF rotation, a strip edit that

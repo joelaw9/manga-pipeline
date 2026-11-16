@@ -9,6 +9,7 @@ import io
 import logging
 import time
 from dataclasses import dataclass
+from http import HTTPStatus
 
 from PIL import Image, UnidentifiedImageError
 
@@ -24,7 +25,7 @@ VOLUME_FOLDER = "volume"  # below paths.covers: covered volumes' covers
 UNNAMED_KEEP_S = 24 * 3600
 
 
-class NotAnImage(ValueError):
+class NotAnImageError(ValueError):
     """MangaDex served something other than an image for a cover file (an error page)."""
 
 
@@ -69,7 +70,7 @@ def _gone_is_none(fetch, *args):
     try:
         return fetch(*args)
     except http.HttpError as e:
-        if e.status == 404:
+        if e.status == HTTPStatus.NOT_FOUND:
             return None
         raise
 
@@ -169,7 +170,7 @@ def volume_cover(ctx, series_id, volume):
     image = _image(url, data)
     if image is None:  # an error page served as the image: fails the attempt, a later run tries again
         msg = f"the volume {volume} cover from {url} is not an image"
-        raise NotAnImage(msg)
+        raise NotAnImageError(msg)
     _, data, (_, ext) = image
     sha256 = hashlib.sha256(data).hexdigest()
     rel = f"{VOLUME_FOLDER}/{sha256}.{ext}"
@@ -205,9 +206,11 @@ def refresh_volumes(ctx, series_id):
     ).fetchall():
         try:
             volume_cover(ctx, series_id, volume)
-        except (NotAnImage, errors.Unreachable, http.Timeout, http.HttpError) as e:
+        except (NotAnImageError, errors.Unreachable, http.HttpTimeoutError, http.HttpError) as e:
             log.warning("%s: series %s volume %s cover not refreshed: %s", ctx.part, series_id, volume, e)
-            if isinstance(e, NotAnImage) or (isinstance(e, http.HttpError) and e.status < 500):
+            if isinstance(e, NotAnImageError) or (
+                isinstance(e, http.HttpError) and e.status < HTTPStatus.INTERNAL_SERVER_ERROR
+            ):
                 continue
             with db.transaction(ctx.conn):  # MangaDex down: the next intake checks the series again
                 ctx.conn.execute(
@@ -233,8 +236,8 @@ def fetch_wanted(ctx):
             found = volume_cover(ctx, r["series_id"], r["volume"])
         except Exception as e:
             if (
-                isinstance(e, (db.Error, errors.Unreachable, http.Timeout))
-                or (isinstance(e, http.HttpError) and e.status >= 500)
+                isinstance(e, (db.Error, errors.Unreachable, http.HttpTimeoutError))
+                or (isinstance(e, http.HttpError) and e.status >= HTTPStatus.INTERNAL_SERVER_ERROR)
                 or (isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS))
             ):
                 raise

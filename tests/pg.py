@@ -48,7 +48,7 @@ def current():
     return process
 
 
-class LeakedConnection(AssertionError):
+class LeakedConnectionError(AssertionError):
     pass
 
 
@@ -56,7 +56,8 @@ def _login():
     return config.cached()["database"]
 
 
-def _connect(dbname):
+def connect(dbname):
+    """An autocommit connection to database `dbname` as the test role."""
     login = _login()
     return psycopg.connect(
         host=login["host"],
@@ -75,14 +76,15 @@ def cfg_for(name):
     return {**config.cached(), "database": {**_login(), "name": name}}
 
 
-def _owned(name):
+def owned(name):
+    """`name` as an identifier; ValueError unless it is a test database (PREFIX)."""
     if not name.startswith(PREFIX):
         msg = f"the test harness touches only {PREFIX}* databases, not {name!r}"
         raise ValueError(msg)
     return sql.Identifier(name)
 
 
-def _relations(conn):
+def relations(conn):
     """The relations of schema public (tables, sequences, indexes, views), as 1 fingerprint."""
     rows = conn.execute(
         "SELECT relkind::text || ':' || relname FROM pg_class WHERE relnamespace = 'public'::regnamespace ORDER BY 1"
@@ -99,12 +101,14 @@ def _value(conn, sql, params=()):
     return row[0]
 
 
-def _print_of(conn, name):
+def print_of(conn, name):
+    """The fingerprint stored on database `name` (its comment)."""
     return _value(conn, "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = %s", (name,))
 
 
-def _set_print(conn, name, value):
-    conn.execute(sql.SQL("COMMENT ON DATABASE {} IS {}").format(_owned(name), sql.Literal(value)))
+def set_print(conn, name, value):
+    """Store fingerprint `value` on database `name` (its comment)."""
+    conn.execute(sql.SQL("COMMENT ON DATABASE {} IS {}").format(owned(name), sql.Literal(value)))
 
 
 class Process:
@@ -112,7 +116,7 @@ class Process:
 
     def __init__(self, pool=POOL, lock_space=LOCK_SPACE, take=TAKEN_AT_START):
         self.pool, self.lock_space = pool, lock_space
-        self.owner = _connect(db.MAINTENANCE_DATABASE)
+        self.owner = connect(db.MAINTENANCE_DATABASE)
         self.held = set()  # numbers whose lock this process holds, retired ones included
         self.slots = []  # names, by slot
         self.used = {}  # this test: folder -> slot
@@ -136,14 +140,14 @@ class Process:
             if not self.owner.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,)).fetchone():
                 self.owner.execute(
                     sql.SQL("CREATE DATABASE {} TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'").format(
-                        _owned(name)
+                        owned(name)
                     )
                 )
             try:
                 self._end_others(name)
-                self._reset(name, rebuild=False)
+                self.reset(name, rebuild=False)
             except Exception as e:
-                _set_print(self.owner, name, "")  # whoever takes it next rebuilds it
+                set_print(self.owner, name, "")  # whoever takes it next rebuilds it
                 failures.append(e)
                 if len(failures) == MAX_FAILED_TAKES:  # a fault in the harness, not 1 bad database: stop here
                     msg = f"{MAX_FAILED_TAKES} pool databases in a row could not be made right"
@@ -161,14 +165,14 @@ class Process:
         name = self.slots[n]
         self.used[folder] = n
         if not built:
-            with closing(_connect(name)) as conn:
+            with closing(connect(name)) as conn:
                 conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-            _set_print(self.owner, name, "")
+            set_print(self.owner, name, "")
             self.unbuilt.add(name)
         return name
 
     def end_test(self):
-        """Empty every database the test used. Raises LeakedConnection after the reset when the test left a
+        """Empty every database the test used. Raises LeakedConnectionError after the reset when the test left a
         connection open; a database whose reset fails is retired (held, unused) and its slot takes another."""
         used, unbuilt = sorted(set(self.used.values())), self.unbuilt
         self.used, self.unbuilt = {}, set()
@@ -177,16 +181,16 @@ class Process:
             name = self.slots[n]
             try:
                 leaks += self._end_leaks(name)
-                self._reset(name, rebuild=name in unbuilt)
+                self.reset(name, rebuild=name in unbuilt)
             except Exception as e:
-                _set_print(self.owner, name, "")
+                set_print(self.owner, name, "")
                 self.slots[n] = self._take()
                 failed = failed or e
         if failed:
             raise failed
         if leaks:
             msg = f"the test left database connections open (ended now): {', '.join(leaks)}"
-            raise LeakedConnection(msg)
+            raise LeakedConnectionError(msg)
 
     def _end_leaks(self, name):
         """End and return the test's connections still open: a connection dropped but not yet collected closes with
@@ -211,8 +215,10 @@ class Process:
             ended.append(f"{name} ({app or 'no name'}, pid {pid})")
         return ended
 
-    def _reset(self, name, rebuild):
-        with closing(_connect(name)) as conn:
+    def reset(self, name, rebuild):
+        """Empty database `name`: its rows deleted and ids restarted, or rebuilt from the step files when `rebuild`
+        or it is not intact."""
+        with closing(connect(name)) as conn:
             if rebuild or not self._intact(conn, name):
                 conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
                 rebuild = True
@@ -233,7 +239,7 @@ class Process:
         if not _value(conn, "SELECT to_regclass('schema_step') IS NOT NULL"):
             return False
         steps = {row[0] for row in conn.execute("SELECT name FROM schema_step")}
-        return steps == SHIPPED_STEPS and _print_of(self.owner, name) == f"{STEPS_PRINT}:{_relations(conn)}"
+        return steps == SHIPPED_STEPS and print_of(self.owner, name) == f"{STEPS_PRINT}:{relations(conn)}"
 
     def _build(self, name):
         patched, db.SCHEMA = db.SCHEMA, SHIPPED
@@ -241,8 +247,8 @@ class Process:
             db.connect(cfg_for(name)).close()
         finally:
             db.SCHEMA = patched
-        with closing(_connect(name)) as conn:
-            _set_print(self.owner, name, f"{STEPS_PRINT}:{_relations(conn)}")
+        with closing(connect(name)) as conn:
+            set_print(self.owner, name, f"{STEPS_PRINT}:{relations(conn)}")
 
     def close(self):
         """Free this process's databases for the next run: they stay on the server."""
@@ -284,16 +290,16 @@ def drop_pool(pool):
     if pool == POOL:
         msg = "the run's pool is never dropped by the harness"
         raise ValueError(msg)
-    with closing(_connect(db.MAINTENANCE_DATABASE)) as conn:
+    with closing(connect(db.MAINTENANCE_DATABASE)) as conn:
         names = [r[0] for r in conn.execute("SELECT datname FROM pg_database WHERE starts_with(datname, %s)", (pool,))]
         for name in names:
-            conn.execute(sql.SQL("DROP DATABASE {}").format(_owned(name)))
+            conn.execute(sql.SQL("DROP DATABASE {}").format(owned(name)))
 
 
 def unassigned_built():
     """Whether a test built the database the test config names (dropped here when it did)."""
-    with closing(_connect(db.MAINTENANCE_DATABASE)) as conn:
+    with closing(connect(db.MAINTENANCE_DATABASE)) as conn:
         if not conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (UNASSIGNED,)).fetchone():
             return False
-        conn.execute(sql.SQL("DROP DATABASE {}").format(_owned(UNASSIGNED)))
+        conn.execute(sql.SQL("DROP DATABASE {}").format(owned(UNASSIGNED)))
         return True

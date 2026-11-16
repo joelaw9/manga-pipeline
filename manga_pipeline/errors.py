@@ -11,7 +11,7 @@ SHARE_ERRNOS = {errno.EIO, errno.ESTALE, errno.ETIMEDOUT}
 SHARE_WINERRORS = {53, 59, 64, 67, 121, 1231}
 
 
-class Unreachable(Exception):
+class Unreachable(Exception):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """A service the work needs cannot be reached. From a stage: the chapter stays ready at no attempt, and the part
     claims no chapter at that stage for the rest of the run; raised outside a stage, it ends the run."""
 

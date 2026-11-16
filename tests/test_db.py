@@ -259,12 +259,12 @@ def test_read_only_refuses_a_database_with_other_steps_or_none(tmp_path, monkeyp
 @budget(load="db")
 def test_a_missing_database_is_no_database_and_nothing_creates_it_but_connect():
     cfg = pg.cfg_for(f"{pg.PREFIX}missing_{secrets.token_hex(4)}")
-    with pytest.raises(db.NoDatabase, match="no database"):
+    with pytest.raises(db.NoDatabaseError, match="no database"):
         db.read_only(cfg)
-    with pytest.raises(db.NoDatabase):
+    with pytest.raises(db.NoDatabaseError):
         db.peek_id(cfg)
     assert not db.built(cfg), "a database that does not exist is not built"
-    with pytest.raises(db.NoDatabase):
+    with pytest.raises(db.NoDatabaseError):
         db.peek_id(cfg)  # built() created nothing
 
 
@@ -298,7 +298,7 @@ def test_bad_database_settings_are_config_errors(change, error):
 def test_a_refused_login_cannot_connect_and_never_shows_the_password():
     login = {"user": "mp_test_no_such_role", "password": "wrong-secret"}  # a role the test server does not have
     cfg = {**config.cached(), "database": {**config.cached()["database"], **login}}
-    with pytest.raises(db.CannotConnect) as e:
+    with pytest.raises(db.CannotConnectError) as e:
         db.connect(cfg)
     assert "localhost:5432" in str(e.value)
     assert "mp_test_no_such_role" in str(e.value)
@@ -308,7 +308,7 @@ def test_a_refused_login_cannot_connect_and_never_shows_the_password():
 @budget(load="db")
 def test_a_socket_folder_needs_no_password():
     cfg = {**config.cached(), "database": {**config.cached()["database"], "host": "/nowhere", "password": None}}
-    with pytest.raises(db.CannotConnect, match="/nowhere"):  # not a config error: the login is tried
+    with pytest.raises(db.CannotConnectError, match="/nowhere"):  # not a config error: the login is tried
         db.connect(cfg)
 
 
@@ -426,7 +426,7 @@ def test_a_database_left_with_a_fake_step_or_table_is_rebuilt(tmp_path, monkeypa
 def test_a_leaked_connection_fails_the_reset_and_is_ended(tmp_path):
     cfg = db_cfg(tmp_path)
     leaked = db.connect(cfg)
-    with pytest.raises(pg.LeakedConnection, match=cfg["database"]["name"]):
+    with pytest.raises(pg.LeakedConnectionError, match=cfg["database"]["name"]):
         pg.current().end_test()
     with pytest.raises(psycopg.OperationalError):
         leaked.execute("SELECT 1")
@@ -462,7 +462,7 @@ def test_a_database_left_dirty_by_a_dead_process_is_made_right_by_the_next(own_p
     dead = pg.Process(pool, space, take=1)
     name = dead.slots[0]
     old_id = _fill(pg.cfg_for(name))
-    with closing(pg._connect(name)) as conn:
+    with closing(pg.connect(name)) as conn:
         conn.execute("CREATE TABLE stray (x BIGINT)")
     dead.close()  # dies: its lock is freed, its database stays as it left it
     nxt = pg.Process(pool, space, take=1)
@@ -488,7 +488,7 @@ def test_a_database_with_rows_is_emptied_when_taken_and_stays_after_its_process_
     try:
         with closing(db.connect(pg.cfg_for(name))) as conn:
             assert one(conn, "SELECT count(*) FROM chapter") == 0, "emptied when taken"
-        with closing(pg._connect(db.MAINTENANCE_DATABASE)) as conn:
+        with closing(pg.connect(db.MAINTENANCE_DATABASE)) as conn:
             assert conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,)).fetchone()
     finally:
         second.close()
@@ -499,15 +499,15 @@ def test_a_database_built_from_other_step_files_is_rebuilt_when_taken(own_pool):
     pool, space = own_pool
     first = pg.Process(pool, space, take=1)
     name = first.slots[0]
-    with closing(pg._connect(name)) as conn:
-        pg._set_print(first.owner, name, "other step files:" + pg._relations(conn))
+    with closing(pg.connect(name)) as conn:
+        pg.set_print(first.owner, name, "other step files:" + pg.relations(conn))
         conn.execute("INSERT INTO meta (key, value) VALUES ('marker', 'from the other branch')")
     first.close()
     second = pg.Process(pool, space, take=1)
     try:
-        with closing(pg._connect(name)) as conn:
+        with closing(pg.connect(name)) as conn:
             assert conn.execute("SELECT 1 FROM meta WHERE key = 'marker'").fetchone() is None
-        assert pg._print_of(second.owner, name).startswith(pg.STEPS_PRINT), "rebuilt from these step files"
+        assert pg.print_of(second.owner, name).startswith(pg.STEPS_PRINT), "rebuilt from these step files"
     finally:
         second.close()
 
@@ -519,7 +519,7 @@ def test_a_database_whose_reset_failed_is_rebuilt_by_its_next_taker(own_pool, tm
     try:
         name = first.database(tmp_path, built=True)
         _fill(pg.cfg_for(name))
-        real = pg.Process._reset
+        real = pg.Process.reset
 
         def failing(self, db_name, rebuild):
             if db_name == name:
@@ -527,18 +527,18 @@ def test_a_database_whose_reset_failed_is_rebuilt_by_its_next_taker(own_pool, tm
                 raise RuntimeError(msg)
             return real(self, db_name, rebuild)
 
-        monkeypatch.setattr(pg.Process, "_reset", failing)
+        monkeypatch.setattr(pg.Process, "reset", failing)
         with pytest.raises(RuntimeError, match="this reset fails"):
             first.end_test()
         monkeypatch.undo()
         assert first.slots != [name], "the failed database is retired: its slot takes another"
-        assert not pg._print_of(first.owner, name), "its fingerprint is cleared: the next taker rebuilds it"
+        assert not pg.print_of(first.owner, name), "its fingerprint is cleared: the next taker rebuilds it"
     finally:
         first.close()
     second = pg.Process(pool, space, take=1)
     try:
         assert second.slots == [name], "the freed database is taken again"
-        assert pg._print_of(second.owner, name).startswith(pg.STEPS_PRINT), "rebuilt from these step files"
+        assert pg.print_of(second.owner, name).startswith(pg.STEPS_PRINT), "rebuilt from these step files"
         with closing(db.connect(pg.cfg_for(name))) as conn:
             assert one(conn, "SELECT count(*) FROM series") == 0
     finally:
@@ -548,7 +548,7 @@ def test_a_database_whose_reset_failed_is_rebuilt_by_its_next_taker(own_pool, tm
 @budget(POOL_BUDGET, load="db")
 def test_pool_databases_that_cannot_be_made_right_stop_the_run_after_max_failed_takes(own_pool, monkeypatch):
     pool, space = own_pool
-    real, owners = pg._connect, []
+    real, owners = pg.connect, []
 
     def connect(dbname):
         conn = real(dbname)
@@ -560,8 +560,8 @@ def test_pool_databases_that_cannot_be_made_right_stop_the_run_after_max_failed_
         msg = "this reset fails"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(pg, "_connect", connect)
-    monkeypatch.setattr(pg.Process, "_reset", failing)
+    monkeypatch.setattr(pg, "connect", connect)
+    monkeypatch.setattr(pg.Process, "reset", failing)
     try:
         with pytest.raises(RuntimeError, match=f"{pg.MAX_FAILED_TAKES} pool databases in a row"):
             pg.Process(pool, space, take=1)
@@ -649,7 +649,7 @@ def test_a_wait_on_the_write_lock_longer_than_lock_timeout_raises(tmp_path, monk
 def test_a_failed_reset_still_resets_the_tests_other_databases(tmp_path, monkeypatch):
     first, second = db_cfg(tmp_path / "a"), db_cfg(tmp_path / "b")
     _fill(second)
-    real = pg.Process._reset
+    real = pg.Process.reset
 
     def failing(self, name, rebuild):
         if name == first["database"]["name"]:
@@ -657,7 +657,7 @@ def test_a_failed_reset_still_resets_the_tests_other_databases(tmp_path, monkeyp
             raise RuntimeError(msg)
         return real(self, name, rebuild)
 
-    monkeypatch.setattr(pg.Process, "_reset", failing)
+    monkeypatch.setattr(pg.Process, "reset", failing)
     with pytest.raises(RuntimeError, match="this reset fails"):
         pg.current().end_test()
     monkeypatch.undo()

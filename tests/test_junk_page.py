@@ -302,7 +302,7 @@ def names(n):
 def cands(sizes, aspects=AKUYAKU, pages=None, banded=(), joined=()):
     """page_candidates on a chapter's content pages, as 1-based page numbers of the download; banded and joined are
     download indexes."""
-    content = strip._content_indexes(pages or names(len(sizes)))
+    content = strip.content_indexes(pages or names(len(sizes)))
     position = {i: k for k, i in enumerate(content)}
     found = page_units.page_candidates(
         [sizes[i] for i in content], aspects, {position[i] for i in banded}, {position[i] for i in joined}

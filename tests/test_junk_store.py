@@ -30,7 +30,7 @@ def flip(t, bits):
     return t ^ ((1 << bits) - 1)
 
 
-def decision(series_key, kind, key, verdict, decider="import", at="2026-11-01T00:00:00+00:00", source=None):
+def decision(series_key, kind, key, verdict, decider="import", *, at="2026-11-01T00:00:00+00:00", source=None):
     return {
         "series_key": series_key,
         "kind": kind,
@@ -186,7 +186,7 @@ def bulk_store(path):
     for ddl in BULK_SCHEMA:
         c.execute(ddl)
 
-    def junk(series, decision_, origin, tiles, added, chain=None, superseded=None):
+    def junk(series, decision_, origin, tiles, added, *, chain=None, superseded=None):
         c.execute(
             "INSERT INTO junk (series, decision, origin, tiles, aspect, chain, credit, added, superseded)"
             " VALUES (?, ?, ?, ?, 1.0, ?, 0, ?, ?)",

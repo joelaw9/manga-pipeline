@@ -1,7 +1,6 @@
 """The Vship binding (convert.vship; SPEC "Conversion"): synthetic manga and webtoon pages scored on the real GPU
 (marked gpu: run with --vship PATH), and the fail-fast paths. Ported from the bulk converter's tests/test_vship.py."""
 
-import ctypes
 import io
 from concurrent.futures import ThreadPoolExecutor
 
@@ -144,16 +143,19 @@ def test_arrays_of_different_sizes_are_refused():
 @budget(load="pure")
 def test_a_handle_vship_fails_to_free_raises_with_vships_message():
     """A non-zero code from Vship_FreeHandler raises instead of leaking GPU memory (stubbed: a real double free
-    crashes the process)."""
+    crashes the process). A score at a new size frees the thread's handle of the old size."""
     lib = type(
         "Lib",
         (),
         {
+            "Vship_GPUFullCheck": staticmethod(lambda _gpu: 0),
+            "Vship_InitHandler": staticmethod(lambda _ptr, _init: 0),
+            "Vship_ComputeHandler": staticmethod(lambda *_args: 0),
             "Vship_FreeHandler": staticmethod(lambda _ptr: 5),
             "Vship_GetDetailedLastError": staticmethod(lambda _buf, _n: 0),
         },
     )()
-    h = object.__new__(vship._Handle)
-    h.lib, h.size, h.ptr = lib, (300, 500), ctypes.c_void_p()
+    scorer = fake_convert.REAL_SCORER("stub", loader=lambda _path: lib)  # the autouse fake stands in for vship.Scorer
+    scorer.score(np.zeros((500, 300, 3), np.uint8), np.zeros((500, 300, 3), np.uint8))
     with pytest.raises(vship.VshipError, match=r"free handle 300x500: Vship error 5"):
-        h.free()
+        scorer.score(np.zeros((10, 10, 3), np.uint8), np.zeros((10, 10, 3), np.uint8))

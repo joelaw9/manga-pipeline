@@ -26,13 +26,14 @@ CHAPTER_KEYS = ("output", "file", "sources", "kind", "volume", "volume_source", 
 CHAPTER, MERGED, DUPLICATE, DELETED, REPLACED = "chapter", "merged", "duplicate", "deleted", "replaced"
 CARRIED, FAILED = "carried", "failed"
 FATES = (CHAPTER, MERGED, DUPLICATE, DELETED, REPLACED, CARRIED, FAILED)
+QUALITY_MAX = 100  # the top calibration quality
 
 
 class RecordError(ValueError):
     """The series record cannot be used."""
 
 
-class PartialRecord(RecordError):
+class PartialRecordError(RecordError):
     """A record written with partial --stages: the series is not finished."""
 
 
@@ -49,12 +50,12 @@ def load(folder):
 
 
 def parse(rec):
-    """Validate a record dict and return it. Raises PartialRecord or RecordError."""
+    """Validate a record dict and return it. Raises PartialRecordError or RecordError."""
     check(rec)
     missing = sorted(set(STAGES) - set(rec["stages"]))
     if missing:
         msg = f"record written without stage(s) {missing}"
-        raise PartialRecord(msg)
+        raise PartialRecordError(msg)
     return rec
 
 
@@ -96,7 +97,7 @@ def check(rec):
     if not isinstance(groups, dict) or any(
         not isinstance(g, dict)
         or type(g.get("q")) is not int
-        or not 0 <= g["q"] <= 100
+        or not 0 <= g["q"] <= QUALITY_MAX
         or not isinstance(g.get("probes", []), list)
         for g in groups.values()
     ):

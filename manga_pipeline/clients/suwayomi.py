@@ -4,6 +4,8 @@ Field and input names are Suwayomi-Server's schema at v2.4.2366 (introspected). 
 Suwayomi was found unreachable. Every call returns plain dicts shaped like the GraphQL reply.
 """
 
+from http import HTTPStatus
+
 from manga_pipeline.clients import http
 
 PAGE_SIZE = 50  # library manga per query: the whole library in 1 query times out
@@ -16,6 +18,9 @@ MANGA = (
     " trackRecords { nodes { trackerId remoteId } }"
 )
 CHAPTER = "id mangaId name scanlator chapterNumber sourceOrder isDownloaded pageCount uploadDate url realUrl"
+# the last code point UTF-8 writes in 1, 2 and 3 bytes
+UTF8_1_BYTE_LAST, UTF8_2_BYTES_LAST, UTF8_3_BYTES_LAST = 0x7F, 0x7FF, 0xFFFF
+FIRST_PRINTABLE = 0x20  # the first printable code point: the C0 control characters lie below it
 
 
 class GraphQLError(Exception):
@@ -26,7 +31,7 @@ class GraphQLError(Exception):
         self.errors = errors
 
 
-class SourceUnavailable(Exception):
+class SourceUnavailableError(Exception):
     """The download source a call went to cannot serve it now; Suwayomi itself answers."""
 
 
@@ -99,10 +104,10 @@ class Suwayomi:
                 retry_timeout=False,
                 retries=0,
             )
-        except http.Timeout:
+        except http.HttpTimeoutError:
             return None
         except http.HttpError as e:
-            if e.status in (404, 500):
+            if e.status in (HTTPStatus.NOT_FOUND, HTTPStatus.INTERNAL_SERVER_ERROR):
                 return None
             raise
         return reply.body
@@ -141,7 +146,7 @@ class Suwayomi:
 
     def search_source(self, source_id, title):
         """The first page of a source's search for a title. Suwayomi stores each hit as a manga outside the library.
-        SourceUnavailable when the source cannot serve it."""
+        SourceUnavailableError when the source cannot serve it."""
         query = (
             "mutation ($source: LongString!, $query: String!) { fetchSourceManga(input:"
             f" {{source: $source, type: SEARCH, page: 1, query: $query}}) {{ mangas {{ {MANGA} }} }} }}"
@@ -150,7 +155,7 @@ class Suwayomi:
 
     def fetch_manga_and_chapters(self, manga_id):
         """Refresh 1 manga's chapter list from its source (any manga, in the library or not; none of the updater's
-        filters apply) and return {manga, chapters}. SourceUnavailable when the source cannot serve it."""
+        filters apply) and return {manga, chapters}. SourceUnavailableError when the source cannot serve it."""
         query = (
             "mutation ($id: Int!) { fetchMangaAndChapters(input: {id: $id, fetchManga: false, fetchChapters: true})"
             f" {{ manga {{ {MANGA} }} chapters {{ {CHAPTER} }} }} }}"
@@ -169,14 +174,14 @@ class Suwayomi:
                 timeout=SOURCE_TIMEOUT,
                 retry_timeout=False,
             )
-        except http.Timeout as e:
+        except http.HttpTimeoutError as e:
             self.ping()
-            raise SourceUnavailable(str(e)) from None
+            raise SourceUnavailableError(str(e)) from None
         try:
             return _data(reply)
         except GraphQLError as e:
             if all("path" in error for error in e.errors):
-                raise SourceUnavailable(str(e)) from None
+                raise SourceUnavailableError(str(e)) from None
             raise
 
 
@@ -231,9 +236,11 @@ def valid_filename(name):
     kept, size = [], 0
     for char in name:
         code = ord(char)
-        char_bytes = 1 if code <= 0x7F else 2 if code <= 0x7FF else 3 if code <= 0xFFFF else 4
+        char_bytes = (
+            1 if code <= UTF8_1_BYTE_LAST else 2 if code <= UTF8_2_BYTES_LAST else 3 if code <= UTF8_3_BYTES_LAST else 4
+        )
         if size + char_bytes > MAX_NAME_BYTES:
             break
-        kept.append("_" if code < 0x20 or char in REPLACED else char)
+        kept.append("_" if code < FIRST_PRINTABLE or char in REPLACED else char)
         size += char_bytes
     return "".join(kept)

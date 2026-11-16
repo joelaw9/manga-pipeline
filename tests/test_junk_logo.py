@@ -159,6 +159,9 @@ def test_review_images_show_the_badge_before_and_after_its_blank_and_the_page():
     assert context is page, "the unit image, then the page"
     half = (unit.width - logo_units.GAP) // 2
     before, after = np.asarray(unit)[:, :half], np.asarray(unit)[:, half + logo_units.GAP :]
-    spread = lambda a: (a.max(axis=2).astype(int) - a.min(axis=2)).max()  # noqa: E731
+
+    def spread(a):
+        return (a.max(axis=2).astype(int) - a.min(axis=2)).max()
+
     assert spread(before) > marks.STRONG, "the badge is gone after its blank"
     assert spread(after) <= marks.STRONG, "the badge is gone after its blank"

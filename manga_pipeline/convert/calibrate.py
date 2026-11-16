@@ -133,7 +133,7 @@ def choose(samples):
     return q, f"ladder floor q{q} passes ({len(counted)} samples)"
 
 
-def add(conn, series_id, group, chapter_id, new, guard):
+def add(conn, series_id, group, chapter_id, new, *, guard):
     """Store a chapter's samples of an open group ([{"sha1", "rendered", "bytes_in", "scores"}]) and fix the group
     when choose allows, in 1 transaction that reads the row again: nothing is added when the group is fixed by now or
     the chapter has added samples before (a retried chapter, a second run). guard(conn) runs first in it and raises

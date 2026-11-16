@@ -28,7 +28,7 @@ CLOSED_KEEP = timedelta(hours=1)  # a candidate closed this long is deleted with
 ORPHAN_KEEP_S = 24 * 3600  # a folder no row names is removed once this old (another machine may be recording it)
 
 
-class Gone(RuntimeError):
+class Gone(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """A candidate the chapter meant to join was deleted meanwhile: the chapter fails, and its retry writes the
     images anew."""
 

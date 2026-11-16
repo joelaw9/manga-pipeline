@@ -9,6 +9,7 @@ per source per run, each on its own `http.Service` with the source's minimum gap
 import urllib.parse
 from datetime import UTC, datetime
 from html.parser import HTMLParser
+from http import HTTPStatus
 from typing import override
 
 from manga_pipeline.clients import http
@@ -55,14 +56,14 @@ def _unless_gone(call):
     try:
         return call()
     except http.HttpError as e:
-        if e.status == 404:
+        if e.status == HTTPStatus.NOT_FOUND:
             return None
         raise
 
 
 class MangaBaka:
-    def __init__(self):
-        self._service = http.Service("mangabaka", 0.5)
+    def __init__(self, service=None):
+        self._service = service or http.Service("mangabaka", 0.5)
         self._search = http.Service("mangabaka", 2.1)  # search has its own, slower limit
 
     def series(self, mb_id):
@@ -86,8 +87,8 @@ class MangaBaka:
 
 
 class MangaUpdates:
-    def __init__(self):
-        self._service = http.Service("mangaupdates", 0.5)
+    def __init__(self, service=None):
+        self._service = service or http.Service("mangaupdates", 0.5)
 
     def series(self, mu_id):
         return _unless_gone(lambda: self._service.request("GET", f"{MANGAUPDATES}/series/{mu_id}").json())
@@ -100,8 +101,8 @@ class MangaUpdates:
 
 
 class MangaDex:
-    def __init__(self):
-        self._service = http.Service("mangadex", 0.25, MANGADEX_USER_AGENT)
+    def __init__(self, service=None):
+        self._service = service or http.Service("mangadex", 0.25, MANGADEX_USER_AGENT)
 
     def manga(self, md_id):
         query = urllib.parse.urlencode([("includes[]", "cover_art")])
@@ -146,8 +147,8 @@ class MangaDex:
 
 
 class AniList:
-    def __init__(self):
-        self._service = http.Service("anilist", 2.1)
+    def __init__(self, service=None):
+        self._service = service or http.Service("anilist", 2.1)
 
     def media(self, al_id):
         data = _unless_gone(lambda: self._query(ANILIST_MEDIA, {"id": int(al_id)}))
@@ -170,10 +171,10 @@ class AniList:
 class Tapas:
     """Tapas' own site endpoints (local library tapas.md). A 403 is Tapas blocking: unreachable for the run."""
 
-    GONE = (400, 404)
+    GONE = (HTTPStatus.BAD_REQUEST, HTTPStatus.NOT_FOUND)
 
-    def __init__(self):
-        self._service = http.Service("tapas", 0.5)
+    def __init__(self, service=None):
+        self._service = service or http.Service("tapas", 0.5)
 
     def series_id(self, slug):
         """The numeric series id from the series' /info page (its `tapastic://series/<id>` meta; the page carries it
@@ -211,7 +212,7 @@ class Tapas:
         try:
             return self._service.request("GET", url, headers={"Accept": accept})
         except http.HttpError as e:
-            if e.status == 403:
+            if e.status == HTTPStatus.FORBIDDEN:
                 msg = f"HTTP 403 from {http.redact_url(url)}: blocked"
                 raise self._service.mark_unreachable(msg) from None
             raise
@@ -220,8 +221,10 @@ class Tapas:
 class Webtoons:
     """Webtoons' own endpoints (local library webtoons.md); a ref is "<webtoon|canvas>:<title_no>"."""
 
-    def __init__(self):
-        self._service = http.Service("webtoons", 0.5)
+    GONE = (HTTPStatus.BAD_REQUEST, HTTPStatus.NOT_FOUND)
+
+    def __init__(self, service=None):
+        self._service = service or http.Service("webtoons", 0.5)
 
     def episodes(self, ref):
         """[(site number, title, date, None)] in site order, or None when Webtoons has no such series
@@ -232,7 +235,7 @@ class Webtoons:
             url = f"{WEBTOONS_API}/{kind}/{number}/episodes?pageSize={WEBTOONS_PAGE}"
             url += f"&cursor={cursor}" if cursor else ""
             # a gone first page is no list; a page gone later is an error: the stored list is kept
-            reply = _gone(lambda url=url: self._service.request("GET", url), (400, 404) if cursor is None else ())
+            reply = _gone(lambda url=url: self._service.request("GET", url), self.GONE if cursor is None else ())
             if reply is None:
                 return None
             data = reply.json()

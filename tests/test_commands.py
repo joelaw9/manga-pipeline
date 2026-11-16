@@ -267,15 +267,15 @@ def missing(tmp_path):
     cfg = site_cfg(tmp_path)
     cfg = {**cfg, "database": {**cfg["database"], "name": f"{cfg['database']['name']}_never"}}
     yield cfg
-    with closing(pg._connect(db.MAINTENANCE_DATABASE)) as conn:
-        conn.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(pg._owned(cfg["database"]["name"])))
+    with closing(pg.connect(db.MAINTENANCE_DATABASE)) as conn:
+        conn.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(pg.owned(cfg["database"]["name"])))
 
 
 def created(cfg):
     """Whether the server has the database cfg names, with or without a schema."""
     try:
         db.peek_id(cfg)
-    except db.NoDatabase:
+    except db.NoDatabaseError:
         return False
     except db.Error:
         return True  # it exists, holding no meta table
@@ -315,7 +315,7 @@ def test_junk_commands_on_a_missing_database_are_refused_and_create_none(tmp_pat
 
 @budget(load="db")
 def test_a_builder_whose_role_cannot_create_the_database_exits_4(tmp_path, missing, monkeypatch, capsys):
-    real = db._open
+    real = db.open_connection
 
     class NoCreate:
         """The maintenance connection of a role without the right to create a database."""
@@ -336,7 +336,7 @@ def test_a_builder_whose_role_cannot_create_the_database_exits_4(tmp_path, missi
         conn = real(cfg, dbname)
         return NoCreate(conn) if dbname == db.MAINTENANCE_DATABASE else conn
 
-    monkeypatch.setattr(db, "_open", opened)
+    monkeypatch.setattr(db, "open_connection", opened)
     assert main(tmp_path, missing, "state", "adopt", "--yes") == 4
     err = capsys.readouterr().err
     assert missing["database"]["name"] in err, "named on stderr"

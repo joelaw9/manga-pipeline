@@ -84,7 +84,7 @@ def test_hard_problems_stop_the_run_after_every_check_ran():
         Check("b", SOFT, lambda _cfg: seen.append("b")),
         Check("c", HARD, broken("second")),
     ]
-    with pytest.raises(preflight.PreflightFailed, match="a: first; c: second"):
+    with pytest.raises(preflight.PreflightError, match="a: first; c: second"):
         preflight.run(config.cached(), checks)
     assert seen == ["b"], "a hard failure must not skip the later checks"
 
@@ -367,7 +367,7 @@ def test_share_ownership_applies_no_schema_step(tmp_path, monkeypatch):
     (folder / "0099_new.sql").write_text("CREATE TABLE n (x BIGINT);", encoding="utf-8")
     monkeypatch.setattr(db, "SCHEMA", folder)
     assert preflight.share_ownership(cfg) is None
-    with closing(pg._connect(cfg["database"]["name"])) as conn:
+    with closing(pg.connect(cfg["database"]["name"])) as conn:
         steps = [r[0] for r in conn.execute("SELECT name FROM schema_step")]
     assert "0099_new" not in steps, "a check never upgrades the database"
 

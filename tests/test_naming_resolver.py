@@ -19,7 +19,7 @@ RECORDS = Path(__file__).with_name("fixtures_api") / "records"
 OVERRIDE_1_2 = {"volumes": {1: "1-2", 2: "3-"}}
 
 
-def settled(number, volume, source, kind=MAIN, marker="", season=None, order=None):
+def settled(number, volume, source, kind=MAIN, marker="", *, season=None, order=None):
     return Row(
         key=("p", number, kind),
         settled=True,
@@ -36,7 +36,7 @@ def settled(number, volume, source, kind=MAIN, marker="", season=None, order=Non
     )
 
 
-def new(number, kind=MAIN, src_volume=None, season=None, marker="", title="", date=None, order=0):
+def new(number, kind=MAIN, src_volume=None, season=None, marker="", *, title="", date=None, order=0):
     return Row(
         key=("c", number, kind),
         settled=False,
@@ -209,7 +209,7 @@ def test_a_none_series_with_an_override_file_takes_its_volumes():
         "mangadex-override-fills",
     ],
 )
-def test_a_gap_fill_fills_only_what_agrees_and_keeps_order(basis, rows, overrides, mangadex, number, want):
+def test_a_gap_fill_fills_only_what_agrees_and_keeps_order(basis, rows, overrides, mangadex, number, *, want):
     assert volume_of(basis, rows, number, overrides, mangadex) == want, (
         "a filler fills nothing when it clashes with the basis, and no fill breaks the volume order"
     )

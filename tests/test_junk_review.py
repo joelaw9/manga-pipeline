@@ -181,7 +181,7 @@ def test_review_checks_need_claude_and_its_token(tmp_path):
 @pytest.mark.parametrize(
     ("reply", "want"), [(None, 0), ({"is_error": True, "subtype": "error_auth"}, 1)], ids=["success", "error"]
 )
-def test_the_token_is_never_in_the_log_or_an_error(world, tmp_path, capsys, monkeypatch, reply, want):
+def test_the_token_is_never_in_the_log_or_an_error(world, tmp_path, capsys, monkeypatch, reply, *, want):
     monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "DEBUG")
     token = "tok-SECRET-4711"
     cfg = {**world.cfg, "junk": {**world.cfg["junk"], "claude_token": token}}

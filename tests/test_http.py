@@ -47,7 +47,9 @@ def test_a_reply_that_is_not_json_fails_naming_service_status_and_content_type(m
     page = b"<html><title>MangaDex - Browser verification</title></html>"
     scripted(monkeypatch, Reply(page, header_values={"Content-Type": "text/html"}))
     got = http.Service("svc").request("GET", URL)
-    with pytest.raises(http.NotJson, match=r"^svc: HTTP 200 reply is not JSON \(Content-Type text/html\)$") as caught:
+    with pytest.raises(
+        http.NotJsonError, match=r"^svc: HTTP 200 reply is not JSON \(Content-Type text/html\)$"
+    ) as caught:
         got.json()
     assert isinstance(caught.value, http.HttpError), "a reply that is not JSON is a failure of the request"
 
@@ -251,7 +253,7 @@ def test_a_client_can_mark_the_service_unreachable(monkeypatch):
 def test_a_timeout_not_to_be_retried_raises_timeout_and_marks_nothing(monkeypatch, clock, failure):
     urlopen = scripted(monkeypatch, failure, Reply())
     service = http.Service("svc")
-    with pytest.raises(http.Timeout):
+    with pytest.raises(http.HttpTimeoutError):
         service.request("GET", URL, retry_timeout=False)
     assert len(urlopen.requests) == 1
     assert clock.sleeps == []

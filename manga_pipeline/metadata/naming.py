@@ -31,6 +31,7 @@ SIDE_TITLE = "Side Story {n}"
 MANGADEX_SHARE = 0.5  # choose: half volumed, half loose reads worse than no volumes
 
 VolumeError = volumes.VolumeError  # a volume that cannot be written: a person must act
+TOKEN_PARTS = 2  # a chapter token with a prefix: "S2 10", "side 3"
 
 
 @dataclass(frozen=True)
@@ -86,9 +87,9 @@ def edit_token(kind, season, number):
 def parse_token(text):
     """edit_key of an edit file's chapter: "10", "S2 10" (season 2), "side 3" (Side Story 3). ValueError otherwise."""
     parts = str(text).split()
-    if len(parts) == 2 and parts[0].lower() == "side":
+    if len(parts) == TOKEN_PARTS and parts[0].lower() == "side":
         kind, season, number = names.SIDE, None, parts[1]
-    elif len(parts) == 2 and parts[0][:1] in "sS" and parts[0][1:].isdigit():
+    elif len(parts) == TOKEN_PARTS and parts[0][:1] in "sS" and parts[0][1:].isdigit():
         kind, season, number = names.MAIN, int(parts[0][1:]), parts[1]
     elif len(parts) == 1:
         kind, season, number = names.MAIN, None, parts[0]
@@ -132,7 +133,7 @@ def apply_edit(row, edits):
     return row
 
 
-def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset(), edits=None):
+def resolve(basis, rows, overrides, mangadex, platform=None, *, fill=frozenset(), edits=None):
     """{row key: Naming} for the open rows of 1 series. basis: the record's series.naming.basis (None: no volume);
     overrides: the override file's mapping, or None when the series has none; mangadex: mangadex_volumes' map;
     platform: the stored platform list (metadata/platforms.py), or None; fill: keys of open rows that are published
@@ -168,8 +169,8 @@ def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset(), e
         dataclasses.replace(r, settled=True, volume=pinned[i], volume_source=EDIT) if i in pinned else r
         for i, r in enumerate(rows)
     ]
-    vol.update(_open_main_volumes(basis, fixed, main, override, mangadex, platform))
-    plain = _open_main_volumes(basis, rows, main, override, mangadex, platform) if pinned else {}
+    vol.update(_open_main_volumes(basis, fixed, main, override, mangadex, platform=platform))
+    plain = _open_main_volumes(basis, rows, main, override, mangadex, platform=platform) if pinned else {}
     # an edit that gives the sources' own volume keeps their source (and whether it is covered)
     vol.update({i: plain[i] if plain[i][0] == v else (v, EDIT) for i, v in pinned.items()})
     for i in main:
@@ -179,7 +180,7 @@ def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset(), e
             msg = f"chapter {number}: volume {volume} ({vol[i][1]}) is not a whole number"
             raise VolumeError(msg)
     out = {}
-    covered = _opens_covered(basis, rows, main, vol, override, mangadex)
+    covered = _opens_covered(basis, rows, main, vol, override, mangadex=mangadex)
     titles = platforms.chapter_titles(platform)
     for i in main:
         if not rows[i].settled:
@@ -252,16 +253,27 @@ def _items(x):
 # --- main volumes
 
 
-def _open_main_volumes(basis, rows, main, override, mangadex, platform):
+def _open_main_volumes(basis, rows, main, override, mangadex, *, platform):
     """{row index: (volume, volume source)} of the open main rows: the override range's volume (whatever the basis;
     only for a chapter that carries no season: a season's numbers restart), else the basis's volume, else a gap fill,
     else none."""
     free = [i for i in main if not rows[i].settled]
     ranged = override_volumes(override, rows, free)
-    found = _basis_volumes(basis, rows, main, [i for i in free if i not in ranged], override, mangadex, platform)
+    found = _basis_volumes(
+        basis, rows, main, [i for i in free if i not in ranged], override, mangadex=mangadex, platform=platform
+    )
     have = {i: rows[i].volume for i in main if rows[i].settled and rows[i].volume is not None}
     agree = {i: v for i, v in have.items() if rows[i].volume_source == basis}
-    fills = _fills(basis, rows, main, free, {**have, **ranged, **found}, {**agree, **found}, override, mangadex)
+    fills = _fills(
+        basis,
+        rows,
+        main,
+        free,
+        {**have, **ranged, **found},
+        primary={**agree, **found},
+        override=override,
+        mangadex=mangadex,
+    )
     out = {}
     for i in free:
         if i in ranged:
@@ -279,7 +291,7 @@ def override_volumes(override, rows, ids):
     return {i: v for i, v in _override_volumes(override, rows, ids).items() if rows[i].season is None}
 
 
-def _basis_volumes(basis, rows, main, free, override, mangadex, platform):
+def _basis_volumes(basis, rows, main, free, override, *, mangadex, platform):
     """{row index: volume} of the free rows from the series' recorded basis only. A platform basis takes its stored
     list's season ranges (a list of another platform gives none; a chapter past the main-story finale is a side story,
     _past_finale). `none` and no basis give none."""
@@ -312,7 +324,7 @@ def _override_volumes(override, rows, ids):
     return {i: v for i, v in vols.items() if v is not None}
 
 
-def _fills(basis, rows, main, free, known, primary, override, mangadex):
+def _fills(basis, rows, main, free, known, *, primary, override, mangadex):
     """Gap fill for a filename or MangaDex basis: the override first, then (filename only) MangaDex. A `none` basis
     takes the override only (user 2026-11-15: an override file written after a series' bulk run re-volumed its
     chapters, and its new chapters follow it; the bulk converter's own append gave them none)."""
@@ -431,10 +443,10 @@ def season_volumes(rows, main):
 # --- covered volumes and side stories
 
 
-def _opens_covered(basis, rows, main, vol, override, mangadex):
+def _opens_covered(basis, rows, main, vol, override, *, mangadex):
     """Open rows that are the first (lowest-numbered) main chapter of a covered volume no settled chapter has."""
     settled = {r.volume for r in rows if r.settled and r.volume is not None}
-    return {i for v, i in _covered_firsts(basis, rows, main, vol, override, mangadex).items()
+    return {i for v, i in _covered_firsts(basis, rows, main, vol, override, mangadex=mangadex).items()
             if not rows[i].settled and v not in settled}  # fmt: skip
 
 
@@ -445,13 +457,13 @@ def covered_volumes(basis, rows, override, mangadex):
         (i for i, r in enumerate(rows) if r.kind == names.MAIN), key=lambda i: (rows[i].number, rows[i].order)
     )
     vol = {i: (rows[i].volume, rows[i].volume_source) for i in main}
-    return set(_covered_firsts(basis, rows, main, vol, override, mangadex))
+    return set(_covered_firsts(basis, rows, main, vol, override, mangadex=mangadex))
 
 
-def _covered_firsts(basis, rows, main, vol, override, mangadex):
+def _covered_firsts(basis, rows, main, vol, override, *, mangadex):
     """{volume: index of its first (lowest-numbered) main row} of the covered volumes: a volume whose first chapter's
     volume came from MangaDex, the override or a hand edit, or is a filename volume confirmed by them."""
-    confirmed = _cover_confirmed(basis, rows, main, vol, override, mangadex)
+    confirmed = _cover_confirmed(basis, rows, main, vol, override, mangadex=mangadex)
     first = {}
     for i in main:  # in number order
         v = vol[i][0]
@@ -460,7 +472,7 @@ def _covered_firsts(basis, rows, main, vol, override, mangadex):
     return {v: i for v, i in first.items() if vol[i][1] in (MANGADEX, OVERRIDE, EDIT) or i in confirmed}
 
 
-def _cover_confirmed(basis, rows, main, vol, override, mangadex):
+def _cover_confirmed(basis, rows, main, vol, override, *, mangadex):
     """Filename-volumed main rows whose volume an agreeing, ordered override or MangaDex map gives too."""
     if basis != FILENAME:
         return set()

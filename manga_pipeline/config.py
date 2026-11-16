@@ -12,11 +12,19 @@ EXAMPLE = ROOT / "config.yaml.example"
 ENV_PREFIX = "MANGA_PIPELINE"
 INT = re.compile(r"-?[0-9]+")
 DECIMAL = re.compile(r"-?[0-9]+(\.[0-9]+)?")
-_process = None
 
 
 class ConfigError(ValueError):
     pass
+
+
+class _Process:
+    """Holder of the process config: set by init and cached, forgotten by reset."""
+
+    cfg: dict | None = None
+
+
+_process = _Process()
 
 
 def load(path=None, example=None, env=None, sets=()):
@@ -37,24 +45,21 @@ def load(path=None, example=None, env=None, sets=()):
 
 def init(path=None, sets=()):
     """Load the process config (the entry point calls this once) and return it; cached() returns it from then on."""
-    global _process
-    _process = load(path, sets=sets)
-    return _process
+    _process.cfg = load(path, sets=sets)
+    return _process.cfg
 
 
 def reset():
     """Forget the process config: the next cached() loads the default again."""
-    global _process
-    _process = None
+    _process.cfg = None
 
 
 def cached():
     """The process config: init's, else config.yaml + the environment, loaded once. Read-only: callers must not
     modify it."""
-    global _process
-    if _process is None:
-        _process = load()
-    return _process
+    if _process.cfg is None:
+        _process.cfg = load()
+    return _process.cfg
 
 
 def secret_keys(example=None):

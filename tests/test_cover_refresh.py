@@ -103,7 +103,7 @@ def stored_a(world, locale="en"):
 
 
 def lists_read(world):
-    return sum(1 for c in world.sources.mangadex._calls if c[1] == "covers")
+    return sum(1 for c in world.sources.calls if c[1] == "covers")
 
 
 def answer(world, status):
@@ -140,7 +140,7 @@ B = [{"volume": "2", "locale": "en", "fileName": "b.png"}]
         ("mangadex-down", True, True),
     ],
 )
-def test_the_stored_image_stays_unless_mangadex_serves_a_new_choice(world, monkeypatch, caplog, case, tried, due):
+def test_the_stored_image_stays_unless_mangadex_serves_a_new_choice(world, monkeypatch, caplog, case, tried, *, due):
     stored_a(world)
     before, lists, refreshed = stored(world), lists_read(world), []
     real = covers.refresh_volumes
@@ -195,7 +195,9 @@ def test_a_stale_file_of_its_volume_takes_the_new_image_and_one_of_another_volum
     rows = [row(1, 1, 1), row(2, 2, 1), row(3, 3, 2), row(4, 4, 2)]
     states_ = {1: "none", 2: "stale:2", 3: "stale:2", 4: "none"}
     overrides = {"volumes": {1: "1-2", 2: "3-"}}
-    got = rewrite_plan.cover_changes("override", rows, overrides, {}, {}, states_, set(), {"1": "x", "2": "y"})
+    got = rewrite_plan.cover_changes(
+        "override", rows, overrides, {}, {}, states=states_, taken=set(), images={"1": "x", "2": "y"}
+    )
     assert got == {1: ("insert", "1"), 2: ("drop", None), 3: ("insert", "2")}, (
         "the stale holder in volume 2 takes the new image (not file 4); the stale file in volume 1 drops it"
     )

@@ -9,7 +9,7 @@ database ends the run.
 import logging
 from datetime import timedelta
 
-from manga_pipeline import baseline, config, db, identify, kavita_link, workflow
+from manga_pipeline import baseline, config, db, errors, identify, kavita_link, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
@@ -19,7 +19,13 @@ from manga_pipeline.metadata import admit, check, covers, library, sources
 
 log = logging.getLogger(__name__)
 # What a service's answer can raise: the check simply did not complete.
-CHECK_FAILURES = (workflow.Unreachable, http.HttpError, http.Timeout, sources.SourceError, suwayomi_client.GraphQLError)
+CHECK_FAILURES = (
+    workflow.Unreachable,
+    http.HttpError,
+    http.HttpTimeoutError,
+    sources.SourceError,
+    suwayomi_client.GraphQLError,
+)
 BASELINE_PASS_AT = "intake.baseline_pass_at"  # meta: when the last baseline pass completed
 
 
@@ -47,7 +53,7 @@ def run(ctx, clients):
             log.warning("series %s: metadata check not completed: %s", series_id, e)
         except Exception as e:
             if isinstance(e, db.Error) or (
-                isinstance(e, OSError) and (workflow.dropped_share(e) or e.errno in workflow.SHARE_ERRNOS)
+                isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS)
             ):
                 raise  # the database or the share: the run's problem
             # A reply of an unexpected shape, a file this machine cannot write: this series' problem, not the run's
@@ -86,13 +92,13 @@ def baseline_pass(ctx):
             with db.transaction(conn):
                 conn.execute("UPDATE series SET folder = %s WHERE id = %s AND folder IS NULL", (folder, series["id"]))
             series = conn.execute("SELECT * FROM series WHERE id = %s", (series["id"],)).fetchone()
-        if not workflow.exists(config.to_local(ctx.cfg, series["folder"]) / record_reader.RECORD_NAME):
+        if not errors.exists(config.to_local(ctx.cfg, series["folder"]) / record_reader.RECORD_NAME):
             continue
         try:
             why = baseline.take(ctx, series)
         except Exception as e:
-            if isinstance(e, (db.Error, workflow.Unreachable, http.Timeout)) or (
-                isinstance(e, OSError) and (workflow.dropped_share(e) or e.errno in workflow.SHARE_ERRNOS)
+            if isinstance(e, (db.Error, workflow.Unreachable, http.HttpTimeoutError)) or (
+                isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS)
             ):
                 raise  # the database, the share or a service down: the run's problem (the pass is tried again)
             log.exception("%s: series %s (%s): baseline not taken", ctx.part, series["id"], series["name"])

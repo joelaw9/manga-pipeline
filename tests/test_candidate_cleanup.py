@@ -23,7 +23,7 @@ def site(tmp_path):
         yield cfg, conn
 
 
-def candidate(conn, cfg, folder, key="123456789abcdef0|0.7", closed_at=None, review_open=0, waited_on_by=None):
+def candidate(conn, cfg, folder, key="123456789abcdef0|0.7", closed_at=None, *, review_open=0, waited_on_by=None):
     """A candidate row and its folder (with an image); waited_on_by: a junk chapter waiting on it (open)."""
     (config.abs_path(cfg["paths"]["candidates"]) / folder).mkdir(parents=True)
     (config.abs_path(cfg["paths"]["candidates"]) / folder / "unit.png").write_bytes(b"png")

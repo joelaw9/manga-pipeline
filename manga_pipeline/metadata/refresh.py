@@ -19,7 +19,7 @@ def completed(ctx, series_id, manga_rows):
         before = {c["id"] for c in ctx.suwayomi.chapters(manga["id"])}
         try:
             after = ctx.suwayomi.fetch_manga_and_chapters(manga["id"])["chapters"]
-        except suwayomi_client.SourceUnavailable as e:
+        except suwayomi_client.SourceUnavailableError as e:
             log.warning("series %s: chapter refresh of Suwayomi manga %s: %s", series_id, manga["id"], e)
             continue
         # Queued at once, manga by manga: the next refresh counts these chapters as listed before it.

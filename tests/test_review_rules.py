@@ -9,7 +9,7 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import archive, config, db, discovery, kavita_link, retention, workflow
+from manga_pipeline import archive, config, db, discovery, errors, kavita_link, retention, workflow
 from manga_pipeline.junk import candidates, review_run
 
 from tests.builders import WinFileNotFoundError, add_chapter, add_series, adopted, one, site_cfg
@@ -76,8 +76,8 @@ def test_a_windows_machine_skips_names_windows_cannot_use(tmp_path, monkeypatch,
 def test_a_dropped_smb_share_is_not_a_file_already_gone(tmp_path, monkeypatch):
     present = tmp_path / "a.cbz"
     present.write_bytes(b"x")
-    assert workflow.exists(present)
-    assert not workflow.exists(tmp_path / "gone.cbz")
+    assert errors.exists(present)
+    assert not errors.exists(tmp_path / "gone.cbz")
 
     def dropped(_path, *_a, **_k):
         error = WinFileNotFoundError(errno.ENOENT, "The network name cannot be found")
@@ -87,7 +87,7 @@ def test_a_dropped_smb_share_is_not_a_file_already_gone(tmp_path, monkeypatch):
     cfg = site_cfg(tmp_path, built=False)
     monkeypatch.setattr(os, "stat", dropped)
     with pytest.raises(workflow.Unreachable), workflow.share_errors():
-        workflow.exists(present)
+        errors.exists(present)
     with pytest.raises(workflow.Unreachable), workflow.share_errors():  # put aside, never "already gone"
         retention.put(cfg, present)
     monkeypatch.setattr(archive, "pages_digest", dropped)

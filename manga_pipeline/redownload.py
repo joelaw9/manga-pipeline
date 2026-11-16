@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 from rapidfuzz import fuzz
 
-from manga_pipeline import config, db, names, retention, workflow
+from manga_pipeline import config, db, errors, names, retention, workflow
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.db import sql
 
@@ -143,7 +143,7 @@ def pick(ctx, chapter, series, state):
             continue
         try:
             found = _match(ctx, chapter, series, reference, installed[name])
-        except suwayomi.SourceUnavailable as e:
+        except suwayomi.SourceUnavailableError as e:
             down.append(f"{name} ({str(e).splitlines()[0]})")  # Suwayomi appends the source's Java stack trace
             continue
         if found and not held_elsewhere(ctx, chapter, found):
@@ -292,7 +292,7 @@ def download_state(ctx, expected):
     if row is None:
         return "failed"
     if row["isDownloaded"]:
-        return "complete" if workflow.exists(config.to_local(ctx.cfg, expected["path"])) else "failed"
+        return "complete" if errors.exists(config.to_local(ctx.cfg, expected["path"])) else "failed"
     queued_at = datetime.fromisoformat(expected["enqueued_at"])
     if datetime.fromisoformat(workflow.now(ctx.conn)) - queued_at > timedelta(
         hours=ctx.cfg["sources"]["download_timeout_hours"]

@@ -20,6 +20,7 @@ from manga_pipeline import (
     comicinfo,
     config,
     db,
+    errors,
     handled,
     names,
     page_store,
@@ -50,7 +51,7 @@ def run(ctx, chapter):
         state = _reject(ctx, chapter, redownload.new_state(ctx, chapter, {}), _own(chapter), verdict.reason)
     elif "original" not in state:  # chapter use on a chapter never rejected: its file in hand, if any, gives way
         state = redownload.new_state(ctx, chapter, state)
-        if workflow.exists(config.to_local(ctx.cfg, chapter["download_path"])):
+        if errors.exists(config.to_local(ctx.cfg, chapter["download_path"])):
             state = _reject(ctx, chapter, state, _own(chapter), "replaced by the download a person chose")
         else:
             redownload.save(ctx, chapter, state)

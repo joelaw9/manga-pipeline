@@ -179,7 +179,7 @@ def read_database(cfg, name):
     try:
         with closing(db.read_only({**cfg, "database": {**cfg["database"], "name": name}})) as src:
             rows = [{c: r[c] for c in DECISION_COLUMNS} for r in src.execute("SELECT * FROM junk_decision ORDER BY id")]
-    except db.NoDatabase as e:
+    except db.NoDatabaseError as e:
         raise SourceError(str(e)) from None
     except db.SchemaError as e:
         msg = f"{name} is not a pipeline database of this version: {e}"

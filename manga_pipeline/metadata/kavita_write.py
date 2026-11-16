@@ -16,7 +16,7 @@ import json
 import logging
 from pathlib import Path
 
-from manga_pipeline import config, db, workflow
+from manga_pipeline import config, db, errors, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients.kavita_match import normalize
@@ -84,7 +84,7 @@ def run(ctx):
         try:
             write(ctx, series_id, rules)
         except (http.HttpError, kavita_client.CoverError, FileNotFoundError) as e:
-            if isinstance(e, OSError) and workflow.dropped_share(e):
+            if isinstance(e, OSError) and errors.dropped_share(e):
                 raise
             log.warning("series %s: fields not written: %s", series_id, e)
 
@@ -137,13 +137,13 @@ def write(ctx, series_id, rules):
             state["written"][name] = key_now  # what Kavita holds once the add step went through
             record()
 
-        _set_list(kv, kid, key, lock, label, values, added)
+        _set_list(kv, kid, key, lock=lock, label=label, values=values, added_step=added)
         state["written"][name] = _key(values)
         record()
     for name, (key, lock) in PEOPLE.items():
         _add_people(kv, kid, key, lock, getattr(fields, name))
     _links_and_ids(kv, kid, fields)
-    state["cover"] = _cover(ctx, series, kid, state, imported, guard, record)
+    state["cover"] = _cover(ctx, series, kid, state, imported, guard=guard, record=record)
     record(final=True)
     log.info("series %s (%s): fields written to Kavita", series_id, series["name"])
 
@@ -190,7 +190,7 @@ def _list_key(entries, label):
     return _key(v[label] for v in entries or []) or None
 
 
-def _set_list(kv, kid, key, lock, label, values, added_step):
+def _set_list(kv, kid, key, *, lock, label, values, added_step):
     """Add the missing entries (in the sources' spelling), then drop the others, in 2 updates of this list alone;
     lock it. added_step(key) is told what Kavita holds after the add step, before the prune can fail."""
     wanted = {normalize(v) for v in values}
@@ -235,7 +235,7 @@ def _links_and_ids(kv, kid, fields):
         kv.update_series(series, **changes)
 
 
-def _cover(ctx, series, kid, state, imported, guard, record):
+def _cover(ctx, series, kid, state, imported, *, guard, record):
     """Upload the series' cover when Kavita does not hold it from the pipeline; the sha256 Kavita now holds from it.
     A cover uploaded to Kavita before the pipeline's first upload, and not by the old tool, is a person's: kept.
     (Kavita names every upload alike, so a person's upload after the pipeline's is not told apart.)"""

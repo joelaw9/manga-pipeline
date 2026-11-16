@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from manga_pipeline import archive, comicinfo, config, db, kavita_link, names, workflow
+from manga_pipeline import archive, comicinfo, config, db, errors, kavita_link, names, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
@@ -21,6 +21,7 @@ from manga_pipeline.metadata import ids as metadata_ids
 from manga_pipeline.metadata import search
 
 log = logging.getLogger(__name__)
+FOLDER_LINK_PARTS = 2  # SOURCE_FOLDER/TITLE_FOLDER
 
 
 @dataclass(frozen=True)
@@ -195,7 +196,7 @@ def comicinfo_series(paths):
             name = comicinfo.read_fields(xml, ("Series",))["Series"] if xml else ""
         except (*archive.UNREADABLE, ET.ParseError, LookupError, OSError) as e:
             # A file this machine cannot read (permissions, held open, gone) says nothing; a failing share ends the run
-            if isinstance(e, OSError) and (workflow.dropped_share(e) or e.errno in workflow.SHARE_ERRNOS):
+            if isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS):
                 raise
             continue
         if name:
@@ -371,7 +372,7 @@ def folder_key(cfg, suwayomi, text):
     another spelling, which discovery never keys by), and no library manga maps to it (discovery would never read the
     link)."""
     parts = text.split("/")
-    if len(parts) != 2 or any(part in ("", ".", "..") or "\\" in part for part in parts):
+    if len(parts) != FOLDER_LINK_PARTS or any(part in ("", ".", "..") or "\\" in part for part in parts):
         msg = f"--folder takes SOURCE_FOLDER/TITLE_FOLDER under the downloads' mangas folder: {text}"
         raise workflow.Refused(msg)
     root = config.abs_path(cfg["paths"]["downloads"]) / suwayomi_client.MANGAS_FOLDER

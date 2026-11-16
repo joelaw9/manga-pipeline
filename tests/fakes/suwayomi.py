@@ -232,7 +232,7 @@ class FakeSuwayomi(suwayomi.Suwayomi):
     def _check_source(self, source_id):
         if source_id in self.unavailable:
             msg = f"No route to host (source {source_id})"
-            raise suwayomi.SourceUnavailable(msg)
+            raise suwayomi.SourceUnavailableError(msg)
 
     def _entry(self, chapter_id):
         for entry in self.queue:

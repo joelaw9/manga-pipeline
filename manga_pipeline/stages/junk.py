@@ -22,6 +22,7 @@ from manga_pipeline import (
     archive,
     config,
     db,
+    errors,
     handled,
     images,
     library_copy,
@@ -125,7 +126,7 @@ def _sample(ctx, chapter, series):
         for r in rows
         if r["download_path"]
         and not (os.name == "nt" and re.search(workflow.WINDOWS_UNUSABLE, r["download_path"]))
-        and (r["id"] == chapter["id"] or workflow.exists(config.to_local(ctx.cfg, r["download_path"])))
+        and (r["id"] == chapter["id"] or errors.exists(config.to_local(ctx.cfg, r["download_path"])))
     ]
     picked = list(dict.fromkeys(r["id"] for r in (usable[0], usable[-1], usable[len(usable) // 2]))) if usable else []
     others = [i for i in picked if i != chapter["id"]][:2]  # this chapter is always measured: 2 more at most
@@ -136,7 +137,7 @@ def _sample(ctx, chapter, series):
         work = _scratch(ctx, chapter).parent / "sample" / str(r["id"])
         work.mkdir(parents=True, exist_ok=True)
         pages = archive.pages(config.to_local(ctx.cfg, r["download_path"]))
-        content = strip._content_indexes([name for name, _ in pages])
+        content = strip.content_indexes([name for name, _ in pages])
         paths = []
         for i in content:
             name, data = pages[i]
@@ -169,7 +170,7 @@ def scan(ctx, chapter, series, key):
     work = _scratch(ctx, chapter)
     try:
         paths, names, sizes, measured = extract(ctx, chapter, work)
-        content = strip._content_indexes(names)
+        content = strip.content_indexes(names)
         try:
             layout = _layout(ctx, chapter, series, [paths[i] for i in content])
         except volumes.VolumeError as e:
@@ -207,7 +208,7 @@ def _scan_strip(ctx, key, paths, sizes, content):
     cpaths = [paths[i] for i in content]
     rows, logos = [], []
     for i, path in zip(content, cpaths, strict=True):
-        im = strip._open(path)
+        im = strip.open_page(path)
         rows.append(strip.page_rows(im))
         logo = logo_units.measure(i, im)
         if logo is not None:

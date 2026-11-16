@@ -22,6 +22,7 @@ ARCHIVE_EXT = (".cbz", ".zip", ".cbr", ".rar", ".cb7", ".7z")
 SERIES_NAME_KEYS = ("name", "localizedName", "originalName")  # the names a Kavita series DTO matches on
 USABLE = frozenset({"matched", "shared"})  # folder statuses the pipeline works on
 NORMALIZE_KEEP = frozenset("0123456789+!\uff0a\uff01\uff0b")  # kept by normalize besides letters (Kavita's class)
+BMP_LAST = 0xFFFF  # the last code point of the Basic Multilingual Plane (1 C# char)
 
 
 def series_names(series):
@@ -41,7 +42,7 @@ def normalize(name):
 
 def _kept(c):
     """A character Kavita's normalize keeps (a BMP letter, an ASCII digit, ASCII + ! and full-width * ! +)."""
-    return c in NORMALIZE_KEEP or (ord(c) <= 0xFFFF and unicodedata.category(c).startswith("L"))
+    return c in NORMALIZE_KEEP or (ord(c) <= BMP_LAST and unicodedata.category(c).startswith("L"))
 
 
 def off_names(series_values, kavita_names):

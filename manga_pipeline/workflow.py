@@ -21,7 +21,7 @@ from manga_pipeline import db, lock
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.db import sql
-from manga_pipeline.errors import SHARE_ERRNOS, SHARE_WINERRORS, Unreachable, dropped_share, exists  # noqa: F401
+from manga_pipeline.errors import SHARE_ERRNOS, SHARE_WINERRORS, Unreachable
 
 log = logging.getLogger(__name__)
 STAGES = ("discover", "validate", "junk", "convert", "comicinfo", "publish", "confirm")
@@ -67,7 +67,7 @@ def claim_name(chapter):
 CLAIM_NAME = r"\d+-\d+"  # what claim_name gives, for the start-of-run clean-ups
 
 
-class ClaimLost(RuntimeError):
+class ClaimLost(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """The run no longer holds the chapter's claim (it was freed while the run slept or lost its connection): the
     chapter ends with no outcome and no attempt (SPEC "State")."""
 
@@ -184,7 +184,7 @@ def after(stamp, delta):
     return (datetime.fromisoformat(stamp) + delta).isoformat(timespec="seconds")
 
 
-def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, source, source_url):
+def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, *, source, source_url):
     """Record a discovered download as a chapter ready at the first stage; runs inside the caller's transaction."""
     if not db.in_transaction(conn):
         msg = "add_chapter runs inside the caller's transaction"
@@ -492,7 +492,7 @@ def needs_human(conn, kind, item_id, reason):
     log.warning("needs human: %s %s: %s", kind, item_id, reason)  # Phase 8 adds the Discord message
 
 
-class Refused(ValueError):
+class Refused(ValueError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """A person's command that does not apply to the item it names; nothing was changed."""
 
 

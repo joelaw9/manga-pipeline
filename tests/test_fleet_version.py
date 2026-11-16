@@ -93,8 +93,8 @@ def test_a_database_with_no_version_stops_every_machine(cfg):
 
 @budget(load="pure")
 def test_jpegtran_s_build_date_is_left_out_and_package_names_are_read_from_requirements():
-    assert fleet._name("psycopg[binary]==3.3.9") == "psycopg"
-    assert fleet._name("pillow==13.0.0") == "pillow"
+    assert fleet.package_name("psycopg[binary]==3.3.9") == "psycopg"
+    assert fleet.package_name("pillow==13.0.0") == "pillow"
 
 
 @budget(load="db")

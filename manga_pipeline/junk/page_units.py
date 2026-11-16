@@ -55,6 +55,8 @@ TEXT_PLAIN = 12  # ... plain: luma at most this far from the background
 TEXT_MID = 20  # ... mid-tone: luma more than this far from it, within TEXT_MID_LUMA, not chroma
 TEXT_MID_LUMA = (40, 215)
 TEXT_CHROMA = 40  # ... chroma: channel spread (max - min) above this
+CREDIT_MIN_PAGES = 2  # the last page and 1 other to compare it with
+BOTH_BANDS = 2  # a page's top and bottom band
 
 
 # ---------------------------------------------------------------- page measurements
@@ -116,7 +118,10 @@ def find_band(im, aspect, where, cfg: Mapping[str, float] = BAND):
             if cut is None or abs(c - naive) < abs(cut - naive):
                 cut, how, run = c, "gap", (round(ys), round(ye))
         y = e
-    if how == "gap" and run is not None and cut != naive:  # on the gutter's edge (run is set with "gap")
+    if how == "gap" and cut != naive:  # on the gutter's edge
+        if run is None:
+            msg = "a gap cut carries its run"
+            raise RuntimeError(msg)
         at_end = cut < naive
         cut = _sharpest_row(g, cut, step)
         run = (run[0], cut) if at_end else (cut, run[1])
@@ -179,7 +184,7 @@ def _unpack_edges(packed):
 # ---------------------------------------------------------------- size and text rules (no decode)
 
 
-def page_candidates(sizes, aspects, banded, joined, cfg=BAND, spread_tolerance=END_PAGES["spread_tolerance"]):
+def page_candidates(sizes, aspects, banded, joined, cfg=BAND):
     """Edge pages (of the content pages, `sizes` in order) whose size no middle page of the chapter has: another width
     ("width") or an aspect outside the middle pages' range ("tall" / "short"). Never: band pages, joined pages,
     spreads. Returns [(content index, why)]."""
@@ -188,6 +193,7 @@ def page_candidates(sizes, aspects, banded, joined, cfg=BAND, spread_tolerance=E
     shape = strip.series_shape(aspects)
     width = Counter(w for w, _ in sizes).most_common(1)[0][0]
     wtol, margin = cfg["page_review_width_tolerance"], cfg["page_review_aspect_margin"]
+    spread_tolerance = END_PAGES["spread_tolerance"]
     edge = strip.edge_indexes(len(sizes))
     mid = [
         i
@@ -216,7 +222,7 @@ def end_text_page(sizes, texts, cfg=END_PAGES):
     """Content index of the last page when it is a credit page of the modal size, mostly plain, little mid-tone, some
     colour, in a gray chapter (every other tail page under gray_chroma); else None. texts: {content index: features}."""
     n = len(sizes)
-    if n < 2:
+    if n < CREDIT_MIN_PAGES:
         return None
     last = n - 1
     (mw, mh), (w, h) = Counter(sizes).most_common(1)[0][0], sizes[last]
@@ -244,7 +250,7 @@ def scan(paths, names, sizes, uniform, aspects):
     """The scan of a page-format chapter. paths, names, sizes: every page of the download in archive order;
     uniform: per page, True when it has no junk signature (images.measure_pages); aspects: the series' page aspect
     candidates (strip.page_aspect). Returns a JSON-able dict; page indexes are download indexes."""
-    content = strip._content_indexes(names)
+    content = strip.content_indexes(names)
     csizes = [sizes[i] for i in content]
     if strip.is_stitched(csizes, aspects):
         return {"layout": "pages", "split": True, "marks": []}
@@ -316,7 +322,7 @@ def _crop(found, size):
 def _crop_boxes(found, size):
     """Every box a page can be cropped to by a non-empty subset of its bands."""
     out = [_crop([b], size) for b in found]
-    if len(found) == 2:
+    if len(found) == BOTH_BANDS:
         out.append(_crop(found, size))
     return [b for b in out if b is not None]
 

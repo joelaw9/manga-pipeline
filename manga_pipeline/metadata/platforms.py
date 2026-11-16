@@ -12,6 +12,7 @@ BASES = {f"{TAPAS} seasons": TAPAS, f"{WEBTOONS} seasons": WEBTOONS}  # a record
 ANILIST_SITES = {"Tapas": TAPAS, "WEBTOON": WEBTOONS}
 ENGLISH = "English"
 KIND = "episodes"  # a stored platform list's kind in `fetched` (its source: tapas or webtoons)
+SERIES_PATH_PARTS = 2  # /series/<name>
 
 
 def tapas_ref(url):
@@ -19,7 +20,7 @@ def tapas_ref(url):
     parts = urllib.parse.urlsplit(urllib.parse.unquote(url or "").strip())
     host = parts.netloc.lower().removeprefix("www.")
     path = [p for p in parts.path.split("/") if p]
-    if host != "tapas.io" or len(path) < 2 or path[0] != "series":
+    if host != "tapas.io" or len(path) < SERIES_PATH_PARTS or path[0] != "series":
         return None
     return path[1]
 

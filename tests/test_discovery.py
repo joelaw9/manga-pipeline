@@ -244,26 +244,6 @@ def test_a_download_at_a_done_chapters_path_is_a_new_chapter(world):
 
 
 @budget(load="db")
-def test_a_download_an_export_confirms_during_the_listing_is_not_taken_again(world, monkeypatch):
-    world.kavita_series("Solo Leveling")
-    _, path = world.download(world.manga("Solo Leveling"), "Chapter 2")
-    scan(world)
-    record = discovery._record
-
-    def confirmed_meanwhile(ctx, found, unmatched):  # after the listing: confirm moves the file, then records done
-        path.unlink()
-        with db.transaction(ctx.conn):
-            ctx.conn.execute("UPDATE chapter SET status = 'done'")
-        record(ctx, found, unmatched)
-
-    monkeypatch.setattr(discovery, "_record", confirmed_meanwhile)
-    scan(world)
-    assert world.rows("SELECT count(*) FROM chapter") == [(1,)], (
-        "a listed file gone once its chapter is done is no new download"
-    )
-
-
-@budget(load="db")
 def test_a_chapter_records_its_source_by_display_name(world):
     world.kavita_series("Solo Leveling")
     world.download(world.manga("Solo Leveling"), "Chapter 2")

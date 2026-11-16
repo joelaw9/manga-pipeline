@@ -41,6 +41,7 @@ def published_copy(
     source=BEST,
     pages_in=3,
     width=16,
+    *,
     strip=4500,
     season=None,
     name=None,
@@ -104,7 +105,7 @@ def test_an_equal_copy_is_a_duplicate_put_aside_whatever_its_source(world, sourc
 
 @budget(load="db")
 def test_a_lost_claim_puts_no_duplicate_aside(world, monkeypatch):
-    events, real_junk, real_put = [], library_copy._junk, retention.put
+    events, real_junk, real_put = [], library_copy.published_junk, retention.put
 
     def junk(ctx, *args):
         if not events:  # another run takes the claim while this one compares the copies
@@ -121,7 +122,7 @@ def test_a_lost_claim_puts_no_duplicate_aside(world, monkeypatch):
         events.append(f"put aside under {holder}'s claim")
         return real_put(cfg, path)
 
-    monkeypatch.setattr(library_copy, "_junk", junk)
+    monkeypatch.setattr(library_copy, "published_junk", junk)
     monkeypatch.setattr(retention, "put", put)
     through_junk(world, copies=[{}])
     assert events == ["taken", f"put aside under {workflow.owner('process')}'s claim"], (

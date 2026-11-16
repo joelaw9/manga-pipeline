@@ -7,7 +7,7 @@ import logging
 from datetime import timedelta
 from pathlib import PurePosixPath
 
-from manga_pipeline import config, db, kavita_link, retention, rewrite, workflow
+from manga_pipeline import config, db, errors, kavita_link, retention, rewrite, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.db import sql
@@ -84,13 +84,13 @@ def _folder_ready(ctx, series):
     anything else, or a folder that cannot be made or read, makes the series needs_human."""
     folder = config.to_local(ctx.cfg, series["folder"])
     try:
-        if not workflow.exists(folder):
+        if not errors.exists(folder):
             folder.mkdir()
             return True
         names = [p.name for p in folder.iterdir()]
         own = _own_files(ctx, series, folder)
     except OSError as e:
-        if e.errno in workflow.SHARE_ERRNOS or workflow.dropped_share(e):
+        if e.errno in errors.SHARE_ERRNOS or errors.dropped_share(e):
             raise  # the share: the run's problem (share_errors)
         return _hold(ctx, series, f"folder {series['folder']} cannot be made or read: {e}")
     foreign = sorted(n for n in names if n.lower().endswith(".cbz") and n not in own)
@@ -113,8 +113,8 @@ def _own_files(ctx, series, folder):
     ):
         target = folder / PurePosixPath(chapter["library_path"]).name
         if (
-            not workflow.exists(config.to_local(ctx.cfg, chapter["staged_path"]))
-            and workflow.exists(target)
+            not errors.exists(config.to_local(ctx.cfg, chapter["staged_path"]))
+            and errors.exists(target)
             and target.stat().st_size == chapter["staged_size"]
         ):
             own.add(target.name)

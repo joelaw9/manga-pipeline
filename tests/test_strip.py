@@ -10,7 +10,6 @@ import json
 import shutil
 from contextlib import closing
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pytest
@@ -96,22 +95,20 @@ def strip_of(pages):
     )
 
 
-def strip_plan(st) -> dict[str, Any]:
-    """A Strip's plan with no junk removed: cut_strip over its gaps. Returns cut_strip's {"kept", "cuts", "forced",
-    "length"} + "strip"."""
-    return dict(strip.cut_strip(st.height, strip.find_gaps(st), []), strip=st)
+def strip_plan(st):
+    """A Strip's plan with no junk removed: cut_strip's {"kept", "cuts", "forced", "length"} over its gaps."""
+    return strip.cut_strip(st.height, strip.find_gaps(st), [])
 
 
-def render_cuts(width, pages, kept, cuts, x_dir, out_dir):
+def render_cuts(width, pages, kept, cuts, x_dir, *, out_dir):
     """Execution of a strip / split plan: strip.render over the planned cuts. pages: [{"name", "top", "th"}]."""
     outputs = [{"name": strip.output_name(n), "rows": [a, b]} for n, (a, b) in enumerate(itertools.pairwise(cuts), 1)]
     return strip.render(outputs, x_dir, out_dir, {"width": width, "pages": pages, "kept": kept})
 
 
-def render_strip(pl, out_dir):
-    st = pl["strip"]
+def render_strip(pl, st, out_dir):
     pages = [{"name": Path(p["path"]).name, "top": p["top"], "th": p["th"]} for p in st.pages]
-    return render_cuts(st.width, pages, pl["kept"], pl["cuts"], Path(st.pages[0]["path"]).parent, out_dir)
+    return render_cuts(st.width, pages, pl["kept"], pl["cuts"], Path(st.pages[0]["path"]).parent, out_dir=out_dir)
 
 
 def stacked(paths):
@@ -370,9 +367,10 @@ def test_restitched_pages_cut_in_gutters_and_keep_every_row(tmp_path):
     """9-panel strip in 1,000 px WebP slices: cuts in the gutters, every page <= max_page, pixels carried untouched."""
     im, gutters = panel_strip([900, 1400, 700, 1600, 1100, 800, 1300, 1000, 900])
     pages = slice_strip(im, 1000, tmp_path / "in")  # 1,000 px slices cut panels in half
-    pl = strip_plan(strip_of(pages))
+    st = strip_of(pages)
+    pl = strip_plan(st)
     assert pl["length"] == im.height, "nothing removed"
-    out = render_strip(pl, tmp_path / "out")
+    out = render_strip(pl, st, tmp_path / "out")
     heights = [Image.open(p).height for p in out]
     assert sum(heights) == im.height, "output heights sum to the strip height (no block removed)"
     assert max(heights) <= RC["max_page"], "every page within max_page"
@@ -411,9 +409,11 @@ def test_mixed_widths_scaled_to_the_common_width(tmp_path):
     im, _ = panel_strip([1200, 1200, 1200], width=700)
     pages = slice_strip(im, 1000, tmp_path / "in", fmt="PNG")
     Image.open(pages[1]).resize((568, 811)).save(pages[1])
-    pl = strip_plan(strip_of(pages))
-    assert pl["strip"].width == 700, "the strip is at the most common width"
-    assert {Image.open(p).width for p in render_strip(pl, tmp_path / "out")} == {700}, "every page at that width"
+    st = strip_of(pages)
+    assert st.width == 700, "the strip is at the most common width"
+    assert {Image.open(p).width for p in render_strip(strip_plan(st), st, tmp_path / "out")} == {700}, (
+        "every page at that width"
+    )
 
 
 # ---------------------------------------------------------------- partition
@@ -819,7 +819,9 @@ def test_split_into_whole_pages(tmp_path, cached):
     pages = stitched(cached, tmp_path)
     assert strip.is_stitched([images.file_dimensions(p) for p in pages], [1.422]) is True, "tall images: stitched"
     pl = plan_of(pages, [1.422])
-    out = render_cuts(pl["width"], pl["pages"], [[0, pl["height"]]], pl["cuts"], pages[0].parent, tmp_path / "out")
+    out = render_cuts(
+        pl["width"], pl["pages"], [[0, pl["height"]]], pl["cuts"], pages[0].parent, out_dir=tmp_path / "out"
+    )
     assert [Image.open(p).size for p in out] == [(1000, 1422)] * 8, "split into whole pages"
     assert pl["irregular"] == [], "every image is whole pages"
 

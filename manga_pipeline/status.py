@@ -128,7 +128,7 @@ def _report(conn):
             lines.append(f"  file {r['id']} ({r['library_path']}): {r['pending_error']} (tried again by export)")
         elif r["pending_error"]:
             fix = f"rewrite retry {r['id']}"
-            if r["pending_path"] is None or r["pending_step"] < 3:
+            if r["pending_path"] is None or r["pending_step"] < rewrite.STEP_RENAMED:
                 fix += f", or rewrite drop {r['id']}"
             lines.append(f"  file {r['id']} ({r['library_path']}): {r['pending_error']} -> {fix}")
         elif r["pending_path"]:

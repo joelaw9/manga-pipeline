@@ -18,6 +18,7 @@ from manga_pipeline import (
     archive,
     config,
     db,
+    errors,
     export,
     hand_edits,
     handled,
@@ -143,7 +144,7 @@ def chapter_drop(cfg, args):
             config.to_local(cfg, row["staged_path"]).unlink(missing_ok=True)
         if row["download_path"]:
             download = config.to_local(cfg, row["download_path"])
-            if digest is None and workflow.exists(download):  # held at discover, before its digest was settled
+            if digest is None and errors.exists(download):  # held at discover, before its digest was settled
                 digest = archive.digest_or_none(download)
             retention.put(cfg, download)
         workflow.drop_chapter(
@@ -488,7 +489,7 @@ def main(argv=None):
         if command.locked:
             try:
                 conn = _open(cfg, command)
-            except (db.CannotConnect, db.NoDatabase) as e:
+            except (db.CannotConnectError, db.NoDatabaseError) as e:
                 # Not logged: the log file is opened only under the run's locks.
                 print(f"error: {e}", file=sys.stderr)
                 return 4
@@ -505,18 +506,18 @@ def main(argv=None):
                 if conn is not None:
                     db.apply_steps(conn)
                 command.handler(cfg, args, conn)
-            except preflight.PreflightFailed as e:
+            except preflight.PreflightError as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 4
             except workflow.Refused as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 2
-            except (db.SchemaError, db.CannotConnect) as e:
+            except (db.SchemaError, db.CannotConnectError) as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 4
             except config.ConfigError as e:  # a database setting, checked where the database is opened
                 p.error(str(e))
-            except (smoke.Failed, review_run.ReviewFailed) as e:
+            except (smoke.SmokeError, review_run.ReviewError) as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 1
             except Exception:
@@ -535,7 +536,7 @@ def main(argv=None):
 
 def _open(cfg, command):
     """The command's 1 connection, opened before its locks (SPEC "Run lock"): a command that builds creates a missing
-    database; for any other, a database missing or holding no schema record is NoDatabase."""
+    database; for any other, a database missing or holding no schema record is NoDatabaseError."""
     return db.open_database(cfg, builds=command.builds)
 
 

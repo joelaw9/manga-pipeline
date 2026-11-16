@@ -71,7 +71,7 @@ def test_kavita_is_checked_though_suwayomi_failed(services, capsys, monkeypatch)
         raise Unreachable(msg, "timed out after 60 s")
 
     monkeypatch.setattr(suw, "library_size", down)
-    with pytest.raises(smoke.Failed, match="suwayomi: Unreachable: suwayomi: timed out"):
+    with pytest.raises(smoke.SmokeError, match="suwayomi: Unreachable: suwayomi: timed out"):
         smoke.run(config.cached())
     out = capsys.readouterr().out
     assert "suwayomi: FAILED" in out, "SPEC 'Services': both are tried"
@@ -82,7 +82,7 @@ def test_kavita_is_checked_though_suwayomi_failed(services, capsys, monkeypatch)
 @pytest.mark.usefixtures("services")
 def test_a_mapped_path_that_does_not_exist_fails_the_check(capsys, tmp_path):
     (tmp_path / "library" / "Alpha" / "Ch.1.cbz").unlink()
-    with pytest.raises(smoke.Failed, match="1 of 1 mapped paths do not exist"):
+    with pytest.raises(smoke.SmokeError, match="1 of 1 mapped paths do not exist"):
         smoke.run(config.cached())
     assert "MISSING" in capsys.readouterr().out
 
@@ -91,7 +91,7 @@ def test_a_mapped_path_that_does_not_exist_fails_the_check(capsys, tmp_path):
 @pytest.mark.usefixtures("services")
 def test_a_library_id_kavita_does_not_have_fails_the_check():
     cfg = {**config.cached(), "kavita": {**config.cached()["kavita"], "library_id": 9}}
-    with pytest.raises(smoke.Failed, match=r"kavita\.library_id 9 is none of Kavita's libraries"):
+    with pytest.raises(smoke.SmokeError, match=r"kavita\.library_id 9 is none of Kavita's libraries"):
         smoke.run(cfg)
 
 

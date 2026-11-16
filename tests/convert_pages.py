@@ -76,7 +76,9 @@ class Chapter:
         self.out, self.work, self.rendered_dir = self.root / "out", self.root / "work", self.root / "render"
 
     def plan(self, edit=None, layout="pages", page_aspect=None, quality=QUALITY):
-        p = plan.build("test chapter", self.measured, self.files, edit or NO_EDIT, layout, page_aspect, quality)
+        p = plan.build(
+            "test chapter", self.measured, self.files, edit or NO_EDIT, layout, page_aspect=page_aspect, quality=quality
+        )
         plan.routes(p)
         return p
 
@@ -87,7 +89,16 @@ class Chapter:
         rendered = image.render(chapter_plan, src, self.rendered_dir) if chapter_plan.render else []
         with ThreadPoolExecutor(2) as pool:
             return image.process_chapter(
-                self.x, rendered, blanked, None, self.out, self.work, pool, scorer(), chapter_plan, tool_paths()
+                self.x,
+                rendered,
+                blanked,
+                None,
+                self.out,
+                work_dir=self.work,
+                pool=pool,
+                scorer=scorer(),
+                chapter_plan=chapter_plan,
+                tool_paths=tool_paths(),
             )
 
 

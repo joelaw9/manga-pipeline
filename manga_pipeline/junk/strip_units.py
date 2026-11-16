@@ -29,6 +29,7 @@ BLANK_STD = 3  # W1: a tail piece with luma std below this ...
 BLANK_INK = 40  # ... and no pixel further than this from its median is blank (strip_tail.blank_std / blank_ink)
 WEDGE_PX = 130  # W3: a piece (with gutters) shorter than this between 2 credit bands is dropped (strip_tail.wedge_px)
 MIN_PAGE = strip.RESTITCH["min_page"]  # kept check: a strip at least this long is never cut below it
+MARK_MIN_BANDS = 2  # tail bands sharing 1 decision that make it a mark
 
 
 def signable(im):
@@ -208,7 +209,7 @@ def watermarks(removed, middle, known=()):
     the keys (parsed) the series' earlier chapters showed to be watermarks. removed: [{"where", "decision" (id),
     "key"}]."""
     bands = [r for r in removed if r["where"] == "tail"]
-    marks = {d for d, n in Counter(r["decision"] for r in bands).items() if n >= 2}
+    marks = {d for d, n in Counter(r["decision"] for r in bands).items() if n >= MARK_MIN_BANDS}
     sigs = [s for s in map(images.sig_from_str, middle) if not images.unsignable(s)] + list(known)
     for r in bands:
         if r["decision"] not in marks and any(images.matches(images.sig_from_str(r["key"]), s) for s in sigs):

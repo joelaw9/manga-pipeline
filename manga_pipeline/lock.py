@@ -15,7 +15,7 @@ IDLE = "nothing-else-running"
 SHARED, EXCLUSIVE = "shared", "exclusive"
 
 
-class LockHeld(RuntimeError):
+class LockHeld(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     pass
 
 

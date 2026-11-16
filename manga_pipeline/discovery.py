@@ -10,7 +10,7 @@ import os
 import time
 from pathlib import Path
 
-from manga_pipeline import config, db, identify, names, workflow
+from manga_pipeline import config, db, errors, identify, names, workflow
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.metadata import check
 
@@ -65,7 +65,7 @@ def _settled(path, settled_by):
     try:
         return path.stat().st_mtime <= settled_by
     except FileNotFoundError as e:
-        if workflow.dropped_share(e):
+        if errors.dropped_share(e):
             raise
         return False
 
@@ -97,11 +97,11 @@ def _list(root):
             try:
                 entries = _entries(folder, dirs=False)
             except FileNotFoundError as e:  # removed since its source was listed (a confirm's delete): nothing to take
-                if workflow.dropped_share(e):
+                if errors.dropped_share(e):
                     raise
                 continue
             except OSError as e:
-                if e.errno in workflow.SHARE_ERRNOS:
+                if e.errno in errors.SHARE_ERRNOS:
                     raise
                 # ponytail: Windows may list the root from its SMB cache while the share fails, and WinError 59 maps
                 # to errno 22, not a SHARE_ERRNOS one; such a failure is listed, not ended on, until the next run
@@ -166,8 +166,8 @@ def _record(ctx, found, unmatched):
             ).fetchone()
             # Checked after the row: confirm moves a download away before its chapter is done, so a file still here
             # once its chapter reads done is a new download, not one an export confirmed since the listing.
-            if not open_ and workflow.exists(config.to_local(ctx.cfg, path)):
-                workflow.add_chapter(ctx.conn, series_id, identity, path, chapter_id, source, url)
+            if not open_ and errors.exists(config.to_local(ctx.cfg, path)):
+                workflow.add_chapter(ctx.conn, series_id, identity, path, chapter_id, source=source, source_url=url)
                 check.make_urgent(ctx.conn, series_id)  # a new chapter makes its series' check due at once
                 added += 1
         seen = dict(ctx.conn.execute("SELECT path, first_seen FROM unmatched_download").fetchall())
