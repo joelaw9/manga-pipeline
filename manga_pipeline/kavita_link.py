@@ -20,7 +20,8 @@ def library_folder(cfg, folder):
     """A Kavita series folder in stored form; PathError unless it lies under paths.library (SPEC "State")."""
     stored = config.to_stored(cfg, folder)
     if stored.split("/", 1)[0] != "library":
-        raise config.PathError(f"the series folder {folder} is not under paths.library")
+        msg = f"the series folder {folder} is not under paths.library"
+        raise config.PathError(msg)
     return stored
 
 

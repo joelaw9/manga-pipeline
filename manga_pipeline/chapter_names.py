@@ -163,7 +163,8 @@ def download_volume(cfg, download):
         return None
     volume = names.to_volume(item.volume if item.volume is not None else fields.get("Volume"))
     if volume is not None and volume != int(volume):
-        raise volumes.VolumeError(f"{path.name!r}: volume {names.fmt_num(volume)} is not a whole number")
+        msg = f"{path.name!r}: volume {names.fmt_num(volume)} is not a whole number"
+        raise volumes.VolumeError(msg)
     return volume
 
 

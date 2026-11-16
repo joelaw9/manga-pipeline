@@ -158,7 +158,8 @@ def test_a_source_that_cannot_be_reached_leaves_the_check_due_with_nothing_store
     world.kavita_series("Solo Leveling")
 
     def down(name):
-        raise http.Unreachable("mangabaka", "down")
+        msg = "mangabaka"
+        raise http.Unreachable(msg, "down")
 
     monkeypatch.setattr(world.sources.mangabaka, "search", down)
     world.run(intake)
@@ -258,7 +259,8 @@ def test_kavita_unreachable_skips_the_metadata_step_not_validation(world, monkey
     world.download(manga, "Chapter 3")
 
     def down(library_id):
-        raise http.Unreachable("kavita", "down")
+        msg = "kavita"
+        raise http.Unreachable(msg, "down")
 
     monkeypatch.setattr(world.kavita, "series_in_library", down)
     world.run(intake)

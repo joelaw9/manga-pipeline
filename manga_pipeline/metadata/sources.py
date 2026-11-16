@@ -211,7 +211,8 @@ class Tapas:
             return self._service.request("GET", url, headers={"Accept": accept})
         except http.HttpError as e:
             if e.status == 403:
-                raise self._service.mark_unreachable(f"HTTP 403 from {http.redact_url(url)}: blocked") from None
+                msg = f"HTTP 403 from {http.redact_url(url)}: blocked"
+                raise self._service.mark_unreachable(msg) from None
             raise
 
 
@@ -237,7 +238,8 @@ class Webtoons:
             if not data.get("success"):
                 if cursor is None:
                     return None
-                raise SourceError(f"Webtoons: {kind} {number} failed after cursor {cursor}")
+                msg = f"Webtoons: {kind} {number} failed after cursor {cursor}"
+                raise SourceError(msg)
             result = data.get("result") or {}
             following = result.get("nextCursor")
             if cursor is not None and following and following <= cursor:

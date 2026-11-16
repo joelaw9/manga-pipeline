@@ -38,7 +38,8 @@ def frame_of_small(small, aspect):
     """Frame from an (H, W, 3) uint8 shrunk page."""
     small = np.asarray(small, dtype=np.uint8)
     if small.shape != (H, W, 3):
-        raise ValueError(f"shrunk page must be {(H, W, 3)}, got {small.shape}")
+        msg = f"shrunk page must be {(H, W, 3)}, got {small.shape}"
+        raise ValueError(msg)
     return Frame(small[_MASK].reshape(-1), float(aspect))
 
 
@@ -74,7 +75,8 @@ def from_bytes(blob, aspect):
     """Frame from its stored bytes. A vector of another length was made with other geometry: ValueError."""
     vec = np.frombuffer(blob, np.uint8)
     if vec.size != CELLS * 3:
-        raise ValueError(f"stored frame has {vec.size} bytes, expected {CELLS * 3} (CELLS * 3)")
+        msg = f"stored frame has {vec.size} bytes, expected {CELLS * 3} (CELLS * 3)"
+        raise ValueError(msg)
     return Frame(vec, float(aspect))
 
 

@@ -82,7 +82,8 @@ def load(path):
         lib.Vship_GetDetailedLastError.argtypes = [C.c_char_p, C.c_int]
         lib.Vship_GPUFullCheck.argtypes = [C.c_int]
     except (OSError, AttributeError) as e:
-        raise VshipError(f"cannot load the Vship library {path}: {e}") from e
+        msg = f"cannot load the Vship library {path}: {e}"
+        raise VshipError(msg) from e
     return lib
 
 
@@ -96,7 +97,8 @@ def check_gpu(lib, gpu=GPU):
     """Vship_GPUFullCheck on 1 GPU. Raises VshipError (no usable GPU, driver too old, ...)."""
     code = lib.Vship_GPUFullCheck(gpu)
     if code:
-        raise VshipError(f"GPU {gpu} unusable for Vship: {_error(lib, code)}")
+        msg = f"GPU {gpu} unusable for Vship: {_error(lib, code)}"
+        raise VshipError(msg)
 
 
 class _Handle:
@@ -121,12 +123,14 @@ class _Handle:
         self.lib, self.size, self.ptr = lib, (w, h), C.c_void_p()
         code = lib.Vship_InitHandler(C.byref(self.ptr), C.byref(_Init(_INIT_STRUCT, cs, cs, GPU)))
         if code:
-            raise VshipError(f"handle {w}x{h}: {_error(lib, code)}")
+            msg = f"handle {w}x{h}: {_error(lib, code)}"
+            raise VshipError(msg)
 
     def free(self):
         code = self.lib.Vship_FreeHandler(self.ptr)
         if code:
-            raise VshipError(f"free handle {self.size[0]}x{self.size[1]}: {_error(self.lib, code)}")
+            msg = f"free handle {self.size[0]}x{self.size[1]}: {_error(self.lib, code)}"
+            raise VshipError(msg)
 
 
 class Scorer:
@@ -158,10 +162,11 @@ class Scorer:
             or ref.dtype != np.uint8
             or dist.dtype != np.uint8
         ):
-            raise ValueError(
+            msg = (
                 f"vship.score: 2 HxWx3 uint8 arrays of 1 size needed, got {ref.shape} {ref.dtype} and "
                 f"{dist.shape} {dist.dtype}"
             )
+            raise ValueError(msg)
         h, w, _ = ref.shape
         pa = [np.ascontiguousarray(ref[:, :, c]) for c in range(3)]
         pb = [np.ascontiguousarray(dist[:, :, c]) for c in range(3)]
@@ -175,7 +180,8 @@ class Scorer:
             _STRIDES(w, w, w),
         )
         if code:
-            raise VshipError(f"score {w}x{h}: {_error(self.lib, code)}")
+            msg = f"score {w}x{h}: {_error(self.lib, code)}"
+            raise VshipError(msg)
         return out.score
 
     def score_files(self, reference, distorted):
@@ -186,7 +192,8 @@ class Scorer:
             a.load()
             b.load()
             if a.size != b.size:
-                raise ValueError(f"vship: {reference} is {a.size}, {distorted} is {b.size}")
+                msg = f"vship: {reference} is {a.size}, {distorted} is {b.size}"
+                raise ValueError(msg)
             if _has_alpha(a) or _has_alpha(b):
                 pairs = [(_over(a, bg), _over(b, bg)) for bg in ALPHA_BACKGROUNDS]
             else:

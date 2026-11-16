@@ -296,7 +296,8 @@ def test_crash_inside_a_part_exits_1_with_1_traceback_in_its_log(site, monkeypat
 @budget(load="fs")
 def test_unexpected_error_of_a_command_without_a_log_file_exits_1_with_its_traceback(site, capsys, monkeypatch):
     def broken(conn):
-        raise RuntimeError("an unexpected fault")
+        msg = "an unexpected fault"
+        raise RuntimeError(msg)
 
     monkeypatch.setattr(status, "report", broken)
     assert run(site, "status") == 1

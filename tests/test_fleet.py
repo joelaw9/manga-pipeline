@@ -42,7 +42,8 @@ class Fleet:
         for _ in range(50):  # until the server has seen the session end
             if not self.conn.execute(f"SELECT {lock.HELD_SQL.format(name='%s')}", (f"process@{name}",)).fetchone()[0]:
                 return
-        raise AssertionError(f"the server still holds {name}'s lock")
+        msg = f"the server still holds {name}'s lock"
+        raise AssertionError(msg)
 
     def _close(self, name):
         ctx, held = self.machines[name]
@@ -157,7 +158,8 @@ def test_a_run_that_lost_its_claim_records_nothing_and_spends_no_attempt(fleet):
 
     def stage(ctx, chapter):
         workflow.holds_claim(ctx, chapter)  # what a stage does before an act it cannot undo
-        raise AssertionError("never reached")
+        msg = "never reached"
+        raise AssertionError(msg)
 
     assert isinstance(workflow.work(a, stale, stage), workflow.ClaimLost)
     after = fleet.row(stale["id"])

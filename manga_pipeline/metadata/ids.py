@@ -20,7 +20,8 @@ def form(source, value):
     """The id in its source's form, or None when value is not one (ValueError for an unknown source)."""
     text = str(value).strip().lower() if value is not None else ""
     if source not in SOURCES:
-        raise ValueError(f"unknown source {source!r}: one of {', '.join(SOURCES)}")
+        msg = f"unknown source {source!r}: one of {', '.join(SOURCES)}"
+        raise ValueError(msg)
     if not text:
         return None
     if source == "mangadex":

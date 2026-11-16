@@ -386,7 +386,8 @@ def copy_replacing(source, dest, name, data):
         got = {i.filename: i.CRC for i in z.infolist()}
     if any(got.get(n) != crc for n, _, crc in members):
         dest.unlink()
-        raise RuntimeError(f"{dest}: a copied member's CRC differs from {source}'s")
+        msg = f"{dest}: a copied member's CRC differs from {source}'s"
+        raise RuntimeError(msg)
     return size
 
 
@@ -403,7 +404,8 @@ def publish_run(ctx, chapter):
     old = config.to_local(ctx.cfg, file["library_path"])
     seen = [f for f in ctx.kavita.series_files(series["kavita_series_id"]) if f["path"] == old]
     if not seen:  # a confirmed file Kavita lost: tried again by a later run, its attempts counted
-        raise RuntimeError(f"Kavita does not list {old} in series {series['kavita_series_id']}")
+        msg = f"Kavita does not list {old} in series {series['kavita_series_id']}"
+        raise RuntimeError(msg)
     staged = config.to_local(ctx.cfg, chapter["staged_path"])
     target = config.to_local(ctx.cfg, chapter["library_path"])
     new_pages = page_count(staged)
@@ -520,7 +522,8 @@ def finish(ctx, row):
         step = _record(conn, row["id"], 2)
     if step < 3:
         if target != old and workflow.exists(target):
-            raise FileExistsError(f"{target} is already in the library; a library file is never overwritten")
+            msg = f"{target} is already in the library; a library file is never overwritten"
+            raise FileExistsError(msg)
         os.replace(staged, target)
         step = _record(conn, row["id"], 3)
     if step < 4:
@@ -605,11 +608,11 @@ def drop(conn, file_id, limit):
         or (row["indexed_since"] is not None and row["pending_error"] is not None)
     )
     if not stuck:
-        raise workflow.Refused(f"published file {file_id} has no stuck rewrite")
+        msg = f"published file {file_id} has no stuck rewrite"
+        raise workflow.Refused(msg)
     if row["pending_path"] is not None and row["pending_step"] >= 3:
-        raise workflow.Refused(
-            f"published file {file_id}'s rewrite has renamed its file in: rewrite retry {file_id} finishes it"
-        )
+        msg = f"published file {file_id}'s rewrite has renamed its file in: rewrite retry {file_id} finishes it"
+        raise workflow.Refused(msg)
     with db.transaction(conn):
         _give_up_copy(conn, row)
         conn.execute(
@@ -626,7 +629,8 @@ def retry(conn, file_id):
     workflow.Refused when the row holds no error."""
     row = conn.execute("SELECT * FROM published_file WHERE id = %s", (file_id,)).fetchone()
     if row is None or row["pending_error"] is None:
-        raise workflow.Refused(f"published file {file_id} has no failed rewrite")
+        msg = f"published file {file_id} has no failed rewrite"
+        raise workflow.Refused(msg)
     with db.transaction(conn):
         conn.execute(
             """UPDATE published_file SET pending_error = NULL, pending_attempts = 0, wait_charges = 0,

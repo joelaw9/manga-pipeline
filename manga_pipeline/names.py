@@ -423,7 +423,8 @@ def file_name(number, title, volume=None):
     "Vol.<volume> " when the volume is None and without " - <title>" when the title is empty once made safe.
     ValueError for no number."""
     if number is None:
-        raise ValueError("a published file needs a chapter number")
+        msg = "a published file needs a chapter number"
+        raise ValueError(msg)
     name = (f"Vol.{fmt_num(volume)} " if volume is not None else "") + f"Ch.{fmt_num(number)}"
     safe = safe_title(title) if title else ""
     return name + (f" - {safe}" if safe else "") + ".cbz"

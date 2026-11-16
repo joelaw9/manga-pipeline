@@ -286,7 +286,8 @@ def test_a_platform_series_chapter_waits_for_the_check_its_arrival_made_due(worl
     world.run(intake)
 
     def blocked(series_id):
-        raise http.Unreachable("tapas", "HTTP 403: blocked")
+        msg = "tapas"
+        raise http.Unreachable(msg, "HTTP 403: blocked")
 
     monkeypatch.setattr(world.sources.tapas, "episodes", blocked)
     world.download(world.manga("Solo Leveling"), "Chapter 4")

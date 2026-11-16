@@ -112,7 +112,8 @@ class Kavita:
         file. CoverError when it does not."""
         self._call("POST", "/api/Upload/series", {"id": int(series_id), "url": base64.b64encode(image).decode()})
         if not self.has_uploaded_cover(series_id):
-            raise CoverError(f"Kavita accepted the cover of series {series_id} but does not serve it")
+            msg = f"Kavita accepted the cover of series {series_id} but does not serve it"
+            raise CoverError(msg)
 
     def has_uploaded_cover(self, series_id):
         """Whether the series' cover is one uploaded through the API: Kavita names those series<id>.<ext> (a scan
@@ -194,11 +195,13 @@ class Kavita:
         )
         if len(folders) != 1:
             found = ", ".join(folders) or "none"
-            raise FolderError(f"Kavita series {series_id} has its files in {len(folders)} folders ({found}), not 1")
+            msg = f"Kavita series {series_id} has its files in {len(folders)} folders ({found}), not 1"
+            raise FolderError(msg)
         if self._library_folders is None:
             self._library_folders = {f.rstrip("/") for library in self.libraries() for f in library["folders"]}
         if folders[0].rstrip("/") in self._library_folders:
-            raise FolderError(f"Kavita series {series_id} has its files directly in the library folder {folders[0]}")
+            msg = f"Kavita series {series_id} has its files directly in the library folder {folders[0]}"
+            raise FolderError(msg)
         return self.local_path(folders[0])
 
     def local_path(self, kavita_path):
@@ -207,7 +210,8 @@ class Kavita:
         for prefix, local in self._path_map:
             if kavita_path == prefix or kavita_path.startswith(prefix + "/"):
                 return Path(local, *kavita_path[len(prefix) :].split("/"))
-        raise ValueError(f"Kavita path {kavita_path} is under no prefix of paths.kavita_path_map")
+        msg = f"Kavita path {kavita_path} is under no prefix of paths.kavita_path_map"
+        raise ValueError(msg)
 
     # --- scans: requested, never awaited
 
@@ -231,7 +235,8 @@ class Kavita:
                     raise
                 self._token = None
                 if attempt == 2:
-                    raise self._refused("HTTP 401 after re-authentication") from None
+                    msg = "HTTP 401 after re-authentication"
+                    raise self._refused(msg) from None
 
     def _get_token(self):
         if self._token is None:
@@ -241,7 +246,8 @@ class Kavita:
             except http.HttpError as e:
                 if e.status != 401:
                     raise
-                raise self._refused("HTTP 401 from authenticate: the API key was refused") from None
+                msg = "HTTP 401 from authenticate: the API key was refused"
+                raise self._refused(msg) from None
             self._token = reply.json()["token"]
         return self._token
 

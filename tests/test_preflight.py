@@ -483,7 +483,8 @@ def test_long_paths_absent_is_a_problem(monkeypatch):
 @budget(load="pure")
 def test_long_paths_are_no_problem_off_windows(monkeypatch):
     def unread():
-        raise AssertionError("no registry off Windows")
+        msg = "no registry off Windows"
+        raise AssertionError(msg)
 
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(preflight, "long_paths_value", unread)

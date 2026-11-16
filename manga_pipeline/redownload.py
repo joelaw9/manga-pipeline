@@ -51,7 +51,8 @@ def save_in(ctx, chapter, state, **columns):
         ),
     ).rowcount
     if not changed:
-        raise RuntimeError(f"chapter {chapter['id']} changed while {ctx.part} re-downloaded it")
+        msg = f"chapter {chapter['id']} changed while {ctx.part} re-downloaded it"
+        raise RuntimeError(msg)
 
 
 def new_state(ctx, chapter, state):

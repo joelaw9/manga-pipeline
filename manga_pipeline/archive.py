@@ -150,8 +150,10 @@ def test(cbz, size):
     """Raise when cbz is not `size` bytes or fails the zip test (a CRC or a member it cannot read)."""
     actual = Path(cbz).stat().st_size
     if actual != size:
-        raise OSError(f"{cbz} is {actual} bytes, expected {size}")
+        msg = f"{cbz} is {actual} bytes, expected {size}"
+        raise OSError(msg)
     with zipfile.ZipFile(cbz) as z:
         bad = z.testzip()
     if bad is not None:
-        raise zipfile.BadZipFile(f"{cbz}: member {bad} fails its CRC")
+        msg = f"{cbz}: member {bad} fails its CRC"
+        raise zipfile.BadZipFile(msg)

@@ -42,7 +42,8 @@ def median(conn, series_id):
     if row is None and not conn.execute("SELECT 1 FROM published_file WHERE series_id = %s", (series_id,)).fetchone():
         return None  # a new series before its layout is measured: nothing published to compare with
     if row is None:
-        raise ValueError(f"series {series_id} has no layout (series_conversion): its page counts cannot be compared")
+        msg = f"series {series_id} has no layout (series_conversion): its page counts cannot be compared"
+        raise ValueError(msg)
     count = "pages_in" if row["layout"] == "strip" else "coalesce(pages_in, pages_out)"
     origin = "AND origin = 'pipeline'" if row["layout"] == "strip" else ""
     counts = [
@@ -66,7 +67,8 @@ def judge(ctx, chapter):
         return None
     pages = len(page_store.load(ctx.conn, chapter["id"]))
     if not pages:
-        raise ValueError(f"chapter {chapter['id']} has no page rows: validate stores them")
+        msg = f"chapter {chapter['id']} has no page rows: validate stores them"
+        raise ValueError(msg)
     why = keep(pages, item.title, median(ctx.conn, chapter["series_id"]))
     if why is None:
         return drop(ctx, chapter, download)

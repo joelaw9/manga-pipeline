@@ -57,35 +57,42 @@ def check_edit(text):
     try:
         edit = json.loads(text)
     except (TypeError, ValueError) as e:
-        raise EditError(f"chapter_edit is not JSON: {e}") from e
+        msg = f"chapter_edit is not JSON: {e}"
+        raise EditError(msg) from e
     if not isinstance(edit, dict) or set(edit) != set(EDIT_KEYS):
-        raise EditError(
-            f"chapter_edit keys must be {sorted(EDIT_KEYS)}, got {sorted(edit) if isinstance(edit, dict) else edit!r}"
-        )
+        msg = f"chapter_edit keys must be {sorted(EDIT_KEYS)}, got {sorted(edit) if isinstance(edit, dict) else edit!r}"
+        raise EditError(msg)
     for key, kind in EDIT_KEYS.items():
         if type(edit[key]) is not kind:
-            raise EditError(f"chapter_edit {key} must be a {kind.__name__}, got {edit[key]!r}")
+            msg = f"chapter_edit {key} must be a {kind.__name__}, got {edit[key]!r}"
+            raise EditError(msg)
 
     def ints(values, what):
         if not all(type(v) is int for v in values):
-            raise EditError(f"chapter_edit {what} must hold integers, got {values!r}")
+            msg = f"chapter_edit {what} must hold integers, got {values!r}"
+            raise EditError(msg)
 
     ints(edit["drop_pages"], "drop_pages")
     if len(set(edit["drop_pages"])) < len(edit["drop_pages"]):
-        raise EditError(f"chapter_edit drop_pages names a page twice: {edit['drop_pages']!r}")
+        msg = f"chapter_edit drop_pages names a page twice: {edit['drop_pages']!r}"
+        raise EditError(msg)
     for r in edit["strip_removed"]:
         if not isinstance(r, dict) or set(r) != {"start", "end", "why"} or not isinstance(r["why"], str):
-            raise EditError(f"chapter_edit strip_removed entries are {{start, end, why}}, got {r!r}")
+            msg = f"chapter_edit strip_removed entries are {{start, end, why}}, got {r!r}"
+            raise EditError(msg)
         ints([r["start"], r["end"]], "strip_removed start / end")
         if not 0 <= r["start"] < r["end"]:
-            raise EditError(f"chapter_edit strip_removed rows {r['start']}-{r['end']} are not 0 <= start < end")
+            msg = f"chapter_edit strip_removed rows {r['start']}-{r['end']} are not 0 <= start < end"
+            raise EditError(msg)
     for b in edit["bands"]:
         if not isinstance(b, dict) or set(b) != {"page", "box"} or not isinstance(b["box"], list) or len(b["box"]) != 4:
-            raise EditError(f"chapter_edit bands entries are {{page, box: [l, t, r, b]}}, got {b!r}")
+            msg = f"chapter_edit bands entries are {{page, box: [l, t, r, b]}}, got {b!r}"
+            raise EditError(msg)
         ints([b["page"], *b["box"]], "bands page / box")
     for pair in edit["join"]:
         if not isinstance(pair, list) or len(pair) != 2:
-            raise EditError(f"chapter_edit join entries are [page, sliver] pairs, got {pair!r}")
+            msg = f"chapter_edit join entries are [page, sliver] pairs, got {pair!r}"
+            raise EditError(msg)
         ints(pair, "join")
     for b in edit["blank"]:
         if (
@@ -96,7 +103,8 @@ def check_edit(text):
             or not isinstance(b["fill"], list)
             or len(b["fill"]) != 3
         ):
-            raise EditError(f"chapter_edit blank entries are {{page, box: [l, t, r, b], fill: [r, g, b]}}, got {b!r}")
+            msg = f"chapter_edit blank entries are {{page, box: [l, t, r, b], fill: [r, g, b]}}, got {b!r}"
+            raise EditError(msg)
         ints([b["page"], *b["box"], *b["fill"]], "blank page / box / fill")
     return edit
 
@@ -109,7 +117,8 @@ def page_entry(page, path):
     if fmt in (images.JPEG, images.PNG, images.WEBP_LOSSY, images.WEBP_LOSSLESS):
         turn = images.exif_orientation(data)
         if turn in TURNED:
-            raise NeedsHuman(f"page {page['name']} has EXIF orientation {turn} (a rotation or mirror)")
+            msg = f"page {page['name']} has EXIF orientation {turn} (a rotation or mirror)"
+            raise NeedsHuman(msg)
     is_jpeg = fmt == images.JPEG
     return {
         "name": Path(path).name,
@@ -162,61 +171,74 @@ def _edits(entries, edit, layout, page_aspect, x_dir):
 
     def name(i, what):
         if i not in by_index:
-            raise EditError(f"chapter_edit {what} names page {i}, the chapter has pages 0-{len(entries) - 1}")
+            msg = f"chapter_edit {what} names page {i}, the chapter has pages 0-{len(entries) - 1}"
+            raise EditError(msg)
         return by_index[i]["name"]
 
     content = [q for q in entries if not q["cover"]]
     out = {"drop": [], "crop": [], "join": [], "split": None, "strip": None, "blank": _blanks(entries, edit, name)}
     if layout == "strip":
         if edit["drop_pages"] or edit["bands"] or edit["join"] or edit["split"]:
-            raise EditError("chapter_edit of a strip chapter may hold strip_removed only")
+            msg = "chapter_edit of a strip chapter may hold strip_removed only"
+            raise EditError(msg)
         if not content:
             if edit["strip_removed"]:
-                raise EditError(f"chapter_edit strip_removed ends past the strip's 0 rows: {edit['strip_removed']!r}")
+                msg = f"chapter_edit strip_removed ends past the strip's 0 rows: {edit['strip_removed']!r}"
+                raise EditError(msg)
             return out
         sizes = [tuple(q["size"]) for q in content]
         rows = [strip.page_rows(images.open_flat(x_dir / q["name"])[0]) for q in content]
         st = strip.make_strip([x_dir / q["name"] for q in content], sizes, rows)
         past = [r for r in edit["strip_removed"] if r["end"] > st.height]
         if past:
-            raise EditError(f"chapter_edit strip_removed ends past the strip's {st.height} rows: {past!r}")
+            msg = f"chapter_edit strip_removed ends past the strip's {st.height} rows: {past!r}"
+            raise EditError(msg)
         cut = strip.cut_strip(st.height, strip.find_gaps(st), edit["strip_removed"])
         if not cut["kept"]:
-            raise NeedsHuman("the chapter edit drops every page")
+            msg = "the chapter edit drops every page"
+            raise NeedsHuman(msg)
         pages = [{"name": q["name"], "top": p["top"], "th": p["th"]} for q, p in zip(content, st.pages, strict=True)]
         out["strip"] = {"width": st.width, "pages": pages, "kept": cut["kept"], "cuts": cut["cuts"]}
         return out
     if edit["strip_removed"]:
-        raise EditError("chapter_edit of a page chapter holds strip_removed")
+        msg = "chapter_edit of a page chapter holds strip_removed"
+        raise EditError(msg)
     out["drop"] = [{"page": name(i, "drop_pages")} for i in edit["drop_pages"]]
     out["crop"] = [{"page": name(b["page"], "bands"), "box": b["box"]} for b in edit["bands"]]
     banded = [b["page"] for b in edit["bands"]]
     if {q["index"] for q in entries if q["cover"]} & {*edit["drop_pages"], *banded}:
-        raise EditError("chapter_edit drops or crops a cover-named page")
+        msg = "chapter_edit drops or crops a cover-named page"
+        raise EditError(msg)
     if len(set(banded)) < len(banded) or set(banded) & set(edit["drop_pages"]):
-        raise EditError(f"chapter_edit bands name a page twice or a dropped page: {edit['bands']!r}")
+        msg = f"chapter_edit bands name a page twice or a dropped page: {edit['bands']!r}"
+        raise EditError(msg)
     for b in edit["bands"]:
         (left, top, right, bottom), (w, h) = b["box"], by_index[b["page"]]["size"]
         if not (0 <= left < right <= w and 0 <= top < bottom <= h):
-            raise EditError(f"chapter_edit band box {b['box']} is not inside page {b['page']} ({w} x {h})")
+            msg = f"chapter_edit band box {b['box']} is not inside page {b['page']} ({w} x {h})"
+            raise EditError(msg)
     pages_, slivers = [a for a, _ in edit["join"]], [b for _, b in edit["join"]]
     if len(set(pages_)) < len(pages_) or len(set(slivers)) < len(slivers) or any(a == b for a, b in edit["join"]):
-        raise EditError(f"chapter_edit join pairs must chain each page to 1 sliver: {edit['join']!r}")
+        msg = f"chapter_edit join pairs must chain each page to 1 sliver: {edit['join']!r}"
+        raise EditError(msg)
     unjoinable = set(edit["drop_pages"]) | {q["index"] for q in entries if q["cover"]}
     if unjoinable & {i for pair in edit["join"] for i in pair}:
-        raise EditError(f"chapter_edit join names a dropped or cover-named page: {edit['join']!r}")
+        msg = f"chapter_edit join names a dropped or cover-named page: {edit['join']!r}"
+        raise EditError(msg)
     attach = dict(edit["join"])
     for start in attach:  # a chain must end: a cycle would never stop joining
         seen, at = {start}, start
         while at in attach:
             at = attach[at]
             if at in seen:
-                raise EditError(f"chapter_edit join pairs form a cycle: {edit['join']!r}")
+                msg = f"chapter_edit join pairs form a cycle: {edit['join']!r}"
+                raise EditError(msg)
             seen.add(at)
     out["join"] = [{"page": name(a, "join"), "sliver": name(b, "join")} for a, b in edit["join"]]
     if edit["split"]:
         if edit["drop_pages"] or edit["bands"] or edit["join"]:
-            raise EditError("chapter_edit of a split chapter holds another page-layout edit")
+            msg = "chapter_edit of a split chapter holds another page-layout edit"
+            raise EditError(msg)
         dropped = {d["page"] for d in out["drop"]}
         kept = [q for q in content if q["name"] not in dropped]
         pl = strip.plan_pages([q["name"] for q in kept], [tuple(q["size"]) for q in kept], page_aspect)
@@ -238,13 +260,16 @@ def _blanks(entries, edit, name):
         page = name(b["page"], "blank")
         q = by_index[b["page"]]
         if b["page"] in seen or b["page"] in edit["drop_pages"] or q["cover"]:
-            raise EditError(f"chapter_edit blank on page {b['page']}: a repeated, dropped or cover-named page")
+            msg = f"chapter_edit blank on page {b['page']}: a repeated, dropped or cover-named page"
+            raise EditError(msg)
         seen.add(b["page"])
         (left, top, right, bottom), (w, h) = b["box"], q["size"]
         if not (0 <= left < right <= w and 0 <= top < bottom <= h):
-            raise EditError(f"chapter_edit blank box {b['box']} is not inside page {b['page']} ({w} x {h})")
+            msg = f"chapter_edit blank box {b['box']} is not inside page {b['page']} ({w} x {h})"
+            raise EditError(msg)
         if not all(0 <= v <= 255 for v in b["fill"]):
-            raise EditError(f"chapter_edit blank fill {b['fill']} is not an RGB colour")
+            msg = f"chapter_edit blank fill {b['fill']} is not an RGB colour"
+            raise EditError(msg)
         out.append({"page": page, "box": list(b["box"]), "fill": list(b["fill"])})
     return out
 

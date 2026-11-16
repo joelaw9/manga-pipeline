@@ -484,7 +484,8 @@ def test_a_strip_edit_removing_every_row_needs_a_human(site):
 @budget(load="pool")
 def test_a_post_check_that_raises_still_removes_the_staged_file(site, monkeypatch):
     def broken(*a):
-        raise OSError("source page unreadable")
+        msg = "source page unreadable"
+        raise OSError(msg)
 
     monkeypatch.setattr(check, "check", broken)
     chapter_id = site.chapter(site.series(), pages(1))

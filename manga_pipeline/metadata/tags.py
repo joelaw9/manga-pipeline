@@ -55,7 +55,8 @@ def load(folder=RULES):
     try:
         entries = yaml.safe_load(text["derived_tags.yaml"]) or []
     except yaml.YAMLError as e:
-        raise ValueError(f"derived_tags.yaml: {e}") from None
+        msg = f"derived_tags.yaml: {e}"
+        raise ValueError(msg) from None
     derived = _derived(entries, table) + _promoted(_lines(text["promote_tags.txt"]), table)
     allowlisted = _lines(text["tag_allowlist.txt"])
     allow_genres, allow_tags = {}, {}
@@ -138,15 +139,18 @@ def _consolidation(text):
     reader = csv.DictReader(io.StringIO(text))
     missing = {"from_kind", "from", "to_kind", "to"} - set(reader.fieldnames or ())
     if missing:
-        raise ValueError(f"consolidation.csv: no column {', '.join(sorted(missing))}")
+        msg = f"consolidation.csv: no column {', '.join(sorted(missing))}"
+        raise ValueError(msg)
     table = {}
     for row in reader:
         kind, name = (row["from_kind"] or "").strip().lower(), (row["from"] or "").strip()
         to_kind, to = (row["to_kind"] or "").strip().lower(), (row["to"] or "").strip()
         if kind not in ("genre", "tag") or not name or to_kind not in ("genre", "tag", "remove"):
-            raise ValueError(f"consolidation.csv line {reader.line_num}: not a genre or tag rule")
+            msg = f"consolidation.csv line {reader.line_num}: not a genre or tag rule"
+            raise ValueError(msg)
         if to_kind != "remove" and not to:
-            raise ValueError(f"consolidation.csv line {reader.line_num}: no name to convert {name!r} to")
+            msg = f"consolidation.csv line {reader.line_num}: no name to convert {name!r} to"
+            raise ValueError(msg)
         table[(kind, term_key(name))] = (to_kind, to)
     return table
 
@@ -158,28 +162,35 @@ def _lines(text):
 def _derived(entries, table):
     def keys(terms, tag):
         if not isinstance(terms, list) or not all(isinstance(t, str) for t in terms):
-            raise ValueError(f"derived_tags.yaml: {tag}: not a list of names: {terms!r}")
+            msg = f"derived_tags.yaml: {tag}: not a list of names: {terms!r}"
+            raise ValueError(msg)
         return {k for k in (_canonical_key(t, table) for t in terms) if k}
 
     if not isinstance(entries, list):
-        raise ValueError("derived_tags.yaml: not a list of entries")
+        msg = "derived_tags.yaml: not a list of entries"
+        raise ValueError(msg)
     derived = []
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) - {"tag", "kind", "rules"} or not entry.get("tag"):
-            raise ValueError(f"derived_tags.yaml: not an entry of tag, kind and rules: {entry!r}")
+            msg = f"derived_tags.yaml: not an entry of tag, kind and rules: {entry!r}"
+            raise ValueError(msg)
         tag, kind, rules = entry["tag"], entry.get("kind") or "tag", entry.get("rules")
         if not isinstance(tag, str) or not isinstance(kind, str) or kind.lower() not in ("tag", "genre"):
-            raise ValueError(f"derived_tags.yaml: {tag!r}: tag must be a name and kind tag or genre")
+            msg = f"derived_tags.yaml: {tag!r}: tag must be a name and kind tag or genre"
+            raise ValueError(msg)
         kind = kind.lower()
         if not isinstance(rules, list) or not rules:
-            raise ValueError(f"derived_tags.yaml: {tag}: needs a list of rules")
+            msg = f"derived_tags.yaml: {tag}: needs a list of rules"
+            raise ValueError(msg)
         parsed = []
         for rule in rules:
             groups = rule.get("all") if isinstance(rule, dict) else None
             if set(rule if isinstance(rule, dict) else ()) - {"all", "none"} or not isinstance(groups, list):
-                raise ValueError(f"derived_tags.yaml: {tag}: a rule is all (a list of groups) and none: {rule!r}")
+                msg = f"derived_tags.yaml: {tag}: a rule is all (a list of groups) and none: {rule!r}"
+                raise ValueError(msg)
             if not groups or not all(isinstance(g, list) and g for g in groups):
-                raise ValueError(f"derived_tags.yaml: {tag}: a rule needs at least 1 group, each with a term: {rule!r}")
+                msg = f"derived_tags.yaml: {tag}: a rule needs at least 1 group, each with a term: {rule!r}"
+                raise ValueError(msg)
             parsed.append(
                 {"all": [keys(group, tag) for group in rule["all"]], "none": keys(rule.get("none") or [], tag)}
             )
@@ -193,7 +204,8 @@ def _promoted(lines, table):
     for line in lines:
         name, _, min_weight = (p.strip() for p in line.partition(":"))
         if min_weight and min_weight.lower() not in RULE_WEIGHTS:
-            raise ValueError(f"promote_tags.txt: {line!r}: the weight is not one of {', '.join(RULE_WEIGHTS)}")
+            msg = f"promote_tags.txt: {line!r}: the weight is not one of {', '.join(RULE_WEIGHTS)}"
+            raise ValueError(msg)
         found = _canonical(name, "tag", table)
         if found:
             rule = {"all": [{term_key(found[1])}], "none": set()}

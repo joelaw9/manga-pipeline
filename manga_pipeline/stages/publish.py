@@ -61,7 +61,8 @@ def run(ctx, chapter):
     target = config.to_local(ctx.cfg, folder) / PurePosixPath(chapter["library_path"]).name
     library_path = config.to_stored(ctx.cfg, target)
     if not workflow.exists(target.parent):
-        raise FileNotFoundError(f"series folder {target.parent} does not exist")
+        msg = f"series folder {target.parent} does not exist"
+        raise FileNotFoundError(msg)
     if workflow.exists(staged):
         if workflow.exists(target):
             return workflow.NeedsHuman(f"{target} is already in the library; a library file is never overwritten")
@@ -69,7 +70,8 @@ def run(ctx, chapter):
         # ponytail: check-then-replace; only another writer in the same folder in between could lose a file.
         os.replace(staged, target)
     elif not workflow.exists(target):
-        raise FileNotFoundError(f"neither the staged {staged} nor the published {target} exists")
+        msg = f"neither the staged {staged} nor the published {target} exists"
+        raise FileNotFoundError(msg)
     elif target.stat().st_size != chapter["staged_size"]:
         return workflow.NeedsHuman(f"{target} is already in the library at another size; the staged file is gone")
     # else: the rename happened before a crash; carry on

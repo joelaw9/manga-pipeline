@@ -334,7 +334,8 @@ def run(cfg, checks):
     logs each and raises PreflightFailed naming all of them."""
     unknown = [c.name for c in checks if c.level not in (HARD, SOFT)]
     if unknown:
-        raise ValueError(f"preflight check level must be HARD or SOFT: {', '.join(unknown)}")
+        msg = f"preflight check level must be HARD or SOFT: {', '.join(unknown)}"
+        raise ValueError(msg)
     soft, hard = [], []
     for check in checks:
         problem = check.run(cfg)
@@ -347,5 +348,6 @@ def run(cfg, checks):
             log.warning("%s: %s", check.name, problem)
             soft.append(f"{check.name}: {problem}")
     if hard:
-        raise PreflightFailed(f"preflight failed: {'; '.join(hard)}")
+        msg = f"preflight failed: {'; '.join(hard)}"
+        raise PreflightFailed(msg)
     return soft

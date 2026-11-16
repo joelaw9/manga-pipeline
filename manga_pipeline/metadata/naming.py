@@ -91,10 +91,12 @@ def parse_token(text):
     elif len(parts) == 1:
         kind, season, number = names.MAIN, None, parts[0]
     else:
-        raise ValueError(f"chapter {text!r} is not a number, 'S<season> <number>' or 'side <number>'")
+        msg = f"chapter {text!r} is not a number, 'S<season> <number>' or 'side <number>'"
+        raise ValueError(msg)
     n = names.to_volume(number)  # a non-negative number, or None
     if n is None:
-        raise ValueError(f"chapter {text!r}: {number!r} is not a chapter number")
+        msg = f"chapter {text!r}: {number!r} is not a chapter number"
+        raise ValueError(msg)
     return edit_key(kind, season, n)
 
 
@@ -142,7 +144,8 @@ def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset(), e
     edits = edits or {}
     rows = [apply_edit(r, edits) if r.settled else r for r in rows]
     if basis == OVERRIDE and overrides is None:
-        raise VolumeError("the series' volume basis is its override file, and it has none")
+        msg = "the series' volume basis is its override file, and it has none"
+        raise VolumeError(msg)
     override = (overrides or {}).get("volumes") or {}
     main = sorted(
         (i for i, r in enumerate(rows) if r.kind == names.MAIN), key=lambda i: (rows[i].number, rows[i].order)
@@ -171,7 +174,8 @@ def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset(), e
         v = vol[i][0]
         if not rows[i].settled and rows[i].key not in fill and v is not None and v != int(v):
             number, volume = names.fmt_num(rows[i].number), names.fmt_num(v)
-            raise VolumeError(f"chapter {number}: volume {volume} ({vol[i][1]}) is not a whole number")
+            msg = f"chapter {number}: volume {volume} ({vol[i][1]}) is not a whole number"
+            raise VolumeError(msg)
     out = {}
     covered = _opens_covered(basis, rows, main, vol, override, mangadex)
     titles = platforms.chapter_titles(platform)

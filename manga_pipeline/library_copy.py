@@ -118,7 +118,8 @@ def _copy_of(ctx, chapter):
     published = rows[0]
     pages = list(page_store.load(ctx.conn, chapter["id"]).values())
     if not pages:
-        raise ValueError(f"chapter {chapter['id']} has no page rows: validate stores them")
+        msg = f"chapter {chapter['id']} has no page rows: validate stores them"
+        raise ValueError(msg)
     ours = measures.summary(pages) | {"bpp": measures.bits_per_pixel(pages)}
     theirs = _original(ctx, published)
     measure = "strip_length" if _layout(ctx, chapter["series_id"]) == "strip" else "pages_in"
@@ -140,7 +141,8 @@ def _worse(ours, theirs):
 def _layout(ctx, series_id):
     row = ctx.conn.execute("SELECT layout FROM series_conversion WHERE series_id = %s", (series_id,)).fetchone()
     if row is None:
-        raise ValueError(f"series {series_id} has no layout (series_conversion): its copies cannot be compared")
+        msg = f"series {series_id} has no layout (series_conversion): its copies cannot be compared"
+        raise ValueError(msg)
     return row["layout"]
 
 
@@ -190,7 +192,8 @@ def _original(ctx, published):
         names = archive.archive_pages(z.namelist())
         sizes = [images.dimensions(z.read(n)) for n in names]
     if not sizes or None in sizes:
-        raise ValueError(f"{published['library_path']}: page sizes cannot be read")
+        msg = f"{published['library_path']}: page sizes cannot be read"
+        raise ValueError(msg)
     return measures.summary([{"width": w, "height": h, "phash": None, "blank": True} for w, h in sizes]) | {"bpp": None}
 
 

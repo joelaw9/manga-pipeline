@@ -41,7 +41,8 @@ class Template:
         self.rgb = np.where(mask[..., None], rgb, 0).astype(np.uint8)
         self.mask = np.asarray(mask, dtype=bool)
         if not self.mask.any():
-            raise ValueError("template has no coloured pixels")
+            msg = "template has no coloured pixels"
+            raise ValueError(msg)
 
     @property
     def size(self):

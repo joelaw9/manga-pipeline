@@ -164,7 +164,8 @@ def test_suwayomi_unreachable_at_any_step_resumes_on_the_next_run(world, monkeyp
 
     def down(*args):
         monkeypatch.setattr(world.suwayomi, call, original)
-        raise workflow.Unreachable("suwayomi")
+        msg = "suwayomi"
+        raise workflow.Unreachable(msg)
 
     monkeypatch.setattr(world.suwayomi, call, down)
     world.run(intake)
@@ -269,7 +270,8 @@ def test_an_interrupted_chapter_use_keeps_the_choice(world, monkeypatch):
 
     def down(ids):
         monkeypatch.setattr(world.suwayomi, "enqueue", original)
-        raise workflow.Unreachable("suwayomi")
+        msg = "suwayomi"
+        raise workflow.Unreachable(msg)
 
     monkeypatch.setattr(world.suwayomi, "enqueue", down)
     world.run(intake)
@@ -411,7 +413,8 @@ def test_suwayomi_unreachable_on_the_way_to_the_next_source_resumes(world, monke
 
     def down(*args):
         monkeypatch.setattr(world.suwayomi, call, original)
-        raise workflow.Unreachable("suwayomi")
+        msg = "suwayomi"
+        raise workflow.Unreachable(msg)
 
     monkeypatch.setattr(world.suwayomi, call, down)
     world.run(intake)

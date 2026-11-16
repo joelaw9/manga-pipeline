@@ -22,7 +22,8 @@ class NetworkBlocked(AssertionError):
 
 
 def _refuse(*args, **kwargs):
-    raise NetworkBlocked("tests are offline: a network connection was attempted")
+    msg = "tests are offline: a network connection was attempted"
+    raise NetworkBlocked(msg)
 
 
 @pytest.fixture(autouse=True)

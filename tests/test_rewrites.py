@@ -123,7 +123,8 @@ def crash_after(monkeypatch, step, name):
     def record(conn, file_id, done):
         path = conn.execute("SELECT library_path FROM published_file WHERE id = %s", (file_id,)).fetchone()[0]
         if done == step and path.endswith("/" + name):
-            raise KeyboardInterrupt("killed")
+            msg = "killed"
+            raise KeyboardInterrupt(msg)
         return real(conn, file_id, done)
 
     monkeypatch.setattr(rewrite, "_record", record)
@@ -214,7 +215,8 @@ def test_a_rewrite_failing_after_its_rename_is_not_dropped_but_retried(world, mo
 
     def unlink(self, *args, **kwargs):
         if self.name == "Ch.3.cbz":
-            raise PermissionError("locked")
+            msg = "locked"
+            raise PermissionError(msg)
         return real(self, *args, **kwargs)
 
     monkeypatch.setattr(type(world.library), "unlink", unlink)

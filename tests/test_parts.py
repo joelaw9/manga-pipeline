@@ -110,7 +110,8 @@ def test_failing_chapter_does_not_stop_the_chapters_after_it(site, monkeypatch):
 
     def convert(ctx, chapter):
         if chapter["download_path"] == config.to_stored(site.cfg, bad):
-            raise ValueError("cannot decode page 3")
+            msg = "cannot decode page 3"
+            raise ValueError(msg)
         return real(ctx, chapter)
 
     monkeypatch.setitem(process.STAGES, "convert", convert)
@@ -323,7 +324,8 @@ def test_run_end_line_counts_waiting_and_failed(site, monkeypatch, caplog):
 
     def convert(ctx, chapter):
         if chapter["download_path"] == config.to_stored(site.cfg, bad):
-            raise ValueError("cannot decode page 3")
+            msg = "cannot decode page 3"
+            raise ValueError(msg)
         return real(ctx, chapter)
 
     monkeypatch.setitem(process.STAGES, "convert", convert)

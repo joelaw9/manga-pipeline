@@ -321,7 +321,8 @@ def test_a_builder_whose_role_cannot_create_the_database_exits_4(tmp_path, missi
 
         def execute(self, statement, *params):
             if isinstance(statement, sql.Composable):
-                raise psycopg.errors.InsufficientPrivilege("permission denied to create database")
+                msg = "permission denied to create database"
+                raise psycopg.errors.InsufficientPrivilege(msg)
             return self.conn.execute(statement, *params)
 
         def close(self):

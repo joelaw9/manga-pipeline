@@ -233,7 +233,8 @@ class FakeKavita(kavita.Kavita):
             if os.path.commonpath([local_root, local]) == str(local_root):
                 rest = os.path.relpath(local, local_root).replace(os.sep, "/")
                 return root if rest == "." else f"{root}/{rest}"
-        raise AssertionError(f"FakeKavita: {local} is under no library folder")
+        msg = f"FakeKavita: {local} is under no library folder"
+        raise AssertionError(msg)
 
     def _stamp(self):
         """Kavita's lastModifiedUtc now: 7 fractional digits, as Kavita writes it; 1 second a re-read."""

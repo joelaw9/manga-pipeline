@@ -35,15 +35,18 @@ def load(cfg, row):
     root = config.abs_path(cfg["paths"]["covers"]).resolve()
     path = (root / rel).resolve()
     if rel.is_absolute() or rel.drive or not path.is_relative_to(root):
-        raise CoverError(f"volume cover path {row['path']!r} is not inside paths.covers")
+        msg = f"volume cover path {row['path']!r} is not inside paths.covers"
+        raise CoverError(msg)
     try:
         data = path.read_bytes()
     except FileNotFoundError as e:
         if errors.dropped_share(e):  # the share, not the file: workflow.share_errors makes it Unreachable
             raise
-        raise CoverError(f"volume cover {path} is missing") from e
+        msg = f"volume cover {path} is missing"
+        raise CoverError(msg) from e
     if hashlib.sha256(data).hexdigest() != row["sha256"]:
-        raise CoverError(f"volume cover {path} is not the one handed over (another sha256)")
+        msg = f"volume cover {path} is not the one handed over (another sha256)"
+        raise CoverError(msg)
     return data
 
 
@@ -75,7 +78,8 @@ def insert(out_dir, data, fmt, page_width, avif):
     cover (avif: image.encode_cover's result), copied; JPEG (q92), PNG, lossy WebP (q90): encoded here from the cover
     scaled to page_width. Returns {"name", "format", "score" (AVIF only), "bytes"}."""
     if fmt not in plan.COVER_FORMATS:
-        raise ValueError(f"no volume cover encoding for {fmt}")
+        msg = f"no volume cover encoding for {fmt}"
+        raise ValueError(msg)
     out_dir = Path(out_dir)
     for old in out_dir.glob(f"{archive.COVER_STEM}.*"):
         old.unlink()

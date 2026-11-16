@@ -82,20 +82,23 @@ def to_stored(cfg, path):
     under no root."""
     path = Path(path)
     if ".." in path.parts:  # compared as written: a .. would pass for a path under the root it leaves
-        raise PathError(f"{path} holds '..': a stored path names no parent folder")
+        msg = f"{path} holds '..': a stored path names no parent folder"
+        raise PathError(msg)
     for root in SHARE_ROOTS:
         base = abs_path(cfg["paths"][root])
         if path == base or path.is_relative_to(base):
             below = path.relative_to(base).as_posix()
             return root if below == "." else f"{root}/{below}"
-    raise PathError(f"{path} lies under no share root (paths.{', paths.'.join(SHARE_ROOTS)})")
+    msg = f"{path} lies under no share root (paths.{', paths.'.join(SHARE_ROOTS)})"
+    raise PathError(msg)
 
 
 def to_local(cfg, stored):
     """This machine's path for a stored path (to_stored's form). PathError for a text that names no share root."""
     root, _, below = stored.partition("/")
     if root not in SHARE_ROOTS or "\\" in stored or ".." in below.split("/"):
-        raise PathError(f"stored path {stored!r} is not <share root>/<path>")
+        msg = f"stored path {stored!r} is not <share root>/<path>"
+        raise PathError(msg)
     base = abs_path(cfg["paths"][root])
     return base.joinpath(*below.split("/")) if below else base
 
@@ -104,21 +107,24 @@ def _read(path, allow_empty=False):
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        raise ConfigError(f"{path}: not found") from None
+        msg = f"{path}: not found"
+        raise ConfigError(msg) from None
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as e:
         # Never the parser's own message: it quotes the offending line, and the file may hold a secret.
         mark = getattr(e, "problem_mark", None)
         where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
-        raise ConfigError(
+        msg = (
             f"{path}: not valid YAML{where} (a value holding a backslash or starting with a special character"
             " needs single quotes)"
-        ) from None
+        )
+        raise ConfigError(msg) from None
     if data is None and allow_empty:
         return {}
     if not isinstance(data, dict):
-        raise ConfigError(f"{path}: must be a YAML mapping, got {type(data).__name__}")
+        msg = f"{path}: must be a YAML mapping, got {type(data).__name__}"
+        raise ConfigError(msg)
     return data
 
 
@@ -139,7 +145,8 @@ def _env_names(leaves):
         name = f"{ENV_PREFIX}_{_dotted(parts).upper().replace('.', '_').replace('-', '_')}"
         twin = next((p for p, n in names.items() if n == name), None)
         if twin:
-            raise ConfigError(f"config example: keys {_dotted(twin)} and {_dotted(parts)} both give env {name}")
+            msg = f"config example: keys {_dotted(twin)} and {_dotted(parts)} both give env {name}"
+            raise ConfigError(msg)
         names[parts] = name
     return names
 
@@ -151,7 +158,8 @@ def _from_env(env, names):
         if not name.startswith(f"{ENV_PREFIX}_"):
             continue
         if name not in by_name:
-            raise ConfigError(f"env {var}: names no config key")
+            msg = f"env {var}: names no config key"
+            raise ConfigError(msg)
         yield f"env {var}", by_name[name], env[var]
 
 
@@ -160,9 +168,11 @@ def _from_sets(sets, leaves):
     for item in sets:
         key, sep, text = item.partition("=")
         if not sep:
-            raise ConfigError(f"--set {item}: must be KEY=VALUE")
+            msg = f"--set {item}: must be KEY=VALUE"
+            raise ConfigError(msg)
         if key not in by_key:
-            raise ConfigError(f"--set {key}: names no config key")
+            msg = f"--set {key}: names no config key"
+            raise ConfigError(msg)
         yield f"--set {key}", by_key[key], text
 
 
@@ -172,19 +182,23 @@ def _convert(text, schema, source):
         return text
     if isinstance(schema, bool):
         if text.lower() not in ("true", "false"):
-            raise ConfigError(f"{source}: must be true or false, got {text!r}")
+            msg = f"{source}: must be true or false, got {text!r}"
+            raise ConfigError(msg)
         return text.lower() == "true"
     if isinstance(schema, (int, float)):
         pattern = INT if isinstance(schema, int) else DECIMAL
         if not pattern.fullmatch(text):
-            raise ConfigError(f"{source}: must be {type(schema).__name__}, got {text!r}")
+            msg = f"{source}: must be {type(schema).__name__}, got {text!r}"
+            raise ConfigError(msg)
         return int(text) if isinstance(schema, int) else float(text)
     try:
         value = yaml.safe_load(text)
     except yaml.YAMLError as e:
-        raise ConfigError(f"{source}: not valid YAML: {e}") from None
+        msg = f"{source}: not valid YAML: {e}"
+        raise ConfigError(msg) from None
     if not _same_type(value, schema):
-        raise ConfigError(f"{source}: must be {_kind(schema)}, got {_kind(value)}")
+        msg = f"{source}: must be {_kind(schema)}, got {_kind(value)}"
+        raise ConfigError(msg)
     return value
 
 
@@ -203,7 +217,8 @@ def _put(cfg, parts, value, source):
     for i, k in enumerate(parts[:-1]):
         node.setdefault(k, {})
         if not isinstance(node[k], dict):
-            raise ConfigError(f"{source}: {_dotted(parts[: i + 1])} in the config file is not a mapping")
+            msg = f"{source}: {_dotted(parts[: i + 1])} in the config file is not a mapping"
+            raise ConfigError(msg)
         node = node[k]
     node[parts[-1]] = value
 
@@ -214,19 +229,23 @@ def _check(value, schema, path, parts, names):
     key = _dotted(parts)
     if isinstance(schema, dict):
         if not isinstance(value, dict):
-            raise ConfigError(f"{path}: {key} must be a mapping, got {type(value).__name__}")
+            msg = f"{path}: {key} must be a mapping, got {type(value).__name__}"
+            raise ConfigError(msg)
         if not schema:
             return
         missing = sorted(schema.keys() - value.keys(), key=str)
         if missing:
-            raise ConfigError(f"{path}: missing key(s) {'; '.join(_hint((*parts, k), names) for k in missing)}")
+            msg = f"{path}: missing key(s) {'; '.join(_hint((*parts, k), names) for k in missing)}"
+            raise ConfigError(msg)
         unknown = value.keys() - schema.keys()
         if unknown:
-            raise ConfigError(f"{path}: unknown key(s) {', '.join(sorted(_dotted((*parts, k)) for k in unknown))}")
+            msg = f"{path}: unknown key(s) {', '.join(sorted(_dotted((*parts, k)) for k in unknown))}"
+            raise ConfigError(msg)
         for k, sub in schema.items():
             _check(value[k], sub, path, (*parts, k), names)
     elif not _same_type(value, schema):
-        raise ConfigError(f"{path}: {key} must be {type(schema).__name__}, got {type(value).__name__}")
+        msg = f"{path}: {key} must be {type(schema).__name__}, got {type(value).__name__}"
+        raise ConfigError(msg)
 
 
 def _hint(parts, names):

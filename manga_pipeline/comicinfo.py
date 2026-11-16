@@ -129,7 +129,8 @@ def build(fields, pages=None):
     )
     unknown = set(fields) - {n for n, _ in elements}
     if unknown:
-        raise ValueError(f"not ComicInfo elements: {sorted(unknown)}")
+        msg = f"not ComicInfo elements: {sorted(unknown)}"
+        raise ValueError(msg)
     for name, _ in elements:
         if name == "Pages":
             if pages:
@@ -145,7 +146,8 @@ def build(fields, pages=None):
     xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     errors = validate(xml)
     if errors:
-        raise ValueError(f"built ComicInfo is invalid: {errors}")
+        msg = f"built ComicInfo is invalid: {errors}"
+        raise ValueError(msg)
     return xml
 
 

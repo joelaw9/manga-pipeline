@@ -23,7 +23,8 @@ def held(conn, cfg, names, idle=None):
     All or nothing: when another session holds one, the ones already taken are freed and LockHeld names the held
     one, at once."""
     if idle not in (None, SHARED, EXCLUSIVE):
-        raise ValueError(f"idle must be {SHARED!r}, {EXCLUSIVE!r} or None, got {idle!r}")
+        msg = f"idle must be {SHARED!r}, {EXCLUSIVE!r} or None, got {idle!r}"
+        raise ValueError(msg)
     if not cfg["lock"]["enabled"]:
         yield
         return
@@ -34,7 +35,8 @@ def held(conn, cfg, names, idle=None):
             fn = "pg_try_advisory_lock_shared" if shared else "pg_try_advisory_lock"
             if not conn.execute(f"SELECT {fn}(%s, hashtext(%s))", (NAMESPACE, name)).fetchone()[0]:
                 what = "a running command holds" if name == IDLE else "another run holds"
-                raise LockHeld(f"{what} the lock {name!r}")
+                msg = f"{what} the lock {name!r}"
+                raise LockHeld(msg)
             taken.append((name, shared))
         yield
     finally:

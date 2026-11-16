@@ -17,7 +17,8 @@ def apply(ctx, data, series_id=None):
     Refused naming every problem found."""
     problems = []
     if not isinstance(data, dict):
-        raise workflow.Refused("the edit file must be a JSON object with 'series' and 'chapters'")
+        msg = "the edit file must be a JSON object with 'series' and 'chapters'"
+        raise workflow.Refused(msg)
     problems += [f"unknown key {k!r} (series, chapters)" for k in data if k not in ("series", "chapters")]
     chapters = data.get("chapters")
     if not isinstance(chapters, dict) or not chapters:
@@ -110,7 +111,8 @@ def load(path):
         with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError) as e:
-        raise workflow.Refused(f"{path}: {e}") from None
+        msg = f"{path}: {e}"
+        raise workflow.Refused(msg) from None
 
 
 def _series(ctx, name, series_id, problems):

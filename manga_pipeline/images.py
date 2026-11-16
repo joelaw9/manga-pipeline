@@ -478,7 +478,8 @@ def measure_pages(cbz, known=None):
         page = dict(known.get(index, {}))
         digest = archive.sha1(data)
         if page.get("sha1", digest) != digest:
-            raise ValueError(f"{cbz}: page {index} ({name}) known sha1 {page['sha1']} is not its bytes' {digest}")
+            msg = f"{cbz}: page {index} ({name}) known sha1 {page['sha1']} is not its bytes' {digest}"
+            raise ValueError(msg)
         page.update(index=index, name=name, bytes=len(data), sha1=digest)
         try:
             page.setdefault("format", detect(data))
@@ -487,7 +488,8 @@ def measure_pages(cbz, known=None):
             if any(f not in page for f in DECODED_FIELDS):
                 page.update({f: v for f, v in _measure_decoded(data).items() if f not in page})
         except Exception as e:  # Pillow raises many types on a page it cannot read
-            raise ValueError(f"{cbz}: page {index} ({name}) cannot be measured: {e}") from e
+            msg = f"{cbz}: page {index} ({name}) cannot be measured: {e}"
+            raise ValueError(msg) from e
         out.append({f: page[f] for f in PAGE_FIELDS})
     return out
 
@@ -500,8 +502,10 @@ def blank(rgb, box, fill):
     x0, y0, x1, y1 = box
     h, w = out.shape[:2]
     if not (0 <= x0 < x1 <= w and 0 <= y0 < y1 <= h):
-        raise ValueError(f"blank box {tuple(box)} is not inside the {w}x{h} page")
+        msg = f"blank box {tuple(box)} is not inside the {w}x{h} page"
+        raise ValueError(msg)
     if len(fill) != 3 or not all(0 <= int(v) <= 255 for v in fill):
-        raise ValueError(f"blank fill {fill!r} is not an RGB colour")
+        msg = f"blank fill {fill!r} is not an RGB colour"
+        raise ValueError(msg)
     out[y0:y1, x0:x1] = fill
     return out

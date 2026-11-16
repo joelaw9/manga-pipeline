@@ -184,7 +184,8 @@ def after(stamp, delta):
 def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, source, source_url):
     """Record a discovered download as a chapter ready at the first stage; runs inside the caller's transaction."""
     if not db.in_transaction(conn):
-        raise RuntimeError("add_chapter runs inside the caller's transaction")
+        msg = "add_chapter runs inside the caller's transaction"
+        raise RuntimeError(msg)
     stamp = now(conn)
     conn.execute(
         """INSERT INTO chapter (series_id, kind, identity, download_path, suwayomi_chapter_id, source, source_url,
@@ -302,7 +303,8 @@ def work(ctx, chapter, stage):
     the outcome (the Unreachable for that case). An outcome dropped because a person changed the row meanwhile is
     neither logged as an outcome nor counted."""
     if db.in_transaction(ctx.conn):
-        raise RuntimeError("a stage must run with no transaction open")
+        msg = "a stage must run with no transaction open"
+        raise RuntimeError(msg)
     try:
         with share_errors():
             outcome = stage(ctx, chapter)
@@ -323,7 +325,8 @@ def work(ctx, chapter, stage):
     except Exception as e:
         outcome = Failed(f"{type(e).__name__}: {e}")
     if not isinstance(outcome, OUTCOMES):
-        raise TypeError(f"stage {stage.__module__}.{stage.__name__} returned {outcome!r}, not an outcome")
+        msg = f"stage {stage.__module__}.{stage.__name__} returned {outcome!r}, not an outcome"
+        raise TypeError(msg)
     try:
         recorded = _finish(ctx, chapter, outcome)
     except Exception as e:
@@ -411,7 +414,8 @@ def charge_waits(ctx, on, reason, waited_since, at):
     chapter's wait counts from then. A chapter reaching the attempt limit becomes needs_human. Runs inside the caller's
     transaction; returns how many were charged."""
     if not db.in_transaction(ctx.conn):
-        raise RuntimeError("charge_waits runs inside the caller's transaction")
+        msg = "charge_waits runs inside the caller's transaction"
+        raise RuntimeError(msg)
     limit = ctx.cfg["workflow"]["attempt_limit"]
     rows = ctx.conn.execute(
         f"""UPDATE chapter SET attempts = attempts + 1, last_error = %(reason)s, updated_at = %(at)s
@@ -450,14 +454,16 @@ def holds_claim(ctx, chapter):
         (chapter["id"], ctx.owner, chapter["claim_count"]),
     ).fetchone()
     if held is None:
-        raise ClaimLost(f"the claim on chapter {chapter['id']} was freed or taken by another run")
+        msg = f"the claim on chapter {chapter['id']} was freed or taken by another run"
+        raise ClaimLost(msg)
 
 
 def needs_human(conn, kind, item_id, reason):
     """The single place a chapter or a series becomes needs_human (kind "chapter" or "series"); runs inside the
     caller's transaction."""
     if not db.in_transaction(conn):
-        raise RuntimeError("needs_human runs inside the caller's transaction")
+        msg = "needs_human runs inside the caller's transaction"
+        raise RuntimeError(msg)
     if kind == "chapter":
         conn.execute(
             """UPDATE chapter SET status = 'needs_human', claimed_by = NULL, waiting_on = NULL, wait_data = NULL,
@@ -468,7 +474,8 @@ def needs_human(conn, kind, item_id, reason):
     elif kind == "series":
         conn.execute("UPDATE series SET status = 'needs_human', status_reason = %s WHERE id = %s", (reason, item_id))
     else:
-        raise ValueError(f"needs_human: kind must be chapter or series, got {kind!r}")
+        msg = f"needs_human: kind must be chapter or series, got {kind!r}"
+        raise ValueError(msg)
     log.warning("needs human: %s %s: %s", kind, item_id, reason)  # Phase 8 adds the Discord message
 
 
@@ -481,9 +488,11 @@ def retry_chapter(conn, chapter_id):
     with db.transaction(conn):
         row = conn.execute("SELECT status FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
         if row is None:
-            raise Refused(f"no chapter {chapter_id}")
+            msg = f"no chapter {chapter_id}"
+            raise Refused(msg)
         if row["status"] != "needs_human":
-            raise Refused(f"chapter {chapter_id} is {row['status']}, not needs_human")
+            msg = f"chapter {chapter_id} is {row['status']}, not needs_human"
+            raise Refused(msg)
         _ready_again(conn, "id = %s", chapter_id)
 
 
@@ -494,15 +503,18 @@ def retry_series(conn, series_id):
     with db.transaction(conn):
         row = conn.execute("SELECT status, origin, admitted_at FROM series WHERE id = %s", (series_id,)).fetchone()
         if row is None:
-            raise Refused(f"no series {series_id}")
+            msg = f"no series {series_id}"
+            raise Refused(msg)
         if row["origin"] == "new" and row["admitted_at"] is None:
-            raise Refused(
+            msg = (
                 f"series {series_id} is a new series not yet admitted: series link {series_id}'s manga or folder to a "
                 f"Kavita series, or series new {series_id} [--name NAME]"
             )
+            raise Refused(msg)
         chapters = _ready_again(conn, "series_id = %s AND status = 'needs_human'", series_id)
         if row["status"] != "needs_human" and not chapters:
-            raise Refused(f"series {series_id} is {row['status']} and has no needs_human chapter")
+            msg = f"series {series_id} is {row['status']} and has no needs_human chapter"
+            raise Refused(msg)
         conn.execute("UPDATE series SET status = 'ok', status_reason = NULL WHERE id = %s", (series_id,))
 
 
@@ -575,10 +587,11 @@ def droppable(conn, chapter_id):
             [state["expected"]["path"]] if state.get("expected") else []
         )
         if pending:
-            raise Refused(
+            msg = (
                 f"chapter {chapter_id} still has re-download work outstanding ({', '.join(pending)}): "
                 f"retry {chapter_id} lets intake finish it"
             )
+            raise Refused(msg)
         return row
 
 
@@ -605,11 +618,11 @@ def _droppable_stages(conn, chapter_id):
 def _refuse_unless_human(conn, chapter_id, stages):
     row = conn.execute("SELECT * FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
     if row is None:
-        raise Refused(f"no chapter {chapter_id}")
+        msg = f"no chapter {chapter_id}"
+        raise Refused(msg)
     if row["status"] != "needs_human" or row["stage"] not in stages:
-        raise Refused(
-            f"chapter {chapter_id} is {row['status']} at {row['stage']}, not needs_human at {' or '.join(stages)}"
-        )
+        msg = f"chapter {chapter_id} is {row['status']} at {row['stage']}, not needs_human at {' or '.join(stages)}"
+        raise Refused(msg)
     return row
 
 
@@ -707,7 +720,8 @@ def share_errors():
     except OSError as e:
         if e.errno not in SHARE_ERRNOS and getattr(e, "winerror", None) not in SHARE_WINERRORS:
             raise
-        raise Unreachable("share") from e
+        msg = "share"
+        raise Unreachable(msg) from e
 
 
 def _params(ctx, **extra):
@@ -722,7 +736,8 @@ def _set_meta(ctx, name, value):
 def set_meta(conn, key, value):
     """Store a meta value; runs inside the caller's transaction."""
     if not db.in_transaction(conn):
-        raise RuntimeError("set_meta runs inside the caller's transaction")
+        msg = "set_meta runs inside the caller's transaction"
+        raise RuntimeError(msg)
     conn.execute(
         "INSERT INTO meta (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
         (key, value),

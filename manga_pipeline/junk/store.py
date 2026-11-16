@@ -32,7 +32,8 @@ DECIDERS = ("import", "claude", "human")
 def series_key(series):
     """The series key of a series row: its rules key, which a later folder does not change."""
     if not series["rules_key"]:
-        raise ValueError(f"series {series['id']} has no folder yet: it has no series key")
+        msg = f"series {series['id']} has no folder yet: it has no series key"
+        raise ValueError(msg)
     return series["rules_key"]
 
 
@@ -146,13 +147,16 @@ def upsert(conn, rows):
     is a pipeline decision or at least as new; a pipeline-made row ('claude', 'human') is never touched. ValueError for
     a row that is no junk decision, or on an unsignable key. Returns {"inserted", "updated", "unchanged"} counts."""
     if not db.in_transaction(conn):
-        raise RuntimeError("upsert runs inside the caller's transaction")
+        msg = "upsert runs inside the caller's transaction"
+        raise RuntimeError(msg)
     counts = {"inserted": 0, "updated": 0, "unchanged": 0}
     for r in rows:
         if r["kind"] not in KINDS or r["verdict"] not in ("junk", "keep") or r["decider"] not in DECIDERS:
-            raise ValueError(f"not a junk decision: {r}")
+            msg = f"not a junk decision: {r}"
+            raise ValueError(msg)
         if unsignable(r["kind"], r["key"]):
-            raise ValueError(f"a decision on an unsignable key (it would match any blank or flat rows): {r}")
+            msg = f"a decision on an unsignable key (it would match any blank or flat rows): {r}"
+            raise ValueError(msg)
         old = conn.execute(
             "SELECT * FROM junk_decision WHERE series_key = %s AND kind = %s AND key = %s",
             (r["series_key"], r["kind"], r["key"]),

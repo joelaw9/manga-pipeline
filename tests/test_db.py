@@ -124,7 +124,8 @@ def test_transaction_rolls_back_when_the_block_raises(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
         with pytest.raises(RuntimeError, match="stage failed"), db.transaction(conn):
             conn.execute("INSERT INTO meta (key, value) VALUES ('probe', 'x')")
-            raise RuntimeError("stage failed")
+            msg = "stage failed"
+            raise RuntimeError(msg)
         assert conn.execute("SELECT 1 FROM meta WHERE key = 'probe'").fetchone() is None
         assert not db.in_transaction(conn)
 
@@ -506,7 +507,8 @@ def test_a_database_whose_reset_failed_is_rebuilt_by_its_next_taker(own_pool, tm
 
         def failing(self, db_name, rebuild):
             if db_name == name:
-                raise RuntimeError("this reset fails")
+                msg = "this reset fails"
+                raise RuntimeError(msg)
             return real(self, db_name, rebuild)
 
         monkeypatch.setattr(pg.Process, "_reset", failing)
@@ -538,7 +540,8 @@ def test_pool_databases_that_cannot_be_made_right_stop_the_run_after_max_failed_
         return conn
 
     def failing(self, name, rebuild):
-        raise RuntimeError("this reset fails")
+        msg = "this reset fails"
+        raise RuntimeError(msg)
 
     monkeypatch.setattr(pg, "_connect", connect)
     monkeypatch.setattr(pg.Process, "_reset", failing)
@@ -628,7 +631,8 @@ def test_a_failed_reset_still_resets_the_tests_other_databases(tmp_path, monkeyp
 
     def failing(self, name, rebuild):
         if name == first["database"]["name"]:
-            raise RuntimeError("this reset fails")
+            msg = "this reset fails"
+            raise RuntimeError(msg)
         return real(self, name, rebuild)
 
     monkeypatch.setattr(pg.Process, "_reset", failing)

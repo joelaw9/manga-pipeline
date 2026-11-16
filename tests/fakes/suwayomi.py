@@ -231,13 +231,15 @@ class FakeSuwayomi(suwayomi.Suwayomi):
 
     def _check_source(self, source_id):
         if source_id in self.unavailable:
-            raise suwayomi.SourceUnavailable(f"No route to host (source {source_id})")
+            msg = f"No route to host (source {source_id})"
+            raise suwayomi.SourceUnavailable(msg)
 
     def _entry(self, chapter_id):
         for entry in self.queue:
             if entry["chapter"] == chapter_id:
                 return entry
-        raise AssertionError(f"FakeSuwayomi: chapter {chapter_id} is not in the download queue")
+        msg = f"FakeSuwayomi: chapter {chapter_id} is not in the download queue"
+        raise AssertionError(msg)
 
     def _write(self, chapter_id, data):
         path = self.path(chapter_id)

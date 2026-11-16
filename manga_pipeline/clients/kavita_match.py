@@ -64,7 +64,8 @@ def series_titles(kseries):
     A series without a Kavita Name (unmatched: the plan skips it at S0 before naming) raises."""
     name = (kseries or {}).get("name")
     if not name:
-        raise ValueError("naming: no Kavita series Name: ComicInfo Series follows Kavita's Name")
+        msg = "naming: no Kavita series Name: ComicInfo Series follows Kavita's Name"
+        raise ValueError(msg)
     localized = kseries.get("localizedName") or None
     if localized is not None and normalize(localized) == normalize(name):
         localized = None

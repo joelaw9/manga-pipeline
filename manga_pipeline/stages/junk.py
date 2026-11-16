@@ -45,7 +45,8 @@ def run(ctx, chapter):
     if outcome:
         return outcome
     if not chapter["content_digest"]:
-        raise ValueError(f"chapter {chapter['id']} has no content digest: discovery sets it before junk")
+        msg = f"chapter {chapter['id']} has no content digest: discovery sets it before junk"
+        raise ValueError(msg)
     key = store.series_key(series)
     row = current_scan(ctx.conn, chapter)
     if row is None:

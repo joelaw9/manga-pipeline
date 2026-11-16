@@ -29,7 +29,8 @@ def layout(data):
     v = data.get("layout")
     v = str(v).strip().lower() if v is not None else None
     if v not in (None, *LAYOUTS):
-        raise ValueError(f"overrides layout must be 'strip' or 'pages', not {v!r}")
+        msg = f"overrides layout must be 'strip' or 'pages', not {v!r}"
+        raise ValueError(msg)
     return v
 
 
@@ -54,13 +55,15 @@ def override_file(overrides, folder_name):
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         if not isinstance(data, dict):
-            raise ValueError(f"overrides must be a YAML mapping, not {type(data).__name__}")
+            msg = f"overrides must be a YAML mapping, not {type(data).__name__}"
+            raise ValueError(msg)
         check_volumes(data.get("volumes"))
         if "series_group" in data:
             _group_names(data["series_group"])
         layout(data)
     except (yaml.YAMLError, ValueError) as e:
-        raise OverrideError(f"{path}: {e}") from None
+        msg = f"{path}: {e}"
+        raise OverrideError(msg) from None
     return data
 
 
@@ -69,12 +72,15 @@ def _group_names(value):
     SeriesGroup on commas, 1 collection each). ValueError otherwise."""
     items = [value] if isinstance(value, str) else value
     if not isinstance(items, list) or not items:
-        raise ValueError(f"series_group must be a name or a non-empty list of names, not {value!r}")
+        msg = f"series_group must be a name or a non-empty list of names, not {value!r}"
+        raise ValueError(msg)
     for name in items:
         if not isinstance(name, str) or not name.strip():
-            raise ValueError(f"series_group names must be non-empty strings, not {name!r}")
+            msg = f"series_group names must be non-empty strings, not {name!r}"
+            raise ValueError(msg)
         if "," in name:
-            raise ValueError(f"series_group name {name!r} has a comma: list the collections instead")
+            msg = f"series_group name {name!r} has a comma: list the collections instead"
+            raise ValueError(msg)
     return [name.strip() for name in items]
 
 
@@ -84,20 +90,24 @@ def check_volumes(volumes):
     if volumes is None:
         return
     if not isinstance(volumes, dict):
-        raise ValueError(f"volumes must be a mapping of volume: chapter range, not {volumes!r}")
+        msg = f"volumes must be a mapping of volume: chapter range, not {volumes!r}"
+        raise ValueError(msg)
     for vol, rng in volumes.items():
         if (
             isinstance(vol, bool)
             or not (isinstance(vol, int) or (isinstance(vol, str) and vol.isascii() and vol.isdigit()))
             or int(vol) < 0
         ):
-            raise ValueError(f"volumes key {vol!r} is not a volume number (a whole number)")
+            msg = f"volumes key {vol!r} is not a volume number (a whole number)"
+            raise ValueError(msg)
         try:
             lo, hi = _range(rng)
         except ValueError:
-            raise ValueError(f"volumes {vol}: range {rng!r} is not a chapter range (1-53, 54, 94-, -53)") from None
+            msg = f"volumes {vol}: range {rng!r} is not a chapter range (1-53, 54, 94-, -53)"
+            raise ValueError(msg) from None
         if lo > hi:
-            raise ValueError(f"volumes {vol}: range {rng!r} runs backwards")
+            msg = f"volumes {vol}: range {rng!r} runs backwards"
+            raise ValueError(msg)
 
 
 def override_volume(volumes, num):

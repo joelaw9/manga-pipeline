@@ -53,7 +53,8 @@ def fake_run(*args):
     elif name == "oxipng":
         shutil.copyfile(rest[-1], _after(rest, "--out"))
     else:
-        raise AssertionError(f"fake_run: no fake for tool {args[0]}")
+        msg = f"fake_run: no fake for tool {args[0]}"
+        raise AssertionError(msg)
 
 
 class FakeScorer:

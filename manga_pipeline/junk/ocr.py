@@ -93,7 +93,8 @@ def scale(im, width=WIDTH):
 def text(im, device):
     """The lines read in im (scaled to WIDTH) on `device`, newline-joined; "" when none."""
     if device not in PARAMS:
-        raise ValueError(f"ocr device must be one of {sorted(PARAMS)}, got {device!r}")
+        msg = f"ocr device must be one of {sorted(PARAMS)}, got {device!r}"
+        raise ValueError(msg)
     im = scale(im)
     with _serial:
         engine = _engine(device)

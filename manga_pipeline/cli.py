@@ -115,7 +115,8 @@ def retry(cfg, args):
 def _database(cfg, what):
     """The built database, for a command that never builds one (SPEC "State")."""
     if not db.built(cfg):
-        raise workflow.Refused(f"no database {cfg['database']['name']} built yet: nothing to {what}")
+        msg = f"no database {cfg['database']['name']} built yet: nothing to {what}"
+        raise workflow.Refused(msg)
     return closing(db.connect(cfg))
 
 

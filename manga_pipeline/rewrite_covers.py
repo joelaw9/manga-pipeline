@@ -205,9 +205,11 @@ def _check(staged, kept, inserted):
     with zipfile.ZipFile(staged) as z:
         got = {i.filename: i.CRC for i in z.infolist()}
         if any(got.get(n) != crc for n, _, crc in kept):
-            raise RuntimeError(f"{staged}: a copied member's CRC differs from the library file's")
+            msg = f"{staged}: a copied member's CRC differs from the library file's"
+            raise RuntimeError(msg)
         if inserted and images.detect(z.read(inserted["name"])) != inserted["format"]:
-            raise RuntimeError(f"{staged}: its cover does not decode as {inserted['format']}")
+            msg = f"{staged}: its cover does not decode as {inserted['format']}"
+            raise RuntimeError(msg)
 
 
 # --- the Page entries

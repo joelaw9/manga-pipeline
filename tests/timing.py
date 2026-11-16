@@ -16,7 +16,8 @@ import unittest
 from datetime import UTC, datetime
 
 if sys.version_info < (3, 12):
-    raise RuntimeError("timing.py needs Python 3.12+ (unittest.TestResult.addDuration)")
+    msg = "timing.py needs Python 3.12+ (unittest.TestResult.addDuration)"
+    raise RuntimeError(msg)
 
 # Default budget in seconds per load: the costliest resource a test touches. "sleep" has no default.
 LOADS = {"pure": 0.1, "fs": 0.5, "db": 1.0, "network": 2.0, "subprocess": 5.0, "pool": 5.0, "sleep": None}
@@ -28,13 +29,16 @@ NO_TESTS_EXIT = 5  # unittest's exit code when nothing ran
 def budget(seconds=None, load="pure"):
     """Tag a test function or class with its load and budget (seconds for setup + test + teardown)."""
     if load not in LOADS:
-        raise ValueError(f"unknown load {load!r}; one of {sorted(LOADS)}")
+        msg = f"unknown load {load!r}; one of {sorted(LOADS)}"
+        raise ValueError(msg)
     if seconds is None:
         seconds = LOADS[load]
         if seconds is None:
-            raise ValueError(f"load {load!r} needs explicit seconds")
+            msg = f"load {load!r} needs explicit seconds"
+            raise ValueError(msg)
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds <= 0:
-        raise ValueError(f"budget seconds must be a positive number, got {seconds!r}")
+        msg = f"budget seconds must be a positive number, got {seconds!r}"
+        raise ValueError(msg)
 
     def mark(obj):
         setattr(obj, ATTR, {"seconds": float(seconds), "load": load})

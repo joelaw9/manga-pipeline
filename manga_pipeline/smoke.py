@@ -44,7 +44,8 @@ def _kavita(cfg):
     print(f"kavita: {len(libraries)} libraries: {listed}")
     library_id = cfg["kavita"]["library_id"]
     if library_id not in [library["id"] for library in libraries]:
-        raise LookupError(f"kavita.library_id {library_id} is none of Kavita's libraries")
+        msg = f"kavita.library_id {library_id} is none of Kavita's libraries"
+        raise LookupError(msg)
     series = client.series_in_library(library_id)
     print(f"kavita: library {library_id} holds {len(series)} series")
     if not series:
@@ -60,6 +61,5 @@ def _kavita(cfg):
         print(f"  {file['path']} ({file['bytes']} bytes, {'exists' if file['path'].exists() else 'MISSING'})")
     missing = sum(not file["path"].exists() for file in files)
     if missing:
-        raise FileNotFoundError(
-            f"{missing} of {len(files)} mapped paths do not exist: check paths.kavita_path_map and the share's mount"
-        )
+        msg = f"{missing} of {len(files)} mapped paths do not exist: check paths.kavita_path_map and the share's mount"
+        raise FileNotFoundError(msg)

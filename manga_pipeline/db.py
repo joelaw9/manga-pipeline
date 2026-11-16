@@ -60,7 +60,8 @@ class Row(tuple):
             for i, name in enumerate(self._keys):
                 if name.casefold() == folded:
                     return tuple.__getitem__(self, i)
-            raise IndexError(f"no column named {key!r}")
+            msg = f"no column named {key!r}"
+            raise IndexError(msg)
         return tuple.__getitem__(self, key)
 
     def keys(self):
@@ -89,12 +90,15 @@ def _login(cfg):
     settings = cfg["database"]
     for key in ("host", "name", "user"):
         if not isinstance(settings[key], str) or not settings[key]:
-            raise config.ConfigError(f"database.{key} must be a non-empty string")
+            msg = f"database.{key} must be a non-empty string"
+            raise config.ConfigError(msg)
     port = settings["port"]
     if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
-        raise config.ConfigError(f"database.port must be a whole number from 1 to 65535, got {port!r}")
+        msg = f"database.port must be a whole number from 1 to 65535, got {port!r}"
+        raise config.ConfigError(msg)
     if settings["password"] is not None and (not isinstance(settings["password"], str) or not settings["password"]):
-        raise config.ConfigError("database.password must be null or a non-empty string")
+        msg = "database.password must be null or a non-empty string"
+        raise config.ConfigError(msg)
     return settings  # whether a login needs the password is the server's to say (SPEC "Config")
 
 
@@ -123,10 +127,10 @@ def _open(cfg, dbname=None):
     # libpq reports a missing database inside a connection failure (no SQLSTATE once it tried 2 addresses): the
     # server's own list says which it is.
     if dbname != MAINTENANCE_DATABASE and not _exists(cfg, dbname):
-        raise NoDatabase(f"no database {dbname} on {login['host']}:{login['port']}")
-    raise CannotConnect(
-        f"cannot use the database server {login['host']}:{login['port']} as {login['user']}: {failure}"
-    ) from None
+        msg = f"no database {dbname} on {login['host']}:{login['port']}"
+        raise NoDatabase(msg)
+    msg = f"cannot use the database server {login['host']}:{login['port']} as {login['user']}: {failure}"
+    raise CannotConnect(msg) from None
 
 
 def _exists(cfg, dbname):
@@ -161,10 +165,11 @@ def open_database(cfg, builds):
     if not builds and not _has_record(conn):
         conn.close()
         login = cfg["database"]
-        raise NoDatabase(
+        msg = (
             f"no database {login['name']} on {login['host']}:{login['port']}: it holds no schema record (empty, or "
             "not built by this program)"
         )
+        raise NoDatabase(msg)
     return conn
 
 
@@ -176,18 +181,18 @@ def read_only(cfg):
     try:
         conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         if not _has_record(conn):
-            raise SchemaError(
-                f"database {conn.info.dbname}: holds no schema record (empty, or not built by this program)"
-            )
+            msg = f"database {conn.info.dbname}: holds no schema record (empty, or not built by this program)"
+            raise SchemaError(msg)
         applied = {row[0] for row in conn.execute("SELECT name FROM schema_step")}
         steps = {p.stem for p in SCHEMA.glob("*.sql")}
         if applied != steps:
             unknown, missing = sorted(applied - steps), sorted(steps - applied)
-            raise SchemaError(
+            msg = (
                 f"database {conn.info.dbname}: schema steps differ from this program's (unknown: "
                 f"{', '.join(unknown) or 'none'}; not applied yet: {', '.join(missing) or 'none'}; "
                 "a part's run applies them)"
             )
+            raise SchemaError(msg)
     except BaseException:
         conn.close()
         raise
@@ -216,7 +221,8 @@ def transaction(conn):
     """1 write transaction: committed when the block ends, rolled back when it raises. It takes the database-wide
     write lock first, so write transactions never overlap (SPEC "State")."""
     if in_transaction(conn):
-        raise RuntimeError("a transaction is already open on this connection")
+        msg = "a transaction is already open on this connection"
+        raise RuntimeError(msg)
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (WRITE_LOCK,))
         yield conn
@@ -251,9 +257,8 @@ def _create(cfg):
         except (psycopg.errors.DuplicateDatabase, psycopg.errors.UniqueViolation):
             pass  # 2 creates racing: the loser gets either error (PostgreSQL's createdb checks the name racily)
         except psycopg.Error as e:
-            raise CannotConnect(
-                f"cannot create the database {name} on {login['host']}:{login['port']} as {login['user']}: {e}"
-            ) from None
+            msg = f"cannot create the database {name} on {login['host']}:{login['port']} as {login['user']}: {e}"
+            raise CannotConnect(msg) from None
 
 
 def _has_record(conn):
@@ -278,12 +283,12 @@ def apply_steps(conn):
         applied = {row[0] for row in conn.execute("SELECT name FROM schema_step")} if _has_record(conn) else set()
         unknown = sorted(applied - steps.keys())
         if unknown:
-            raise SchemaError(
-                f"database {conn.info.dbname}: holds schema step(s) this program does not have: {', '.join(unknown)}"
-            )
+            msg = f"database {conn.info.dbname}: holds schema step(s) this program does not have: {', '.join(unknown)}"
+            raise SchemaError(msg)
         for name in sorted(steps.keys() - applied):
             try:
                 conn.execute(steps[name].read_text(encoding="utf-8"))
             except psycopg.errors.RaiseException as e:  # a step that refuses the database names why
-                raise SchemaError(f"database {conn.info.dbname}: step {name}: {e.diag.message_primary}") from None
+                msg = f"database {conn.info.dbname}: step {name}: {e.diag.message_primary}"
+                raise SchemaError(msg) from None
             conn.execute("INSERT INTO schema_step (name, applied_at) VALUES (%s, %s)", (name, now(conn)))

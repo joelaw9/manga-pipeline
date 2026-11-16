@@ -353,7 +353,8 @@ def test_run_records_start_end_result_and_success(ctx):
 @budget(load="db")
 def test_unreachable_run_ends_with_its_result_and_no_success(ctx):
     def body(ctx):
-        raise workflow.Unreachable("share")
+        msg = "share"
+        raise workflow.Unreachable(msg)
 
     workflow.run_part(ctx, body)
     got = meta(ctx)
@@ -381,7 +382,8 @@ def test_failing_wait_check_is_logged_and_the_others_go_on(ctx, caplog):
 
     def holds(ctx, chapter):
         if chapter["id"] == first["id"]:
-            raise ValueError("candidate image unreadable")
+            msg = "candidate image unreadable"
+            raise ValueError(msg)
         return True
 
     workflow.end_waits(ctx, "junk_decision", holds)
@@ -408,7 +410,8 @@ def test_dropped_outcome_is_neither_logged_nor_counted(ctx, caplog):
 def test_crash_after_an_unreachable_stage_records_error_and_raises(ctx):
     def body(ctx):
         workflow.work(ctx, claimed(ctx), raises(OSError(errno.EIO, "io")))
-        raise KeyError("a bug in the loop")
+        msg = "a bug in the loop"
+        raise KeyError(msg)
 
     with pytest.raises(KeyError):
         workflow.run_part(ctx, body)

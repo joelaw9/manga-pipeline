@@ -62,7 +62,8 @@ def test_kavita_is_checked_though_suwayomi_failed(services, capsys, monkeypatch)
     suw, _ = services
 
     def down():
-        raise Unreachable("suwayomi", "timed out after 60 s")
+        msg = "suwayomi"
+        raise Unreachable(msg, "timed out after 60 s")
 
     monkeypatch.setattr(suw, "library_size", down)
     with pytest.raises(smoke.Failed, match="suwayomi: Unreachable: suwayomi: timed out"):

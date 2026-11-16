@@ -455,7 +455,8 @@ def test_may_have_alpha_reads_only_the_header(tmp_path, monkeypatch, data, want)
     p.write_bytes(data())
 
     def no_decode(*args, **kw):
-        raise AssertionError("may_have_alpha decoded pixels")
+        msg = "may_have_alpha decoded pixels"
+        raise AssertionError(msg)
 
     monkeypatch.setattr(ImageFile.ImageFile, "load", no_decode)
     assert images.may_have_alpha(p) is want, "an alpha band or a transparency entry in the header allows alpha"

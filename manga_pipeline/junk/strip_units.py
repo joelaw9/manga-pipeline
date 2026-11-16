@@ -385,7 +385,8 @@ def decide(sc, decide_unit, known=()):
             if not p["blank"]:
                 m = sc["measured"].get(f"{p['start']}:{p['end']}")
                 if m is None:
-                    raise ValueError(f"tail piece {p['start']}-{p['end']} was not measured by the scan")
+                    msg = f"tail piece {p['start']}-{p['end']} was not measured by the scan"
+                    raise ValueError(msg)
                 p.update(m)
             pieces.append(p)
         classes = tail_classes(

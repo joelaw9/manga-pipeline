@@ -37,7 +37,8 @@ def _in_tmp(value):
 def _load(path=None, example=None, env=None, sets=()):
     p = Path(path) if path is not None else TEST_CONFIG
     if p.resolve() == LIVE_CONFIG:
-        raise LiveConfigRead(f"a test read the live {LIVE_CONFIG}; use tests/test_config.yaml")
+        msg = f"a test read the live {LIVE_CONFIG}; use tests/test_config.yaml"
+        raise LiveConfigRead(msg)
     cfg = real_load(p, example, env, sets)
     return _in_tmp(cfg) if p == TEST_CONFIG else cfg
 

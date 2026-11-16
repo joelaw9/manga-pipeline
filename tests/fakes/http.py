@@ -112,11 +112,13 @@ class CannedService(http.Service):
                 if isinstance(value, BaseException):
                     raise value
                 return value if isinstance(value, http.Response) else reply(value, service=self.name)
-        raise AssertionError(f"CannedService {self.name}: no answer for {method} {path}")
+        msg = f"CannedService {self.name}: no answer for {method} {path}"
+        raise AssertionError(msg)
 
 
 class NoNetwork(http.Service):
     """The Service of a fake client: any request means the fake misses an override."""
 
     def request(self, method, url, **kwargs):
-        raise AssertionError(f"{self.name} fake: unexpected request {method} {http.redact_url(url)}")
+        msg = f"{self.name} fake: unexpected request {method} {http.redact_url(url)}"
+        raise AssertionError(msg)

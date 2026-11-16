@@ -22,9 +22,11 @@ def read_state(path):
     try:
         state = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        raise workflow.Refused(f"cannot read the state file {path}: {e}") from None
+        msg = f"cannot read the state file {path}: {e}"
+        raise workflow.Refused(msg) from None
     if not isinstance(state, dict) or not isinstance(state.get("ids"), dict):
-        raise workflow.Refused(f"{path} is not the old metadata tool's state file: it has no `ids`")
+        msg = f"{path} is not the old metadata tool's state file: it has no `ids`"
+        raise workflow.Refused(msg)
     return {part: state.get(part) or {} for part in ("ids", "covers", "metadata", "status")}
 
 
@@ -34,16 +36,19 @@ def read_overrides(path):
     try:
         old = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as e:
-        raise workflow.Refused(f"cannot read the old config {path}: {e}") from None
+        msg = f"cannot read the old config {path}: {e}"
+        raise workflow.Refused(msg) from None
     if not isinstance(old, dict):
-        raise workflow.Refused(f"{path} is not the old metadata tool's config")
+        msg = f"{path} is not the old metadata tool's config"
+        raise workflow.Refused(msg)
     found = {}
     if old.get("map"):
         map_path = Path(path).parent / old["map"]
         try:
             found.update(json.loads(map_path.read_text(encoding="utf-8")))
         except (OSError, ValueError) as e:
-            raise workflow.Refused(f"cannot read the old config's map {map_path}: {e}") from None
+            msg = f"cannot read the old config's map {map_path}: {e}"
+            raise workflow.Refused(msg) from None
     found.update(old.get("overrides") or {})
     return found
 
