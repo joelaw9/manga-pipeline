@@ -90,6 +90,9 @@ CALIBRATION = {
 }
 
 
+BULK = (("Ch.1.cbz", "Grp_Chapter 1", "1"),)  # a Kavita series' bulk chapters unless a test names them
+
+
 def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none", *, covers=None):
     """A valid finished .optimizer.json: chapters = [(output, source file, number, source bytes[, volume])]; basis:
     its series.naming.basis (where a new chapter's volume comes from); covers: {volume: output holding its cover}."""
@@ -169,21 +172,22 @@ class World:
         with closing(db.connect(self.cfg)) as conn, lock.held(conn, self.cfg, [workflow.owner(part)], lock.SHARED):
             workflow.run_part(self.context(conn, part), part_module.work)
 
-    def kavita_series(
-        self,
-        name,
-        folder=None,
-        *,
-        record=True,
-        bulk=(("Ch.1.cbz", "Grp_Chapter 1", "1"),),
-        basis="none",
-        layout="pages",
-        covers=None,
-        **names,
-    ):
+    def kavita_series(self, name, folder=None, *, bulk=BULK, basis="none", layout="pages", **names):
         """A series Kavita holds in <library>/<folder or name> with bulk-converted chapters [(output, source file
-        stem, number[, volume])] and, with record, its .optimizer.json. Returns the Kavita series id."""
+        stem, number[, volume])] and its .optimizer.json (bulk_record's basis and layout). Returns the Kavita series
+        id."""
         folder = folder or name
+        series_id, chapters = self._library_series(name, folder, bulk, names)
+        self.write_record(folder, bulk_record(name, series_id, chapters, layout=layout, basis=basis))
+        return series_id
+
+    def series_without_record(self, name, folder=None, *, bulk=BULK, **names):
+        """A series Kavita holds, as kavita_series makes it, with no .optimizer.json. Returns the Kavita series id."""
+        return self._library_series(name, folder or name, bulk, names)[0]
+
+    def _library_series(self, name, folder, bulk, names):
+        """The bulk chapters written into <library>/<folder> and the series added to Kavita: (Kavita series id,
+        [(output, source file, number, bytes[, volume])])."""
         path = self.library / folder
         path.mkdir(parents=True, exist_ok=True)
         chapters = []
@@ -193,15 +197,11 @@ class World:
             chapters.append((output, f"{stem}.cbz", number, data, *volume))
         series_id = self.kavita.add_series(name, folder, LIBRARY_ID, **names)
         self.kavita_specs.append((series_id, name, folder, names))
-        if record:
-            self.write_record(name, series_id, folder, chapters, basis, layout=layout, covers=covers)
-        return series_id
+        return series_id, chapters
 
-    def write_record(self, name, series_id, folder, chapters, basis="none", *, layout="pages", covers=None):
-        (self.library / folder / ".optimizer.json").write_text(
-            json.dumps(bulk_record(name, series_id, chapters, layout=layout, basis=basis, covers=covers)),
-            encoding="utf-8",
-        )
+    def write_record(self, folder, record):
+        """record (bulk_record's) as <library>/<folder>/.optimizer.json."""
+        (self.library / folder / ".optimizer.json").write_text(json.dumps(record), encoding="utf-8")
 
     def manga(self, title):
         return self.suwayomi.add_manga(title, self.source)

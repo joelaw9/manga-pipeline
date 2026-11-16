@@ -129,18 +129,9 @@ def due_now(world):
 B = [{"volume": "2", "locale": "en", "fileName": "b.png"}]
 
 
-@budget(load="db", seconds=30)
-@pytest.mark.parametrize(
-    ("case", "tried", "due"),
-    [
-        ("no-choice", False, False),
-        ("tie", False, False),
-        ("not-served", False, False),  # a 404: no cover file, the stored image kept quietly
-        ("not-an-image", True, False),
-        ("mangadex-down", True, True),
-    ],
-)
-def test_the_stored_image_stays_unless_mangadex_serves_a_new_choice(world, monkeypatch, caplog, case, tried, *, due):
+def check_keeps_a(world, monkeypatch, case):
+    """With image a stored, MangaDex answers as case says and the check runs: it reads the list and refreshes, and
+    the stored image stays."""
     stored_a(world)
     before, lists, refreshed = stored(world), lists_read(world), []
     real = covers.refresh_volumes
@@ -161,8 +152,35 @@ def test_the_stored_image_stays_unless_mangadex_serves_a_new_choice(world, monke
     assert lists_read(world) > lists, "the check read the list and refreshed"
     assert refreshed == [series_id(world)], "the check read the list and refreshed"
     assert stored(world) == before, "the stored image stays"
+
+
+@budget(load="db", seconds=30)
+@pytest.mark.parametrize("case", ["no-choice", "tie"])
+def test_the_stored_image_stays_while_mangadex_chooses_no_new_file(world, monkeypatch, caplog, case):
+    check_keeps_a(world, monkeypatch, case)
+    assert "volume 2 cover not refreshed" not in caplog.text, "b.png tried only when it is the new choice"
+    assert due_now(world) is False, "a series whose cover choice stands is not due again"
+
+
+@budget(load="db", seconds=30)
+@pytest.mark.parametrize(
+    ("case", "tried"),
+    [
+        ("not-served", False),  # a 404: no cover file, the stored image kept quietly
+        ("not-an-image", True),
+    ],
+)
+def test_the_stored_image_stays_when_mangadex_refuses_its_new_choice(world, monkeypatch, caplog, case, *, tried):
+    check_keeps_a(world, monkeypatch, case)
     assert ("volume 2 cover not refreshed" in caplog.text) is tried, "b.png tried only when it is the new choice"
-    assert due_now(world) is due, "MangaDex down: the series' check is due again; a refused file waits for the next"
+    assert due_now(world) is False, "a refused file waits for the next check"
+
+
+@budget(load="db", seconds=30)
+def test_the_stored_image_stays_and_the_check_is_due_again_while_mangadex_is_down(world, monkeypatch, caplog):
+    check_keeps_a(world, monkeypatch, "mangadex-down")
+    assert "volume 2 cover not refreshed" in caplog.text, "b.png tried only when it is the new choice"
+    assert due_now(world) is True, "MangaDex down: the series' check is due again"
 
 
 @budget(load="db", seconds=30)

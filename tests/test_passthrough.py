@@ -288,7 +288,7 @@ def test_a_deleted_library_file_is_replaced_and_its_record_with_it(world, solo):
 @budget(load="db", seconds=2)
 @pytest.mark.parametrize("layout", [{}, {"layout": "scroll"}])
 def test_a_record_without_a_known_layout_keeps_the_chapter_waiting(world, layout):
-    kavita_id = world.kavita_series("Solo Leveling", record=False)
+    kavita_id = world.series_without_record("Solo Leveling")
     record = bulk_record("Solo Leveling", kavita_id, [])
     record["series"]["layout"] = layout
     (world.library / "Solo Leveling" / ".optimizer.json").write_text(json.dumps(record), encoding="utf-8")
@@ -301,8 +301,8 @@ def test_a_record_without_a_known_layout_keeps_the_chapter_waiting(world, layout
 
 @budget(load="db", seconds=2)
 def test_a_record_naming_another_series_holds_the_series(world):
-    kavita_id = world.kavita_series("Solo Leveling", record=False)
-    world.write_record("Other Name", kavita_id, "Solo Leveling", [])
+    kavita_id = world.series_without_record("Solo Leveling")
+    world.write_record("Solo Leveling", bulk_record("Other Name", kavita_id, []))
     world.download(world.manga("Solo Leveling"), "Chapter 2")
     through(world, intake, intake)
     ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
