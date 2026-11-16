@@ -88,7 +88,7 @@ class Context:
     # The run's 1 client of each service (SPEC "Services"): what it learns holds for the run. None = built from cfg.
     suwayomi: Any = None
     kavita: Any = None
-    # The metadata sources' clients (metadata.check.Sources); intake builds them when None.
+    # The metadata sources' clients (metadata.sources.Sources); intake builds them when None.
     sources: Any = None
     # What the run learnt from Kavita once: the library listing, each new series' id search (SPEC "Publishing").
     kavita_cache: dict = field(default_factory=dict)

@@ -10,7 +10,7 @@ import yaml
 from manga_pipeline import cli, db, intake, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
-from manga_pipeline.metadata import audit, check, human, importer
+from manga_pipeline.metadata import audit, human, importer, sources
 
 from tests.timing import budget
 from tests.world import World
@@ -134,7 +134,7 @@ def test_audit_opens_no_database(world, monkeypatch, capsys):
     cfg = {**world.cfg, "database": {**world.cfg["database"], "name": "mp_test_never_built_audit"}}
     monkeypatch.setattr(suwayomi_client, "from_config", lambda _c: world.suwayomi)
     monkeypatch.setattr(kavita_client, "from_config", lambda _c: world.kavita)
-    monkeypatch.setattr(check, "new_sources", lambda: world.sources)
+    monkeypatch.setattr(sources, "new_sources", lambda: world.sources)
     world.kavita_series("Solo Leveling")
     cli.metadata_audit(cfg, argparse.Namespace(state=None))
     assert "series whose ids disagree: 0" in capsys.readouterr().out

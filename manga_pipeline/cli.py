@@ -39,7 +39,7 @@ from manga_pipeline import (
 from manga_pipeline.clients import kavita, suwayomi
 from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates, importing, review, review_run
-from manga_pipeline.metadata import audit, check, human, importer, naming
+from manga_pipeline.metadata import audit, human, importer, naming, sources
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
 log = logging.getLogger("manga_pipeline.cli")
@@ -247,7 +247,7 @@ def metadata_import(cfg, args, conn):
 def metadata_audit(cfg, args):
     """Opens no database (SPEC "Metadata checks", Audit): it runs before cutover, with or without one."""
     state = importer.read_state(args.state) if args.state else None
-    audit.run(workflow.Context(cfg, None, "intake"), check.new_sources(), state)
+    audit.run(workflow.Context(cfg, None, "intake"), sources.new_sources(), state)
 
 
 def junk_import(cfg, args):

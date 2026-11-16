@@ -3,7 +3,7 @@ holds nothing until a test adds it; every call is recorded in `calls`."""
 
 from dataclasses import dataclass
 
-from manga_pipeline.metadata import check
+from manga_pipeline.metadata import sources
 
 
 class _Fake:
@@ -81,8 +81,8 @@ class FakeWebtoons(_Fake):
 
 
 @dataclass
-class FakeSources(check.Sources):
-    """check.Sources of fakes, and every call they were asked (calls)."""
+class FakeSources(sources.Sources):
+    """sources.Sources of fakes, and every call they were asked (calls)."""
 
     mangabaka: FakeMangaBaka
     mangaupdates: FakeMangaUpdates
