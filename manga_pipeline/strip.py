@@ -286,41 +286,52 @@ def render_rows(pages, width, start, end, cache=None):
     return out
 
 
-def plan_cuts(length, gaps, cfg: Mapping[str, float] = RESTITCH):
-    """Choose page boundaries over a strip of `length` px with gap candidates [(center, strength)].
-    Every page within [min_page, max_page]; prefer lengths near the middle and stronger gaps; where no
-    gap fits, cut through the art at exactly max_page — unless that would leave a remainder under min_page,
-    in which case that gapless run is split evenly. Returns (cuts, forced) — cuts include 0 and length."""
+def _usable(q, length, lo):
+    """A cut point the next page can start at: the strip end, or at least min_page (lo) before it (a point closer is
+    a dead end: the page after it would be short)."""
+    return q == length or length - q >= lo
+
+
+def _run_cuts(p, nxt, cfg):
+    """The forced cuts splitting the gapless run [p, nxt) into pages of at most max_page: max_page apart, or evenly
+    when that would strand a remainder under min_page."""
     lo, hi = cfg["min_page"], cfg["max_page"]
-    if length <= hi:
-        return [0, length], []
-    mid, span = (lo + hi) / 2, hi - lo
-    strength = dict(gaps)
-    pts = sorted({0, length} | {c for c, _ in gaps if 0 < c < length})
+    run = nxt - p
+    n = -(-run // hi)  # pieces needed at most max_page each
+    if run - (n - 1) * hi < lo:  # max cuts would strand a sub-minimum remainder
+        return [p + round(i * run / n) for i in range(1, n)]
+    return [p + i * hi for i in range(1, n)]
+
+
+def _reachable(pts, length, cfg):
+    """(the cut points, sorted; the forced ones among them) once every point of `pts` (sorted, 0 and length
+    included) can reach a usable next point within [min_page, max_page]: each gapless run that cannot gets its
+    _run_cuts."""
+    lo, hi = cfg["min_page"], cfg["max_page"]
     forced = set()
-
-    def usable(q):  # a point closer than min_page to the end is a dead end: the page after it would be short
-        return q == length or length - q >= lo
-
     changed = True
-    while changed:  # make sure every point can reach a usable next point within the limits
+    while changed:
         changed = False
         for p in list(pts):
             if p == length or length - p <= hi:
                 continue
-            if any(p + lo <= q <= p + hi and usable(q) for q in pts):
+            if any(p + lo <= q <= p + hi and _usable(q, length, lo) for q in pts):
                 continue
-            nxt = min(q for q in pts if q > p + hi and usable(q))  # end of the gapless run starting at p
-            run = nxt - p
-            n = -(-run // hi)  # pieces needed at most max_page each
-            if run - (n - 1) * hi < lo:  # max cuts would strand a sub-minimum remainder
-                new = [p + round(i * run / n) for i in range(1, n)]
-            else:
-                new = [p + i * hi for i in range(1, n)]
+            nxt = min(q for q in pts if q > p + hi and _usable(q, length, lo))  # end of the gapless run starting at p
+            new = _run_cuts(p, nxt, cfg)
             pts += new
             forced.update(new)
             changed = True
         pts = sorted(set(pts))
+    return pts, forced
+
+
+def _cheapest_links(pts, forced, strength, cfg):
+    """{point: (cost, previous point)} of the cheapest run of pages from 0 to each point it can reach: each page
+    within [min_page, max_page] costs its squared distance from the middle length (in spans), plus 5 when it ends on
+    a forced cut, less 0.3 x its end gap's strength over the strongest gap's."""
+    lo, hi = cfg["min_page"], cfg["max_page"]
+    mid, span = (lo + hi) / 2, hi - lo
     max_s = max(strength.values(), default=1)
     best = {0: (0.0, None)}
     for q in pts[1:]:
@@ -335,6 +346,18 @@ def plan_cuts(length, gaps, cfg: Mapping[str, float] = RESTITCH):
             cost -= 0.3 * strength.get(q, 0) / max_s
             if q not in best or cost < best[q][0]:
                 best[q] = (cost, p)
+    return best
+
+
+def plan_cuts(length, gaps, cfg: Mapping[str, float] = RESTITCH):
+    """Choose page boundaries over a strip of `length` px with gap candidates [(center, strength)].
+    Every page within [min_page, max_page]; prefer lengths near the middle and stronger gaps; where no
+    gap fits, cut through the art at exactly max_page — unless that would leave a remainder under min_page,
+    in which case that gapless run is split evenly. Returns (cuts, forced) — cuts include 0 and length."""
+    if length <= cfg["max_page"]:
+        return [0, length], []
+    pts, forced = _reachable(sorted({0, length} | {c for c, _ in gaps if 0 < c < length}), length, cfg)
+    best = _cheapest_links(pts, forced, dict(gaps), cfg)
     cuts, q = [], length
     while q is not None:
         cuts.append(q)
