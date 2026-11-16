@@ -18,7 +18,8 @@ def world(tmp_path):
 
 def link(world, manga_id, kavita_id):
     with closing(db.connect(world.cfg)) as conn:
-        return identify.link(world.cfg, conn, world.suwayomi, world.kavita, kavita_id, manga_id=manga_id)
+        subject = identify.link_subject(world.cfg, world.suwayomi, manga_id=manga_id)
+        return identify.link(world.cfg, conn, world.kavita, kavita_id, subject)
 
 
 def scan(world):
