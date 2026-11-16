@@ -184,7 +184,7 @@ def resolve(basis, rows, overrides, mangadex, platform=None, *, fill=frozenset()
             msg = f"chapter {number}: volume {volume} ({vol[i][1]}) is not a whole number"
             raise VolumeError(msg)
     out = {}
-    covered = _opens_covered(rows, _covered_firsts(basis, main, vol, sources))
+    covered = _opens_covered(rows, _covered_firsts(basis, main, vol, (sources.override, sources.mangadex)))
     titles = platforms.chapter_titles(platform)
     for i in main:
         if not rows[i].settled:
@@ -314,7 +314,7 @@ def _open_main_volumes(basis, rows, main, sources):
     only for a chapter that carries no season: a season's numbers restart), else the basis's volume, else a gap fill,
     else none."""
     free = [i for i in main if not rows[i].settled]
-    ranged = {i: sources.override[i] for i in free if i in sources.override and rows[i].season is None}
+    ranged = _seasonless(rows, {i: sources.override[i] for i in free if i in sources.override})
     found = sources.basis_volumes(basis, rows, main, [i for i in free if i not in ranged])
     have = {i: rows[i].volume for i in main if rows[i].settled and rows[i].volume is not None}
     agree = {i: v for i, v in have.items() if rows[i].volume_source == basis}
@@ -334,7 +334,13 @@ def _open_main_volumes(basis, rows, main, sources):
 def override_volumes(override, rows, ids):
     """{row index: volume} of the rows among ids that carry no season and whose number lies in a range of the
     override file's `volumes` mapping (the 1 reader of ranges: volumes.override_volume)."""
-    return {i: v for i, v in _override_volumes(override, rows, ids).items() if rows[i].season is None}
+    return _seasonless(rows, _override_volumes(override, rows, ids))
+
+
+def _seasonless(rows, vols):
+    """The volumes of vols whose row carries no season: an override range never reaches a season's chapters (their
+    numbers restart)."""
+    return {i: v for i, v in vols.items() if rows[i].season is None}
 
 
 def _mangadex_volumes(mangadex, rows, ids):
@@ -468,14 +474,14 @@ def covered_volumes(basis, rows, override, mangadex):
         (i for i, r in enumerate(rows) if r.kind == names.MAIN), key=lambda i: (rows[i].number, rows[i].order)
     )
     vol = {i: (rows[i].volume, rows[i].volume_source) for i in main}
-    sources = _Sources(_override_volumes(override, rows, main), _mangadex_volumes(mangadex, rows, main), None)
-    return set(_covered_firsts(basis, main, vol, sources))
+    maps = (_override_volumes(override, rows, main), _mangadex_volumes(mangadex, rows, main))
+    return set(_covered_firsts(basis, main, vol, maps))
 
 
-def _covered_firsts(basis, main, vol, sources):
+def _covered_firsts(basis, main, vol, maps):
     """{volume: index of its first (lowest-numbered) main row} of the covered volumes: a volume whose first chapter's
     volume came from MangaDex, the override or a hand edit, or is a filename volume confirmed by them."""
-    confirmed = _cover_confirmed(basis, main, vol, sources)
+    confirmed = _cover_confirmed(basis, main, vol, maps)
     first = {}
     for i in main:  # in number order
         v = vol[i][0]
@@ -484,13 +490,14 @@ def _covered_firsts(basis, main, vol, sources):
     return {v: i for v, i in first.items() if vol[i][1] in (MANGADEX, OVERRIDE, EDIT) or i in confirmed}
 
 
-def _cover_confirmed(basis, main, vol, sources):
-    """Filename-volumed main rows whose volume an agreeing, ordered override or MangaDex map gives too."""
+def _cover_confirmed(basis, main, vol, maps):
+    """Filename-volumed main rows whose volume an agreeing, ordered map of maps (the override's, MangaDex's) gives
+    too."""
     if basis != FILENAME:
         return set()
     fname = {i: vol[i][0] for i in main if vol[i][0] is not None and vol[i][1] == FILENAME}
     confirmed = set()
-    for cand in (sources.override, sources.mangadex):
+    for cand in maps:
         if not cand or any(fname[i] != cand[i] for i in fname if i in cand) or _unordered(main, cand):
             continue
         confirmed |= {i for i, v in fname.items() if cand.get(i) == v}

@@ -128,20 +128,21 @@ def _open(ctx: workflow.Context, series_id, downloads):
             fields, item = {}, names.parse(path.stem)
         except (*archive.UNREADABLE, ParseError):  # validate reports an unreadable download; the name still counts
             fields, item = {}, names.parse(path.stem)
-        if item.kind not in (names.MAIN, names.SIDE) or item.number is None:
+        number = item.num
+        if item.kind not in (names.MAIN, names.SIDE) or number is None:
             continue
         out.append(
             naming.Row(
                 key=c["id"],
                 settled=False,
                 kind=item.kind,
-                number=float(item.number),
+                number=number,
                 season=int(item.season) if item.season else None,
                 src_volume=item.volume if item.volume is not None else fields.get("Volume"),
                 volume=None,
                 volume_source=None,
                 # the bulk converter's marker title: the ComicInfo Title without its own-number label, else the name's
-                marker_title=names.title_from_comicinfo(fields.get("Title") or "", item.num) or item.title,
+                marker_title=names.title_from_comicinfo(fields.get("Title") or "", number) or item.title,
                 title=names.chapter_title(item, fields.get("Title")),
                 date=names.ci_date(fields),
                 order=c["id"],
