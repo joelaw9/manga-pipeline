@@ -13,12 +13,26 @@ from manga_pipeline.metadata import naming, platforms
 OPEN = ("ready", "claimed", "waiting")  # an unnamed needs_human chapter may never be published: no number
 
 
-def resolve(ctx, series, downloads=None):
-    """{chapter id: naming.Naming} of the series' open download chapters. downloads: {chapter id: stored path} read
-    instead of the chapter's own download (validate's re-download candidate). VolumeError (volumes.OverrideError
-    included) for a malformed override file, an `override` basis without one, or a volume that is not whole."""
+def resolve(ctx, series, downloads=None, edited=True):
+    """{chapter id: naming.Naming} of the series' open download chapters, with the series' hand edits (edited=False:
+    as the sources alone name them). downloads: {chapter id: stored path} read instead of the chapter's own download
+    (validate's re-download candidate). VolumeError (volumes.OverrideError included) for a malformed override file, an
+    `override` basis without one, or a volume that is not whole."""
     rows, overrides, mangadex, platform = inputs(ctx, series, downloads)
-    return naming.resolve(series["naming_basis"], rows, overrides, mangadex, platform)
+    found = edits(ctx.conn, series["id"]) if edited else None
+    return naming.resolve(series["naming_basis"], rows, overrides, mangadex, platform, edits=found)
+
+
+def edits(conn, series_id):
+    """{naming.edit_key: naming.Edit} of the series' hand edits (SPEC "Retroactive updates", hand edits)."""
+    return {
+        naming.edit_key(names.SIDE if r["side"] else names.MAIN, r["season"], r["number"]): naming.Edit(
+            r["title"], r["volume"]
+        )
+        for r in conn.execute(
+            "SELECT season, side, number, title, volume FROM naming_edit WHERE series_id = %s", (series_id,)
+        )
+    }
 
 
 def choose_basis(ctx, series, downloads=None):

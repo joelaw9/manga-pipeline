@@ -19,6 +19,7 @@ from manga_pipeline import (
     config,
     db,
     export,
+    hand_edits,
     handled,
     identify,
     intake,
@@ -36,7 +37,7 @@ from manga_pipeline import (
 )
 from manga_pipeline.clients import kavita, suwayomi
 from manga_pipeline.junk import candidates, importing, review, review_run
-from manga_pipeline.metadata import audit, check, human, importer
+from manga_pipeline.metadata import audit, check, human, importer, naming
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
 log = logging.getLogger("manga_pipeline.cli")
@@ -82,6 +83,8 @@ SMOKE_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SERVICE_SETTINGS)
 LINK_CHECKS = SMOKE_CHECKS
 # metadata import writes series rows and ids under intake's lock, reading both services.
 IMPORT_CHECKS = SMOKE_CHECKS
+# series edit reads the series' open downloads on the share and its override file to name its chapters.
+EDIT_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SHARE_FOLDERS_PRESENT, preflight.NAMING_OVERRIDES)
 
 
 @dataclass(frozen=True)
@@ -172,6 +175,14 @@ def series_new(cfg, args):
     log.info("series %s: to be admitted as a new series%s", args.series_id, f" as {args.name!r}" if args.name else "")
 
 
+def series_edit(cfg, args):
+    data = hand_edits.load(args.file)
+    with _database(cfg, "edit") as conn:
+        lines = hand_edits.apply(workflow.Context(cfg, conn, "export"), data, args.series_id)
+    for line in lines:
+        print(line)
+
+
 def naming_diff(cfg, args):
     """Read-only: what the comparison would rewrite, and the differences 7e never applies (SPEC "Retroactive
     updates")."""
@@ -184,20 +195,23 @@ def naming_diff(cfg, args):
         ).fetchall()
         for series in series_rows:
             try:
-                queued, wants, unknown, apart = rewrite.diff(ctx, series)
+                queued, wants, unknown, apart, edits = rewrite.diff(ctx, series)
             except volumes.VolumeError as e:
                 print(f"series {series['id']} ({series['name']}): {e}")
                 continue
             if unknown:
                 print(f"series {series['id']}: covers unknown (some files' covers not read yet: export reads them)")
-            for path, old, new, target, cover in queued:
+            for path, old, new, target, cover, title in queued:
                 renamed = f" -> {target}" if target != path else ""
-                change = f"volume {old or '-'} -> {new or '-'}{renamed}" if old != new else f"volume {old or '-'}"
-                print(f"series {series['id']}: {path}: {change}{f', {cover}' if cover else ''}")
+                change = (f"volume {old or '-'} -> {new or '-'}" if old != new else f"volume {old or '-'}") + renamed
+                titled = f", title {title!r}" if title is not None else ""
+                print(f"series {series['id']}: {path}: {change}{titled}{f', {cover}' if cover else ''}")
             for volume in wants:
                 print(f"series {series['id']}: volume {volume} cover wanted (intake fetches it)")
             for path, stored, now in apart:
                 print(f"series {series['id']}: {path}: volume {stored}, the sources say {now or 'none'} (not applied)")
+            for token, title, volume in edits:
+                print(f"series {series['id']}: edit {token}: {hand_edits.describe(naming.Edit(title, volume))}")
 
 
 def rewrite_drop(cfg, args):
@@ -307,6 +321,7 @@ COMMANDS = {
     "series link": Command((), None, None, LINK_CHECKS, _unlocked(series_link)),
     "series set-id": Command((), None, None, (), _unlocked(series_set_id)),
     "series new": Command((), None, None, (), _unlocked(series_new)),
+    "series edit": Command((), None, None, EDIT_CHECKS, _unlocked(series_edit)),
     "naming diff": Command((), None, None, (), _unlocked(naming_diff)),
     "rewrite drop": Command((), None, None, (), _unlocked(rewrite_drop)),
     "rewrite retry": Command((), None, None, (), _unlocked(rewrite_retry)),
@@ -354,6 +369,10 @@ def parser():
     set_id.add_argument("source", help="anilist, mangaupdates, mangadex, mangabaka or myanimelist")
     set_id.add_argument("id", help="the source's id (a MangaUpdates id may be its base-36 text)")
     set_id.set_defaults(command="series set-id")
+    edit = series.add_parser("edit", help="correct chapter titles and volumes by hand (a JSON edit file)")
+    edit.add_argument("file", help='JSON: {"series": NAME, "chapters": {"10": {"title": ..., "volume": ...}}}')
+    edit.add_argument("--series-id", type=int, help="the series id (as status shows it) when 2 series share NAME")
+    edit.set_defaults(command="series edit")
     new = series.add_parser("new", help="admit a held series as a new series (a near hit or a name clash)")
     new.add_argument("series_id", type=int, help="series id (as status shows it)")
     new.add_argument("--name", help="the name to admit it under (default: its own, SPEC 'Series identification')")

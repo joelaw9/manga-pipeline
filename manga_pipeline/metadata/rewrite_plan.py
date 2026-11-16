@@ -28,6 +28,56 @@ def changes(basis, rows, overrides, mangadex, platform=None):
     return out
 
 
+def edit_changes(rows, edits, unedited):
+    """{published file id: (volume, volume source, title, unedited)} of the published files (main and side) whose
+    title or volume a hand edit, or a hand edit's removal, changes (SPEC "Retroactive updates", hand edits). edits:
+    {naming.edit_key: naming.Edit}; unedited: {file id: the values its sources gave its edited fields}. An edited field
+    takes the edit; a field whose edit is gone takes its unedited value back; the result's unedited is what the file
+    keeps afterwards (None: nothing edited)."""
+    out = {}
+    for r in rows:
+        if not _published(r):
+            continue
+        fid = r.key[1]
+        was = dict(unedited.get(fid) or {})
+        e = edits.get(naming.edit_key(r.kind, r.season, r.number))
+        volume, source, title = r.volume, r.volume_source, r.title
+        if e is not None and e.volume is not None and "volume" in was and e.volume == names.to_volume(was["volume"]):
+            volume, source = names.to_volume(was.pop("volume")), was.pop("volume_source")  # edited back: the sources'
+        elif e is not None and e.volume is not None:
+            if e.volume != r.volume:
+                was.setdefault("volume", names.fmt_num(r.volume))
+                was.setdefault("volume_source", r.volume_source)
+                volume, source = e.volume, naming.EDIT
+        elif "volume" in was:
+            volume, source = names.to_volume(was.pop("volume")), was.pop("volume_source")
+        if e is not None and e.title is not None:
+            want = naming.edited_title(r.kind, r.number, e.title)
+            if want != r.title:
+                was.setdefault("title", r.title or None)
+                title = want
+        elif "title" in was:
+            title = was.pop("title") or ""
+        if (volume, source, title) != (r.volume, r.volume_source, r.title):
+            out[fid] = (volume, source, title, was or None)
+    return out
+
+
+def held(rows, edits, unedited):
+    """The published file ids whose volume a hand edit holds (edited, or to be restored): 7e's own volume rules leave
+    them alone."""
+    return {
+        r.key[1]
+        for r in rows
+        if _published(r)
+        and (
+            (e := edits.get(naming.edit_key(r.kind, r.season, r.number))) is not None
+            and e.volume is not None
+            or "volume" in (unedited.get(r.key[1]) or {})
+        )
+    }
+
+
 def differences(basis, rows, overrides, mangadex, platform=None):
     """{published file id: (stored volume, the volume the sources give now)} of the published main rows holding a
     volume from a source that can be read again (MangaDex, a platform list) that the sources would move or drop, which

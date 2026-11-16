@@ -30,7 +30,7 @@ from manga_pipeline import (
     workflow,
 )
 from manga_pipeline.metadata import covers as cover_images
-from manga_pipeline.metadata import platforms, rewrite_plan
+from manga_pipeline.metadata import naming, platforms, rewrite_plan
 from manga_pipeline.stages import comicinfo as comicinfo_stage
 from manga_pipeline.stages import convert, publish
 
@@ -45,7 +45,7 @@ CODE = hashlib.sha256(b"".join((Path(__file__).parent / m).read_bytes() for m in
 SERIES_LEVEL = (comicinfo_stage.OWN - {"Notes", "PageCount", "BlackAndWhite"}) | {"Series", "LocalizedSeries", "Volume"}
 # Columns of a queued rewrite on its published_file row, cleared together.
 PENDING = ("pending_path", "pending_staged", "pending_size", "pending_volume", "pending_volume_source", "pending_step",
-           "pending_cover", "pending_copy")  # fmt: skip
+           "pending_cover", "pending_copy", "pending_title", "pending_unedited")  # fmt: skip
 PROGRESS = ("carry_pages_read", "carry_old_pages", "carry_new_pages", "carry_page_shift", "carry_kavita_modified")
 CARRY = (*PROGRESS, "carry_cover")
 # Open rewrite chapters and better copies (both name their file): the cap export.rewrites_open counts them.
@@ -101,10 +101,10 @@ def compare(ctx):
                     (series["id"], int(names.to_volume(v))),
                 )
             made = 0
-            for file_id, (volume, source, cover) in todo.items():
+            for file_id, change in todo.items():
                 if made >= room:
                     break
-                made += _queue_chapter(ctx, series, file_id, volume, source, cover)
+                made += _queue_chapter(ctx, series, file_id, *change)
             if made >= room and len(todo) > room:
                 continue  # cut short: compared again next run
             conn.execute(
@@ -118,15 +118,21 @@ def compare(ctx):
 
 
 def _plan(ctx, series):
-    """(todo, wants, unknown) of 1 series. todo: {published file id: (volume, volume source, cover)} of the files whose
-    volume or cover should change, in id order (cover: None, ("insert", volume, its series_volume_cover row) or
-    ("drop",)); wants: the volumes whose cover image intake should fetch (that file's cover is then left for later);
-    unknown: some file's cover is not known yet (covers are then left out). VolumeError as naming.resolve raises it."""
+    """(todo, wants, unknown) of 1 series. todo: {published file id: (volume, volume source, cover, title, unedited)} of
+    the files whose volume, cover or (by a hand edit) title should change, in id order (cover: None, ("insert",
+    volume, its series_volume_cover row) or ("drop",); unedited: what the file keeps of its sources' values afterwards,
+    rewrite_plan.edit_changes); wants: the volumes whose cover image intake should fetch (that file's cover is then
+    left for later); unknown: some file's cover is not known yet (covers are then left out). VolumeError as
+    naming.resolve raises it."""
     conn, sid = ctx.conn, series["id"]
     rows, overrides, mangadex, platform = chapter_names.inputs(ctx, series)
     basis = series["naming_basis"]
-    moved = rewrite_plan.changes(basis, rows, overrides, mangadex, platform)
     files = {r["id"]: r for r in conn.execute("SELECT * FROM published_file WHERE series_id = %s", (sid,))}
+    edits, unedited = chapter_names.edits(conn, sid), {i: f["unedited"] for i, f in files.items()}
+    held = rewrite_plan.held(rows, edits, unedited)
+    edited = rewrite_plan.edit_changes(rows, edits, unedited)
+    moved = {i: v for i, v in rewrite_plan.changes(basis, rows, overrides, mangadex, platform).items() if i not in held}
+    moved.update({i: (v, source) for i, (v, source, _, _) in edited.items() if i in held})
     states = {i: f["cover_state"] for i, f in files.items()}
     unknown = any(s is None for s in states.values())
     cover, wants = {}, set()
@@ -176,9 +182,10 @@ def _plan(ctx, series):
                 if rewrite_covers.held(states[fid]) is not None:  # another volume's cover: dropped meanwhile
                     cover[fid] = ("drop",)
     todo = {}
-    for fid in sorted(set(moved) | set(cover)):
+    for fid in sorted(set(moved) | set(cover) | set(edited)):
         current = (names.to_volume(files[fid]["comicinfo_volume"]), files[fid]["volume_source"])
-        todo[fid] = (*moved.get(fid, current), cover.get(fid))
+        title, kept = edited.get(fid, (None, None, files[fid]["comicinfo_title"] or "", files[fid]["unedited"]))[2:]
+        todo[fid] = (*moved.get(fid, current), cover.get(fid), title, kept)
     return todo, wants, unknown
 
 
@@ -188,9 +195,9 @@ def _stored_hash(conn, series_id):
 
 
 def _hash(ctx, series):
-    """The series' naming inputs: its basis, override file, stored MangaDex aggregate, cover list and platform list,
-    its stored cover images, the naming code, its published files' rows, its open downloads and the covers they took,
-    and its open rewrites. VolumeError for a malformed override file."""
+    """The series' naming inputs: its basis, override file, hand edits, stored MangaDex aggregate, cover list and
+    platform list, its stored cover images, the naming code, its published files' rows, its open downloads and the
+    covers they took, and its open rewrites. VolumeError for a malformed override file."""
     conn, sid = ctx.conn, series["id"]
     overrides = volumes.override_file(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
     fetched = conn.execute(
@@ -201,7 +208,7 @@ def _hash(ctx, series):
     ).fetchall()
     files = conn.execute(
         """SELECT id, library_path, state, comicinfo_volume, comicinfo_number, comicinfo_title, kind, volume_source,
-            source_name, pending_path, indexed_since, pending_error, cover_state, pending_cover, carry_cover
+            source_name, pending_path, indexed_since, pending_error, cover_state, pending_cover, carry_cover, unedited
         FROM published_file
         WHERE series_id = %s
         ORDER BY id""",
@@ -228,14 +235,19 @@ def _hash(ctx, series):
     ).fetchall()
     inputs = [series["naming_basis"], overrides, [tuple(r) for r in fetched], CODE]
     inputs += [[tuple(r) for r in files], [tuple(r) for r in downloads], [tuple(r) for r in rewrites]]
-    inputs += [[tuple(r) for r in images], [tuple(r) for r in taken]]
+    edits = conn.execute(
+        "SELECT season, side, number, title, volume FROM naming_edit WHERE series_id = %s ORDER BY side, season,"
+        " number",
+        (sid,),
+    ).fetchall()
+    inputs += [[tuple(r) for r in images], [tuple(r) for r in taken], [tuple(r) for r in edits]]
     return hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _queue_chapter(ctx, series, file_id, volume, source, cover):
+def _queue_chapter(ctx, series, file_id, volume, source, cover, title, unedited):
     """1 rewrite chapter for a confirmed published file with no open chapter and nothing queued or awaited, at convert
-    when its cover changes (an insert's cover handed over as a volume_cover row), else at comicinfo; returns 1 when
-    made, else 0."""
+    when its cover changes (an insert's cover handed over as a volume_cover row), else at comicinfo; it carries the
+    file's title and unedited values afterwards (title "" = untitled). Returns 1 when made, else 0."""
     conn = ctx.conn
     row = conn.execute(
         f"SELECT * FROM published_file p WHERE p.id = %s AND p.state = 'confirmed' AND NOT {BUSY.format(p='p')}",
@@ -243,13 +255,13 @@ def _queue_chapter(ctx, series, file_id, volume, source, cover):
     ).fetchone()
     if row is None:
         return 0
-    target = _target(ctx, series, row, volume)
+    target = _target(ctx, series, row, volume, title)
     now = workflow.now(conn)
     made = conn.execute(
         """INSERT INTO chapter (series_id, kind, identity, source, stage, status, published_file_id, library_path,
             comicinfo_series, comicinfo_volume, comicinfo_number, comicinfo_title, comicinfo_date, naming_kind,
-            naming_volume_source, drop_cover, discovered_at, updated_at)
-        VALUES (%s, 'rewrite', %s, %s, %s, 'ready', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            naming_volume_source, drop_cover, naming_unedited, discovered_at, updated_at)
+        VALUES (%s, 'rewrite', %s, %s, %s, 'ready', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (published_file_id) WHERE published_file_id IS NOT NULL AND status != 'done' DO NOTHING
         RETURNING id""",
         (
@@ -262,11 +274,12 @@ def _queue_chapter(ctx, series, file_id, volume, source, cover):
             series["comicinfo_series"],
             None if volume is None else names.fmt_num(volume),
             row["comicinfo_number"],
-            row["comicinfo_title"],
+            title or None,
             row["comicinfo_date"],
             row["kind"],
             source,
             cover == ("drop",),
+            None if unedited is None else json.dumps(unedited),
             now,
             now,
         ),  # fmt: skip
@@ -279,8 +292,9 @@ def _queue_chapter(ctx, series, file_id, volume, source, cover):
             (made["id"], cover[2]["path"], cover[2]["sha256"], cover[1]),
         )
     log.info(
-        "%s: %s: volume %s -> %s (%s)%s%s", ctx.part, row["library_path"], row["comicinfo_volume"],
+        "%s: %s: volume %s -> %s (%s)%s%s%s", ctx.part, row["library_path"], row["comicinfo_volume"],
         None if volume is None else names.fmt_num(volume), source,
+        f", title {title!r}" if title != (row["comicinfo_title"] or "") else "",
         f", renamed {target}" if target != row["library_path"] else "", _cover_text(cover),
     )  # fmt: skip
     return 1
@@ -292,12 +306,12 @@ def _cover_text(cover):
     )
 
 
-def _target(ctx, series, row, volume):
-    """The stored path the rewritten file takes (D7.8): a pipeline file named for its new volume; a bulk file keeps
-    its name."""
+def _target(ctx, series, row, volume, title):
+    """The stored path the rewritten file takes (D7.8): a pipeline file named for its new volume and title; a bulk file
+    keeps its name."""
     if row["origin"] != "pipeline":
         return row["library_path"]
-    name = names.file_name(float(row["comicinfo_number"]), row["comicinfo_title"] or "", volume)
+    name = names.file_name(float(row["comicinfo_number"]), title, volume)
     return str(PurePosixPath(row["library_path"]).parent / name)
 
 
@@ -331,6 +345,8 @@ def comicinfo_run(ctx, chapter):
     fields.pop("Volume", None)
     if chapter["comicinfo_volume"] is not None:
         fields["Volume"] = chapter["comicinfo_volume"]
+    if (chapter["comicinfo_title"] or "") != (file["comicinfo_title"] or ""):  # a hand edit, or its removal
+        fields["Title"] = chapter["comicinfo_title"] or f"Chapter {names.fmt_num(float(file['comicinfo_number']))}"
     pages = comicinfo.read_pages(old)
     if converted:
         pages = rewrite_covers.shift_pages(pages, converted)
@@ -412,7 +428,8 @@ def publish_run(ctx, chapter):
             """UPDATE published_file SET pending_path = %s, pending_staged = %s, pending_size = %s,
                 pending_volume = %s, pending_volume_source = %s, pending_cover = %s, pending_step = 0,
                 pending_attempts = 0, carry_pages_read = %s, carry_old_pages = %s, carry_new_pages = %s,
-                carry_page_shift = %s, carry_kavita_modified = %s, carry_cover = %s, pending_copy = %s
+                carry_page_shift = %s, carry_kavita_modified = %s, carry_cover = %s, pending_copy = %s,
+                pending_title = %s, pending_unedited = %s
             WHERE id = %s AND pending_path IS NULL""",
             (
                 chapter["library_path"],
@@ -428,6 +445,8 @@ def publish_run(ctx, chapter):
                 seen[0]["modified"],
                 copy or (bool(converted) and converted["cover_state"] != file["cover_state"]),  # a copy's page 1 is new
                 json.dumps({"values": values, "digest": chapter["content_digest"]}) if copy else None,
+                chapter["comicinfo_title"],
+                _json(file["unedited"] if copy else chapter["naming_unedited"]),  # a copy keeps the file's edits
                 file["id"],
             ),  # fmt: skip
         )
@@ -435,6 +454,10 @@ def publish_run(ctx, chapter):
             handled.record(c, chapter["series_id"], chapter["identity"], "published", chapter["content_digest"])
 
     return workflow.Done(record)
+
+
+def _json(value):
+    return None if value is None else json.dumps(value)
 
 
 # --- finishing queued rewrites
@@ -513,6 +536,7 @@ def finish(ctx, row):
         conn.execute(
             f"""UPDATE published_file SET library_path = pending_path, size = pending_size,
                 comicinfo_volume = pending_volume, volume_source = pending_volume_source,
+                comicinfo_title = pending_title, unedited = pending_unedited,
                 cover_state = coalesce(pending_cover, cover_state),
                 {", ".join(f"{c} = NULL" for c in PENDING)}, pending_error = NULL, pending_attempts = 0,
                 indexed_since = %s, wait_charges = 0
@@ -525,11 +549,18 @@ def finish(ctx, row):
 
 def _is_new(path, row):
     """Whether a same-name target already holds the rewritten file (a crash after the rename): its size and its
-    ComicInfo Volume are the queued ones."""
+    ComicInfo Volume are the queued ones, and its Title too when the rewrite changes it."""
     if not workflow.exists(path) or path.stat().st_size != row["pending_size"]:
         return False
     xml = archive.read_comicinfo(path)
-    return xml is not None and (comicinfo.read_fields(xml)["Volume"] or None) == row["pending_volume"]
+    if xml is None:
+        return False
+    fields = comicinfo.read_all(xml)
+    if (row["pending_title"] or "") != (row["comicinfo_title"] or ""):
+        want = row["pending_title"] or f"Chapter {names.fmt_num(float(row['comicinfo_number']))}"
+        if fields.get("Title") != want:
+            return False
+    return (fields.get("Volume") or None) == row["pending_volume"]
 
 
 def _record(conn, file_id, step):
@@ -719,10 +750,10 @@ def waiting(conn):
 
 
 def diff(ctx, series):
-    """(rewrites the comparison would queue: [(path, old volume, new volume, new path, cover)], cover images it would
-    want: [volume], whether some file's cover is not known yet (covers then left out), differences not applied:
-    [(path, stored volume, sources' volume)]) of 1 series; reads no library file. VolumeError for a malformed override
-    file."""
+    """(rewrites the comparison would queue: [(path, old volume, new volume, new path, cover, new title or None)],
+    cover images it would want: [volume], whether some file's cover is not known yet (covers then left out),
+    differences not applied: [(path, stored volume, sources' volume)], the series' hand edits: [(chapter, title,
+    volume)]) of 1 series; reads no library file. VolumeError for a malformed override file."""
     rows, overrides, mangadex, platform = chapter_names.inputs(ctx, series)
     basis = series["naming_basis"]
     todo, wants, unknown = _plan(ctx, series)
@@ -739,10 +770,11 @@ def diff(ctx, series):
             files[i]["library_path"],
             files[i]["comicinfo_volume"],
             None if v is None else names.fmt_num(v),
-            _target(ctx, series, files[i], v),
+            _target(ctx, series, files[i], v, title),
             _cover_text(cover).removeprefix(", ") or None,
+            title if title != (files[i]["comicinfo_title"] or "") else None,
         )  # fmt: skip
-        for i, (v, _, cover) in todo.items()
+        for i, (v, _, cover, title, _) in todo.items()
         if files[i]["state"] == "confirmed"
         and i not in busy
         and not (
@@ -752,8 +784,13 @@ def diff(ctx, series):
             or files[i]["carry_cover"]
         )
     ]
+    edits = chapter_names.edits(ctx.conn, series["id"])
+    held = rewrite_plan.held(rows, edits, {i: f["unedited"] for i, f in files.items()})
     apart = [
         (files[i]["library_path"], names.fmt_num(a), None if b is None else names.fmt_num(b))
         for i, (a, b) in sorted(rewrite_plan.differences(basis, rows, overrides, mangadex, platform).items())
+        if i not in held
     ]
-    return queued, sorted(wants), unknown, apart
+    order = sorted(edits, key=lambda k: (k[0], k[1] or 0, k[2]))
+    listed = [(naming.edit_token(*key), edits[key].title, edits[key].volume) for key in order]
+    return queued, sorted(wants), unknown, apart, listed

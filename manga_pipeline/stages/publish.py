@@ -73,6 +73,7 @@ def run(ctx, chapter):
 
     def record(conn):
         values = {"library_path": library_path, "state": "unconfirmed", **row_values(conn, chapter)}
+        values["unedited"] = None if chapter["naming_unedited"] is None else json.dumps(chapter["naming_unedited"])
         # A row already at the target describes a file that is gone (the target was free): the new file replaces it.
         conn.execute(
             f"""INSERT INTO published_file ({", ".join(values)}) VALUES ({", ".join(["%s"] * len(values))})
