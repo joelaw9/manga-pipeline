@@ -5,13 +5,16 @@ A schema step is a SQL file in schema/, applied in name order and recorded in sc
 branches are both applied whatever order they merge in.
 """
 
+import functools
 import os
 from contextlib import closing, contextmanager
 from pathlib import Path
+from typing import Any, SupportsIndex, overload
 
 import psycopg
 from psycopg import sql
 from psycopg.pq import TransactionStatus
+from psycopg.rows import RowMaker
 
 from manga_pipeline import config
 
@@ -47,14 +50,16 @@ class NoDatabase(RuntimeError):
 class Row(tuple):
     """A row that reads as sqlite3.Row does: by position (negative and sliced too), by column name (case-insensitive,
     the first column of a repeated name), as a sequence of values, with keys(); equal to a row of the same columns
-    and values."""
+    and values. Each column list has its own subclass (_row_class), whose _keys names the columns."""
 
-    def __new__(cls, keys, values):
-        row = super().__new__(cls, values)
-        row._keys = keys
-        return row
+    __slots__ = ()
+    _keys: tuple[str, ...] = ()
 
-    def __getitem__(self, key):
+    @overload
+    def __getitem__(self, key: SupportsIndex | str) -> Any: ...
+    @overload
+    def __getitem__(self, key: slice) -> tuple[Any, ...]: ...
+    def __getitem__(self, key: SupportsIndex | str | slice) -> Any:
         if isinstance(key, str):
             folded = key.casefold()
             for i, name in enumerate(self._keys):
@@ -64,7 +69,7 @@ class Row(tuple):
             raise IndexError(msg)
         return tuple.__getitem__(self, key)
 
-    def keys(self):
+    def keys(self) -> list[str]:
         return list(self._keys)
 
     def __eq__(self, other):
@@ -74,15 +79,19 @@ class Row(tuple):
         return not self.__eq__(other)
 
     def __hash__(self):
-        return hash((tuple(self._keys), tuple(self)))
+        return hash((self._keys, tuple(self)))
 
     def __repr__(self):
         return f"Row({dict(zip(self._keys, self, strict=True))!r})"
 
 
-def _rows(cursor):
-    keys = tuple(c.name for c in cursor.description or ())
-    return lambda values: Row(keys, values)
+@functools.cache
+def _row_class(keys: tuple[str, ...]) -> type[Row]:
+    return type("Row", (Row,), {"__slots__": (), "_keys": keys})
+
+
+def _rows(cursor) -> RowMaker[Row]:
+    return _row_class(tuple(c.name for c in cursor.description or ()))
 
 
 def _login(cfg):
@@ -108,7 +117,7 @@ def _open(cfg, dbname=None):
     login = _login(cfg)
     dbname = dbname or login["name"]
     try:
-        return psycopg.connect(
+        return psycopg.Connection[Row].connect(
             host=login["host"],
             port=login["port"],
             dbname=dbname,

@@ -124,6 +124,9 @@ def main(argv=None):
     opts, rest = parser.parse_known_args(argv)
     prog = unittest.main(module=None, argv=["timing", *rest], testRunner=TimedRunner, exit=False)
     result = prog.result
+    if not isinstance(result, TimedResult):
+        msg = f"the runner returned {type(result).__name__}, not a TimedResult"
+        raise TypeError(msg)
     report(result.timing_rows, sys.stderr, opts.timings)
     if not result.wasSuccessful():
         return 1

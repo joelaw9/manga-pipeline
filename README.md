@@ -46,7 +46,7 @@ Any key can also come from an environment variable, `MANGA_PIPELINE_` plus the k
 
 ## Merging
 
-`main` changes only through a pull request whose `tests` check (`.github/workflows/tests.yml`: lint, format, the full test suite) passes. Once the repo is on GitHub, apply the rule once with the GitHub CLI from the project folder. GitHub enforces it on public repos, and on private ones only with GitHub Pro or a paid organization plan:
+`main` changes only through a pull request whose `tests` check (`.github/workflows/tests.yml`: lint, format, types, the full test suite) passes. Once the repo is on GitHub, apply the rule once with the GitHub CLI from the project folder. GitHub enforces it on public repos, and on private ones only with GitHub Pro or a paid organization plan:
 
 ```bash
 gh api --method POST "repos/{owner}/{repo}/rulesets" --input .github/rulesets/main.json

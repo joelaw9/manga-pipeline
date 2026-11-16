@@ -7,6 +7,7 @@ import pytest
 
 from manga_pipeline import config, logs
 
+from tests.builders import present
 from tests.timing import budget
 
 
@@ -28,7 +29,9 @@ def test_records_reach_the_commands_log_file(tmp_path):
     path = logs.setup(in_dir(tmp_path), "intake")
     logging.getLogger("manga_pipeline.cli").info("hello")
     assert path == tmp_path / "intake.log"
-    assert "hello" in path.read_text(encoding="utf-8"), "a package record must be written to the command's log file"
+    assert "hello" in present(path).read_text(encoding="utf-8"), (
+        "a package record must be written to the command's log file"
+    )
 
 
 @budget(load="fs")

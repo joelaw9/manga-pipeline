@@ -15,6 +15,7 @@ Constants are the bulk converter's, frozen: the stored decisions were made with 
 
 import base64
 from collections import Counter
+from collections.abc import Mapping
 from types import MappingProxyType
 
 import numpy as np
@@ -83,7 +84,7 @@ def _sharpest_row(g, y, step):
     return y0 + int(np.abs(np.diff(rows, axis=0)).mean(axis=1).argmax())
 
 
-def find_band(im, aspect, where, cfg=BAND):
+def find_band(im, aspect, where, cfg: Mapping[str, float] = BAND):
     """A credit band stitched onto the top or bottom of a page taller than the series shape: cut at the gutter nearest
     the naive cut within band_search of the page height, else at the strongest seam (seam_score >= max_seam_score)
     nearest it; none -> None (never cut through art). The band is at least band_min_px and not uniform; one under
@@ -115,7 +116,7 @@ def find_band(im, aspect, where, cfg=BAND):
             if cut is None or abs(c - naive) < abs(cut - naive):
                 cut, how, run = c, "gap", (round(ys), round(ye))
         y = e
-    if how == "gap" and cut != naive:  # on the gutter's edge: exact row at full resolution
+    if how == "gap" and run is not None and cut != naive:  # on the gutter's edge (run is set with "gap")
         at_end = cut < naive
         cut = _sharpest_row(g, cut, step)
         run = (run[0], cut) if at_end else (cut, run[1])
@@ -153,7 +154,7 @@ def page_bands(im, aspect, cfg=BAND):
 def text_features(im):
     """A page's share of plain, mid-tone and coloured pixels at TEXT_WIDTH: {"plain", "mid", "chroma"}."""
     im = im.convert("RGB")
-    im = im.resize((TEXT_WIDTH, max(1, round(im.height * TEXT_WIDTH / im.width))), Image.BOX)
+    im = im.resize((TEXT_WIDTH, max(1, round(im.height * TEXT_WIDTH / im.width))), Image.Resampling.BOX)
     a = np.asarray(im, np.int16)
     lum = a.mean(axis=2)
     b = TEXT_BORDER

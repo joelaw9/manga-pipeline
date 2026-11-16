@@ -20,7 +20,7 @@ from manga_pipeline import archive, config, db, errors, images, page_store, proc
 from manga_pipeline.convert import calibrate, check, covers, image
 from manga_pipeline.stages import convert
 
-from tests.builders import add_chapter, add_series, adopted, chapter, claimed, download
+from tests.builders import WinFileNotFoundError, add_chapter, add_series, adopted, chapter, claimed, download, present
 from tests.convert_pages import NO_EDIT, colour, encoded, gray, jpeg, png, webp
 from tests.fakes import convert as fake
 from tests.timing import budget
@@ -278,7 +278,7 @@ def q_scores(by_q):
     """Fake scores from the encode quality in the decode's name: by_q(q)."""
 
     def f(_ref, dec):
-        return by_q(int(re.search(r"\.q(\d+)\.png$", dec.name).group(1)))
+        return by_q(int(present(re.search(r"\.q(\d+)\.png$", dec.name)).group(1)))
 
     return f
 
@@ -358,7 +358,7 @@ def test_choose_follows_the_bulk_converters_rule():
         "would otherwise stay open for good"
     )
     one_low = [*passing[:-1], sample(0, lambda q: 90.0 if q >= 70 else 79.0)]
-    assert calibrate.choose(one_low)[0] == 70, "a sample under the floor at q65 fails that probe"
+    assert present(calibrate.choose(one_low))[0] == 70, "a sample under the floor at q65 fails that probe"
 
 
 # ---------------------------------------------------------------- strip and page repairs through the stage
@@ -619,7 +619,7 @@ def test_a_staged_file_that_vanishes_during_the_clean_up(site, monkeypatch, wine
 
     def stat(self, **kwargs):
         if self.name == "gone.cbz":  # another machine's process start removed it after this one listed it
-            error = FileNotFoundError(2, "No such file or directory")
+            error = WinFileNotFoundError(2, "No such file or directory")
             error.winerror = winerror
             raise error
         return real(self, **kwargs)
@@ -901,7 +901,7 @@ def test_a_dropped_share_while_reading_a_cover_reaches_the_caller_and_a_missing_
     path = config.abs_path(site.cfg["paths"]["covers"]) / "vol" / "1.jpg"
     path.parent.mkdir(parents=True)
     path.write_bytes(COVER)
-    error = FileNotFoundError(errno.ENOENT, "The network path was not found", str(path))
+    error = WinFileNotFoundError(errno.ENOENT, "The network path was not found", str(path))
     error.winerror = winerror
 
     def gone(_self):

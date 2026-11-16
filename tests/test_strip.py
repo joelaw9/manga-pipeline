@@ -10,6 +10,7 @@ import json
 import shutil
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -95,7 +96,7 @@ def strip_of(pages):
     )
 
 
-def strip_plan(st):
+def strip_plan(st) -> dict[str, Any]:
     """A Strip's plan with no junk removed: cut_strip over its gaps. Returns cut_strip's {"kept", "cuts", "forced",
     "length"} + "strip"."""
     return dict(strip.cut_strip(st.height, strip.find_gaps(st), []), strip=st)

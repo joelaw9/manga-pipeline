@@ -184,20 +184,20 @@ class FakeKavita(kavita.Kavita):
             return  # Kavita lists it as a media error and indexes nothing
         old = before.get(path)
         volume = _volume_in(local)
-        kept = old is not None and old["series"] == series_id and old["volume"] == volume
+        kept = old if old is not None and old["series"] == series_id and old["volume"] == volume else None
         mtime = local.stat().st_mtime_ns
-        reread = not kept or old["mtime"] != mtime
+        reread = kept is None or kept["mtime"] != mtime
         self._clock += reread
         self.files[path] = {
             "series": series_id,
-            "id": old["id"] if kept else self._new_id(),
-            "chapter": old["chapter"] if kept else self._new_id(),
-            "bytes": old["bytes"] if kept and self.stale_sizes else local.stat().st_size,
+            "id": kept["id"] if kept is not None else self._new_id(),
+            "chapter": kept["chapter"] if kept is not None else self._new_id(),
+            "bytes": kept["bytes"] if kept is not None and self.stale_sizes else local.stat().st_size,
             "pages": pages,
-            "pagesRead": old["pagesRead"] if kept else 0,
+            "pagesRead": kept["pagesRead"] if kept is not None else 0,
             "volume": volume,
             "mtime": mtime,
-            "modified": self._stamp() if reread else old["modified"],
+            "modified": self._stamp() if reread or kept is None else kept["modified"],
         }
 
     def _add(self, library_id, name, folder, localized, original):

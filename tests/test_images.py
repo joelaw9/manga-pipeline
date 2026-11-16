@@ -13,6 +13,7 @@ from PIL import Image, ImageCms, ImageFile
 from manga_pipeline import images
 
 from tests import pages as fx
+from tests.builders import present
 from tests.timing import budget
 
 WINDOWS_CMYK = Path(r"C:\Windows\System32\spool\drivers\color\RSWOP.icm")
@@ -369,8 +370,10 @@ def test_cmyk_pixels_in_a_cmyk_profile_go_straight_to_srgb():
     )
     im, _ = images.open_image(data)
     raw = Image.open(io.BytesIO(data))
-    want = ImageCms.profileToProfile(
-        raw, ImageCms.ImageCmsProfile(str(WINDOWS_CMYK)), ImageCms.createProfile("sRGB"), outputMode="RGB"
+    want = present(
+        ImageCms.profileToProfile(
+            raw, ImageCms.ImageCmsProfile(str(WINDOWS_CMYK)), ImageCms.createProfile("sRGB"), outputMode="RGB"
+        )
     )
     assert (im.mode, im.tobytes()) == ("RGB", want.tobytes()), "CMYK pixels go through their CMYK profile to sRGB"
     assert im.tobytes() != raw.convert("RGB").tobytes(), "the CMYK profile is applied, not Pillow's naive conversion"
@@ -526,7 +529,9 @@ def test_two_badges_are_colour():
 @budget(load="fs")
 def test_large_colour_area_is_colour():
     rgb = badge_page((100, 300, 400, 140))
-    assert images._colour_mask(rgb, 22, 8).mean() >= 0.026, "precondition: patch as large as a real colour page"
+    assert present(images._colour_mask(rgb, 22, 8)).mean() >= 0.026, (
+        "precondition: patch as large as a real colour page"
+    )
     assert images.classify(rgb, 22, 6, LIMITS) == (images.COLOUR, None), "a large colour area is colour"
 
 

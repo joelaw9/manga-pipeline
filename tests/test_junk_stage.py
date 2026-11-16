@@ -19,7 +19,7 @@ from manga_pipeline.junk import candidates, importing, logo_units, ocr, review, 
 from manga_pipeline.metadata import check
 
 from tests import pages as fx
-from tests.builders import config_file, run_part
+from tests.builders import config_file, present, run_part
 from tests.convert_pages import gray, jpeg
 from tests.fakes.suwayomi import page as fake_page
 from tests.timing import budget
@@ -464,7 +464,7 @@ def test_a_badge_is_painted_over_in_the_published_chapter_only_when_junk(site, v
     result = json.loads(result)
     assert result["outcome"] == "avif", result
     assert result["blanked"] == (["003.jpg"] if verdict == "junk" else []), result
-    logo = logo_units.measure(2, Image.open(io.BytesIO(logo_page(at=(100, 400)))).convert("RGB"))
+    logo = present(logo_units.measure(2, Image.open(io.BytesIO(logo_page(at=(100, 400)))).convert("RGB")))
     x0, y0, x1, y1 = logo["box"]
     with zipfile.ZipFile(config.to_local(site.cfg, path)) as z:
         name = sorted(n for n in z.namelist() if n != "ComicInfo.xml")[2]

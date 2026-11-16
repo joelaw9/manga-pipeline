@@ -10,7 +10,7 @@ from PIL import Image
 from manga_pipeline import db, images, page_store, workflow
 
 from tests import pages
-from tests.builders import add_chapter, add_series, site_cfg
+from tests.builders import add_chapter, add_series, one, site_cfg
 from tests.timing import budget
 
 
@@ -97,10 +97,10 @@ def test_step_0003_upgrades_a_database_with_page_rows(tmp_path, monkeypatch):
     conn.close()
     monkeypatch.undo()
     conn = db.connect(cfg)
-    assert conn.execute("SELECT name FROM page WHERE chapter_id = %s", (chapter_id,)).fetchone()[0] == "1.jpg"
-    chroma = conn.execute(
-        "SELECT data_type FROM information_schema.columns WHERE table_name = 'page' AND column_name = 'chroma'"
-    ).fetchone()[0]
+    assert one(conn, "SELECT name FROM page WHERE chapter_id = %s", (chapter_id,)) == "1.jpg"
+    chroma = one(
+        conn, "SELECT data_type FROM information_schema.columns WHERE table_name = 'page' AND column_name = 'chroma'"
+    )
     assert chroma == "text", "chroma holds images.chroma's text"
     conn.close()
 
@@ -120,5 +120,5 @@ def test_state_reset_empties_chapter_edit_and_page_rows(conn, tmp_path):
         conn.execute("INSERT INTO chapter_edit (chapter_id, edit) VALUES (%s, %s)", (chapter_id, '{"drop_pages": [1]}'))
         page_store.save(conn, chapter_id, images.measure_pages(chapter_cbz(tmp_path / "c.cbz", n=1, blank=False)))
     workflow.reset(conn)
-    assert conn.execute("SELECT count(*) FROM chapter_edit").fetchone()[0] == 0, "reset clears the junk edits"
-    assert conn.execute("SELECT count(*) FROM page").fetchone()[0] == 0, "reset clears the page rows"
+    assert one(conn, "SELECT count(*) FROM chapter_edit") == 0, "reset clears the junk edits"
+    assert one(conn, "SELECT count(*) FROM page") == 0, "reset clears the page rows"

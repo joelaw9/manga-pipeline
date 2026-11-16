@@ -20,7 +20,7 @@ def setup(cfg, command):
     if settings["keep_days"] < 1:
         msg = f"logging.keep_days must be at least 1, got {settings['keep_days']}"
         raise config.ConfigError(msg)
-    handlers = [logging.StreamHandler()]
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
     path = None
     if command is not None:
         folder = config.abs_path(settings["dir"])

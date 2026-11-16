@@ -13,7 +13,7 @@ from manga_pipeline import comicinfo, config, db, export, intake, process, workf
 from manga_pipeline.clients import http
 from manga_pipeline.stages import comicinfo as comicinfo_stage
 
-from tests.builders import settle
+from tests.builders import present, settle
 from tests.timing import budget
 from tests.world import World, bulk_record, cbz
 from tests.world import comicinfo as ci
@@ -110,7 +110,8 @@ def test_a_retained_original_past_its_period_is_deleted_by_the_next_export(world
     world.kavita.run_scans()
     world.run(export)
     kept = retained(world, path)
-    os.utime(kept, (time.time() - 8 * 86400,) * 2)
+    old = time.time() - 8 * 86400
+    os.utime(kept, (old, old))
     world.run(export)
     assert not kept.exists(), "7 days are up"
 
@@ -148,7 +149,7 @@ def test_a_target_of_another_size_with_the_staged_file_gone_needs_a_human_at_onc
     through(world, intake, process)
     with closing(db.connect(world.cfg)) as conn:
         workflow.drain(world.context(conn, "export"), {"comicinfo": comicinfo_stage.run})
-        row = conn.execute("SELECT * FROM chapter").fetchone()
+        row = present(conn.execute("SELECT * FROM chapter").fetchone())
     config.to_local(world.cfg, row["staged_path"]).unlink()
     config.to_local(world.cfg, row["library_path"]).write_bytes(b"another file")
     world.run(export)
@@ -166,7 +167,7 @@ def test_a_rename_done_before_a_crash_is_carried_on(world, solo):
     with closing(db.connect(world.cfg)) as conn:
         ctx = world.context(conn, "export")
         workflow.drain(ctx, {"comicinfo": comicinfo_stage.run})
-        row = conn.execute("SELECT * FROM chapter").fetchone()
+        row = present(conn.execute("SELECT * FROM chapter").fetchone())
     config.to_local(world.cfg, row["staged_path"]).replace(
         config.to_local(world.cfg, row["library_path"])
     )  # the crash: renamed, outcome never recorded

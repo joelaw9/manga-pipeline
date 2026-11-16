@@ -48,7 +48,7 @@ def frame(im, size=None):
     pixels). `size` = (width, height) of the original page when `im` is already a draft decode; defaults to im.size."""
     w, h = size or im.size
     im.draft("RGB", (W * 4, H * 4))  # JPEG only, no-op once decoded
-    return frame_of_small(np.asarray(im.convert("RGB").resize((W, H), Image.BOX)), h / w)
+    return frame_of_small(np.asarray(im.convert("RGB").resize((W, H), Image.Resampling.BOX)), h / w)
 
 
 def has_content(f):

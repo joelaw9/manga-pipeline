@@ -17,6 +17,7 @@ from manga_pipeline import images, strip
 from manga_pipeline.junk import strip_units as su
 
 from tests import pages as fx
+from tests.builders import problem_text
 from tests.timing import budget
 
 JUNK_FIX = Path(__file__).with_name("fixtures_junk")
@@ -592,7 +593,7 @@ def layout(height, spans, width=1000):
     return su.Layout({"height": height, "width": width, "spans": spans, "gaps": gaps})
 
 
-def band(start, end, decision=1, where="tail", why="match"):
+def band(start, end, decision: int | None = 1, where="tail", why="match"):
     return {"start": start, "end": end, "where": where, "decision": decision, "why": why}
 
 
@@ -720,10 +721,12 @@ def test_uncovered_lists_the_parts_outside_every_range():
 @budget(load="pure")
 def test_the_kept_check_covers_plain_matches_and_tail_drops():
     lay = layout(3000, [(0, 1400), (1500, 3000)])
-    assert "1400 px" in su.kept_problem(lay, [band(1400, 3000)]), "under MIN_PAGE from a longer strip is refused"
+    assert "1400 px" in problem_text(su.kept_problem(lay, [band(1400, 3000)])), (
+        "under MIN_PAGE from a longer strip is refused"
+    )
     blank_only = layout(3000, [(0, 100), (1600, 3000)])
     got = su.kept_problem(blank_only, [band(0, 100, where="head"), band(1600, 3000, None, why="blank")])
-    assert "only blank" in got, "only blank rows kept is refused"
+    assert "only blank" in problem_text(got), "only blank rows kept is refused"
     assert su.kept_problem(lay, [band(2900, 3000)]) is None
 
 
@@ -732,7 +735,7 @@ def test_the_kept_check_spares_a_chapter_already_shorter_than_min_page():
     """A one-page announcement strip (800 px < MIN_PAGE) with a scanlator head band keeps its removal."""
     assert su.kept_problem(layout(800, [(0, 100), (150, 800)]), [band(0, 100, where="head")]) is None
     blank = layout(800, [(0, 100), (300, 400)])
-    assert "only blank" in su.kept_problem(blank, [band(0, 100, where="head"), band(300, 400)])
+    assert "only blank" in problem_text(su.kept_problem(blank, [band(0, 100, where="head"), band(300, 400)]))
 
 
 # ---------------------------------------------------------------- signable

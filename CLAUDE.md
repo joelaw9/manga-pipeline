@@ -46,6 +46,16 @@ python -m ruff check .
 python -m ruff format .
 ```
 
+Types (basedpyright, basic mode; must pass on both platforms before a change is done; a `# pyright: ignore[...]` needs the user's approval first):
+
+```bash
+python -m basedpyright --warnings
+```
+
+```bash
+python -m basedpyright --warnings --pythonplatform Linux
+```
+
 Run:
 
 ```bash
@@ -88,8 +98,8 @@ python -m manga_pipeline.cli --help
 | `manga_pipeline/preflight.py` | `run(cfg, checks)` (`Check(name, HARD or SOFT, fn)`): soft problems warn, hard ones raise `PreflightFailed` (exit 4); ships `PYTHON_VERSION`, `FOLDER_LAYOUT`, `SHARE_FOLDERS_PRESENT`, `WORKFLOW_SETTINGS`, `SERVICE_SETTINGS`, `SHARE_OWNERSHIP`, `STAGING_FOLDER`, `OCR_DEVICE`, `JUNK_WORD_LISTS`, `IMAGE_TOOLS`, `SCORER`, `SCRATCH_SPACE`, `CLAUDE_SETTINGS`, `NAMING_OVERRIDES`, `FLEET_VERSION`, `LONG_PATHS` (hard), `FREE_SPACE` (soft); `owner_file(cfg)` |
 | `tests/__init__.py` | points `config.load` at `tests/test_config.yaml`; refuses the live config |
 | `tests/conftest.py` | no-network guard, per-test timing report; takes the process's pool databases (`tests/pg.py`) at start and empties those a test used in its teardown; fails a run that built `mp_test_unassigned` |
-| `tests/pg.py` | test databases (SPEC "Tests"): the pool `mp_test_pool_<n>` kept on the test server, taken per process under advisory locks, made right on take (step-file fingerprint), emptied after every test; a leaked connection fails its test |
-| `tests/builders.py` | fixture builders: `site_cfg(tmp_path, built=True)` (with its pool database), series and chapter rows, fake downloads, `run_part` (a part as `cli.main` runs it, under its locks), `running` (another run holding locks), `claimed` (a chapter claimed for a direct stage call) |
+| `tests/pg.py` | test databases (SPEC "Tests"): the pool `mp_test_pool_<n>` kept on the test server, taken per process under advisory locks, made right on take (step-file fingerprint), emptied after every test; a leaked connection fails its test; `current()` (this test process's `Process`) |
+| `tests/builders.py` | fixture builders: `site_cfg(tmp_path, built=True)` (with its pool database), series and chapter rows, fake downloads, `run_part` (a part as `cli.main` runs it, under its locks), `running` (another run holding locks), `claimed` (a chapter claimed for a direct stage call); assertion helpers `one(conn, sql, params)` (the 1 row a query must return), `present(value)` (a value that must not be None), `problem_text(problem)` (a check's problem text, which must be set); `WinOSError`, `WinFileNotFoundError` (OS errors carrying `winerror`) |
 | `tests/fakes/` | `http.py` (`Clock`, `Urlopen`, `CannedService`, `NoNetwork`), `suwayomi.py` (`FakeSuwayomi`, `cbz`), `kavita.py` (`FakeKavita`: a scan is queued until `run_scans()`, then indexes a temp library with Kavita's name rule), `sources.py` (`fake_sources()`: in-memory metadata sources, every call in `calls`); they import the clients, never a part, a stage or `workflow` |
 | `tests/fixtures_api/` | Suwayomi replies recorded from the real server by reads only |
 | `tests/timing.py` | `@budget` per-test time budgets (copied from the unit-tests skill; project code now) |
@@ -112,12 +122,12 @@ python -m manga_pipeline.cli --help
 - Tests stay offline and never read the live `config.yaml` (SPEC "Tests"). Test only situations that occur in real use.
 - Talk to Suwayomi and Kavita only through `clients/` (SPEC "Services"); a client never imports `workflow`, a stage or a part. Every path Kavita reports goes through `Kavita.local_path`; a series' folder is `Kavita.series_folder`, never Kavita's `folderPath`. A stage uses the run's clients, `ctx.suwayomi` and `ctx.kavita`, and never builds its own; `intake`'s metadata step uses `ctx.sources` (built by `check.new_sources` when None). Tests use `tests/fakes/`.
 - Module docstrings or header comments name the SPEC section they implement. Comment only where the reason isn't obvious.
-- Run the linter and formatter before finishing a change; both must pass.
+- Run the linter, the formatter and the type checker before finishing a change; all must pass.
 
 ## Merging
 
-- `main` changes only through a pull request; its required `tests` check runs lint, format and the full test suite (`.github/workflows/tests.yml`; the rule is `.github/rulesets/main.json`, applied as README "Merging" says).
-- Local merge commits and squash commits run lint, the format check and the full test suite first: `.githooks/pre-merge-commit`, and `.githooks/pre-commit` for a commit that concludes a merge or a squash, both run `.githooks/full-suite`. A fast-forward runs no hook: merge with a plain `git merge BRANCH`, never `--ff` / `--ff-only` or `git pull` of another branch into it. Never skip the hooks with `--no-verify`; fix the failing test instead.
+- `main` changes only through a pull request; its required `tests` check runs lint, format, types and the full test suite (`.github/workflows/tests.yml`; the rule is `.github/rulesets/main.json`, applied as README "Merging" says).
+- Local merge commits and squash commits run lint, the format check, the type check and the full test suite first: `.githooks/pre-merge-commit`, and `.githooks/pre-commit` for a commit that concludes a merge or a squash, both run `.githooks/full-suite`. A fast-forward runs no hook: merge with a plain `git merge BRANCH`, never `--ff` / `--ff-only` or `git pull` of another branch into it. Never skip the hooks with `--no-verify`; fix the failing test instead.
 
 ## Known gotchas
 

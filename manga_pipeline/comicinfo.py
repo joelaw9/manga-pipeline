@@ -21,7 +21,10 @@ def schema():
     root = ET.parse(XSD).getroot()
     types = {t.get("name"): t for t in root}
     seq = types["ComicInfo"].find(f"{XS}sequence")
-    elements = [(e.get("name"), e.get("type")) for e in seq.findall(f"{XS}element")]
+    if seq is None:
+        msg = f"{XSD}: the ComicInfo type has no sequence"
+        raise ValueError(msg)
+    elements = [(e.attrib["name"], e.get("type")) for e in seq.findall(f"{XS}element")]
     enums = {}
     for name, t in types.items():
         if t.tag == f"{XS}simpleType":

@@ -181,7 +181,7 @@ def test_a_token_that_is_no_chapter_is_refused(token):
 @budget(load="pure", seconds=1)
 def test_an_edited_volume_names_the_chapters_around_it_and_a_side_storys_title_keeps_its_label():
     rows = [settled(1, 1, "mangadex"), new(2), new(3), new(1, kind=names.SIDE)]
-    edits = {naming.edit_key(names.MAIN, None, 2): naming.Edit(None, 3)}
+    edits: dict[tuple, naming.Edit] = {naming.edit_key(names.MAIN, None, 2): naming.Edit(None, 3)}
     edits[naming.edit_key(names.SIDE, None, 1)] = naming.Edit("Beach Day", None)
     got = {(k[2], k[1]): v for k, v in naming.resolve("mangadex", rows, None, {"3": "3"}, edits=edits).items()}
     assert (got[(names.MAIN, 2)].volume, got[(names.MAIN, 2)].volume_source) == (3, "edit")

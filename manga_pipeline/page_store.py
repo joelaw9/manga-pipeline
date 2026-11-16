@@ -7,7 +7,7 @@ from manga_pipeline import db, images
 COLUMNS = {"index": "page_index"}  # measure_pages field -> page column, where the names differ
 
 
-def _column(field):
+def _column(field: str) -> str:
     return COLUMNS.get(field, field)
 
 

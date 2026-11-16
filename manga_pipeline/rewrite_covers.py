@@ -120,6 +120,7 @@ def convert_run(ctx, chapter):
     kept = [m for m in members if not is_cover(m[0])]
     state = NONE if holds or cover_volume(file["cover_state"]) is not None else file["cover_state"]  # unfit stays
     inserted, why = None, None
+    row_volume = None if cover_row is None else cover_row["volume"]
     if cover_row is not None:
         scratch = config.abs_path(cfg["paths"]["scratch"]) / workflow.claim_name(chapter)
         try:
@@ -144,7 +145,7 @@ def convert_run(ctx, chapter):
         staged.unlink(missing_ok=True)
         raise
     result = {
-        "cover": inserted and {k: v for k, v in inserted.items() if k != "data"} | {"volume": cover_row["volume"]},
+        "cover": inserted and {k: v for k, v in inserted.items() if k != "data"} | {"volume": row_volume},
         "cover_skipped": why,
         "dropped_index": dropped,
         "inserted_index": inserted and archive.archive_pages([n for n, _ in entries]).index(inserted["name"]),

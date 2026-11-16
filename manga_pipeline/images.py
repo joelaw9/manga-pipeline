@@ -145,10 +145,10 @@ def from_loaded(im):
     """open_image of a page Pillow has opened and loaded already (a check that decoded it reuses that decode); im is
     left as it is. Returns (image, has_alpha)."""
     icc = im.info.get("icc_profile")
-    profile = None if is_srgb(icc) else ImageCms.ImageCmsProfile(io.BytesIO(icc))
-    space = profile.profile.xcolor_space.strip() if profile else None
+    profile = None if is_srgb(icc) else ImageCms.core.profile_frombytes(icc)
+    space = profile.xcolor_space.strip() if profile else None
     if im.mode == "CMYK" and space == "CMYK":
-        im = ImageCms.profileToProfile(im, profile, ImageCms.createProfile("sRGB"), outputMode="RGB")
+        im = _to_srgb(im, profile)
     elif im.mode in ("I;16", "I;16L", "I;16B", "I;16N", "I"):
         a = np.asarray(im).astype(np.uint32)
         shift = 8 if a.max() > 255 else 0
@@ -161,13 +161,22 @@ def from_loaded(im):
         im = im.copy()
     if space == "RGB" and im.mode in ("RGB", "RGBA"):
         alpha = im.getchannel("A") if im.mode == "RGBA" else None
-        im = ImageCms.profileToProfile(im.convert("RGB"), profile, ImageCms.createProfile("sRGB"), outputMode="RGB")
+        im = _to_srgb(im.convert("RGB"), profile)
         if alpha is not None:
             im.putalpha(alpha)
-    has_alpha = "A" in im.getbands() and im.getchannel("A").getextrema()[0] < 255
+    has_alpha = "A" in im.getbands() and np.asarray(im.getchannel("A")).min() < 255
     if "A" in im.getbands() and not has_alpha:  # fully opaque alpha carries nothing
         im = im.convert("L" if im.mode == "LA" else "RGB")
     return im, has_alpha
+
+
+def _to_srgb(im, profile):
+    """im's pixels converted from profile to sRGB, as a new RGB image."""
+    out = ImageCms.profileToProfile(im, profile, ImageCms.createProfile("sRGB"), outputMode="RGB")
+    if out is None:  # only an in-place conversion returns None
+        msg = "ImageCms.profileToProfile returned no image"
+        raise RuntimeError(msg)
+    return out
 
 
 ALPHA_WHITE = 1  # version of open_flat's compositing: page scans record it per page, the strip slots and the digest
@@ -202,7 +211,7 @@ def to_gray(im, alpha):
     Girl ch38-56, 83-86: sRGB-profiled colour JPEGs classed gray)."""
     g = im.convert("LA" if alpha else "L")
     icc = g.info.get("icc_profile")
-    if icc and ImageCms.ImageCmsProfile(io.BytesIO(icc)).profile.xcolor_space.strip() != "GRAY":
+    if icc and ImageCms.core.profile_frombytes(icc).xcolor_space.strip() != "GRAY":
         del g.info["icc_profile"]
     return g
 

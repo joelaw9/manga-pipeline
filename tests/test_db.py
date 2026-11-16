@@ -19,6 +19,7 @@ import yaml
 from manga_pipeline import cli, config, db
 
 from tests import pg
+from tests.builders import one, present
 from tests.timing import budget
 
 SHIPPED = db.SCHEMA
@@ -27,7 +28,7 @@ BUILD = 3.0  # budget of a test that builds a database from no schema (8 steps),
 
 
 def db_cfg(tmp_path, *, built=True):
-    return pg.cfg_for(pg.process.database(tmp_path.resolve(), built))
+    return pg.cfg_for(pg.current().database(tmp_path.resolve(), built))
 
 
 def steps_folder(tmp_path, *extra):
@@ -63,12 +64,14 @@ def test_new_database_has_every_table_and_an_id(tmp_path):
 def test_settings_are_in_effect(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
         assert conn.autocommit, "every write goes in an explicit transaction()"
-        encoding, collate, ctype = conn.execute(
-            "SELECT pg_encoding_to_char(encoding), datcollate, datctype FROM pg_database WHERE datname = %s",
-            (conn.info.dbname,),
-        ).fetchone()
+        encoding, collate, ctype = present(
+            conn.execute(
+                "SELECT pg_encoding_to_char(encoding), datcollate, datctype FROM pg_database WHERE datname = %s",
+                (conn.info.dbname,),
+            ).fetchone()
+        )
         assert (encoding, collate, ctype) == ("UTF8", "C", "C"), "UTF-8 with bytewise text order"
-        isolation = conn.execute("SHOW default_transaction_isolation").fetchone()[0]
+        isolation = one(conn, "SHOW default_transaction_isolation")
         assert isolation == "read committed", "a write transaction sees what committed before its write lock"
         assert "default_transaction_isolation" in conn.info.options, "set by the connection, not left to the server"
 
@@ -76,15 +79,16 @@ def test_settings_are_in_effect(tmp_path):
 @budget(load="db")
 def test_a_database_that_opens_at_once_needs_no_login_to_postgres(tmp_path, monkeypatch):
     cfg = db_cfg(tmp_path)
-    real, logins = psycopg.connect, []
+    real, logins = psycopg.Connection.connect.__func__, []
 
-    def spy(*args, **kwargs):
+    def spy(cls, *args, **kwargs):
         logins.append(kwargs["dbname"])
-        return real(*args, **kwargs)
+        return real(cls, *args, **kwargs)
 
-    monkeypatch.setattr(psycopg, "connect", spy)
+    monkeypatch.setattr(psycopg.Connection, "connect", classmethod(spy))
     db.connect(cfg).close()
     db.open_database(cfg, builds=False).close()
+    assert logins, "the spy sees every login"
     assert db.MAINTENANCE_DATABASE not in logins, f"only the configured database is logged in to: {logins}"
 
 
@@ -116,7 +120,7 @@ def test_reopen_keeps_data_and_id(tmp_path):
             conn.execute("INSERT INTO meta (key, value) VALUES ('probe', 'kept')")
     with closing(db.connect(cfg)) as conn:
         assert db.database_id(conn) == first_id, "re-opening must not rebuild the database"
-        assert conn.execute("SELECT value FROM meta WHERE key = 'probe'").fetchone()[0] == "kept"
+        assert one(conn, "SELECT value FROM meta WHERE key = 'probe'") == "kept"
         assert step_names(conn) == SHIPPED_STEPS
 
 
@@ -183,7 +187,7 @@ def test_2_runs_opening_a_new_database_at_once_apply_each_step_once(tmp_path):
     assert not errors, f"both opens succeed: {errors}"
     with closing(db.connect(cfg)) as conn:
         assert step_names(conn) == SHIPPED_STEPS, "each step applied and recorded once"
-        assert conn.execute("SELECT count(*) FROM meta WHERE key = 'database_id'").fetchone()[0] == 1
+        assert one(conn, "SELECT count(*) FROM meta WHERE key = 'database_id'") == 1
 
 
 @budget(BUILD, load="db")
@@ -234,11 +238,11 @@ def test_read_only_reads_1_snapshot_while_another_connection_commits(tmp_path):
     cfg = db_cfg(tmp_path)
     with closing(db.connect(cfg)) as writer, closing(db.read_only(cfg)) as reader:
         with reader.transaction():
-            before = reader.execute("SELECT count(*) FROM meta").fetchone()[0]
+            before = one(reader, "SELECT count(*) FROM meta")
             with db.transaction(writer):
                 writer.execute("INSERT INTO meta (key, value) VALUES ('probe', 'x')")
-            assert reader.execute("SELECT count(*) FROM meta").fetchone()[0] == before, "1 transaction, 1 snapshot"
-        assert reader.execute("SELECT count(*) FROM meta").fetchone()[0] == before + 1
+            assert one(reader, "SELECT count(*) FROM meta") == before, "1 transaction, 1 snapshot"
+        assert one(reader, "SELECT count(*) FROM meta") == before + 1
 
 
 @budget(BUILD, load="db")
@@ -350,7 +354,7 @@ def test_a_row_is_a_sequence_with_keys_as_sqlite3_row_is(rows):
 def test_rows_build_a_dict_as_sqlite3_rows_do(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
         pairs = dict(conn.execute("SELECT key, value FROM meta").fetchall())
-        row = conn.execute("SELECT key, value FROM meta").fetchone()
+        row = present(conn.execute("SELECT key, value FROM meta").fetchone())
     assert set(pairs) == {"database_id"}, "dict(rows) of 2-column rows maps the 1st column to the 2nd"
     assert dict(row) == {"key": "database_id", "value": row["value"]}, "dict(row) maps names to values"
 
@@ -392,13 +396,13 @@ def _fill(cfg):
 def test_a_reset_database_equals_a_new_one(tmp_path):
     cfg = db_cfg(tmp_path)
     old_id = _fill(cfg)
-    pg.process.end_test()  # what the test's teardown does
+    pg.current().end_test()  # what the test's teardown does
     with closing(db.connect(cfg)) as conn:
-        assert conn.execute("SELECT count(*) FROM series").fetchone()[0] == 0, "every table is emptied"
+        assert one(conn, "SELECT count(*) FROM series") == 0, "every table is emptied"
         assert step_names(conn) == SHIPPED_STEPS, "the schema record is kept"
         assert db.database_id(conn) != old_id, "a reset database has a new id"
         conn.execute("INSERT INTO series (name, origin) VALUES ('Beta', 'new')")
-        assert conn.execute("SELECT id FROM series").fetchone()[0] == 1, "identities start at 1 again"
+        assert one(conn, "SELECT id FROM series") == 1, "identities start at 1 again"
 
 
 @budget(BUILD, load="db")
@@ -407,13 +411,13 @@ def test_a_database_left_with_a_fake_step_or_table_is_rebuilt(tmp_path, monkeypa
     monkeypatch.setattr(db, "SCHEMA", steps_folder(tmp_path, ("0099_fake", "CREATE TABLE fake (x BIGINT);")))
     db.connect(cfg).close()
     monkeypatch.undo()
-    pg.process.end_test()
+    pg.current().end_test()
     cfg = db_cfg(tmp_path)
     with closing(db.connect(cfg)) as conn:
         assert step_names(conn) == SHIPPED_STEPS
         assert "fake" not in tables(conn)
         conn.execute("CREATE TABLE stray (x BIGINT)")
-    pg.process.end_test()
+    pg.current().end_test()
     with closing(db.connect(db_cfg(tmp_path))) as conn:
         assert "stray" not in tables(conn), "a table no build makes is gone after the reset"
 
@@ -423,7 +427,7 @@ def test_a_leaked_connection_fails_the_reset_and_is_ended(tmp_path):
     cfg = db_cfg(tmp_path)
     leaked = db.connect(cfg)
     with pytest.raises(pg.LeakedConnection, match=cfg["database"]["name"]):
-        pg.process.end_test()
+        pg.current().end_test()
     with pytest.raises(psycopg.OperationalError):
         leaked.execute("SELECT 1")
     leaked.close()
@@ -467,7 +471,7 @@ def test_a_database_left_dirty_by_a_dead_process_is_made_right_by_the_next(own_p
         with closing(db.connect(pg.cfg_for(name))) as conn:
             assert "stray" not in tables(conn), "rebuilt"
             assert step_names(conn) == SHIPPED_STEPS, "rebuilt"
-            assert conn.execute("SELECT count(*) FROM series").fetchone()[0] == 0
+            assert one(conn, "SELECT count(*) FROM series") == 0
             assert db.database_id(conn) != old_id
     finally:
         nxt.close()
@@ -483,7 +487,7 @@ def test_a_database_with_rows_is_emptied_when_taken_and_stays_after_its_process_
     second = pg.Process(pool, space, take=1)
     try:
         with closing(db.connect(pg.cfg_for(name))) as conn:
-            assert conn.execute("SELECT count(*) FROM chapter").fetchone()[0] == 0, "emptied when taken"
+            assert one(conn, "SELECT count(*) FROM chapter") == 0, "emptied when taken"
         with closing(pg._connect(db.MAINTENANCE_DATABASE)) as conn:
             assert conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,)).fetchone()
     finally:
@@ -536,7 +540,7 @@ def test_a_database_whose_reset_failed_is_rebuilt_by_its_next_taker(own_pool, tm
         assert second.slots == [name], "the freed database is taken again"
         assert pg._print_of(second.owner, name).startswith(pg.STEPS_PRINT), "rebuilt from these step files"
         with closing(db.connect(pg.cfg_for(name))) as conn:
-            assert conn.execute("SELECT count(*) FROM series").fetchone()[0] == 0
+            assert one(conn, "SELECT count(*) FROM series") == 0
     finally:
         second.close()
 
@@ -565,7 +569,7 @@ def test_pool_databases_that_cannot_be_made_right_stop_the_run_after_max_failed_
         for conn in owners:
             conn.close()
     with closing(real(db.MAINTENANCE_DATABASE)) as conn:
-        made = conn.execute("SELECT count(*) FROM pg_database WHERE starts_with(datname, %s)", (pool,)).fetchone()[0]
+        made = one(conn, "SELECT count(*) FROM pg_database WHERE starts_with(datname, %s)", (pool,))
     assert made == pg.MAX_FAILED_TAKES, "it stops at the limit instead of trying every database"
 
 
@@ -655,7 +659,7 @@ def test_a_failed_reset_still_resets_the_tests_other_databases(tmp_path, monkeyp
 
     monkeypatch.setattr(pg.Process, "_reset", failing)
     with pytest.raises(RuntimeError, match="this reset fails"):
-        pg.process.end_test()
+        pg.current().end_test()
     monkeypatch.undo()
     with closing(db.connect(second)) as conn:
-        assert conn.execute("SELECT count(*) FROM series").fetchone()[0] == 0, "the other database is emptied too"
+        assert one(conn, "SELECT count(*) FROM series") == 0, "the other database is emptied too"

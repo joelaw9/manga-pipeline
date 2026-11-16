@@ -75,7 +75,7 @@ class Context:
     conn: Any  # the command's connection (cli.main), holding its run lock
     part: str
     # Who this run's claims name (owner(part) when None).
-    owner: str = None
+    owner: str | None = None
     # Chapters that failed in this run: tried again by a later run, so 1 run never spends all their attempts.
     failed: set = field(default_factory=set)
     # {stage: service} for the stages whose service was unreachable in this run: not claimed again until a later run.

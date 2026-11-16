@@ -12,6 +12,7 @@ from manga_pipeline import db, intake, names
 from manga_pipeline.clients import http
 from manga_pipeline.metadata import episodes, naming, platforms, sources
 
+from tests.builders import present
 from tests.fakes.http import CannedService, reply
 from tests.test_naming_resolver import _rows
 from tests.timing import budget
@@ -52,7 +53,7 @@ def stored_list(platform, ref):
     if platform == platforms.TAPAS:
         client = tapas_client(ref)
         series_id = client.series_id(ref)
-        items, total = client.episodes(series_id)
+        items, total = present(client.episodes(series_id))
         return platforms.record(platform, ref, items, listed_total=total, series_id=series_id)
     client = webtoons_client(*ref.split(":"))
     app_only = client.app_only(ref)
@@ -135,8 +136,9 @@ def test_the_platform_page_follows_the_links_and_the_recorded_basis(kavita, anil
 def test_the_tapas_id_needs_the_html_page_and_the_list_is_read_whole():
     client = tapas_client("brother-knows-best")
     series_id = client.series_id("brother-knows-best")
-    assert client._service.headers["Accept"] == "text/html", "the JSON form of /info lacks the tapastic meta"
-    items, total = client.episodes(series_id)
+    assert isinstance(client._service, CannedService), "the recorded replies"
+    assert present(client._service.headers)["Accept"] == "text/html", "the JSON form of /info lacks the tapastic meta"
+    items, total = present(client.episodes(series_id))
     assert series_id == "255099"
     assert len(items) == len({i[3] for i in items})
     assert total == 91
@@ -310,7 +312,7 @@ def test_a_list_that_does_not_move_on_ends_instead_of_looping():
     }
     client = sources.Webtoons()
     client._service = CannedService("webtoons", {"/api/v1/": page})  # every page answers cursor 5 again
-    assert len(client.episodes("webtoon:1")) == 1, "a page that does not move on ends the list, adding nothing"
+    assert len(present(client.episodes("webtoon:1"))) == 1, "a page that does not move on ends the list, adding nothing"
 
 
 @budget(load="pure")

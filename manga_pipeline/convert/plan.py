@@ -41,7 +41,7 @@ class ChapterPlan:
     classes: dict  # {page name: page class}
     quality: dict  # {encode group: AVIF q}
     render: list = field(default_factory=list)  # rendered pages: [{"name", "parts" | "rows", "src", "class", "yuv"}]
-    route: str = None
+    route: str | None = None
     outcomes: list = field(default_factory=list)  # tried in order; a measured failure moves to the next
     force_avif: bool = False  # the volume cover needs the chapter in AVIF (its AVIF cover passed)
 
@@ -312,9 +312,9 @@ def render_pages(plan):
             out.append({"name": strip.output_name(n), "parts": [[x, boxes.get(x)] for x in chain], "src": chain})
     for o in out:
         src = o["src"]
-        o["class"] = max((plan.classes[x] for x in src), key=CLASS_RANK.get)
+        o["class"] = max((plan.classes[x] for x in src), key=CLASS_RANK.__getitem__)
         colour = [by_name[x]["chroma"] for x in src if plan.classes[x] == images.COLOUR]
-        o["yuv"] = yuv_for(o["class"], max(colour, default="420", key=CHROMA_RANK.get))
+        o["yuv"] = yuv_for(o["class"], max(colour, default="420", key=CHROMA_RANK.__getitem__))
     return out
 
 

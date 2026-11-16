@@ -4,6 +4,7 @@ and decide() on small scans. The band, size and text tests are ported from the b
 and tests/test_segmentation.py; the page sizes are recorded from real chapters."""
 
 import functools
+from collections.abc import Mapping
 from unittest import mock
 
 import numpy as np
@@ -14,6 +15,7 @@ from manga_pipeline import images, strip
 from manga_pipeline.junk import frames, page_units
 
 from tests import pages as fx
+from tests.builders import present
 from tests.timing import budget
 
 images.signature(Image.new("L", (8, 8)))  # pHash loads its FFT module on first use: here, not in a test's time
@@ -26,7 +28,7 @@ def art(h=852, seed=1):
     return fx.manga_page((600, h), seed=seed, noise=3)
 
 
-def find_band(page, where, aspect=ASPECT, cfg=BAND):
+def find_band(page, where, aspect=ASPECT, cfg: Mapping[str, float] = BAND):
     return page_units.find_band(page, aspect, where, cfg)
 
 
@@ -41,7 +43,7 @@ def sig_matches(sig, text):
 @budget(load="pure")
 def test_top_band_cut_on_the_gutter():
     """Rescaled page (840, not 852): the naive cut falls in the gutter: cut on the gutter, box from the top."""
-    top = find_band(fx.stack(fx.warning_banner(), (40, 600), art(840)), "top")
+    top = present(find_band(fx.stack(fx.warning_banner(), (40, 600), art(840)), "top"))
     assert top["how"] == "gap", "the cut is on the gutter"
     assert 240 <= top["cut"] <= 280, top  # on the white gutter, not in band or art
     assert top["box"] == [0, 0, 600, top["cut"]], "a top band's box runs from the page top to the cut"
@@ -51,7 +53,7 @@ def test_top_band_cut_on_the_gutter():
 def test_bottom_band_cut_on_the_gutter():
     """The same band under the page: cut on the gutter, box to the page's bottom."""
     page = fx.stack(art(840), (40, 600), fx.warning_banner())
-    bottom = find_band(page, "bottom")
+    bottom = present(find_band(page, "bottom"))
     assert 840 <= bottom["cut"] <= 880, bottom
     assert bottom["box"] == [0, bottom["cut"], 600, page.height], "a bottom band's box runs from the cut to the bottom"
 
@@ -62,7 +64,7 @@ def test_band_signed_on_its_ink_whatever_the_gutter_share(where):
     """The band's signature matches the bare banner's ink box signature."""
     ban = fx.warning_banner()
     page = fx.stack(ban, (40, 600), art(840)) if where == "top" else fx.stack(art(840), (40, 600), ban)
-    b = find_band(page, where)
+    b = present(find_band(page, where))
     assert sig_matches(images.signature(ban.crop(page_units.ink_box(ban))), b["sig"]), "the band is signed on its ink"
 
 
@@ -71,7 +73,7 @@ def test_rescaled_page_cut_on_the_seam_not_at_the_naive_height():
     """Art rescaled to 903 px: h - w x aspect = 291 would cut 51 px into the art; the seam is at 240."""
     a = art(903)
     page = fx.stack(fx.warning_banner(), a)
-    b = find_band(page, "top")
+    b = present(find_band(page, "top"))
     assert page.height - round(600 * ASPECT) == 291
     assert (b["how"], b["cut"], b["height"], b["where"], b["box"]) == ("seam", 240, 240, "top", [0, 0, 600, 240]), (
         "cut on the seam, not at the naive height"
@@ -112,7 +114,7 @@ def test_a_band_without_ink_is_no_band():
 def test_the_gutter_nearest_the_naive_cut_wins():
     """Gutters at 840-880 (holding the naive 852) and 910-950: the cut is the naive 852 on the nearer one."""
     page = fx.stack(art(840), (40, 600), fx.blob(3, (600, 30)), (40, 600), fx.warning_banner())
-    b = find_band(page, "bottom")
+    b = present(find_band(page, "bottom"))
     assert (b["how"], b["cut"], b["box"]) == ("gap", 852, [0, 852, 600, page.height]), "the nearest gutter wins"
 
 
@@ -129,7 +131,7 @@ def test_only_a_page_taller_than_the_limit_is_band_checked(gutter, found):
 def test_a_nearer_later_gutter_replaces_an_earlier_one():
     """Gutters at 200-240 and 270-310, the naive top cut 300 in the second: the cut is 300, not 240."""
     page = fx.stack(fx.warning_banner(height=200), (40, 600), fx.blob(3, (600, 30)), (40, 600), art(842))
-    b = find_band(page, "top")
+    b = present(find_band(page, "top"))
     assert (b["how"], b["cut"]) == ("gap", 300), "the later, nearer gutter wins"
 
 
@@ -137,14 +139,14 @@ def test_a_nearer_later_gutter_replaces_an_earlier_one():
 def test_the_seam_nearest_the_naive_cut_wins():
     """No gutter, seams at 200 (banner / strip) and 240 (strip / art), naive cut 240: cut on the nearer seam."""
     page = fx.stack(fx.warning_banner(height=200), fx.webtoon_page((600, 40), seed=3), fx.webtoon_page((600, 852)))
-    b = find_band(page, "top")
+    b = present(find_band(page, "top"))
     assert (b["how"], b["cut"]) == ("seam", 240), "the nearest seam wins"
 
 
 @budget(load="pure")
 def test_a_seam_band_of_exactly_band_seam_min_px_counts():
     """A 100 px banner straight under smooth art: a seam cut band_seam_min_px tall is a band."""
-    b = find_band(fx.stack(fx.webtoon_page((600, 852)), fx.warning_banner(height=100)), "bottom")
+    b = present(find_band(fx.stack(fx.webtoon_page((600, 852)), fx.warning_banner(height=100)), "bottom"))
     assert (b["how"], b["cut"], b["height"]) == ("seam", 852, 100), "a seam band of band_seam_min_px counts"
 
 
@@ -165,7 +167,7 @@ def footer_page(x):
 @pytest.mark.parametrize("x", [0, 60, 120])
 def test_thin_footer_cut_on_the_gutter(x):
     """A 40 px footer under band_seam_min_px counts: it is cut on the gutter; nothing on top."""
-    b = find_band(footer_page(x), "bottom")
+    b = present(find_band(footer_page(x), "bottom"))
     assert (b["how"], b["where"]) == ("gap", "bottom"), "a thin footer is cut on its gutter"
     assert 852 <= b["cut"] <= 864, b  # on the gutter
     assert find_band(footer_page(x), "top") is None, "nothing on top"
@@ -175,7 +177,7 @@ def test_thin_footer_cut_on_the_gutter(x):
 @pytest.mark.parametrize("x", [60, 120])
 def test_thin_footer_matched_wherever_its_text_sits(x):
     """The ink box signature: footers with the line at another x match (one cluster, not 44)."""
-    b0, b = (find_band(footer_page(v), "bottom") for v in (0, x))
+    b0, b = (present(find_band(footer_page(v), "bottom")) for v in (0, x))
     assert sig_matches(images.sig_from_str(b0["sig"]), b["sig"]), "the ink box signature ignores the text's x"
 
 
@@ -230,7 +232,7 @@ def test_ink_box_spans_the_text():
     """A credit pasted at (100, 5) on a white band: the box lies within the pasted 300x30 credit."""
     b = Image.new("RGB", (600, 40), "white")
     b.paste(fx.credit((300, 30)), (100, 5))
-    x0, y0, x1, y1 = page_units.ink_box(b)
+    x0, y0, x1, y1 = present(page_units.ink_box(b))
     assert x0 >= 100, (x0, y0, x1, y1)
     assert x1 <= 400, (x0, y0, x1, y1)
     assert y0 >= 5, (x0, y0, x1, y1)
@@ -638,7 +640,7 @@ def test_on_a_tie_the_page_decision_wins():
     """A series junk page decision and a series junk frame decision rank alike: the page's row decides."""
     unit = {"page": 5, "sig": "s5", "frame": "f5"}
     rows = {("page", "s5"): row(1, "junk"), ("frame", "f5"): row(2, "junk")}
-    assert page_units.page_decision(unit, decider(rows))["id"] == 1, "the page's decision wins a tie"
+    assert present(page_units.page_decision(unit, decider(rows)))["id"] == 1, "the page's decision wins a tie"
 
 
 @budget(load="pure")
@@ -686,7 +688,7 @@ def light_rows(h, row):
 )
 def test_gutter_rows_have_std_under_3_and_range_under_20(row, how):
     page = fx.stack(fx.warning_banner(400, 160), light_rows(40, row), fx.manga_page((400, 568), seed=1, noise=3))
-    b = page_units.find_band(page, 1.42, "top")
+    b = present(page_units.find_band(page, 1.42, "top"))
     assert b["how"] == how, "at analysis width a near-white row is a gutter row only with std < 3 and range < 20"
 
 

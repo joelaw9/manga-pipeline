@@ -8,7 +8,7 @@ import yaml
 
 from manga_pipeline import config, db, fleet, preflight, workflow
 
-from tests.builders import add_chapter, add_series, adopted
+from tests.builders import WinOSError, add_chapter, add_series, adopted, present, problem_text
 from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
@@ -66,21 +66,21 @@ def test_a_secret_in_a_shared_section_is_left_out(tmp_path, monkeypatch):
     ],
 )
 def test_a_changed_shared_setting_stops_the_machine(cfg, section, key, value):
-    assert "shared settings" in problem({**cfg, section: {**cfg[section], key: value}})
+    assert "shared settings" in problem_text(problem({**cfg, section: {**cfg[section], key: value}}))
 
 
 @budget(load="db")
 def test_another_program_or_package_or_tool_version_stops_the_machine(cfg, monkeypatch):
     real = fleet.digest(cfg)
     monkeypatch.setattr(fleet, "_packages", lambda: {"pillow": "12.3.0"})
-    assert "runtime packages" in problem(cfg), "an older Pillow changes junk scans"
+    assert "runtime packages" in problem_text(problem(cfg)), "an older Pillow changes junk scans"
     monkeypatch.undo()
 
     monkeypatch.setattr(fleet, "_tools", lambda _cfg: {**fake_convert.FAKE_TOOL_VERSIONS, "avifenc": "Version: 1.2.1"})
-    assert "tools" in problem(cfg), "another avifenc version output"
+    assert "tools" in problem_text(problem(cfg)), "another avifenc version output"
     monkeypatch.setattr(fleet, "_tools", lambda _cfg: dict(fake_convert.FAKE_TOOL_VERSIONS))
     monkeypatch.setattr(fleet, "_program", lambda: {"manga_pipeline/x.py": "another"})
-    assert "program" in problem(cfg)
+    assert "program" in problem_text(problem(cfg))
     assert fleet.digest(cfg) != real
 
 
@@ -88,7 +88,7 @@ def test_another_program_or_package_or_tool_version_stops_the_machine(cfg, monke
 def test_a_database_with_no_version_stops_every_machine(cfg):
     with closing(db.connect(cfg)) as conn, db.transaction(conn):
         conn.execute("DELETE FROM meta WHERE key = %s", (fleet.META_KEY,))
-    assert "holds no fleet version" in problem(cfg)
+    assert "holds no fleet version" in problem_text(problem(cfg))
 
 
 @budget(load="pure")
@@ -106,10 +106,10 @@ def test_a_winerror_59_share_drop_costs_no_attempt(cfg):
         row = workflow.claim(ctx, ("junk",))
 
         def stage(_ctx, _chapter):
-            error = OSError(22, "An unexpected network error occurred")
+            error = WinOSError(22, "An unexpected network error occurred")
             error.winerror = 59
             raise error
 
         assert isinstance(workflow.work(ctx, row, stage), workflow.Unreachable)
         after = conn.execute("SELECT status, attempts FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
-    assert tuple(after) == ("ready", 0), "a Windows share drop is the share unreachable, not a failed attempt"
+    assert tuple(present(after)) == ("ready", 0), "a Windows share drop is the share unreachable, not a failed attempt"

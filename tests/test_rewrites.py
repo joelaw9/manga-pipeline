@@ -13,6 +13,7 @@ import pytest
 from manga_pipeline import comicinfo as comicinfo_xml
 from manga_pipeline import config, db, export, intake, process, retention, rewrite, state, workflow
 
+from tests.builders import one
 from tests.timing import budget
 from tests.world import World, cbz, comicinfo
 
@@ -122,7 +123,7 @@ def crash_after(monkeypatch, step, name):
     real = rewrite._record
 
     def record(conn, file_id, done):
-        path = conn.execute("SELECT library_path FROM published_file WHERE id = %s", (file_id,)).fetchone()[0]
+        path = one(conn, "SELECT library_path FROM published_file WHERE id = %s", (file_id,))
         if done == step and path.endswith("/" + name):
             msg = "killed"
             raise KeyboardInterrupt(msg)

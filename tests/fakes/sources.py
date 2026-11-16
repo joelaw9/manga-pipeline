@@ -1,6 +1,8 @@
 """In-memory metadata sources (manga_pipeline.metadata.sources): records by id, search results by name. A source
 holds nothing until a test adds it; every call is recorded in `calls`."""
 
+from dataclasses import dataclass
+
 from manga_pipeline.metadata import check
 
 
@@ -78,15 +80,27 @@ class FakeWebtoons(_Fake):
         return self.records.get(("app_only", ref), False)
 
 
+@dataclass
+class FakeSources(check.Sources):
+    """check.Sources of fakes, and every call they were asked (calls)."""
+
+    mangabaka: FakeMangaBaka
+    mangaupdates: FakeMangaUpdates
+    mangadex: FakeMangaDex
+    anilist: FakeAniList
+    tapas: FakeTapas
+    webtoons: FakeWebtoons
+    calls: list
+
+
 def fake_sources():
     calls = []
-    sources = check.Sources(
+    return FakeSources(
         FakeMangaBaka(calls),
         FakeMangaUpdates(calls),
         FakeMangaDex(calls),
         FakeAniList(calls),
         FakeTapas(calls),
         FakeWebtoons(calls),
+        calls,
     )
-    sources.calls = calls
-    return sources

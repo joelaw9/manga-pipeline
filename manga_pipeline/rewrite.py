@@ -98,7 +98,7 @@ def compare(ctx):
             for v in sorted(wants):
                 conn.execute(
                     "INSERT INTO volume_cover_wanted (series_id, volume) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                    (series["id"], int(names.to_volume(v))),
+                    (series["id"], int(v)),  # a wanted volume is whole (_plan)
                 )
             made = 0
             for file_id, change in todo.items():
@@ -174,9 +174,10 @@ def _plan(ctx, series):
             else:
                 if (
                     v not in given_up
-                    and names.to_volume(v) == int(names.to_volume(v))
+                    and (number := names.to_volume(v)) is not None
+                    and number == int(number)
                     and records.get("manga")
-                    and cover_images.volume_choice(records["manga"], records.get("covers") or [], names.to_volume(v))
+                    and cover_images.volume_choice(records["manga"], records.get("covers") or [], number)
                 ):
                     wants.add(v)
                 if rewrite_covers.cover_volume(states[fid]) is not None:  # another volume's cover: dropped meanwhile
@@ -603,11 +604,10 @@ def drop(conn, file_id, limit):
     the next comparison of its series starts again. workflow.Refused otherwise: a rewrite export is still working on,
     or one past its rename (`rewrite retry` finishes it)."""
     row = conn.execute("SELECT * FROM published_file WHERE id = %s", (file_id,)).fetchone()
-    stuck = row is not None and (
+    if row is None or not (
         (row["pending_path"] is not None and row["pending_attempts"] >= limit)
         or (row["indexed_since"] is not None and row["pending_error"] is not None)
-    )
-    if not stuck:
+    ):
         msg = f"published file {file_id} has no stuck rewrite"
         raise workflow.Refused(msg)
     if row["pending_path"] is not None and row["pending_step"] >= 3:

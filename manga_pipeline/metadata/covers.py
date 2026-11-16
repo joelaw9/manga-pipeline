@@ -145,7 +145,7 @@ def volume_cover(ctx, series_id, volume):
         (series_id, volume),
     ).fetchone()
     root = config.abs_path(ctx.cfg["paths"]["covers"])
-    stored = row is not None and _holds(root / row["path"], row["sha256"])
+    stored = row if row is not None and _holds(root / row["path"], row["sha256"]) else None
     records = {
         r["kind"]: r["payload"]
         for r in ctx.conn.execute(
@@ -154,17 +154,17 @@ def volume_cover(ctx, series_id, volume):
     }
     manga = records.get("manga")
     choices = volume_choices(manga, records.get("covers") or [], volume) if manga else []
-    urls = [f"{sources.MANGADEX_UPLOADS}/covers/{manga['id']}/{f}" for f in choices]
-    if stored and (not urls or row["source_url"] in urls):  # still 1 of MangaDex's best: the stored image stays
-        return row["path"], row["sha256"]
-    if not choices:
+    urls = [f"{sources.MANGADEX_UPLOADS}/covers/{manga['id']}/{f}" for f in choices] if manga else []
+    if stored is not None and (not urls or stored["source_url"] in urls):  # still 1 of MangaDex's best: it stays
+        return stored["path"], stored["sha256"]
+    if not choices or not manga:
         return None
     # a missing stored file is fetched again as the same file while it is still among the best: no tie flips it
     k = urls.index(row["source_url"]) if row is not None and row["source_url"] in urls else 0
     file_name, url = choices[k], urls[k]
     data = _gone_is_none(ctx.sources.mangadex.cover_image, manga["id"], file_name)
     if data is None:  # MangaDex no longer serves the file: no new cover
-        return (row["path"], row["sha256"]) if stored else None
+        return (stored["path"], stored["sha256"]) if stored is not None else None
     image = _image(url, data)
     if image is None:  # an error page served as the image: fails the attempt, a later run tries again
         msg = f"the volume {volume} cover from {url} is not an image"

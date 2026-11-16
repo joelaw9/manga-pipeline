@@ -111,7 +111,7 @@ def pixels_match(original, output, mode):
             a, b = _native_luma(original), _native_luma(output)
         if a is None or b is None:
             a, b, tol = None, None, LUMA_TOLERANCE
-    if a is None:
+    if a is None or b is None:  # both None together
         a, b = _pixels(original, mode), _pixels(output, mode)
     if a.shape != b.shape:
         return False, None

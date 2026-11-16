@@ -1,4 +1,4 @@
-# The check main's ruleset requires on every PR (.github/rulesets/main.json): lint, format, the full test suite.
+# The check main's ruleset requires on every PR (.github/rulesets/main.json): lint, format, types, the full test suite.
 name: tests
 on: pull_request
 jobs:
@@ -32,4 +32,6 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - run: python -m ruff check .
       - run: python -m ruff format --check .
+      - run: python -m basedpyright --warnings
+      - run: python -m basedpyright --warnings --pythonplatform Linux
       - run: python -m pytest -q -n auto

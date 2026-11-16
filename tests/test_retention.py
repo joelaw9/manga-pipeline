@@ -65,7 +65,8 @@ def test_purge_deletes_only_files_past_the_period_and_their_emptied_folders(tmp_
     retention.put(cfg, new)
     root = config.abs_path(cfg["paths"]["retention"])
     stale = root / "Src (EN)" / "Old" / "ch1.cbz"
-    os.utime(stale, (time.time() - 8 * 86400,) * 2)
+    old = time.time() - 8 * 86400
+    os.utime(stale, (old, old))
     assert retention.purge(cfg) == 1
     assert not (root / "Src (EN)" / "Old").exists(), "an emptied folder goes too"
     assert (root / "Src (EN)" / "New" / "ch1.cbz").exists(), "a file inside its period stays"

@@ -1,6 +1,7 @@
 """The Vship binding (convert.vship; SPEC "Conversion"): synthetic manga and webtoon pages scored on the real GPU
 (marked gpu: run with --vship PATH), and the fail-fast paths. Ported from the bulk converter's tests/test_vship.py."""
 
+import ctypes
 import io
 from concurrent.futures import ThreadPoolExecutor
 
@@ -153,6 +154,6 @@ def test_a_handle_vship_fails_to_free_raises_with_vships_message():
         },
     )()
     h = object.__new__(vship._Handle)
-    h.lib, h.size, h.ptr = lib, (300, 500), None
+    h.lib, h.size, h.ptr = lib, (300, 500), ctypes.c_void_p()
     with pytest.raises(vship.VshipError, match=r"free handle 300x500: Vship error 5"):
         h.free()

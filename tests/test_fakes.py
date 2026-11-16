@@ -23,9 +23,18 @@ def comicinfo(series, localized=None):
 # --- FakeSuwayomi
 
 
+class SeededSuwayomi(FakeSuwayomi):
+    """A FakeSuwayomi with 1 source, 1 manga and its 2 chapters."""
+
+    source: str
+    manga_id: int
+    c1: int
+    c2: int
+
+
 @pytest.fixture
 def suw(tmp_path):
-    fake = FakeSuwayomi(tmp_path / "mangas")
+    fake = SeededSuwayomi(tmp_path / "mangas")
     fake.source = fake.add_source("MangaDex")
     fake.manga_id = fake.add_manga("Re:Zero", fake.source)
     fake.c1 = fake.add_chapter(fake.manga_id, "Ch.1: Start", "Group")

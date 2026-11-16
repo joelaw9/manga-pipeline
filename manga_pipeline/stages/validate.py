@@ -60,15 +60,13 @@ def run(ctx, chapter):
     redownload.remove(ctx, chapter, state)
     if state["chosen"] is not None:
         found = redownload.target(ctx, state["chosen"])
-        why = (
-            "does not exist"
-            if found is None
-            else "is another open chapter's download"
-            if redownload.held_elsewhere(ctx, chapter, found)
-            else None
-        )
-        if why:  # the choice stays recorded: retry clears it, another chapter use replaces it
-            return workflow.NeedsHuman(f"the Suwayomi chapter chosen with chapter use {why}")
+        # a refused choice stays recorded: retry clears it, another chapter use replaces it
+        if found is None:
+            return workflow.NeedsHuman("the Suwayomi chapter chosen with chapter use does not exist")
+        if redownload.held_elsewhere(ctx, chapter, found):
+            return workflow.NeedsHuman(
+                "the Suwayomi chapter chosen with chapter use is another open chapter's download"
+            )
         found["chosen"] = True  # enqueue clears it with the expected download, so an interruption keeps the choice
     else:
         found = redownload.pick(ctx, chapter, _series(ctx, chapter), state)

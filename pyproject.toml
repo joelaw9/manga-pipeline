@@ -44,7 +44,7 @@ ignore = [
     "TRY004",                     # every isinstance check validates a parsed YAML file: a value error, not a type error
     "S105",                       # every hit is a false positive (a meta key name; a fake test token)
     # lint phase: pending (rules the next lint PRs resolve; this block shrinks to nothing)
-    "D", "S608", "S324", "TRY301", "TRY400", "N812", "N818", "SLOT001", "PLW0603", "C901", "PLR0911", "PLR0912",
+    "D", "S608", "S324", "TRY301", "TRY400", "N812", "N818", "PLW0603", "C901", "PLR0911", "PLR0912",
     "PLR0913", "PLR0915", "PLR0917", "PLR2004", "SLF001",
 ]
 
@@ -59,6 +59,12 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-local-folder = ["tests"]
+
+[tool.basedpyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.13"
+pythonPlatform = "Windows"  # CI's platform; CI and the merge hook also run --pythonplatform Linux (the LXC)
+include = ["manga_pipeline", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

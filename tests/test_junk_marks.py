@@ -44,12 +44,22 @@ def mark_box(rgb):
     return images.gray_mark_box(rgb, images.COLOUR_BLOCK, images.MARK_LIMITS)
 
 
+def found_box(rgb):
+    box = mark_box(rgb)
+    assert box is not None, "the page has a gray-mark box"
+    return box
+
+
+def measured(rgb, box):
+    m = marks.measure(rgb, box)
+    assert m is not None, "a mark is measured in the box"
+    return m
+
+
 def mark_of(name):
     """(page, marks.Mark) of a badge crop on its mark_page."""
     rgb = mark_page(name)
-    box = mark_box(rgb)
-    assert box is not None, name
-    return rgb, marks.measure(rgb, box)
+    return rgb, measured(rgb, found_box(rgb))
 
 
 AK = "Akuyaku Kizoku to shite Hitsuyou na Sore"
@@ -90,7 +100,7 @@ def templates():
 @budget(load="pure")
 def test_one_badge_is_found_by_parts_b_mark_box():
     """RESET-SCANS.CO pasted at (100, 100): Part B's mark box covers the badge's start and its 159 px width."""
-    x0, y0, x1, _y1 = mark_box(mark_page("marks_scans_plain.png"))
+    x0, y0, x1, _y1 = found_box(mark_page("marks_scans_plain.png"))
     assert x0 <= AT[0] + 40, "box must start at the badge's left"
     assert y0 <= AT[1] + 40, "box must start at the badge's top"
     assert x1 > AT[0] + 150, "box must reach past the coloured text"
@@ -144,7 +154,7 @@ def test_specks_with_no_solid_overlap_have_no_mark():
 @budget(load="pure")
 def test_solid_badge_is_padded_by_three_quarters_of_its_height():
     """A 40 x 20 red badge at (80, 90): tight box is the badge, padded by round(0.75 * 20) = 15; white ring, plain."""
-    m = marks.measure(badge_page(80, 90, 120, 110), (60, 60, 140, 140))
+    m = measured(badge_page(80, 90, 120, 110), (60, 60, 140, 140))
     assert (m.tight, m.box, m.fill, m.ring_frac, m.blankable) == (
         (80, 90, 120, 110),
         (65, 75, 135, 125),
@@ -166,7 +176,7 @@ def test_solid_badge_is_padded_by_three_quarters_of_its_height():
 )
 def test_padded_box_is_clamped_to_the_page(badge, bbox, box):
     """A badge at a page corner: the 15 px padding stops at the page edge."""
-    assert marks.measure(badge_page(*badge), bbox).box == box
+    assert measured(badge_page(*badge), bbox).box == box
 
 
 @budget(load="pure")
@@ -185,7 +195,7 @@ def test_columns_under_15_percent_of_the_peak_are_trimmed(speck, tight):
     """Badge columns hold 20 strong pixels; a speck column at x = 130 with 3 (15%) stays in the box, 2 are noise."""
     rgb = badge_page(80, 90, 120, 110)
     rgb[95 : 95 + speck, 130] = (255, 0, 0)
-    assert marks.measure(rgb, (60, 60, 140, 140)).tight == tight
+    assert measured(rgb, (60, 60, 140, 140)).tight == tight
 
 
 # Ring
