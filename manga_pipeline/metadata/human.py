@@ -10,12 +10,15 @@ def set_id(conn, series_id, source, value):
     """Store the id (replacing the series' earlier human id for that source); Refused for an unknown series or source,
     or an id not in the source's form."""
     if source not in ids.SOURCES:
-        raise workflow.Refused(f"unknown source {source!r}: one of {', '.join(ids.SOURCES)}")
+        msg = f"unknown source {source!r}: one of {', '.join(ids.SOURCES)}"
+        raise workflow.Refused(msg)
     found = ids.form(source, value)
     if found is None:
-        raise workflow.Refused(f"{value!r} is not a {source} id")
+        msg = f"{value!r} is not a {source} id"
+        raise workflow.Refused(msg)
     if conn.execute("SELECT 1 FROM series WHERE id = %s", (series_id,)).fetchone() is None:
-        raise workflow.Refused(f"no series {series_id}")
+        msg = f"no series {series_id}"
+        raise workflow.Refused(msg)
     with db.transaction(conn):
         conn.execute(
             "DELETE FROM series_source_id WHERE series_id = %s AND source = %s AND origin = 'human'",
@@ -31,7 +34,8 @@ def refetch_covers(conn, series_id):
     updates"). Refused for a series that does not exist."""
     with db.transaction(conn):
         if conn.execute("SELECT 1 FROM series WHERE id = %s", (series_id,)).fetchone() is None:
-            raise workflow.Refused(f"no series {series_id}")
+            msg = f"no series {series_id}"
+            raise workflow.Refused(msg)
         check.make_urgent(conn, series_id)
 
 
@@ -40,17 +44,21 @@ def new_series(conn, series_id, name=None):
     made due at once: the next intake checks it and admits it (metadata/admit.py). Refused for any other series, and
     for a name with nothing in it."""
     if name is not None and not name.strip():
-        raise workflow.Refused("--name is empty")
+        msg = "--name is empty"
+        raise workflow.Refused(msg)
     with db.transaction(conn):
         row = conn.execute(
             "SELECT origin, admitted_at, status, kavita_series_id FROM series WHERE id = %s", (series_id,)
         ).fetchone()
         if row is None:
-            raise workflow.Refused(f"no series {series_id}")
+            msg = f"no series {series_id}"
+            raise workflow.Refused(msg)
         if row["origin"] != "new" or row["admitted_at"] is not None or row["kavita_series_id"] is not None:
-            raise workflow.Refused(f"series {series_id} is not a new series waiting to be admitted")
+            msg = f"series {series_id} is not a new series waiting to be admitted"
+            raise workflow.Refused(msg)
         if row["status"] != "needs_human":
-            raise workflow.Refused(f"series {series_id} is not held (needs_human): it is admitted at the next intake")
+            msg = f"series {series_id} is not held (needs_human): it is admitted at the next intake"
+            raise workflow.Refused(msg)
         conn.execute(
             "UPDATE series SET status = 'ok', status_reason = NULL, admit_name = %s WHERE id = %s",
             (name.strip() if name is not None else None, series_id),

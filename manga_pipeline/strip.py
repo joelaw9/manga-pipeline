@@ -14,6 +14,7 @@ Layout (classify_layout): `layout:` in the series overrides, else page geometry 
 disagreement.
 """
 
+import itertools
 import statistics
 from collections import Counter
 from dataclasses import dataclass
@@ -101,7 +102,7 @@ def geometry_share(chapter_pages, cfg=CONFIG):
         edges = [edge_rows(_open(p, "L")) for p in pages[:SAMPLE_PAGES]]
         joins = [
             (bot[-1].std() < gap_std and top[0].std() < gap_std) or seam_score(bot, top) < max_seam
-            for (_, bot), (top, _) in zip(edges, edges[1:], strict=False)
+            for (_, bot), (top, _) in itertools.pairwise(edges)
         ]
         if joins:
             shares.append(sum(joins) / len(joins))
@@ -212,7 +213,7 @@ def _blank_runs(strip):
 
 
 def _px(strip, i, j):
-    return int(round(strip.row_y[i])), int(round(strip.row_y[j]))
+    return round(strip.row_y[i]), round(strip.row_y[j])
 
 
 def walkable_runs(strip):
@@ -232,7 +233,7 @@ def spans(strip):
     than SPAN_BREAK_PX) between them are one span (I Stole the Female Lead's First Love c0006: the D&C logo, (c) line
     and bunny watermark). An all-blank strip has none."""
     out, pos = [], 0
-    for s, e in walkable_runs(strip) + [(strip.height, strip.height)]:
+    for s, e in [*walkable_runs(strip), (strip.height, strip.height)]:
         if s > pos:
             if out and pos - out[-1][1] < SPAN_BREAK_PX:
                 out[-1] = (out[-1][0], s)
@@ -290,7 +291,7 @@ def plan_cuts(length, gaps, cfg=RESTITCH):
     if length <= hi:
         return [0, length], []
     mid, span = (lo + hi) / 2, hi - lo
-    strength = {c: s for c, s in gaps}
+    strength = dict(gaps)
     pts = sorted({0, length} | {c for c, _ in gaps if 0 < c < length})
     forced = set()
 
@@ -334,7 +335,7 @@ def plan_cuts(length, gaps, cfg=RESTITCH):
     while q is not None:
         cuts.append(q)
         q = best[q][1]
-    cuts = cuts[::-1]
+    cuts.reverse()
     return cuts, sorted(c for c in cuts if c in forced)
 
 

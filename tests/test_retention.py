@@ -27,7 +27,8 @@ def test_put_moves_the_download_under_its_source_and_title_and_touches_it(tmp_pa
     os.utime(download, (1, 1))
     retention.put(cfg, download)
     kept = config.abs_path(cfg["paths"]["retention"]) / "Src (EN)" / "Title" / "ch1.cbz"
-    assert not download.exists() and kept.read_bytes() == b"cbz", "the download is moved, not copied"
+    assert not download.exists(), "the download is moved, not copied"
+    assert kept.read_bytes() == b"cbz", "the download is moved, not copied"
     assert kept.stat().st_mtime > time.time() - 60, "the period runs from the move"
 
 

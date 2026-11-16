@@ -33,7 +33,7 @@ def put(cfg, download):
         n += 1
         target = folder / f"{download.stem} ({n}){download.suffix}"
     os.utime(download)  # the period runs from the move, not from the download; touched first, so a crash keeps it
-    os.replace(download, target)
+    download.replace(target)
     log.info("retention: moved %s to %s", download, target)
 
 
@@ -62,15 +62,17 @@ def purge(cfg, now=None):
     root = config.abs_path(cfg["paths"]["retention"])
     cutoff = (time.time() if now is None else now) - cfg["export"]["retention_days"] * DAY
     deleted = 0
-    for folder, _, files in os.walk(root, topdown=False, onerror=_raise):
+    for folder, _, files in root.walk(top_down=False, on_error=_raise):
         for name in files:
-            path = os.path.join(folder, name)
-            if os.stat(path).st_mtime < cutoff:
-                os.unlink(path)
+            path = folder / name
+            if path.is_dir():  # a link to a folder: Path.walk lists it as a file; never purged, its folder kept
+                continue
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
                 deleted += 1
-        if folder != str(root) and not os.listdir(folder):
+        if folder != root and not any(folder.iterdir()):
             try:
-                os.rmdir(folder)
+                folder.rmdir()
             except OSError as e:
                 if e.errno != errno.ENOTEMPTY:  # a put into it since the listing keeps it
                     raise

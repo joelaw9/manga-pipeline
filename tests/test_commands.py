@@ -2,9 +2,10 @@
 "CLI", "Needs human", "State", "Preflight")."""
 
 import logging
-import os
 import shutil
+import sys
 from contextlib import closing
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -19,6 +20,9 @@ from tests import pg
 from tests.builders import add_chapter, add_series, adopted, config_file, download, run_part, running, site_cfg
 from tests.timing import budget
 from tests.world import World, cbz
+
+if sys.platform == "win32":
+    import _winapi
 
 PARTS = ("intake", "process", "export", "junk-review")
 
@@ -106,7 +110,7 @@ def test_retry_series_clears_it_and_its_needs_human_chapters(tmp_path, seeded):
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    "target, message",
+    ("target", "message"),
     [
         ("missing-chapter", "no chapter 999"),
         ("ready", "is ready, not needs_human"),
@@ -148,8 +152,8 @@ def test_state_reset_waits_for_no_part(tmp_path, seeded, held):
 @budget(load="db", seconds=2)
 def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path, monkeypatch):
     world = World(tmp_path)
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: world.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     cfg = world.cfg
     world.kavita_series("Alpha")
@@ -170,7 +174,8 @@ def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path, monkeypa
     library = sorted(p.name for p in config.abs_path(cfg["paths"]["library"]).rglob("*.cbz"))
 
     assert main(tmp_path, cfg, "state", "reset", "--yes") == 0
-    assert rows(cfg, "SELECT count(*) FROM chapter") == [(0,)] and rows(cfg, "SELECT count(*) FROM page") == [(0,)]
+    assert rows(cfg, "SELECT count(*) FROM chapter") == [(0,)]
+    assert rows(cfg, "SELECT count(*) FROM page") == [(0,)]
     assert rows(cfg, "SELECT status, status_reason FROM series") == [("ok", None)]
     assert rows(cfg, "SELECT count(*) FROM handled_chapter") == [(2,)], "knowledge is kept (bulk + published)"
     assert rows(cfg, "SELECT count(*) FROM published_file") == [(2,)], "sync records are kept"
@@ -178,7 +183,8 @@ def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path, monkeypa
         assert db.database_id(conn) == database_id
     assert [p.name for p in staging.iterdir()] == [preflight.OWNER_FILE], "staging keeps only the owner file"
     assert not list(scratch.iterdir())
-    assert kept_download.exists() and published_download.exists(), "downloads are never touched"
+    assert kept_download.exists(), "downloads are never touched"
+    assert published_download.exists(), "downloads are never touched"
     assert sorted(p.name for p in config.abs_path(cfg["paths"]["library"]).rglob("*.cbz")) == library
 
     run_part(cfg, intake)
@@ -215,12 +221,10 @@ def test_share_sentinel_stops_a_part_before_any_work(tmp_path, owner):
 
 def dir_link(link, target):
     """A link to a folder that needs no privilege: a junction on Windows, a symlink elsewhere."""
-    if os.name == "nt":
-        import _winapi
-
+    if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:
-        os.symlink(target, link, target_is_directory=True)
+        Path(link).symlink_to(target, target_is_directory=True)
 
 
 @budget(load="db")
@@ -321,7 +325,8 @@ def test_a_builder_whose_role_cannot_create_the_database_exits_4(tmp_path, missi
 
         def execute(self, statement, *params):
             if isinstance(statement, sql.Composable):
-                raise psycopg.errors.InsufficientPrivilege("permission denied to create database")
+                msg = "permission denied to create database"
+                raise psycopg.errors.InsufficientPrivilege(msg)
             return self.conn.execute(statement, *params)
 
         def close(self):
@@ -334,7 +339,8 @@ def test_a_builder_whose_role_cannot_create_the_database_exits_4(tmp_path, missi
     monkeypatch.setattr(db, "_open", opened)
     assert main(tmp_path, missing, "state", "adopt", "--yes") == 4
     err = capsys.readouterr().err
-    assert missing["database"]["name"] in err and "permission denied to create database" in err, "named on stderr"
+    assert missing["database"]["name"] in err, "named on stderr"
+    assert "permission denied to create database" in err, "named on stderr"
 
 
 @budget(load="db", seconds=5)
@@ -349,7 +355,8 @@ def test_a_connection_the_server_ends_mid_run_exits_1_with_its_traceback(tmp_pat
     monkeypatch.setattr(process, "run", ended_mid_run)
     assert main(tmp_path, cfg, "process") == 1
     text = (config.abs_path(cfg["logging"]["dir"]) / "process.log").read_text(encoding="utf-8")
-    assert text.count("Traceback") == 1 and "process: failed" in text, "logged with its traceback, once"
+    assert text.count("Traceback") == 1, "logged with its traceback, once"
+    assert "process: failed" in text, "logged with its traceback, once"
 
 
 @budget(load="db")
@@ -358,7 +365,8 @@ def test_process_stops_at_start_on_a_paired_term_that_is_no_keyword(tmp_path, ca
     cfg = {**cfg, "junk": {**cfg["junk"], "paired": [*cfg["junk"]["paired"], "nonsense"]}}
     assert main(tmp_path, cfg, "process") == 4
     err = capsys.readouterr().err
-    assert "junk word lists" in err and "['nonsense']" in err, "the check and the stray term are named"
+    assert "junk word lists" in err, "the check and the stray term are named"
+    assert "['nonsense']" in err, "the check and the stray term are named"
 
 
 @budget(load="db")
@@ -448,7 +456,8 @@ def test_status_sections_come_from_1_snapshot(tmp_path):
         with closing(db.read_only(cfg)) as conn:
             lines = status.report(WritesAfterFirstRead(conn))
     entries = [line for line in lines if line.startswith("  ")]
-    assert entries and all(line == "  none" for line in entries), "a chapter written mid-report shows in no section"
+    assert entries, "a chapter written mid-report shows in no section"
+    assert all(line == "  none" for line in entries), "a chapter written mid-report shows in no section"
 
 
 class _Rows(list):

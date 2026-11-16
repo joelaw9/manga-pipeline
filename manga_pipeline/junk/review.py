@@ -21,11 +21,12 @@ def listable(conn, cfg):
     return rows[: cfg["junk"]["review_batch"]]
 
 
-def listing(conn, cfg, review_id=None, everything=False):
+def listing(conn, cfg, review_id=None, *, everything=False):
     """The candidates `junk list` prints: listable ones, or (everything) every open candidate. With a review id, each
     listed candidate records it (counted once when that review ends). `everything` is refused under a review id."""
     if everything and review_id:
-        raise Refused("junk list --all is for a person; it is refused inside a review")
+        msg = "junk list --all is for a person; it is refused inside a review"
+        raise Refused(msg)
     if not review_id:
         return candidates.open_rows(conn) if everything else listable(conn, cfg)
     with db.transaction(conn):  # read and mark together: cleanup cannot delete a candidate in between
@@ -48,7 +49,8 @@ def chapters(conn, candidate_id):
 def get_open(conn, candidate_id):
     row = conn.execute("SELECT * FROM junk_candidate WHERE id = %s", (candidate_id,)).fetchone()
     if row is None or not candidates.is_open(conn, row):
-        raise Refused(f"junk candidate {candidate_id} is not open (unknown, decided, or no chapter waits on it)")
+        msg = f"junk candidate {candidate_id} is not open (unknown, decided, or no chapter waits on it)"
+        raise Refused(msg)
     return row
 
 
@@ -56,7 +58,8 @@ def decide(conn, candidate_id, verdict, decider, at):
     """Record a verdict on an open candidate: junk / keep become a series-scoped decision on its key; unsure marks it
     (its chapters become needs_human at the next process run)."""
     if verdict not in VERDICTS:
-        raise Refused(f"verdict must be one of {VERDICTS}, got {verdict!r}")
+        msg = f"verdict must be one of {VERDICTS}, got {verdict!r}"
+        raise Refused(msg)
     with db.transaction(conn):
         row = get_open(conn, candidate_id)
         if verdict == "unsure":

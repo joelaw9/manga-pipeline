@@ -79,7 +79,8 @@ def test_a_published_file_holds_the_series_fields_its_source_and_its_pages(world
         sid = world.rows("SELECT id FROM series WHERE name = 'Solo Leveling'")[0][0]
         fields = merge.stored(conn, sid, tags.load())
     assert got["Summary"] == "Hunters & gates.", "the stored records' summary, never the download's"
-    assert got["Genre"] == ", ".join(fields.genres) and "Isekai" not in got["Genre"], "genres from the tag rules"
+    assert got["Genre"] == ", ".join(fields.genres), "genres from the tag rules"
+    assert "Isekai" not in got["Genre"], "genres from the tag rules"
     assert (got["AgeRating"], got["Writer"], got["Penciller"]) == ("Teen", "Dubu", "Dubu")
     assert got["Translator"] == "Grp", "a per-chapter element of the download is kept"
     assert got["Notes"] == "Source: Src (EN)"
@@ -89,7 +90,8 @@ def test_a_published_file_holds_the_series_fields_its_source_and_its_pages(world
     assert got["Manga"] == "YesAndRightToLeft", "a page series with no left-to-right genre reads right to left"
     root = ET.fromstring(xml)
     pages = root.find("Pages").findall("Page")
-    assert got["PageCount"] == str(len(pages)) == "3" and got["BlackAndWhite"] in ("Yes", "No")
+    assert got["PageCount"] == str(len(pages)) == "3"
+    assert got["BlackAndWhite"] in ("Yes", "No")
     assert all(p.get("ImageWidth") and p.get("ImageSize") for p in pages), "each page measured"
     assert "Count" not in got, "Count is never written"
 
@@ -116,7 +118,9 @@ def test_a_series_whose_files_moved_is_held_before_anything_is_published(world):
         conn.execute("UPDATE series SET folder = 'library/Elsewhere' WHERE name = 'Solo Leveling'")
     world.run(export)
     status, reason = world.rows("SELECT status, status_reason FROM series WHERE name = 'Solo Leveling'")[0]
-    assert status == "needs_human" and "library/Elsewhere" in reason and "library/Solo Leveling" in reason
+    assert status == "needs_human"
+    assert "library/Elsewhere" in reason
+    assert "library/Solo Leveling" in reason
     assert world.rows("SELECT stage FROM chapter") == [("publish",)], "nothing published into it"
     assert not list((world.library / "Solo Leveling").glob("Ch.2*")), "no file in either folder"
 
@@ -168,8 +172,10 @@ def test_page_entries_mark_the_inserted_cover_and_spreads_in_a_page_series():
         {"index": 1, "name": "001.avif", "width": 1600, "height": 1200, "bytes": 20},
     ]
     got = stage.page_entries(pages, cover=True, spreads=True)
-    assert got[0]["Type"] == "FrontCover" and "DoublePage" not in got[0]
-    assert got[1]["DoublePage"] == "true" and "Type" not in got[1]
+    assert got[0]["Type"] == "FrontCover"
+    assert "DoublePage" not in got[0]
+    assert got[1]["DoublePage"] == "true"
+    assert "Type" not in got[1]
     assert "DoublePage" not in stage.page_entries(pages, cover=False, spreads=False)[1], "a strip has no spreads"
     assert "Type" not in stage.page_entries(pages, cover=False, spreads=False)[0], "a source cover page is not marked"
 
@@ -211,7 +217,8 @@ def test_a_mangadex_series_names_its_new_chapter_and_side_story_and_covers_the_n
     with zipfile.ZipFile(folder / "Vol.3 Ch.1 - Side Story 1.cbz") as z:
         assert not any(n.startswith("000_cover.") for n in z.namelist()), "a side story opens no covered volume"
     ((volume, url),) = world.rows("SELECT volume, source_url FROM series_volume_cover")
-    assert volume == 2 and url.endswith(f"/covers/{MD}/v2.png"), "English beats the original language"
+    assert volume == 2, "English beats the original language"
+    assert url.endswith(f"/covers/{MD}/v2.png"), "English beats the original language"
     assert world.rows(
         "SELECT kind, volume_source FROM published_file WHERE origin = 'pipeline' ORDER BY comicinfo_number"
     ) == [("side", "side"), ("main", "mangadex")]

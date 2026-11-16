@@ -21,8 +21,9 @@ class NetworkBlocked(AssertionError):
     pass
 
 
-def _refuse(*args, **kwargs):
-    raise NetworkBlocked("tests are offline: a network connection was attempted")
+def _refuse(*_args, **_kwargs):
+    msg = "tests are offline: a network connection was attempted"
+    raise NetworkBlocked(msg)
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +57,7 @@ def pytest_sessionfinish(session):
         )
 
 
-def pytest_unconfigure(config):
+def pytest_unconfigure():
     if pg.process is not None:
         pg.process.close()
         pg.process = None

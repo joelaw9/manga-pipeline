@@ -112,7 +112,8 @@ def test_audit_lists_disagreements_missing_ids_and_unmatched_manga(world, capsys
     with closing(db.connect(world.cfg)) as conn:
         audit.run(world.context(conn, "intake"), world.sources)
     out = capsys.readouterr().out
-    assert "series whose ids disagree: 1\n  Solo Leveling" in out and "1 (kavita), 2 (suwayomi)" in out
+    assert "series whose ids disagree: 1\n  Solo Leveling" in out
+    assert "1 (kavita), 2 (suwayomi)" in out
     assert "series with no mangadex id: 1" in out
     assert "no series matches by name: 1\n  Nobody's Manga" in out
     assert world.rows("SELECT count(*) FROM series_source_id") == [(0,)], "read-only"
@@ -131,8 +132,8 @@ def test_import_again_drops_ids_the_newer_state_file_no_longer_holds(world, tmp_
 @budget(load="db")
 def test_audit_opens_no_database(world, monkeypatch, capsys):
     cfg = {**world.cfg, "database": {**world.cfg["database"], "name": "mp_test_never_built_audit"}}
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda c: world.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda c: world.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _c: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _c: world.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     world.kavita_series("Solo Leveling")
     cli.metadata_audit(cfg, argparse.Namespace(state=None))

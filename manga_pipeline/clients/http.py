@@ -103,7 +103,8 @@ class Service:
             raise Unreachable(self.name, self._down)
         shown = redact_url(url)
         if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
-            raise ValueError(f"{self.name}: not an http or https URL: {shown}")
+            msg = f"{self.name}: not an http or https URL: {shown}"
+            raise ValueError(msg)
         headers = {"User-Agent": self.user_agent, "Accept": "application/json", **(headers or {})}
         data = None
         if json is not None:
@@ -123,12 +124,14 @@ class Service:
                 asked = _retry_after(e.headers)
                 if asked is not None:
                     if asked > MAX_RETRY_AFTER:
-                        raise self.mark_unreachable(f"{problem} from {shown}, Retry-After {asked} s") from None
+                        msg = f"{problem} from {shown}, Retry-After {asked} s"
+                        raise self.mark_unreachable(msg) from None
                     wait = asked
             except (OSError, http.client.HTTPException) as e:
                 timed_out = isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError)
                 if timed_out and not retry_timeout:
-                    raise Timeout(f"{method} {shown} timed out after {timeout} s") from None
+                    msg = f"{method} {shown} timed out after {timeout} s"
+                    raise Timeout(msg) from None
                 problem = f"timed out after {timeout} s" if timed_out else f"{type(e).__name__}: {e}"
             if attempt < retries:
                 retry = f"retry {attempt + 1} of {retries} in {wait} s"
@@ -136,7 +139,8 @@ class Service:
                 time.sleep(wait)
         if failed is not None and failed[0] not in UNREACHABLE_STATUS:
             raise HttpError(failed[0], url, failed[1])
-        raise self.mark_unreachable(f"{problem} from {shown} after {retries} retries")
+        msg = f"{problem} from {shown} after {retries} retries"
+        raise self.mark_unreachable(msg)
 
     def _wait_for_gap(self):
         if self._last is not None:

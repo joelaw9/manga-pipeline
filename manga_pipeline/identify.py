@@ -8,7 +8,6 @@ taken until it is admitted (metadata/admit.py). `link` is `series link`.
 """
 
 import logging
-import os
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -355,6 +354,11 @@ def _store_held_series(conn, subject, reason, alt_name=None):
     return conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone()
 
 
+def _names(folder):
+    """The entry names of a folder, spelt as listed."""
+    return {p.name for p in folder.iterdir()}
+
+
 def folder_key(cfg, suwayomi, text):
     """A hand-placed folder named on the command line ("SOURCE_FOLDER/TITLE_FOLDER") as stored; workflow.Refused unless
     it is 2 folder names that exist under <downloads>/mangas, spelt as listed (a case-insensitive share would find
@@ -362,14 +366,15 @@ def folder_key(cfg, suwayomi, text):
     link)."""
     parts = text.split("/")
     if len(parts) != 2 or any(part in ("", ".", "..") or "\\" in part for part in parts):
-        raise workflow.Refused(f"--folder takes SOURCE_FOLDER/TITLE_FOLDER under the downloads' mangas folder: {text}")
+        msg = f"--folder takes SOURCE_FOLDER/TITLE_FOLDER under the downloads' mangas folder: {text}"
+        raise workflow.Refused(msg)
     root = config.abs_path(cfg["paths"]["downloads"]) / suwayomi_client.MANGAS_FOLDER
-    if not ((root / parts[0]).is_dir() and parts[0] in os.listdir(root) and parts[1] in os.listdir(root / parts[0])):
-        raise workflow.Refused(f"no download folder {parts[1]!r} in {root / parts[0]} (names are exact)")
+    if not ((root / parts[0]).is_dir() and parts[0] in _names(root) and parts[1] in _names(root / parts[0])):
+        msg = f"no download folder {parts[1]!r} in {root / parts[0]} (names are exact)"
+        raise workflow.Refused(msg)
     if any(suwayomi_client.download_folders(m) == tuple(parts) for m in suwayomi.library_manga()):
-        raise workflow.Refused(
-            f"a library manga maps to {text}: link that manga (series link MANGA_ID KAVITA_SERIES_ID)"
-        )
+        msg = f"a library manga maps to {text}: link that manga (series link MANGA_ID KAVITA_SERIES_ID)"
+        raise workflow.Refused(msg)
     return text
 
 
@@ -383,22 +388,26 @@ def link(cfg, conn, suwayomi, kavita, kavita_series_id, *, manga_id=None, folder
     chapters, or the subject's row is an admitted new series (its rows, published files included, are its own).
     needs_human is left for `retry --series` to clear. Returns the series id."""
     if (manga_id is None) == (folder is None):
-        raise ValueError("link takes a manga_id or a folder")
+        msg = "link takes a manga_id or a folder"
+        raise ValueError(msg)
     if folder is not None:
         subject = _folder_subject(folder_key(cfg, suwayomi, folder))
     else:
         manga = suwayomi.manga(manga_id)
         if manga is None:
-            raise workflow.Refused(f"Suwayomi holds no manga {manga_id}")
+            msg = f"Suwayomi holds no manga {manga_id}"
+            raise workflow.Refused(msg)
         subject = _manga_subject(manga)
     found = kavita.series(kavita_series_id)
     if found is None:
-        raise workflow.Refused(f"Kavita holds no series {kavita_series_id}")
+        msg = f"Kavita holds no series {kavita_series_id}"
+        raise workflow.Refused(msg)
     if found["libraryId"] != cfg["kavita"]["library_id"]:
-        raise workflow.Refused(
+        msg = (
             f"Kavita series {kavita_series_id} is in library {found['libraryId']}, not kavita.library_id "
             f"{cfg['kavita']['library_id']}"
         )
+        raise workflow.Refused(msg)
     try:
         series_dir = kavita_link.library_folder(cfg, kavita.series_folder(kavita_series_id))
     except (kavita_client.FolderError, config.PathError) as e:
@@ -407,16 +416,18 @@ def link(cfg, conn, suwayomi, kavita, kavita_series_id, *, manga_id=None, folder
         by_kavita = conn.execute("SELECT id FROM series WHERE kavita_series_id = %s", (kavita_series_id,)).fetchone()
         by_manga = subject.linked(conn, "s.id, s.kavita_series_id, s.origin, s.admitted_at")
         if by_manga and by_manga["origin"] == "new" and by_manga["admitted_at"] is not None:
-            raise workflow.Refused(
+            msg = (
                 f"{subject.label} is linked to series {by_manga['id']}, a new series admitted under its own name: "
                 f"it is not moved to another series"
             )
+            raise workflow.Refused(msg)
         other_kavita = by_manga and by_manga["kavita_series_id"] not in (None, kavita_series_id)
         if other_kavita and conn.execute("SELECT 1 FROM chapter WHERE series_id = %s", (by_manga["id"],)).fetchone():
-            raise workflow.Refused(
+            msg = (
                 f"{subject.label} is linked to series {by_manga['id']} (Kavita {by_manga['kavita_series_id']}), "
                 f"which has chapters: they are not moved to another Kavita series"
             )
+            raise workflow.Refused(msg)
         if by_kavita and by_manga and by_manga["kavita_series_id"] is None:
             _merge_held(conn, by_manga["id"], by_kavita[0])
         if other_kavita:

@@ -35,13 +35,15 @@ def test_reply_is_returned_with_status_headers_and_body(monkeypatch, clock):
     assert (got.status, got.json(), got.headers.get("content-type")) == (200, {"a": 1}, "application/json")
     sent = urlopen.requests[0]
     assert (sent.get_method(), sent.full_url, sent.data) == ("POST", URL, b'{"q": 2}')
-    assert sent.get_header("Content-type") == "application/json" and sent.get_header("X-extra") == "1"
+    assert sent.get_header("Content-type") == "application/json"
+    assert sent.get_header("X-extra") == "1"
     assert urlopen.timeouts == [7], "the caller's timeout reaches the transport"
     assert clock.sleeps == [], "a first-time success never sleeps"
 
 
 @budget(load="pure")
-def test_a_reply_that_is_not_json_fails_naming_service_status_and_content_type(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_a_reply_that_is_not_json_fails_naming_service_status_and_content_type(monkeypatch):
     page = b"<html><title>MangaDex - Browser verification</title></html>"
     scripted(monkeypatch, Reply(page, header_values={"Content-Type": "text/html"}))
     got = http.Service("svc").request("GET", URL)
@@ -51,7 +53,8 @@ def test_a_reply_that_is_not_json_fails_naming_service_status_and_content_type(m
 
 
 @budget(load="pure")
-def test_a_service_sends_its_own_user_agent_else_the_browser_one(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_a_service_sends_its_own_user_agent_else_the_browser_one(monkeypatch):
     urlopen = scripted(monkeypatch, Reply(), Reply())
     http.Service("named", user_agent="manga-pipeline").request("GET", URL)
     http.Service("plain").request("GET", URL)
@@ -60,7 +63,8 @@ def test_a_service_sends_its_own_user_agent_else_the_browser_one(monkeypatch, cl
 
 
 @budget(load="pure")
-def test_mangadex_is_asked_with_a_user_agent_naming_the_client(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_mangadex_is_asked_with_a_user_agent_naming_the_client(monkeypatch):
     urlopen = scripted(monkeypatch, Reply({"data": {}}), Reply(b"image"))
     client = sources.MangaDex()
     client.manga("abc")
@@ -88,7 +92,8 @@ def test_mangadex_is_asked_with_a_user_agent_naming_the_client(monkeypatch, cloc
 def test_a_failed_request_is_sent_again_and_its_answer_returned(monkeypatch, clock, failure):
     urlopen = scripted(monkeypatch, failure, Reply({"ok": True}))
     assert http.Service("svc").request("GET", URL).json() == {"ok": True}, "SPEC 'Services': retried"
-    assert len(urlopen.requests) == 2 and clock.sleeps == [2]
+    assert len(urlopen.requests) == 2
+    assert clock.sleeps == [2]
 
 
 @budget(load="pure")
@@ -98,36 +103,43 @@ def test_back_off_doubles_over_4_retries_then_the_service_is_unreachable(monkeyp
     with pytest.raises(Unreachable) as e:
         service.request("GET", URL + "?apiKey=hunter2")
     assert e.value.service == "svc"
-    assert "timed out" in str(e.value) and "hunter2" not in str(e.value)
-    assert len(urlopen.requests) == 5 and clock.sleeps == [2, 4, 8, 16], "SPEC 'Services': 4 retries, 2 4 8 16 s"
+    assert "timed out" in str(e.value)
+    assert "hunter2" not in str(e.value)
+    assert len(urlopen.requests) == 5, "SPEC 'Services': 4 retries, 2 4 8 16 s"
+    assert clock.sleeps == [2, 4, 8, 16], "SPEC 'Services': 4 retries, 2 4 8 16 s"
 
 
 @budget(load="pure")
 @pytest.mark.parametrize("status", [429, 502, 503, 504])
-def test_these_statuses_after_the_retries_are_unreachable(monkeypatch, clock, status):
+@pytest.mark.usefixtures("clock")
+def test_these_statuses_after_the_retries_are_unreachable(monkeypatch, status):
     scripted(monkeypatch, *[http_error(status) for _ in range(5)])
     with pytest.raises(Unreachable, match=f"HTTP {status}"):
         http.Service("svc").request("GET", URL)
 
 
 @budget(load="pure")
-def test_http_500_after_the_retries_is_a_failure_not_unreachable(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_http_500_after_the_retries_is_a_failure_not_unreachable(monkeypatch):
     urlopen = scripted(monkeypatch, *[http_error(500, b"boom") for _ in range(5)])
     service = http.Service("svc")
     with pytest.raises(http.HttpError) as e:
         service.request("GET", URL)
-    assert (e.value.status, e.value.body) == (500, b"boom") and len(urlopen.requests) == 5
+    assert (e.value.status, e.value.body) == (500, b"boom")
+    assert len(urlopen.requests) == 5
     scripted(monkeypatch, Reply())
     assert service.request("GET", URL).status == 200, "a failed request does not mark the service unreachable"
 
 
 @budget(load="pure")
 @pytest.mark.parametrize("status", [501, 505, 507])
-def test_other_statuses_of_500_or_above_fail_after_their_retries(monkeypatch, clock, status):
+@pytest.mark.usefixtures("clock")
+def test_other_statuses_of_500_or_above_fail_after_their_retries(monkeypatch, status):
     urlopen = scripted(monkeypatch, *[http_error(status) for _ in range(5)])
     with pytest.raises(http.HttpError) as e:
         http.Service("svc").request("GET", URL)
-    assert e.value.status == status and len(urlopen.requests) == 5, "SPEC 'Services': 500 or above is retried"
+    assert e.value.status == status, "SPEC 'Services': 500 or above is retried"
+    assert len(urlopen.requests) == 5, "SPEC 'Services': 500 or above is retried"
 
 
 @budget(load="pure")
@@ -136,7 +148,8 @@ def test_an_error_reply_whose_body_cannot_be_read_is_still_retried(monkeypatch, 
     monkeypatch.setattr(broken, "read", lambda: (_ for _ in ()).throw(TimeoutError("timed out")))
     urlopen = scripted(monkeypatch, broken, Reply())
     assert http.Service("svc").request("GET", URL).status == 200
-    assert len(urlopen.requests) == 2 and clock.sleeps == [2]
+    assert len(urlopen.requests) == 2
+    assert clock.sleeps == [2]
 
 
 @budget(load="pure")
@@ -146,7 +159,8 @@ def test_a_url_that_is_not_http_is_refused_at_once(monkeypatch, clock, url):
     service = http.Service("svc")
     with pytest.raises(ValueError, match="not an http or https URL") as e:
         service.request("GET", url)
-    assert urlopen.requests == [] and clock.sleeps == [], "a wrong setting is not a service that is down"
+    assert urlopen.requests == [], "a wrong setting is not a service that is down"
+    assert clock.sleeps == [], "a wrong setting is not a service that is down"
     assert "hunter2" not in str(e.value)
     scripted(monkeypatch, Reply())
     assert service.request("GET", URL).status == 200, "the service is not marked unreachable"
@@ -158,8 +172,11 @@ def test_other_4xx_fail_at_once(monkeypatch, clock, status):
     urlopen = scripted(monkeypatch, http_error(status, b"why"))
     with pytest.raises(http.HttpError) as e:
         http.Service("svc").request("GET", URL + "?token=abc")
-    assert e.value.status == status and len(urlopen.requests) == 1 and clock.sleeps == []
-    assert "why" in str(e.value) and "abc" not in str(e.value), "the message shows the reply, never a secret"
+    assert e.value.status == status
+    assert len(urlopen.requests) == 1
+    assert clock.sleeps == []
+    assert "why" in str(e.value), "the message shows the reply, never a secret"
+    assert "abc" not in str(e.value), "the message shows the reply, never a secret"
 
 
 @budget(load="pure")
@@ -181,7 +198,8 @@ def test_retry_after_above_the_cap_is_unreachable_at_once(monkeypatch, clock):
     urlopen = scripted(monkeypatch, http_error(429, header_values={"Retry-After": "61"}))
     with pytest.raises(Unreachable, match="Retry-After 61"):
         http.Service("svc").request("GET", URL)
-    assert len(urlopen.requests) == 1 and clock.sleeps == [], "SPEC 'Services': above 60 s, at once"
+    assert len(urlopen.requests) == 1, "SPEC 'Services': above 60 s, at once"
+    assert clock.sleeps == [], "SPEC 'Services': above 60 s, at once"
 
 
 @budget(load="pure")
@@ -192,7 +210,8 @@ def test_retry_after_at_the_cap_is_waited(monkeypatch, clock):
 
 
 @budget(load="pure")
-def test_an_unreachable_service_is_not_asked_again(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_an_unreachable_service_is_not_asked_again(monkeypatch):
     urlopen = scripted(monkeypatch, *[TimeoutError("timed out")] * 5)
     service = http.Service("svc")
     with pytest.raises(Unreachable):
@@ -203,7 +222,8 @@ def test_an_unreachable_service_is_not_asked_again(monkeypatch, clock):
 
 
 @budget(load="pure")
-def test_another_service_object_is_asked(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_another_service_object_is_asked(monkeypatch):
     scripted(monkeypatch, *[TimeoutError("timed out")] * 5, Reply())
     with pytest.raises(Unreachable):
         http.Service("svc").request("GET", URL)
@@ -211,7 +231,8 @@ def test_another_service_object_is_asked(monkeypatch, clock):
 
 
 @budget(load="pure")
-def test_a_client_can_mark_the_service_unreachable(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_a_client_can_mark_the_service_unreachable(monkeypatch):
     urlopen = scripted(monkeypatch)
     service = http.Service("svc")
     error = service.mark_unreachable("HTTP 401 twice")
@@ -232,12 +253,14 @@ def test_a_timeout_not_to_be_retried_raises_timeout_and_marks_nothing(monkeypatc
     service = http.Service("svc")
     with pytest.raises(http.Timeout):
         service.request("GET", URL, retry_timeout=False)
-    assert len(urlopen.requests) == 1 and clock.sleeps == []
+    assert len(urlopen.requests) == 1
+    assert clock.sleeps == []
     assert service.request("GET", URL).status == 200, "the service is still asked"
 
 
 @budget(load="pure")
-def test_other_failures_are_still_retried_without_timeout_retry(monkeypatch, clock):
+@pytest.mark.usefixtures("clock")
+def test_other_failures_are_still_retried_without_timeout_retry(monkeypatch):
     urlopen = scripted(monkeypatch, ConnectionResetError("reset"), Reply())
     assert http.Service("svc").request("GET", URL, retry_timeout=False).status == 200
     assert len(urlopen.requests) == 2
@@ -284,10 +307,12 @@ def test_redact_url(url, want):
 
 
 @budget(load="pure")
-def test_requests_are_logged_at_debug_without_secrets(monkeypatch, clock, caplog):
+@pytest.mark.usefixtures("clock")
+def test_requests_are_logged_at_debug_without_secrets(monkeypatch, caplog):
     scripted(monkeypatch, http_error(503), Reply(b"12345"))
     with caplog.at_level(logging.DEBUG, logger="manga_pipeline"):
         http.Service("svc").request("GET", URL + "?apiKey=hunter2")
     assert "hunter2" not in caplog.text, "SPEC 'Services': no log line carries a secret"
     assert "GET http://service.invalid/api/thing?apiKey=REDACTED -> 503" in caplog.text
-    assert "-> 200 5 B" in caplog.text and "retry 1 of 4 in 2 s" in caplog.text
+    assert "-> 200 5 B" in caplog.text
+    assert "retry 1 of 4 in 2 s" in caplog.text

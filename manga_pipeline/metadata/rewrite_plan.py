@@ -71,8 +71,7 @@ def held(rows, edits, unedited):
         for r in rows
         if _published(r)
         and (
-            (e := edits.get(naming.edit_key(r.kind, r.season, r.number))) is not None
-            and e.volume is not None
+            ((e := edits.get(naming.edit_key(r.kind, r.season, r.number))) is not None and e.volume is not None)
             or "volume" in (unedited.get(r.key[1]) or {})
         )
     }
@@ -119,21 +118,21 @@ def cover_changes(basis, rows, overrides, mangadex, moved, states, taken, images
     held = {fid: (states[fid] or "").removeprefix("volume:") for fid in volume if states[fid].startswith("volume:")}
     stale = {fid: states[fid].removeprefix("stale:") for fid in volume if states[fid].startswith("stale:")}
     chosen = {}
-    for v in naming.covered_volumes(basis, now, override, mangadex):
-        v = _fmt(v)
+    for covered in naming.covered_volumes(basis, now, override, mangadex):
+        v = _fmt(covered)
         files = [fid for fid in (now[i].key[1] for i in published) if volume[fid] == v]
         if v in taken or not files or any(v in (held.get(fid), stale.get(fid)) for fid in files):
             continue
         chosen[files[0]] = v
     out = {}
-    for fid in volume:
+    for fid, vol in volume.items():
         if fid in chosen:
             v = chosen[fid]
             if held.get(fid) != v and not (v in images and states[fid] == f"unfit:{images[v]}"):
                 out[fid] = ("insert", v)
-        elif fid in stale and stale[fid] == volume[fid] and stale[fid] in images:
+        elif fid in stale and stale[fid] == vol and stale[fid] in images:
             out[fid] = ("insert", stale[fid])  # its volume's new image replaces the old one
-        elif fid in held and held[fid] != volume[fid] or fid in stale:
+        elif (fid in held and held[fid] != vol) or fid in stale:
             out[fid] = ("drop", None)  # another volume's cover (an old image included)
     return out
 

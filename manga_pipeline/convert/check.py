@@ -44,7 +44,7 @@ def check(cbz, rec, x_dir, kept):
             page = pages.Page(data)
             try:
                 page.raw()
-            except Exception as e:  # noqa: BLE001 - any Pillow error on an output page is an undecodable page
+            except Exception as e:  # any Pillow error on an output page is an undecodable page
                 fails.append(f"undecodable-page: {name}: {type(e).__name__}")
                 continue
             if name in rec["lossless"]:

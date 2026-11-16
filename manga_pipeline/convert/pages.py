@@ -153,8 +153,8 @@ def target_names(names_formats):
             out.append(stem + _page_ext(n, f))
         return out
 
-    plain = names(False)
-    return plain if _order_kept(plain) else names(True)
+    plain = names(prefix=False)
+    return plain if _order_kept(plain) else names(prefix=True)
 
 
 def _order_kept(names):

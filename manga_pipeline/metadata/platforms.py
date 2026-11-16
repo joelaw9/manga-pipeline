@@ -46,12 +46,15 @@ REFS = {TAPAS: tapas_ref, WEBTOONS: webtoons_ref}
 
 def anilist_links(media):
     """The English Tapas and WEBTOON streaming links of an AniList media record."""
-    out = []
-    for link in (media or {}).get("externalLinks") or []:
-        if link.get("type") == "STREAMING" and link.get("site") in ANILIST_SITES and link.get("url"):
-            if link.get("language") in (ENGLISH, None) and _english_path(ANILIST_SITES[link["site"]], link["url"]):
-                out.append(link["url"])
-    return out
+    return [
+        link["url"]
+        for link in (media or {}).get("externalLinks") or []
+        if link.get("type") == "STREAMING"
+        and link.get("site") in ANILIST_SITES
+        and link.get("url")
+        and link.get("language") in (ENGLISH, None)
+        and _english_path(ANILIST_SITES[link["site"]], link["url"])
+    ]
 
 
 def _english_path(platform, url):
@@ -75,11 +78,11 @@ def candidates(kavita_links, anilist_links_, basis):
     return out
 
 
-def record(platform, ref, items, listed_total=None, app_only=False, list_page_read=True, **extra):
+def record(platform, ref, items, listed_total=None, *, app_only=False, list_page_read=True, **extra):
     """A stored platform list: {"name", "ref", "episodes", "coverage", "seasons"} (and extra, e.g. Tapas' series id)
     from the site's items [(site number, title, date, id)]."""
     eps = episodes.build(items)
-    cover = episodes.coverage(eps, listed_total, app_only, list_page_read)
+    cover = episodes.coverage(eps, listed_total, app_only=app_only, list_page_read=list_page_read)
     return {
         "name": platform,
         "ref": ref,

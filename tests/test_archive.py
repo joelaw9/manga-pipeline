@@ -2,6 +2,7 @@
 page order, page and ComicInfo members, sha1, the pages digest, and the store-mode writer with its member replace and
 test. Ported from the bulk converter's tests/test_formats.py and tests/test_record.py (pages digest)."""
 
+import errno
 import hashlib
 import zipfile
 
@@ -17,7 +18,7 @@ from tests.timing import budget
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "name, want",
+    ("name", "want"),
     [
         ("cover.jpg", True),
         ("000_cover.avif", True),
@@ -35,7 +36,7 @@ from tests.timing import budget
         ("coverage.jpg", False),
         ("cover/001.jpg", False),
     ],
-    ids=lambda v: str(v),
+    ids=str,
 )
 def test_kavita_cover_rule(name, want):
     assert archive.is_cover_name(name) is want, (
@@ -127,7 +128,7 @@ def test_archive_pages_keep_backslash_names_as_stored():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "names, want",
+    ("names", "want"),
     [
         (["sub/ComicInfo.xml", "comicinfo.XML"], "comicinfo.XML"),
         (["sub/ComicInfo.xml"], "sub/ComicInfo.xml"),
@@ -227,15 +228,13 @@ def test_write_leaves_no_part_file_and_replaces_dest(tmp_path):
 
 @budget(load="fs")
 def test_a_write_that_fails_leaves_no_part_file_and_dest_untouched(tmp_path):
-    import errno
-
     def members():
         yield MEMBERS[0]
         raise OSError(errno.ENOSPC, "No space left on device")
 
     dest = tmp_path / "a.cbz"
     dest.write_bytes(b"old")
-    with pytest.raises(OSError) as e:
+    with pytest.raises(OSError, match="No space left on device") as e:
         archive.write(dest, members())
     assert e.value.errno == errno.ENOSPC, "the write's own error reaches the caller"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["a.cbz"], "a failed write removes its .part file"
@@ -277,7 +276,7 @@ def test_test_refuses_a_crc_failure(tmp_path):
     size = archive.write(cbz, [("001.jpg", b"page one")])
     data = cbz.read_bytes()
     cbz.write_bytes(data.replace(b"page one", b"page 0ne"))  # same size, member bytes no longer match their CRC
-    with pytest.raises(zipfile.BadZipFile, match="001.jpg"):
+    with pytest.raises(zipfile.BadZipFile, match=r"001\.jpg"):
         archive.test(cbz, size)
 
 

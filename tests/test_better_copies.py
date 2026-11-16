@@ -9,8 +9,8 @@ from contextlib import closing
 import pytest
 from PIL import Image
 
+from manga_pipeline import cli, config, db, export, intake, process, retention, rewrite
 from manga_pipeline import comicinfo as comicinfo_xml
-from manga_pipeline import config, db, export, intake, process, retention, rewrite
 
 from tests.test_cover_rewrites import bulk_file, recorded_covers, refreshes
 from tests.test_rewrites import SERIES, crash_after, files, progress, read, scan
@@ -29,7 +29,7 @@ def library(world, cover=()):
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", "1"))
     kid = world.kavita_series(SERIES, bulk=bulk, basis="filename")
     for name, number in (("Vol.1 Ch.1.cbz", 1), ("Vol.1 Ch.2.cbz", 2)):
-        (world.library / SERIES / name).write_bytes(bulk_file(name, number, name in cover))
+        (world.library / SERIES / name).write_bytes(bulk_file(name, number, cover=name in cover))
     world.kavita.scan_library(4)
     world.kavita.run_scans()
     world.run(intake)  # its baseline pass records the bulk files
@@ -39,7 +39,7 @@ def library(world, cover=()):
 
 
 def pages(width, n=4, seed=""):
-    """A CBZ of n PNG pages `width` px wide (1.5 × as tall), each its own colour."""
+    """A CBZ of n PNG pages `width` px wide (1.5 times as tall), each its own colour."""
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:
         for i in range(1, n + 1):
@@ -84,7 +84,8 @@ def test_a_wider_copy_replaces_its_bulk_file_under_its_name_keeping_its_naming_a
         "1",
         "2",
     ), "the row describes the copy; its naming is the file's"
-    assert r["pending_copy"] is None and r["source_name"] == "Chapter 2"
+    assert r["pending_copy"] is None
+    assert r["source_name"] == "Chapter 2"
     with zipfile.ZipFile(world.library / SERIES / "Vol.1 Ch.2.cbz") as z:
         fields = comicinfo_xml.read_all(z.read("ComicInfo.xml"))
     assert (fields["Volume"], fields["Number"]) == ("1", "2")
@@ -128,7 +129,8 @@ def test_a_lower_rated_copy_of_an_uncensored_file_is_a_duplicate(world, name):
     copy(world, name=name, width=40)
     through(world)
     ((stage, status, error),) = world.rows("SELECT stage, status, last_error FROM chapter WHERE kind = 'download'")
-    assert (stage, status) == ("junk", "done") and "a duplicate" in error, "wider, but a lower rating"
+    assert (stage, status) == ("junk", "done"), "wider, but a lower rating"
+    assert "a duplicate" in error, "wider, but a lower rating"
     assert row(world)["origin"] == "bulk"
 
 
@@ -142,7 +144,8 @@ def test_a_copy_takes_its_files_own_cover_page_when_no_image_is_stored(world):
     assert row(world)["origin"] == "pipeline", "replaced by the copy"
     with zipfile.ZipFile(world.library / SERIES / "Vol.1 Ch.2.cbz") as z:
         names = z.namelist()
-    assert names[0].startswith("000_cover.") and row(world)["cover_state"] == "volume:1", "a chapter keeps its cover"
+    assert names[0].startswith("000_cover."), "a chapter keeps its cover"
+    assert row(world)["cover_state"] == "volume:1", "a chapter keeps its cover"
 
 
 @budget(load="db", seconds=10)
@@ -152,13 +155,12 @@ def test_a_busy_file_holds_the_copy_and_chapter_drop_lets_it_go(world):
     download = copy(world, width=20)
     through(world)
     ((chapter_id, status, error),) = world.rows("SELECT id, status, last_error FROM chapter WHERE kind = 'download'")
-    assert status == "needs_human" and "busy" in error
-    from manga_pipeline import cli
+    assert status == "needs_human"
+    assert "busy" in error
 
     cli.chapter_drop(world.cfg, argparse.Namespace(chapter=chapter_id))
-    assert not download.exists() and world.rows("SELECT count(*) FROM handled_chapter WHERE outcome = 'dropped'") == [
-        (1,)
-    ]
+    assert not download.exists()
+    assert world.rows("SELECT count(*) FROM handled_chapter WHERE outcome = 'dropped'") == [(1,)]
 
 
 @budget(load="db", seconds=10)
@@ -191,14 +193,15 @@ def test_a_copy_changes_no_other_chapters_name(world):
 def test_a_dropped_copy_replacement_leaves_the_file_and_records_the_copy_dropped(world, monkeypatch):
     library(world)
     copy(world, width=20)
-    monkeypatch.setattr(retention, "put_library", lambda *a: (_ for _ in ()).throw(PermissionError("denied")))
+    monkeypatch.setattr(retention, "put_library", lambda *_a: (_ for _ in ()).throw(PermissionError("denied")))
     for part in (intake, intake, process, export, export, export):
         world.run(part)
     monkeypatch.undo()
     ((file_id,),) = world.rows("SELECT id FROM published_file WHERE pending_copy IS NOT NULL")
     with closing(db.connect(world.cfg)) as conn:
         rewrite.drop(conn, file_id, world.cfg["workflow"]["attempt_limit"])
-    assert row(world)["origin"] == "bulk" and row(world)["pending_copy"] is None, "the file stays as it is"
+    assert row(world)["origin"] == "bulk", "the file stays as it is"
+    assert row(world)["pending_copy"] is None, "the file stays as it is"
     assert world.rows(
         "SELECT outcome FROM handled_chapter WHERE identity = (SELECT identity FROM chapter WHERE kind = 'download')"
     ) == [("dropped",)], "the copy is recorded dropped, not published"

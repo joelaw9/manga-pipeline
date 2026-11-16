@@ -8,7 +8,6 @@ under the library root, and must leave a folder name once made safe; else the se
 """
 
 import logging
-import os
 
 from manga_pipeline import config, db, names, workflow
 from manga_pipeline.clients.kavita_match import normalize, series_names
@@ -33,7 +32,7 @@ def run(ctx, listing):
         return
     kavita_keys = {normalize(n): s for s in listing for n in series_names(s) if normalize(n)}
     root = config.abs_path(cfg["paths"]["library"])
-    on_disk = os.listdir(root)
+    on_disk = [p.name for p in root.iterdir()]
     for series in pending:
         _admit(ctx, series, kavita_keys, on_disk, root)
 

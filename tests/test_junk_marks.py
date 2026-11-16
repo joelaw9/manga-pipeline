@@ -90,7 +90,7 @@ def templates():
 @budget(load="pure")
 def test_one_badge_is_found_by_parts_b_mark_box():
     """RESET-SCANS.CO pasted at (100, 100): Part B's mark box covers the badge's start and its 159 px width."""
-    x0, y0, x1, y1 = mark_box(mark_page("marks_scans_plain.png"))
+    x0, y0, x1, _y1 = mark_box(mark_page("marks_scans_plain.png"))
     assert x0 <= AT[0] + 40, "box must start at the badge's left"
     assert y0 <= AT[1] + 40, "box must start at the badge's top"
     assert x1 > AT[0] + 150, "box must reach past the coloured text"
@@ -157,7 +157,7 @@ def test_solid_badge_is_padded_by_three_quarters_of_its_height():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "badge, bbox, box",
+    ("badge", "bbox", "box"),
     [
         ((0, 0, 40, 20), (0, 0, 60, 60), (0, 0, 55, 35)),
         ((160, 180, 200, 200), (140, 140, 200, 200), (145, 165, 200, 200)),
@@ -170,7 +170,7 @@ def test_padded_box_is_clamped_to_the_page(badge, bbox, box):
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("spread, found", [(41, True), (40, False)], ids=["spread-41", "spread-40"])
+@pytest.mark.parametrize(("spread", "found"), [(41, True), (40, False)], ids=["spread-41", "spread-40"])
 def test_strong_pixels_have_a_channel_spread_over_40(spread, found):
     """A badge coloured (255, 255 - spread, 255): strongly coloured only when the spread is > 40."""
     m = marks.measure(badge_page(80, 90, 120, 110, (255, 255 - spread, 255)), (60, 60, 140, 140))
@@ -179,7 +179,7 @@ def test_strong_pixels_have_a_channel_spread_over_40(spread, found):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "speck, tight", [(3, (80, 90, 131, 110)), (2, (80, 90, 120, 110))], ids=["15pct-kept", "10pct-trimmed"]
+    ("speck", "tight"), [(3, (80, 90, 131, 110)), (2, (80, 90, 120, 110))], ids=["15pct-kept", "10pct-trimmed"]
 )
 def test_columns_under_15_percent_of_the_peak_are_trimmed(speck, tight):
     """Badge columns hold 20 strong pixels; a speck column at x = 130 with 3 (15%) stays in the box, 2 are noise."""
@@ -230,7 +230,7 @@ def test_blank_takes_the_planned_fill():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "box, fill, msg",
+    ("box", "fill", "msg"),
     [
         (
             (1100, 1700, 1300, 1800),
@@ -279,7 +279,7 @@ def test_box_inside_is_not_part_of_the_ring():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("v, frac", [(240, 1.0), (239, 0.7)], ids=["10-off", "11-off"])
+@pytest.mark.parametrize(("v", "frac"), [(240, 1.0), (239, 0.7)], ids=["10-off", "11-off"])
 def test_ring_pixels_within_10_of_the_median_pass(v, frac):
     """The ring's top band (600 of 2,000 pixels) at v, the rest at the median 250: 10 off passes, 11 does not."""
     rgb = np.full((200, 200, 3), 250, np.uint8)
@@ -294,7 +294,7 @@ def test_ring_of_a_box_filling_the_page_is_empty():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("frac, want", [(0.95, True), (0.9499, False)], ids=["at-95pct", "below"])
+@pytest.mark.parametrize(("frac", "want"), [(0.95, True), (0.9499, False)], ids=["at-95pct", "below"])
 def test_a_mark_is_blankable_from_95_percent_plain_ring(frac, want):
     """blankable is ring_frac >= 0.95."""
     assert marks.Mark((0, 0, 1, 1), (0, 0, 1, 1), (255, 255, 255), frac, solid((255, 0, 0))).blankable is want
@@ -358,14 +358,14 @@ def test_template_without_coloured_pixels_is_refused():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("v, want", [(160, True), (159, False)], ids=["delta-40", "delta-41"])
+@pytest.mark.parametrize(("v", "want"), [(160, True), (159, False)], ids=["delta-40", "delta-41"])
 def test_variants_match_up_to_mean_delta_40(v, want):
     """Gray 200 against gray v on every coloured pixel: mean |dRGB| 40 is the same badge, 41 is not."""
     assert marks.same_variant(solid((200,) * 3), solid((v,) * 3)) == want
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("n, want", [(70, True), (69, False)], ids=["iou-0.70", "iou-0.69"])
+@pytest.mark.parametrize(("n", "want"), [(70, True), (69, False)], ids=["iou-0.70", "iou-0.69"])
 def test_variants_need_mask_iou_of_0_7(n, want):
     """A full 10 x 10 mask against one with the first n pixels coloured: IoU n / 100 must be >= 0.7."""
     part = (np.arange(100) < n).reshape(10, 10)
@@ -374,7 +374,7 @@ def test_variants_need_mask_iou_of_0_7(n, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "a, b, want",
+    ("a", "b", "want"),
     [
         ((50, 100), (50, 110), True),
         ((50, 100), (50, 112), False),
@@ -404,9 +404,9 @@ def test_representatives_skip_templates_an_earlier_one_covers():
 
 # Variant rule (marks.resolve): one logo variant (e.g. Reset Scans' RESET-SCANS.CO, 63 pilot pages, several
 # representatives) decided from its representatives' deciding rows.
-def row(id, verdict, series_key):
+def row(row_id, verdict, series_key):
     """A store row as a lookup returns it."""
-    return {"id": id, "verdict": verdict, "series_key": series_key}
+    return {"id": row_id, "verdict": verdict, "series_key": series_key}
 
 
 A, G = row(1, "junk", ""), row(2, "junk", AK)
@@ -415,7 +415,7 @@ K, GK = row(3, "keep", AK), row(4, "keep", "")
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "ds, keep", [([A, K], K), ([None, K], K), ([A, GK], GK)], ids=["after-approval", "after-pending", "global-keep"]
+    ("ds", "keep"), [([A, K], K), ([None, K], K), ([A, GK], GK)], ids=["after-approval", "after-pending", "global-keep"]
 )
 def test_a_keep_on_any_representative_wins(ds, keep):
     """A keep on any representative decides the variant, a global one too (plan L5: a candidate a decision covers
@@ -450,4 +450,5 @@ def test_a_templates_key_text_round_trips_and_still_matches(templates):
     """A logo decision's key is the template's RGBA PNG in base64: it comes back as the same template."""
     t = templates[0]
     back = marks.Template.from_key(t.key_text())
-    assert back.size == t.size and marks.same_variant(back, t), "the key gives the template back"
+    assert back.size == t.size, "the key gives the template back"
+    assert marks.same_variant(back, t), "the key gives the template back"

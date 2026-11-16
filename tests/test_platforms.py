@@ -137,7 +137,9 @@ def test_the_tapas_id_needs_the_html_page_and_the_list_is_read_whole():
     series_id = client.series_id("brother-knows-best")
     assert client._service.headers["Accept"] == "text/html", "the JSON form of /info lacks the tapastic meta"
     items, total = client.episodes(series_id)
-    assert series_id == "255099" and len(items) == len({i[3] for i in items}) and total == 91
+    assert series_id == "255099"
+    assert len(items) == len({i[3] for i in items})
+    assert total == 91
 
 
 @budget(load="pure")
@@ -189,12 +191,12 @@ def test_a_side_story_title_does_not_depend_on_the_order_chapters_are_named_in()
         ]
     }
 
-    def row(key, settled, number, title):
+    def row(key, number, title, *, settled):
         return naming.Row(
             key, settled, names.SIDE, number, None, None, 2 if settled else None, None, "", title, None, key
         )
 
-    rows = [row(0, True, 1.0, "Side Story 1: First"), row(1, False, 2.0, "")]
+    rows = [row(0, 1.0, "Side Story 1: First", settled=True), row(1, 2.0, "", settled=False)]
     got = naming.resolve(naming.NONE, rows, None, {}, platform)
     assert got[1].title == "Side Story 2: Second", "2 specials, 2 side stories (1 published): titles keyed by n"
 
@@ -285,8 +287,9 @@ def test_a_platform_series_chapter_waits_for_the_check_its_arrival_made_due(worl
     tapas_series(world)
     world.run(intake)
 
-    def blocked(series_id):
-        raise http.Unreachable("tapas", "HTTP 403: blocked")
+    def blocked(_series_id):
+        msg = "tapas"
+        raise http.Unreachable(msg, "HTTP 403: blocked")
 
     monkeypatch.setattr(world.sources.tapas, "episodes", blocked)
     world.download(world.manga("Solo Leveling"), "Chapter 4")
@@ -337,7 +340,20 @@ def test_a_titled_episode_past_the_finale_names_its_side_story():
     )
 
     def row(key, number):
-        return naming.Row(key, False, names.MAIN, number, None, None, None, None, "", "", None, key)
+        return naming.Row(
+            key=key,
+            settled=False,
+            kind=names.MAIN,
+            number=number,
+            season=None,
+            src_volume=None,
+            volume=None,
+            volume_source=None,
+            marker_title="",
+            title="",
+            date=None,
+            order=key,
+        )
 
     got = naming.resolve("tapas seasons", [row(0, 1.0), row(1, 2.0)], None, {}, platform)
     assert (got[1].kind, got[1].title) == (names.SIDE, "Side Story 1: After Story"), "as the bulk converter named it"

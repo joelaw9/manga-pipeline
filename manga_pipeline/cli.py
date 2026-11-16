@@ -115,7 +115,8 @@ def retry(cfg, args):
 def _database(cfg, what):
     """The built database, for a command that never builds one (SPEC "State")."""
     if not db.built(cfg):
-        raise workflow.Refused(f"no database {cfg['database']['name']} built yet: nothing to {what}")
+        msg = f"no database {cfg['database']['name']} built yet: nothing to {what}"
+        raise workflow.Refused(msg)
     return closing(db.connect(cfg))
 
 
@@ -133,7 +134,7 @@ def chapter_drop(cfg, args):
         if row["kind"] == "rewrite":  # no download, nothing handled: its staged file goes; the file stays as it is
             if row["staged_path"]:
                 config.to_local(cfg, row["staged_path"]).unlink(missing_ok=True)
-            workflow.drop_chapter(conn, args.chapter, lambda c: None)
+            workflow.drop_chapter(conn, args.chapter, lambda _c: None)
             log.info("chapter %s dropped", args.chapter)
             return
         digest = row["content_digest"]
@@ -272,7 +273,7 @@ def _folder(cfg, row):
 def junk_list(cfg, args):
     with _junk_db(cfg) as conn:
         try:
-            rows = review.listing(conn, cfg, os.environ.get(review.REVIEW_ID_VARIABLE), args.all)
+            rows = review.listing(conn, cfg, os.environ.get(review.REVIEW_ID_VARIABLE), everything=args.all)
         except review.Refused as e:
             raise workflow.Refused(str(e)) from None
         for r in rows:
@@ -311,19 +312,19 @@ def junk_decide(cfg, args):
 
 def _unlocked(handler):
     """A command without locks: its handler opens what it needs itself."""
-    return lambda cfg, args, conn: handler(cfg, args)
+    return lambda cfg, args, _conn: handler(cfg, args)
 
 
 S, X = lock.SHARED, lock.EXCLUSIVE
 COMMANDS = {
-    "intake": Command(("intake",), S, "intake", INTAKE_CHECKS, lambda cfg, args, conn: intake.run(cfg, conn)),
-    "process": Command(("process",), S, "process", PROCESS_CHECKS, lambda cfg, args, conn: process.run(cfg, conn)),
-    "export": Command(("export",), S, "export", EXPORT_CHECKS, lambda cfg, args, conn: export.run(cfg, conn)),
-    "status": Command((), None, None, (), _unlocked(lambda cfg, args: status.run(cfg))),
+    "intake": Command(("intake",), S, "intake", INTAKE_CHECKS, lambda cfg, _args, conn: intake.run(cfg, conn)),
+    "process": Command(("process",), S, "process", PROCESS_CHECKS, lambda cfg, _args, conn: process.run(cfg, conn)),
+    "export": Command(("export",), S, "export", EXPORT_CHECKS, lambda cfg, _args, conn: export.run(cfg, conn)),
+    "status": Command((), None, None, (), _unlocked(lambda cfg, _args: status.run(cfg))),
     "retry": Command((), None, None, (), _unlocked(retry)),
     "chapter use": Command((), None, None, (), _unlocked(chapter_use)),
     "chapter drop": Command((), None, None, (), _unlocked(chapter_drop)),
-    "smoke": Command((), None, None, SMOKE_CHECKS, _unlocked(lambda cfg, args: smoke.run(cfg))),
+    "smoke": Command((), None, None, SMOKE_CHECKS, _unlocked(lambda cfg, _args: smoke.run(cfg))),
     "series link": Command((), None, None, LINK_CHECKS, _unlocked(series_link)),
     "series set-id": Command((), None, None, (), _unlocked(series_set_id)),
     "series new": Command((), None, None, (), _unlocked(series_new)),
@@ -339,11 +340,11 @@ COMMANDS = {
     "junk show": Command((), None, None, (), _unlocked(junk_show)),
     "junk decide": Command((), None, None, (), _unlocked(junk_decide)),
     "junk review": Command(
-        ("junk-review",), S, "junk-review", REVIEW_CHECKS, lambda cfg, args, conn: review_run.run(cfg, conn)
+        ("junk-review",), S, "junk-review", REVIEW_CHECKS, lambda cfg, _args, conn: review_run.run(cfg, conn)
     ),
-    "state reset": Command((), X, None, RESET_CHECKS, lambda cfg, args, conn: state.reset(cfg, conn)),
-    "state adopt": Command((), X, None, ADOPT_CHECKS, lambda cfg, args, conn: state.adopt(cfg, conn), True),
-    "state version": Command((), X, None, VERSION_CHECKS, lambda cfg, args, conn: state.version(cfg, conn)),
+    "state reset": Command((), X, None, RESET_CHECKS, lambda cfg, _args, conn: state.reset(cfg, conn)),
+    "state adopt": Command((), X, None, ADOPT_CHECKS, lambda cfg, _args, conn: state.adopt(cfg, conn), builds=True),
+    "state version": Command((), X, None, VERSION_CHECKS, lambda cfg, _args, conn: state.version(cfg, conn)),
 }
 
 

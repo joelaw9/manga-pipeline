@@ -59,11 +59,13 @@ def test_a_closed_candidate_is_stamped_then_deleted_with_its_folder_an_hour_late
     cfg, conn = site
     cid = candidate(conn, cfg, "a-1-1")
     assert candidates.cleanup(cfg, conn) == 0
-    assert row(conn, cid)["closed_at"] is not None and folder(cfg, "a-1-1").exists(), "closed 0 min ago: kept"
+    assert row(conn, cid)["closed_at"] is not None, "closed 0 min ago: kept"
+    assert folder(cfg, "a-1-1").exists(), "closed 0 min ago: kept"
     with db.transaction(conn):
         conn.execute("UPDATE junk_candidate SET closed_at = %s", (HOUR_AGO_2,))
     assert candidates.cleanup(cfg, conn) == 1
-    assert row(conn, cid) is None and not folder(cfg, "a-1-1").exists(), "closed 2 hours ago: deleted, folder too"
+    assert row(conn, cid) is None, "closed 2 hours ago: deleted, folder too"
+    assert not folder(cfg, "a-1-1").exists(), "closed 2 hours ago: deleted, folder too"
 
 
 @budget(load="db")
@@ -80,7 +82,8 @@ def test_a_candidate_a_running_review_listed_is_never_stamped_or_deleted(site):
     cfg, conn = site
     cid = candidate(conn, cfg, "a-1-1", closed_at=HOUR_AGO_2, review_open=1)
     assert candidates.cleanup(cfg, conn) == 0
-    assert row(conn, cid)["closed_at"] == HOUR_AGO_2 and folder(cfg, "a-1-1").exists()
+    assert row(conn, cid)["closed_at"] == HOUR_AGO_2
+    assert folder(cfg, "a-1-1").exists()
 
 
 @budget(load="db")
@@ -103,8 +106,8 @@ def test_a_folder_no_row_names_stays_a_day_and_a_new_rows_folder_survives_its_ol
 
 @budget(load="db")
 def test_joining_a_candidate_cleaned_up_meanwhile_fails_and_writes_nothing(site):
-    cfg, conn = site
+    _cfg, conn = site
+    pick = {"kind": "page", "key": "123456789abcdef0|0.7", "reason": "r"}  # its images were never written
     with db.transaction(conn), pytest.raises(candidates.Gone, match="cleaned up meanwhile"):
-        pick = {"kind": "page", "key": "123456789abcdef0|0.7", "reason": "r"}  # its images were never written
         candidates.join(conn, "S", [pick], "2026-01-01T00:00:00+00:00")
     assert conn.execute("SELECT count(*) FROM junk_candidate").fetchone()[0] == 0

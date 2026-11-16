@@ -142,7 +142,7 @@ def test_series_in_library_follows_pages(monkeypatch):
 @budget(load="pure")
 def test_series_in_library_stops_after_an_empty_page(monkeypatch):
     monkeypatch.setattr(kavita, "PAGE_SIZE", 2)
-    k, service = client({"/api/Series/all-v2": Each([[{"id": 1}, {"id": 2}], []])})
+    k, _service = client({"/api/Series/all-v2": Each([[{"id": 1}, {"id": 2}], []])})
     assert k.series_in_library(4) == [{"id": 1}, {"id": 2}]
 
 

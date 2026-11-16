@@ -4,6 +4,7 @@ share is not "a file already gone", and junk review records an unreachable share
 
 import errno
 import os
+import shutil
 from contextlib import closing
 
 import pytest
@@ -18,8 +19,6 @@ from tests.world import World
 
 @budget(load="db", seconds=3)
 def test_a_database_holding_old_absolute_paths_is_refused(tmp_path, monkeypatch):
-    import shutil
-
     cfg = site_cfg(tmp_path, built=False)
     before = tmp_path / "schema"
     shutil.copytree(db.SCHEMA, before)
@@ -30,7 +29,7 @@ def test_a_database_holding_old_absolute_paths_is_refused(tmp_path, monkeypatch)
         with db.transaction(conn):
             conn.execute("UPDATE series SET folder = '/mnt/share/library/S' WHERE id = %s", (series_id,))
     monkeypatch.undo()
-    with pytest.raises(db.SchemaError, match="stored by an older version.*build a new database"):
+    with pytest.raises(db.SchemaError, match=r"stored by an older version.*build a new database"):
         db.connect(cfg)
 
 
@@ -42,12 +41,14 @@ def test_a_series_folder_outside_the_library_needs_a_human(tmp_path):
     with closing(db.connect(world.cfg)) as conn:
         discovery.scan(world.context(conn, "intake"))
     ((status, reason, folder),) = world.rows("SELECT status, status_reason, folder FROM series")
-    assert status == "needs_human" and folder is None and "'..'" in reason, "held with the folder named"
+    assert status == "needs_human", "held with the folder named"
+    assert folder is None, "held with the folder named"
+    assert "'..'" in reason, "held with the folder named"
 
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    "folder, download, windows_takes",
+    ("folder", "download", "windows_takes"),
     [
         ("library/Plain", "downloads/mangas/Src (EN)/Plain/Chapter 1.cbz", True),
         ("library/Re:Zero", "downloads/mangas/Src (EN)/Re_Zero/Chapter 1.cbz", False),
@@ -75,9 +76,10 @@ def test_a_windows_machine_skips_names_windows_cannot_use(tmp_path, monkeypatch,
 def test_a_dropped_smb_share_is_not_a_file_already_gone(tmp_path, monkeypatch):
     present = tmp_path / "a.cbz"
     present.write_bytes(b"x")
-    assert workflow.exists(present) and not workflow.exists(tmp_path / "gone.cbz")
+    assert workflow.exists(present)
+    assert not workflow.exists(tmp_path / "gone.cbz")
 
-    def dropped(path, *a, **k):
+    def dropped(_path, *_a, **_k):
         error = FileNotFoundError(errno.ENOENT, "The network name cannot be found")
         error.winerror = 67
         raise error
@@ -88,7 +90,7 @@ def test_a_dropped_smb_share_is_not_a_file_already_gone(tmp_path, monkeypatch):
         workflow.exists(present)
     with pytest.raises(workflow.Unreachable), workflow.share_errors():  # put aside, never "already gone"
         retention.put(cfg, present)
-    monkeypatch.setattr(archive, "pages_digest", lambda cbz: dropped(cbz))
+    monkeypatch.setattr(archive, "pages_digest", dropped)
     with pytest.raises(workflow.Unreachable), workflow.share_errors():  # a digest, never "unreadable"
         archive.digest_or_none(present)
 
@@ -97,7 +99,7 @@ def test_a_dropped_smb_share_is_not_a_file_already_gone(tmp_path, monkeypatch):
 def test_junk_review_records_an_unreachable_share_and_exits_quietly(tmp_path, monkeypatch):
     cfg = adopted(tmp_path)
 
-    def unreachable(cfg, conn):
+    def unreachable(_cfg, _conn):
         raise OSError(errno.EIO, "share gone")
 
     monkeypatch.setattr(candidates, "cleanup", unreachable)
@@ -110,7 +112,7 @@ def test_junk_review_records_an_unreachable_share_and_exits_quietly(tmp_path, mo
 @budget(load="pure")
 def test_a_path_with_a_parent_step_is_never_stored(tmp_path):
     cfg = {"paths": {root: str(tmp_path / "share" / root) for root in config.SHARE_ROOTS}}
-    with pytest.raises(config.PathError, match="'..'"):
+    with pytest.raises(config.PathError, match=r"'\.\.'"):
         config.to_stored(cfg, tmp_path / "share" / "library" / ".." / "elsewhere")
 
 

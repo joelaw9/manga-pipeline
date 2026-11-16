@@ -95,7 +95,7 @@ def _program():
 
 def _packages():
     """{distribution: installed version} of pyproject's runtime group."""
-    with open(config.ROOT / "pyproject.toml", "rb") as f:
+    with (config.ROOT / "pyproject.toml").open("rb") as f:
         runtime = tomllib.load(f)["dependency-groups"]["runtime"]
     return {_name(spec): metadata.version(_name(spec)) for spec in runtime}
 
@@ -119,7 +119,8 @@ def _tools(cfg):
         done = tools.run(config.abs_path(cfg["tools"][name]), flag)
         lines = (done.stdout or done.stderr).decode(errors="replace").strip().splitlines()
         if not lines:
-            raise RuntimeError(f"tools.{name} printed no version for {flag}")
+            msg = f"tools.{name} printed no version for {flag}"
+            raise RuntimeError(msg)
         text = lines[0]
         out[name] = text.split(" (build ")[0] if name == "jpegtran" else text
     lib = ctypes.CDLL(str(config.abs_path(cfg["tools"]["vship"])))

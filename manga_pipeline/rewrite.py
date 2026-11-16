@@ -255,7 +255,7 @@ def _queue_chapter(ctx, series, file_id, volume, source, cover, title, unedited)
     ).fetchone()
     if row is None:
         return 0
-    target = _target(ctx, series, row, volume, title)
+    target = _target(row, volume, title)
     now = workflow.now(conn)
     made = conn.execute(
         """INSERT INTO chapter (series_id, kind, identity, source, stage, status, published_file_id, library_path,
@@ -282,7 +282,7 @@ def _queue_chapter(ctx, series, file_id, volume, source, cover, title, unedited)
             None if unedited is None else json.dumps(unedited),
             now,
             now,
-        ),  # fmt: skip
+        ),
     ).fetchone()
     if made is None:
         return 0
@@ -306,7 +306,7 @@ def _cover_text(cover):
     )
 
 
-def _target(ctx, series, row, volume, title):
+def _target(row, volume, title):
     """The stored path the rewritten file takes (D7.8): a pipeline file named for its new volume and title; a bulk file
     keeps its name."""
     if row["origin"] != "pipeline":
@@ -386,7 +386,8 @@ def copy_replacing(source, dest, name, data):
         got = {i.filename: i.CRC for i in z.infolist()}
     if any(got.get(n) != crc for n, _, crc in members):
         dest.unlink()
-        raise RuntimeError(f"{dest}: a copied member's CRC differs from {source}'s")
+        msg = f"{dest}: a copied member's CRC differs from {source}'s"
+        raise RuntimeError(msg)
     return size
 
 
@@ -403,7 +404,8 @@ def publish_run(ctx, chapter):
     old = config.to_local(ctx.cfg, file["library_path"])
     seen = [f for f in ctx.kavita.series_files(series["kavita_series_id"]) if f["path"] == old]
     if not seen:  # a confirmed file Kavita lost: tried again by a later run, its attempts counted
-        raise RuntimeError(f"Kavita does not list {old} in series {series['kavita_series_id']}")
+        msg = f"Kavita does not list {old} in series {series['kavita_series_id']}"
+        raise RuntimeError(msg)
     staged = config.to_local(ctx.cfg, chapter["staged_path"])
     target = config.to_local(ctx.cfg, chapter["library_path"])
     new_pages = page_count(staged)
@@ -449,7 +451,7 @@ def publish_run(ctx, chapter):
                 chapter["comicinfo_title"],
                 _json(file["unedited"] if copy else chapter["naming_unedited"]),  # a copy keeps the file's edits
                 file["id"],
-            ),  # fmt: skip
+            ),
         )
         if copy:
             handled.record(c, chapter["series_id"], chapter["identity"], "published", chapter["content_digest"])
@@ -520,8 +522,9 @@ def finish(ctx, row):
         step = _record(conn, row["id"], 2)
     if step < 3:
         if target != old and workflow.exists(target):
-            raise FileExistsError(f"{target} is already in the library; a library file is never overwritten")
-        os.replace(staged, target)
+            msg = f"{target} is already in the library; a library file is never overwritten"
+            raise FileExistsError(msg)
+        staged.replace(target)
         step = _record(conn, row["id"], 3)
     if step < 4:
         if target != old and workflow.exists(old):
@@ -605,11 +608,11 @@ def drop(conn, file_id, limit):
         or (row["indexed_since"] is not None and row["pending_error"] is not None)
     )
     if not stuck:
-        raise workflow.Refused(f"published file {file_id} has no stuck rewrite")
+        msg = f"published file {file_id} has no stuck rewrite"
+        raise workflow.Refused(msg)
     if row["pending_path"] is not None and row["pending_step"] >= 3:
-        raise workflow.Refused(
-            f"published file {file_id}'s rewrite has renamed its file in: rewrite retry {file_id} finishes it"
-        )
+        msg = f"published file {file_id}'s rewrite has renamed its file in: rewrite retry {file_id} finishes it"
+        raise workflow.Refused(msg)
     with db.transaction(conn):
         _give_up_copy(conn, row)
         conn.execute(
@@ -626,7 +629,8 @@ def retry(conn, file_id):
     workflow.Refused when the row holds no error."""
     row = conn.execute("SELECT * FROM published_file WHERE id = %s", (file_id,)).fetchone()
     if row is None or row["pending_error"] is None:
-        raise workflow.Refused(f"published file {file_id} has no failed rewrite")
+        msg = f"published file {file_id} has no failed rewrite"
+        raise workflow.Refused(msg)
     with db.transaction(conn):
         conn.execute(
             """UPDATE published_file SET pending_error = NULL, pending_attempts = 0, wait_charges = 0,
@@ -771,10 +775,10 @@ def diff(ctx, series):
             files[i]["library_path"],
             files[i]["comicinfo_volume"],
             None if v is None else names.fmt_num(v),
-            _target(ctx, series, files[i], v, title),
+            _target(files[i], v, title),
             _cover_text(cover).removeprefix(", ") or None,
             title if title != (files[i]["comicinfo_title"] or "") else None,
-        )  # fmt: skip
+        )
         for i, (v, _, cover, title, _) in todo.items()
         if files[i]["state"] == "confirmed"
         and i not in busy

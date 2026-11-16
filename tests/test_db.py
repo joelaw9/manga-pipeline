@@ -16,7 +16,7 @@ import psycopg
 import pytest
 import yaml
 
-from manga_pipeline import config, db
+from manga_pipeline import cli, config, db
 
 from tests import pg
 from tests.timing import budget
@@ -26,7 +26,7 @@ SHIPPED_STEPS = sorted(p.stem for p in SHIPPED.glob("*.sql"))
 BUILD = 3.0  # budget of a test that builds a database from no schema (8 steps), in its body or its teardown
 
 
-def db_cfg(tmp_path, built=True):
+def db_cfg(tmp_path, *, built=True):
     return pg.cfg_for(pg.process.database(tmp_path.resolve(), built))
 
 
@@ -54,7 +54,8 @@ def test_new_database_has_every_table_and_an_id(tmp_path):
         assert want <= tables(conn), "step 0001 builds the skeleton's tables"
         assert set(db.WORKFLOW_TABLES) <= tables(conn), "state reset empties tables that exist"
         identity = db.database_id(conn)
-        assert len(identity) == 32 and set(identity) <= set("0123456789abcdef"), "the id is 32 hex characters"
+        assert len(identity) == 32, "the id is 32 hex characters"
+        assert set(identity) <= set("0123456789abcdef"), "the id is 32 hex characters"
         assert not db.in_transaction(conn), "no transaction is left open after connect"
 
 
@@ -122,22 +123,25 @@ def test_reopen_keeps_data_and_id(tmp_path):
 @budget(load="db")
 def test_transaction_rolls_back_when_the_block_raises(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
-        with pytest.raises(RuntimeError, match="stage failed"):
+
+        def failing_block():
             with db.transaction(conn):
                 conn.execute("INSERT INTO meta (key, value) VALUES ('probe', 'x')")
-                raise RuntimeError("stage failed")
+                msg = "stage failed"
+                raise RuntimeError(msg)
+
+        with pytest.raises(RuntimeError, match="stage failed"):
+            failing_block()
         assert conn.execute("SELECT 1 FROM meta WHERE key = 'probe'").fetchone() is None
         assert not db.in_transaction(conn)
 
 
 @budget(load="db")
 def test_a_transaction_inside_a_transaction_is_refused(tmp_path):
-    with closing(db.connect(db_cfg(tmp_path))) as conn:
-        with db.transaction(conn):
-            assert db.in_transaction(conn)
-            with pytest.raises(RuntimeError, match="already open"):
-                with db.transaction(conn):
-                    pass
+    with closing(db.connect(db_cfg(tmp_path))) as conn, db.transaction(conn):
+        assert db.in_transaction(conn)
+        with pytest.raises(RuntimeError, match="already open"), db.transaction(conn):
+            pass
 
 
 @budget(1.5, load="db")
@@ -146,11 +150,10 @@ def test_2_write_transactions_never_overlap(tmp_path):
     spans = []
 
     def writer():
-        with closing(db.connect(cfg)) as conn:
-            with db.transaction(conn):
-                start = time.perf_counter()
-                time.sleep(0.2)
-                spans.append((start, time.perf_counter()))
+        with closing(db.connect(cfg)) as conn, db.transaction(conn):
+            start = time.perf_counter()
+            time.sleep(0.2)
+            spans.append((start, time.perf_counter()))
 
     threads = [threading.Thread(target=writer) for _ in range(2)]
     for t in threads:
@@ -169,7 +172,7 @@ def test_2_runs_opening_a_new_database_at_once_apply_each_step_once(tmp_path):
     def opener():
         try:
             db.connect(cfg).close()
-        except Exception as e:  # noqa: BLE001 - reported by the assert below
+        except Exception as e:  # reported by the assert below
             errors.append(e)
 
     threads = [threading.Thread(target=opener) for _ in range(2)]
@@ -184,7 +187,7 @@ def test_2_runs_opening_a_new_database_at_once_apply_each_step_once(tmp_path):
 
 
 @budget(BUILD, load="db")
-@pytest.mark.parametrize("first, second", [("0098_a", "0099_b"), ("0099_b", "0098_a")])
+@pytest.mark.parametrize(("first", "second"), [("0098_a", "0099_b"), ("0099_b", "0098_a")])
 def test_steps_from_2_branches_both_apply_whatever_merges_first(tmp_path, monkeypatch, first, second):
     cfg = db_cfg(tmp_path)
     sql = {"0098_a": "CREATE TABLE a (x BIGINT);", "0099_b": "CREATE TABLE b (x BIGINT);"}
@@ -250,7 +253,7 @@ def test_read_only_refuses_a_database_with_other_steps_or_none(tmp_path, monkeyp
 
 
 @budget(load="db")
-def test_a_missing_database_is_no_database_and_nothing_creates_it_but_connect(tmp_path):
+def test_a_missing_database_is_no_database_and_nothing_creates_it_but_connect():
     cfg = pg.cfg_for(f"{pg.PREFIX}missing_{secrets.token_hex(4)}")
     with pytest.raises(db.NoDatabase, match="no database"):
         db.read_only(cfg)
@@ -270,7 +273,7 @@ def test_built_is_false_for_an_empty_database_and_true_once_connected(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "change, error",
+    ("change", "error"),
     [
         ({"host": ""}, "database.host must be a non-empty string"),
         ({"name": None}, "database.name must be a non-empty string"),
@@ -293,7 +296,8 @@ def test_a_refused_login_cannot_connect_and_never_shows_the_password():
     cfg = {**config.cached(), "database": {**config.cached()["database"], **login}}
     with pytest.raises(db.CannotConnect) as e:
         db.connect(cfg)
-    assert "localhost:5432" in str(e.value) and "mp_test_no_such_role" in str(e.value)
+    assert "localhost:5432" in str(e.value)
+    assert "mp_test_no_such_role" in str(e.value)
     assert "wrong-secret" not in str(e.value), "the message never holds the password"
 
 
@@ -332,7 +336,9 @@ def test_a_row_reads_by_position_and_name_as_sqlite3_row_does(rows):
 @budget(load="db")
 def test_a_row_is_a_sequence_with_keys_as_sqlite3_row_is(rows):
     row, lite = rows
-    assert tuple(row) == tuple(lite) and list(row) == list(lite) and len(row) == len(lite)
+    assert tuple(row) == tuple(lite)
+    assert list(row) == list(lite)
+    assert len(row) == len(lite)
     assert row.keys() == lite.keys()
     a, b, c = row
     assert (a, b, c) == (1, "x", 3), "a row unpacks to its values"
@@ -354,7 +360,8 @@ def test_rows_are_equal_as_sqlite3_rows_are(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
         one, same = (conn.execute("SELECT 1 AS a, 2 AS b").fetchone() for _ in range(2))
         renamed = conn.execute("SELECT 1 AS a, 2 AS c").fetchone()
-    assert one == same and hash(one) == hash(same), "same columns and values: equal"
+    assert one == same, "same columns and values: equal"
+    assert hash(one) == hash(same), "same columns and values: equal"
     assert one != renamed, "other column names: not equal"
     assert one != (1, 2), "a row is not equal to a tuple"
 
@@ -403,7 +410,8 @@ def test_a_database_left_with_a_fake_step_or_table_is_rebuilt(tmp_path, monkeypa
     pg.process.end_test()
     cfg = db_cfg(tmp_path)
     with closing(db.connect(cfg)) as conn:
-        assert step_names(conn) == SHIPPED_STEPS and "fake" not in tables(conn)
+        assert step_names(conn) == SHIPPED_STEPS
+        assert "fake" not in tables(conn)
         conn.execute("CREATE TABLE stray (x BIGINT)")
     pg.process.end_test()
     with closing(db.connect(db_cfg(tmp_path))) as conn:
@@ -457,7 +465,8 @@ def test_a_database_left_dirty_by_a_dead_process_is_made_right_by_the_next(own_p
     try:
         assert nxt.slots == [name], "the freed database is taken again"
         with closing(db.connect(pg.cfg_for(name))) as conn:
-            assert "stray" not in tables(conn) and step_names(conn) == SHIPPED_STEPS, "rebuilt"
+            assert "stray" not in tables(conn), "rebuilt"
+            assert step_names(conn) == SHIPPED_STEPS, "rebuilt"
             assert conn.execute("SELECT count(*) FROM series").fetchone()[0] == 0
             assert db.database_id(conn) != old_id
     finally:
@@ -510,7 +519,8 @@ def test_a_database_whose_reset_failed_is_rebuilt_by_its_next_taker(own_pool, tm
 
         def failing(self, db_name, rebuild):
             if db_name == name:
-                raise RuntimeError("this reset fails")
+                msg = "this reset fails"
+                raise RuntimeError(msg)
             return real(self, db_name, rebuild)
 
         monkeypatch.setattr(pg.Process, "_reset", failing)
@@ -542,7 +552,9 @@ def test_pool_databases_that_cannot_be_made_right_stop_the_run_after_max_failed_
         return conn
 
     def failing(self, name, rebuild):
-        raise RuntimeError("this reset fails")
+        del self, name, rebuild  # Process._reset's parameters, rebuild passed by keyword
+        msg = "this reset fails"
+        raise RuntimeError(msg)
 
     monkeypatch.setattr(pg, "_connect", connect)
     monkeypatch.setattr(pg.Process, "_reset", failing)
@@ -569,6 +581,7 @@ def _cli_status(tmp_path, cfg):
         cwd=config.ROOT,
         capture_output=True,
         text=True,
+        check=False,
         timeout=60,
     )
 
@@ -576,7 +589,8 @@ def _cli_status(tmp_path, cfg):
 @budget(load="subprocess")
 def test_a_cli_run_with_no_config_reaches_no_database(tmp_path):
     done = _cli_status(tmp_path, None)
-    assert done.returncode == 2 and "config" in done.stderr, "no config: a config error before any login"
+    assert done.returncode == 2, "no config: a config error before any login"
+    assert "config" in done.stderr, "no config: a config error before any login"
 
 
 @budget(load="subprocess")
@@ -596,8 +610,6 @@ def test_a_cli_run_with_a_production_config_fails_to_log_in(tmp_path, login):
 
 @budget(load="db")
 def test_a_bad_database_setting_exits_2_and_a_refused_login_exits_4(tmp_path, capsys):
-    from manga_pipeline import cli
-
     base = config.cached()  # cli.main replaces the cached config with the file's
 
     def status(login):
@@ -611,18 +623,22 @@ def test_a_bad_database_setting_exits_2_and_a_refused_login_exits_4(tmp_path, ca
     assert "database.port" in capsys.readouterr().err
     assert status({"user": "mp_test_no_such_role", "password": "wrong-secret"}) == 4, "a refused login exits 4"
     err = capsys.readouterr().err
-    assert "cannot use the database server localhost:5432" in err and "wrong-secret" not in err
+    assert "cannot use the database server localhost:5432" in err
+    assert "wrong-secret" not in err
 
 
 @budget(load="db")
 def test_a_wait_on_the_write_lock_longer_than_lock_timeout_raises(tmp_path, monkeypatch):
     cfg = db_cfg(tmp_path)
     monkeypatch.setattr(db, "LOCK_TIMEOUT", "200ms")  # the shipped 30 s, shortened for the test
-    with closing(db.connect(cfg)) as holder, closing(db.connect(cfg)) as waiter:
-        with db.transaction(holder):
-            with pytest.raises(psycopg.errors.LockNotAvailable):
-                with db.transaction(waiter):
-                    pass
+    with (
+        closing(db.connect(cfg)) as holder,
+        closing(db.connect(cfg)) as waiter,
+        db.transaction(holder),
+        pytest.raises(psycopg.errors.LockNotAvailable),
+        db.transaction(waiter),
+    ):
+        pass
 
 
 @budget(load="db")
@@ -633,7 +649,8 @@ def test_a_failed_reset_still_resets_the_tests_other_databases(tmp_path, monkeyp
 
     def failing(self, name, rebuild):
         if name == first["database"]["name"]:
-            raise RuntimeError("this reset fails")
+            msg = "this reset fails"
+            raise RuntimeError(msg)
         return real(self, name, rebuild)
 
     monkeypatch.setattr(pg.Process, "_reset", failing)

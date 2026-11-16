@@ -17,6 +17,7 @@ def junk(child_config, *args):
         [sys.executable, "-m", "manga_pipeline.cli", "--config", str(child_config), "junk", *args],
         capture_output=True,
         text=True,
+        check=False,
     )
     return done.returncode, done.stdout
 
@@ -40,8 +41,7 @@ def main():
             listed = [line.split("\t")[0] for line in out.splitlines() if line]
             log.append(["list", code, listed])
         elif action.startswith("decide:"):
-            for cid in listed:
-                log.append(["decide", *junk(child, "decide", cid, action.split(":")[1])])
+            log.extend(["decide", *junk(child, "decide", cid, action.split(":")[1])] for cid in listed)
     (dump / f"log-{runs}.json").write_text(json.dumps(log), encoding="utf-8")
     if plan["reply"] is not None:
         print(json.dumps(plan["reply"]))

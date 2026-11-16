@@ -119,12 +119,12 @@ class FakeKavita(kavita.Kavita):
         self.writes.append(("scan_library", library_id))
         self.pending.append(library_id)
 
-    def save_progress(self, series_id, volume_id, chapter_id, page):
+    def save_progress(self, _series_id, _volume_id, chapter_id, page):
         self.writes.append(("progress", chapter_id, page))
         file = next(f for f in self.files.values() if f["chapter"] == chapter_id)
         file["pagesRead"] = min(page, file["pages"])
 
-    def mark_read(self, series_id, chapter_ids):
+    def mark_read(self, _series_id, chapter_ids):
         self.writes.append(("read", tuple(chapter_ids)))
         for file in self.files.values():
             if file["chapter"] in chapter_ids:
@@ -233,7 +233,8 @@ class FakeKavita(kavita.Kavita):
             if os.path.commonpath([local_root, local]) == str(local_root):
                 rest = os.path.relpath(local, local_root).replace(os.sep, "/")
                 return root if rest == "." else f"{root}/{rest}"
-        raise AssertionError(f"FakeKavita: {local} is under no library folder")
+        msg = f"FakeKavita: {local} is under no library folder"
+        raise AssertionError(msg)
 
     def _stamp(self):
         """Kavita's lastModifiedUtc now: 7 fractional digits, as Kavita writes it; 1 second a re-read."""

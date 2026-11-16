@@ -126,14 +126,14 @@ def test_plain_tone_has_no_content(v):
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("n, want", [(897, True), (898, False)], ids=["84.9pct-not-plain", "85.0pct-plain"])
+@pytest.mark.parametrize(("n", "want"), [(897, True), (898, False)], ids=["84.9pct-not-plain", "85.0pct-plain"])
 def test_plain_share_at_85_percent_makes_a_frame_plain(n, want):
     """n of 1,056 cells at luma 128, the rest at 60 (all mid-tone ink): 898 / 1,056 >= 85% is one plain tone."""
     assert frames.has_content(cells(((128,) * 3, n), ((60,) * 3, 1056 - n))) is want, "plain from 85% of the cells"
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("v, want", [(136, False), (137, True)], ids=["8-from-median", "9-from-median"])
+@pytest.mark.parametrize(("v", "want"), [(136, False), (137, True)], ids=["8-from-median", "9-from-median"])
 def test_cells_within_8_luma_of_the_median_count_as_the_same_tone(v, want):
     """600 cells at 128 (the median) and 456 at v: 8 luma away is the same tone (plain), 9 is not."""
     assert frames.has_content(cells(((128,) * 3, 600), ((v,) * 3, 456))) is want, "same tone within 8 luma"
@@ -141,7 +141,7 @@ def test_cells_within_8_luma_of_the_median_count_as_the_same_tone(v, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "v, want", [(39, False), (40, True), (199, True), (200, False)], ids=["below-lo", "at-lo", "below-hi", "at-hi"]
+    ("v", "want"), [(39, False), (40, True), (199, True), (200, False)], ids=["below-lo", "at-lo", "below-hi", "at-hi"]
 )
 def test_mid_tone_ink_is_luma_40_to_199(v, want):
     """Half the cells black, half at luma v: ink only when 40 <= v < 200 (half the cells, over the 30% share)."""
@@ -149,14 +149,14 @@ def test_mid_tone_ink_is_luma_40_to_199(v, want):
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("blue, want", [(231, False), (230, True)], ids=["spread-24", "spread-25"])
+@pytest.mark.parametrize(("blue", "want"), [(231, False), (230, True)], ids=["spread-24", "spread-25"])
 def test_coloured_cells_need_a_channel_spread_over_24(blue, want):
     """Half black, half light yellow (luma >= 200, not mid-tone): ink only when its spread 255 - blue is > 24."""
     assert frames.has_content(cells(((0,) * 3, 528), ((255, 255, blue), 528))) is want, "colour ink: spread > 24"
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("ink, want", [(316, False), (317, True)], ids=["29.9pct", "30.0pct"])
+@pytest.mark.parametrize(("ink", "want"), [(316, False), (317, True)], ids=["29.9pct", "30.0pct"])
 def test_ink_share_of_30_percent_is_content(ink, want):
     """370 black, `ink` cells at luma 128, the rest white: 317 / 1,056 reaches the 30% ink share, 316 does not."""
     f = cells(((0,) * 3, 370), ((128,) * 3, ink), ((255,) * 3, 1056 - 370 - ink))
@@ -168,7 +168,7 @@ def test_ink_share_of_30_percent_is_content(ink, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "a, b",
+    ("a", "b"),
     [
         ("akuyaku_ch17_p39", "akuyaku_ch18_p37"),
         ("akuyaku_ch17_p39", "akuyaku_ch22_p34"),
@@ -186,7 +186,7 @@ def test_one_template_matches_across_chapters_and_series(a, b):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "a, b",
+    ("a", "b"),
     [("akuyaku_ch17_p39", "ennead_ch150_p1"), ("akuyaku_ch24_p34", "akuyaku_ch24_p1")],
     ids=["nerissa-vs-banner", "silas-thanks-vs-commission"],
 )
@@ -196,7 +196,7 @@ def test_different_templates_do_not_match(a, b):
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("v, want", [(28, True), (29, False)], ids=["rms-18", "rms-19"])
+@pytest.mark.parametrize(("v", "want"), [(28, True), (29, False)], ids=["rms-18", "rms-19"])
 def test_frames_match_up_to_rms_18(v, want):
     """Tones 10 and v differ by v - 10 on every channel: RMS 18 matches, 19 does not."""
     assert (frames.distance(tone(10), tone(v)), frames.matches(tone(10), tone(v))) == (float(v - 10), want), (
@@ -206,7 +206,7 @@ def test_frames_match_up_to_rms_18(v, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "k, want",
+    ("k", "want"),
     [(1.10, True), (1.136, True), (1.137, False), (1.20, False)],
     ids=["10pct", "edge-in", "edge-out", "20pct"],
 )

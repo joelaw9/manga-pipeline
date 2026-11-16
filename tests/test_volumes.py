@@ -22,7 +22,7 @@ def world_overrides(world):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "number, want",
+    ("number", "want"),
     [("3", 0), ("4", 3), ("5", None), ("65", 1), ("66", 2), ("141", 2), ("65.5", None)],
     ids=["open-start", "single", "in-no-range", "closed-end", "range-start", "open-end", "between-ranges"],
 )
@@ -104,7 +104,7 @@ def test_without_a_volume_the_downloads_volume_is_dropped_and_the_title_falls_ba
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "ours, theirs, source, same",
+    ("ours", "theirs", "source", "same"),
     [
         (2, "1", "filename", False),
         (1, "1", "filename", True),

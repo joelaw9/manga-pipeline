@@ -89,7 +89,7 @@ def test_non_mapping_is_refused(tmp_path, text):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "old, new, message",
+    ("old", "new", "message"),
     [
         ("  keep_days: 14\n", "", r"missing key\(s\) logging\.keep_days"),
         ("  keep_days: 14\n", "  keep_days: 14\n  keep_dayz: 1\n", r"unknown key\(s\) logging\.keep_dayz"),
@@ -176,7 +176,7 @@ def test_empty_file_or_section_takes_env(tmp_path, text):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "key, text, message",
+    ("key", "text", "message"),
     [
         ("LOGGING_KEEP_DAYS", "14days", "must be int"),
         ("LOGGING_KEEP_DAYS", "", "must be int"),
@@ -208,7 +208,7 @@ def test_colliding_env_names_are_refused(tmp_path):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "item, message",
+    ("item", "message"),
     [
         ("logging.keep_days", "must be KEY=VALUE"),
         ("nope=1", "names no config key"),
@@ -224,7 +224,7 @@ def test_bad_set_is_refused(tmp_path, item, message):
 @budget(load="fs")
 def test_set_below_a_non_mapping_file_value_is_refused(tmp_path):
     text = EXAMPLE.replace('logging:\n  dir: "state/logs"\n  keep_days: 14\n', "logging: 1\n")
-    with pytest.raises(config.ConfigError, match="--set logging.dir: logging in the config file is not a mapping"):
+    with pytest.raises(config.ConfigError, match=r"--set logging\.dir: logging in the config file is not a mapping"):
         check(tmp_path, text, sets=["logging.dir=x"])
 
 

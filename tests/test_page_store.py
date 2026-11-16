@@ -21,7 +21,7 @@ def conn(tmp_path):
     c.close()
 
 
-def chapter_cbz(path, n=2, blank=True):
+def chapter_cbz(path, n=2, *, blank=True):
     """n manga pages, then a blank white page when blank (phash and junk_signature None)."""
     content = {f"{i + 1:03}.jpg": pages.jpeg(pages.manga_page(seed=i)) for i in range(n)}
     if blank:
@@ -37,7 +37,8 @@ def new_chapter(conn):
 def test_saved_pages_load_back_and_are_not_decoded_again(conn, tmp_path, monkeypatch):
     cbz = chapter_cbz(tmp_path / "c.cbz")
     measured = images.measure_pages(cbz)
-    assert measured[-1]["phash"] is None and measured[-1]["blank"], "the fixture's last page is blank"
+    assert measured[-1]["phash"] is None, "the fixture's last page is blank"
+    assert measured[-1]["blank"], "the fixture's last page is blank"
     chapter_id = new_chapter(conn)
     with db.transaction(conn):
         page_store.save(conn, chapter_id, measured)

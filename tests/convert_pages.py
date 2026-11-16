@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from manga_pipeline import archive, config, images
-from manga_pipeline.convert import pages, plan, vship
+from manga_pipeline.convert import image, pages, plan, vship
 
 NO_EDIT = {"drop_pages": [], "strip_removed": [], "bands": [], "join": [], "split": False, "blank": []}
 QUALITY = {"gray": 80, "colour": 80}
@@ -57,7 +57,7 @@ def png(im):
     return encoded(im, "PNG")
 
 
-def webp(im, lossless=False):
+def webp(im, *, lossless=False):
     return encoded(im, "WEBP", lossless=lossless, quality=80)
 
 
@@ -81,8 +81,6 @@ class Chapter:
         return p
 
     def run(self, chapter_plan):
-        from manga_pipeline.convert import image
-
         avif_first = chapter_plan.outcomes[0]["outcome"] == "avif"
         blanked = image.blank_pages(chapter_plan, self.x, self.root / "blank") if avif_first else {}
         src = image.sources(chapter_plan, self.x, blanked, self.root / "sources")

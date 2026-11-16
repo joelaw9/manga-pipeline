@@ -6,12 +6,12 @@ import os
 import shutil
 import sys
 from contextlib import closing
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 import yaml
 
-from manga_pipeline import cli, config, db, fleet, intake, process
+from manga_pipeline import cli, config, db, fleet, intake, preflight, process
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.junk import review, review_run
@@ -53,8 +53,8 @@ def dumps(folder, what):
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     w = World(tmp_path)
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: w.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: w.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: w.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: w.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: w.sources)
     w.kavita_series("Alpha")
     manga = w.manga("Alpha")
@@ -64,7 +64,7 @@ def world(tmp_path, monkeypatch):
     return w
 
 
-def review_cmd(tmp_path, cfg, exe, env=None):
+def review_cmd(tmp_path, cfg, exe):
     cfg = {**cfg, "junk": {**cfg["junk"], "claude_path": str(exe)}}
     path = config_file(tmp_path, cfg)
     return cli.main(["--config", str(path), "junk", "review"]), cfg
@@ -87,7 +87,8 @@ def test_claude_gets_no_pipeline_variable_and_no_api_key_and_its_commands_work(w
     assert "ANTHROPIC_API_KEY" not in env, "no API key reaches Claude"
     assert env["CLAUDE_CODE_OAUTH_TOKEN"] == world.cfg["junk"]["claude_token"], "the token from the config"
     (log,) = dumps(tmp_path / "claude", "log")
-    assert log[0][1] == 0 and len(log[0][2]) == 1, "Claude's junk list runs on the secret-free config"
+    assert log[0][1] == 0, "Claude's junk list runs on the secret-free config"
+    assert len(log[0][2]) == 1, "Claude's junk list runs on the secret-free config"
     assert log[1][1] == 0, "Claude's junk decide records its verdict"
     with closing(db.connect(cfg)) as conn:
         assert [tuple(r) for r in conn.execute("SELECT decider, verdict FROM junk_decision")] == [("claude", "keep")]
@@ -97,9 +98,11 @@ def test_claude_gets_no_pipeline_variable_and_no_api_key_and_its_commands_work(w
 @budget(load="subprocess", seconds=20)
 def test_the_child_config_holds_no_secret_and_absolute_paths(world):
     child = review_run.child_config(world.cfg)
-    assert child["kavita"]["api_key"] is None and child["junk"]["claude_token"] is None, "secrets are null"
+    assert child["kavita"]["api_key"] is None, "secrets are null"
+    assert child["junk"]["claude_token"] is None, "secrets are null"
     assert child["database"]["password"] is None, "the database password is a secret too"
-    assert Path(child["logging"]["dir"]).is_absolute() and Path(child["paths"]["candidates"]).is_absolute()
+    assert Path(child["logging"]["dir"]).is_absolute()
+    assert Path(child["paths"]["candidates"]).is_absolute()
 
 
 @budget(load="subprocess", seconds=20)
@@ -140,7 +143,8 @@ def test_an_error_result_exits_1_and_records_no_success(world, tmp_path):
     assert code == 1
     with closing(db.connect(cfg)) as conn:
         meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
-    assert meta["junk-review.last_result"].startswith("error") and "junk-review.last_success" not in meta
+    assert meta["junk-review.last_result"].startswith("error")
+    assert "junk-review.last_success" not in meta
 
 
 @budget(load="subprocess", seconds=20)
@@ -150,23 +154,24 @@ def test_claude_may_read_only_the_candidates_folder_and_run_3_junk_commands(worl
     (argv,) = dumps(tmp_path / "claude", "argv")
     allowed = argv[argv.index("--allowedTools") + 1 : argv.index("--add-dir")]
     candidates = review_run.rule_path(config.abs_path(cfg["paths"]["candidates"]))
-    assert candidates.startswith("//") and allowed[0] == f"Read({candidates}/**)", "Read: the candidates folder only"
+    assert candidates.startswith("//"), "Read: the candidates folder only"
+    assert allowed[0] == f"Read({candidates}/**)", "Read: the candidates folder only"
     assert [a.split(" junk ")[1] for a in allowed[1:]] == ["list)", "show *)", "decide *)"], (
         "the 3 junk commands; list exactly, so never list --all"
     )
-    assert argv[argv.index("--tools") + 1] == "Read,Bash" and "--permission-prompts" in argv
+    assert argv[argv.index("--tools") + 1] == "Read,Bash"
+    assert "--permission-prompts" in argv
 
 
 @budget(load="pure")
 def test_review_checks_need_claude_and_its_token(tmp_path):
-    from manga_pipeline import preflight
-
     cfg = {
         **config.cached(),
         "junk": {**config.cached()["junk"], "claude_path": str(tmp_path / "none"), "claude_token": None},
     }
     problem = preflight.claude_settings(cfg)
-    assert "claude_path" in problem and "claude_token" in problem, "both are needed to start Claude"
+    assert "claude_path" in problem, "both are needed to start Claude"
+    assert "claude_token" in problem, "both are needed to start Claude"
     blank = {**cfg, "junk": {**cfg["junk"], "claude_token": "  "}}
     assert "claude_token" in preflight.claude_settings(blank), "a blank token is no token"
     assert preflight.CLAUDE_SETTINGS in cli.COMMANDS["junk review"].checks
@@ -174,7 +179,7 @@ def test_review_checks_need_claude_and_its_token(tmp_path):
 
 @budget(load="subprocess", seconds=20)
 @pytest.mark.parametrize(
-    "reply, want", [(None, 0), ({"is_error": True, "subtype": "error_auth"}, 1)], ids=["success", "error"]
+    ("reply", "want"), [(None, 0), ({"is_error": True, "subtype": "error_auth"}, 1)], ids=["success", "error"]
 )
 def test_the_token_is_never_in_the_log_or_an_error(world, tmp_path, capsys, monkeypatch, reply, want):
     monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "DEBUG")
@@ -184,9 +189,11 @@ def test_the_token_is_never_in_the_log_or_an_error(world, tmp_path, capsys, monk
     code, cfg = review_cmd(tmp_path, cfg, exe)
     assert code == want
     log_text = (config.abs_path(cfg["logging"]["dir"]) / "junk-review.log").read_bytes().decode("utf-8")
-    assert "junk review" in log_text and token not in log_text, "the token is never logged"
+    assert "junk review" in log_text, "the token is never logged"
+    assert token not in log_text, "the token is never logged"
     captured = capsys.readouterr()
-    assert token not in captured.err and token not in captured.out, "nor in an error message"
+    assert token not in captured.err, "nor in an error message"
+    assert token not in captured.out, "nor in an error message"
 
 
 @budget(load="subprocess", seconds=20)
@@ -205,12 +212,10 @@ def test_the_review_child_sees_the_reviews_set_values(world, tmp_path):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "path, want",
+    ("path", "want"),
     [(r"F:\data\candidates", "//f/data/candidates"), ("/srv/manga/candidates", "//srv/manga/candidates")],
 )
 def test_an_absolute_rule_path_starts_with_two_slashes(path, want):
-    from pathlib import PurePosixPath, PureWindowsPath
-
     p = PureWindowsPath(path) if ":" in path else PurePosixPath(path)
     assert review_run.rule_path(p) == want, "Claude Code reads //path as absolute; F: becomes //f"
 

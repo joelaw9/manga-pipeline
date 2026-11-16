@@ -29,8 +29,8 @@ def services(tmp_path, monkeypatch):
     (folder / "Ch.1.cbz").write_bytes(cbz())
     kav = FakeKavita({4: ROOT, 5: "/kavita/books"}, {"/kavita": str(tmp_path)})
     kav.add_series("Alpha", "Alpha")
-    monkeypatch.setattr(suwayomi, "from_config", lambda cfg: suw)
-    monkeypatch.setattr(kavita, "from_config", lambda cfg: kav)
+    monkeypatch.setattr(suwayomi, "from_config", lambda _cfg: suw)
+    monkeypatch.setattr(kavita, "from_config", lambda _cfg: kav)
     return suw, kav
 
 
@@ -40,11 +40,15 @@ def test_smoke_prints_what_both_services_answer_and_writes_nothing(services, cap
     smoke.run(config.cached())
     out = capsys.readouterr().out
     assert "suwayomi: 1 manga in the library, 1 sources" in out
-    assert '"Re:Zero" (MangaDex (EN)): 2 chapters, 1 downloaded' in out and "  Group_Ch.1_ Start.cbz" in out
-    assert 'kavita: 2 libraries: 4 "Library 4", 5 "Library 5"' in out and "kavita: library 4 holds 1 series" in out
+    assert '"Re:Zero" (MangaDex (EN)): 2 chapters, 1 downloaded' in out
+    assert "  Group_Ch.1_ Start.cbz" in out
+    assert 'kavita: 2 libraries: 4 "Library 4", 5 "Library 5"' in out
+    assert "kavita: library 4 holds 1 series" in out
     assert f'"Alpha": 1 files, folder {tmp_path / "library" / "Alpha"}' in out
-    assert f"{tmp_path / 'library' / 'Alpha' / 'Ch.1.cbz'}" in out and "exists" in out
-    assert suw.writes == [] and kav.writes == [], "SPEC 'Services': smoke only reads"
+    assert f"{tmp_path / 'library' / 'Alpha' / 'Ch.1.cbz'}" in out
+    assert "exists" in out
+    assert suw.writes == [], "SPEC 'Services': smoke only reads"
+    assert kav.writes == [], "SPEC 'Services': smoke only reads"
 
 
 @budget(load="fs")
@@ -54,7 +58,8 @@ def test_empty_libraries_are_reported_not_a_failure(services, capsys):
     kav.series_rows.clear()
     smoke.run(config.cached())
     out = capsys.readouterr().out
-    assert "suwayomi: the library is empty" in out and "kavita: library 4 holds 0 series" in out
+    assert "suwayomi: the library is empty" in out
+    assert "kavita: library 4 holds 0 series" in out
 
 
 @budget(load="fs")
@@ -62,17 +67,20 @@ def test_kavita_is_checked_though_suwayomi_failed(services, capsys, monkeypatch)
     suw, _ = services
 
     def down():
-        raise Unreachable("suwayomi", "timed out after 60 s")
+        msg = "suwayomi"
+        raise Unreachable(msg, "timed out after 60 s")
 
     monkeypatch.setattr(suw, "library_size", down)
     with pytest.raises(smoke.Failed, match="suwayomi: Unreachable: suwayomi: timed out"):
         smoke.run(config.cached())
     out = capsys.readouterr().out
-    assert "suwayomi: FAILED" in out and "kavita: library 4 holds 1 series" in out, "SPEC 'Services': both are tried"
+    assert "suwayomi: FAILED" in out, "SPEC 'Services': both are tried"
+    assert "kavita: library 4 holds 1 series" in out, "SPEC 'Services': both are tried"
 
 
 @budget(load="fs")
-def test_a_mapped_path_that_does_not_exist_fails_the_check(services, capsys, tmp_path):
+@pytest.mark.usefixtures("services")
+def test_a_mapped_path_that_does_not_exist_fails_the_check(capsys, tmp_path):
     (tmp_path / "library" / "Alpha" / "Ch.1.cbz").unlink()
     with pytest.raises(smoke.Failed, match="1 of 1 mapped paths do not exist"):
         smoke.run(config.cached())
@@ -80,9 +88,10 @@ def test_a_mapped_path_that_does_not_exist_fails_the_check(services, capsys, tmp
 
 
 @budget(load="fs")
-def test_a_library_id_kavita_does_not_have_fails_the_check(services):
+@pytest.mark.usefixtures("services")
+def test_a_library_id_kavita_does_not_have_fails_the_check():
     cfg = {**config.cached(), "kavita": {**config.cached()["kavita"], "library_id": 9}}
-    with pytest.raises(smoke.Failed, match="kavita.library_id 9 is none of Kavita's libraries"):
+    with pytest.raises(smoke.Failed, match=r"kavita\.library_id 9 is none of Kavita's libraries"):
         smoke.run(cfg)
 
 

@@ -96,6 +96,7 @@ class CannedService(http.Service):
         self.options = []  # (timeout, retry_timeout) per request
 
     def request(self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True, retries=None):
+        del retries  # the real request's parameter, passed by keyword; the fake does not retry
         if self._down is not None:
             raise Unreachable(self.name, self._down)
         parts = urllib.parse.urlsplit(url)
@@ -103,20 +104,21 @@ class CannedService(http.Service):
         self.sent.append((method, path, json))
         self.options.append((timeout, retry_timeout))
         self.headers = headers
-        for prefix, value in self.answers.items():
+        for prefix, answer in self.answers.items():
             if path.startswith(prefix):
-                if isinstance(value, Each):
-                    value = value.pop(0)
+                value = answer.pop(0) if isinstance(answer, Each) else answer
                 if callable(value):
                     value = value(method, path, json)
                 if isinstance(value, BaseException):
                     raise value
                 return value if isinstance(value, http.Response) else reply(value, service=self.name)
-        raise AssertionError(f"CannedService {self.name}: no answer for {method} {path}")
+        msg = f"CannedService {self.name}: no answer for {method} {path}"
+        raise AssertionError(msg)
 
 
 class NoNetwork(http.Service):
     """The Service of a fake client: any request means the fake misses an override."""
 
-    def request(self, method, url, **kwargs):
-        raise AssertionError(f"{self.name} fake: unexpected request {method} {http.redact_url(url)}")
+    def request(self, method, url, **_kwargs):
+        msg = f"{self.name} fake: unexpected request {method} {http.redact_url(url)}"
+        raise AssertionError(msg)

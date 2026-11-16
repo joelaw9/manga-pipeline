@@ -169,7 +169,7 @@ def test_record_that_is_not_json_is_refused(tmp_path):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "rec, msg",
+    ("rec", "msg"),
     [
         pytest.param({"pipeline_version": 3, "naming": {}, "chapters": []}, "record schema None: ", id="v1-no-schema"),
         pytest.param(["not", "a", "record"], "record is a list, not an object", id="not-an-object"),
@@ -186,11 +186,11 @@ def test_unusable_file_is_refused(tmp_path, rec, msg):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "change, exc, msg",
+    ("change", "exc", "msg"),
     [
         pytest.param(_set(("schema",), 5), record.RecordError, "record schema 5: only schema 3 and 4", id="schema-5"),
         pytest.param(_set(("schema",), 2), record.RecordError, "record schema 2: only schema 3 and 4", id="schema-2"),
-        pytest.param(_set(("schema",), True), record.RecordError, "record schema True", id="schema-bool"),
+        pytest.param(_set(("schema",), value=True), record.RecordError, "record schema True", id="schema-bool"),
         pytest.param(
             _set(("folders",), []),
             record.RecordError,
@@ -251,7 +251,7 @@ def test_trash_run_and_trash_folder_go_together(change):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "change, msg",
+    ("change", "msg"),
     [
         pytest.param(_set(("runs",), []), "record: no runs", id="no-runs"),
         pytest.param(_delete(("series", "covers")), r"series\.covers missing or not an object", id="series-key"),
@@ -301,5 +301,5 @@ def test_decisions_of_any_object_shape_pass():
 def test_a_malformed_calibration_is_a_broken_record(groups):
     rec = pilot_record()
     rec["series"]["calibration"] = {"groups": groups}
-    with pytest.raises(record.RecordError, match="calibration.groups"):
+    with pytest.raises(record.RecordError, match=r"calibration\.groups"):
         record.check(rec)

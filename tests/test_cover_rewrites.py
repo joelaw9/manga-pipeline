@@ -52,7 +52,7 @@ def jpeg(width=64, colour=(40, 40, 200)):
     return out.getvalue()
 
 
-def bulk_file(name, number, cover=False, mixed=False):
+def bulk_file(name, number, *, cover=False, mixed=False):
     """A bulk-converted CBZ (its ComicInfo as the bulk converter wrote it, with Page entries): a 000_cover page first
     when cover, a JPEG page among its PNG pages when mixed."""
     data = io.BytesIO()
@@ -77,7 +77,7 @@ def library(world, cover=(), mixed=()):
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", "1"))
     kid = world.kavita_series(SERIES, bulk=bulk, basis="filename")
     for name, number in (("Vol.1 Ch.1.cbz", 1), ("Vol.1 Ch.2.cbz", 2)):
-        (world.library / SERIES / name).write_bytes(bulk_file(name, number, name in cover, name in mixed))
+        (world.library / SERIES / name).write_bytes(bulk_file(name, number, cover=name in cover, mixed=name in mixed))
     world.kavita.scan_library(4)
     world.kavita.run_scans()
     world.download(world.manga(SERIES), "Chapter 3", data=cbz(pages=4, seed="3"))
@@ -152,8 +152,10 @@ def test_a_cover_stored_after_publish_is_inserted_with_its_volume_in_1_rewrite_a
     assert files(world) == ["Vol.1 Ch.1.cbz", "Vol.1 Ch.2.cbz", "Vol.2 Ch.3.cbz"]
     names_, fields, pages = members(world, "Vol.2 Ch.3.cbz")
     assert names_[0] == "000_cover" + names_[1][3:], "the cover goes in first, in the format of the chapter's pages"
-    assert pages[0]["Type"] == "FrontCover" and [p["Image"] for p in pages] == [str(i) for i in range(len(pages))]
-    assert fields["PageCount"] == str(len(pages)) and fields["Volume"] == "2"
+    assert pages[0]["Type"] == "FrontCover"
+    assert [p["Image"] for p in pages] == [str(i) for i in range(len(pages))]
+    assert fields["PageCount"] == str(len(pages))
+    assert fields["Volume"] == "2"
     assert states(world)[f"library/{SERIES}/Vol.2 Ch.3.cbz"] == "volume:2"
     scan(world)
     world.run(export)
@@ -171,7 +173,8 @@ def test_a_moved_boundary_drops_the_old_volumes_cover(world):
     kid = library(world, cover=("Vol.1 Ch.2.cbz",))
     recorded_covers(world, kid, {1: "Vol.1 Ch.2.cbz"})
     world.run(export)  # the covers read again: Ch.2 holds volume 1's, in volume 1: kept
-    assert rewrites(world) == [] and states(world)[f"library/{SERIES}/Vol.1 Ch.2.cbz"] == "volume:1"
+    assert rewrites(world) == []
+    assert states(world)[f"library/{SERIES}/Vol.1 Ch.2.cbz"] == "volume:1"
     read(world, kid, "Vol.1 Ch.2.cbz", 3)
     override(world, {1: "1", 2: "2-"})
     world.run(export)
@@ -179,8 +182,11 @@ def test_a_moved_boundary_drops_the_old_volumes_cover(world):
     world.run(process)
     world.run(export)
     names_, fields, pages = members(world, "Vol.1 Ch.2.cbz")
-    assert "000_cover.png" not in names_ and fields["Volume"] == "2"
-    assert len(pages) == 4 and "Type" not in pages[0] and [p["Image"] for p in pages] == ["0", "1", "2", "3"]
+    assert "000_cover.png" not in names_
+    assert fields["Volume"] == "2"
+    assert len(pages) == 4
+    assert "Type" not in pages[0]
+    assert [p["Image"] for p in pages] == ["0", "1", "2", "3"]
     assert states(world)[f"library/{SERIES}/Vol.1 Ch.2.cbz"] == "none"
     scan(world)
     world.run(export)
@@ -290,7 +296,8 @@ def test_a_wanted_cover_failing_to_the_limit_is_listed_and_no_longer_fetched(wor
     for _ in range(4):
         world.run(intake)
     ((attempts, error),) = world.rows("SELECT attempts, last_error FROM volume_cover_wanted")
-    assert attempts == 3 and "not an image" in error, "3 attempts (workflow.attempt_limit), then left"
+    assert attempts == 3, "3 attempts (workflow.attempt_limit), then left"
+    assert "not an image" in error, "3 attempts (workflow.attempt_limit), then left"
     with db.read_only(world.cfg) as conn:
         report = " | ".join(status.report(conn))
     assert "volume 2 cover not fetched" in report
@@ -356,7 +363,8 @@ def test_shift_pages_adds_a_front_cover_or_takes_the_dropped_page_out():
     cover = {"bytes": 10, "width": 5, "height": 7}
     added = rewrite_covers.shift_pages(dropped, {"dropped_index": None, "cover": cover, "inserted_index": 0})
     assert added[0] == {"Image": "0", "Type": "FrontCover", "ImageSize": "10", "ImageWidth": "5", "ImageHeight": "7"}
-    assert [e["Image"] for e in added] == ["0", "1", "2"] and added[2]["DoublePage"] == "true"
+    assert [e["Image"] for e in added] == ["0", "1", "2"]
+    assert added[2]["DoublePage"] == "true"
     assert rewrite_covers.shift_pages([], {"dropped_index": None, "cover": cover, "inserted_index": 0}) == []
     later = rewrite_covers.shift_pages(dropped, {"dropped_index": None, "cover": cover, "inserted_index": 1})
     assert [(e["Image"], e.get("Type")) for e in later] == [("0", None), ("1", "FrontCover"), ("2", None)], (
@@ -371,7 +379,7 @@ def test_validate_gives_no_second_cover_to_a_volume_a_published_file_is_queued_t
     store_image(world, 2, png(900))
     world.run(export)
     world.run(process)
-    monkeypatch.setattr(retention, "put_library", lambda *a: (_ for _ in ()).throw(PermissionError("denied")))
+    monkeypatch.setattr(retention, "put_library", lambda *_a: (_ for _ in ()).throw(PermissionError("denied")))
     world.run(export)  # published (queued as volume 2 with its cover), not finished
     monkeypatch.undo()
     assert world.rows("SELECT comicinfo_volume, pending_cover FROM published_file WHERE id = 3") == [(None, "volume:2")]
@@ -414,7 +422,7 @@ def test_mangadex_down_with_a_wanted_cover_spends_no_attempt_and_intake_goes_on(
         RETURNING series_id"""
     )
     error = http.Timeout("slow") if failure == "timeout" else http.HttpError(503, "https://uploads.mangadex.org/x", b"")
-    monkeypatch.setattr(cover_images, "volume_cover", lambda *a: (_ for _ in ()).throw(error))
+    monkeypatch.setattr(cover_images, "volume_cover", lambda *_a: (_ for _ in ()).throw(error))
     manga = next(i for i, m in world.suwayomi.manga_rows.items() if m["title"] == SERIES)
     world.download(manga, "Chapter 4", data=cbz(pages=4, seed="4"))
     world.run(intake)
@@ -434,7 +442,7 @@ def test_a_failed_cover_refresh_leaves_the_file_waiting_and_a_volume_only_rewrit
     world.run(export)
     world.run(process)
     world.run(export)
-    monkeypatch.setattr(world.kavita, "refresh_covers", lambda *a: (_ for _ in ()).throw(RuntimeError("busy")))
+    monkeypatch.setattr(world.kavita, "refresh_covers", lambda *_a: (_ for _ in ()).throw(RuntimeError("busy")))
     scan(world)
     world.run(export)
     monkeypatch.undo()

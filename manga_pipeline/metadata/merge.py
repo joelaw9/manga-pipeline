@@ -8,6 +8,7 @@ D7.11): age rating from MangaBaka, language from MangaDex, writers and penciller
 
 import html.parser
 from dataclasses import dataclass
+from typing import override
 
 from markdown_it import MarkdownIt
 
@@ -132,12 +133,13 @@ def _base36(number):
 class _Text(html.parser.HTMLParser):
     """An HTML fragment's text: a line break for <br>, <p> and </p>, every other tag dropped, entities decoded."""
 
-    BREAKS = {"br", "p"}
+    BREAKS = frozenset({"br", "p"})
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts = []
 
+    @override
     def handle_starttag(self, tag, attrs):
         if tag in self.BREAKS:
             self.parts.append("\n")

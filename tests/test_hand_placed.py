@@ -100,7 +100,8 @@ def test_a_near_hit_folder_is_held_and_series_link_folder_settles_it(world):
     place(world, "Local/Kaiju No. 8", "Chapter 1")
     scan(world)
     ((series_id, status_, reason),) = world.rows("SELECT id, status, status_reason FROM series")
-    assert status_ == "needs_human" and 'series link --folder "Local/Kaiju No. 8" KAVITA_SERIES_ID' in reason
+    assert status_ == "needs_human"
+    assert 'series link --folder "Local/Kaiju No. 8" KAVITA_SERIES_ID' in reason
     assert link(world, kavita_id, "Local/Kaiju No. 8") == series_id, "the folder's held row is the one linked"
     with closing(db.connect(world.cfg)) as conn:
         workflow.retry_series(conn, series_id)
@@ -205,7 +206,7 @@ def test_a_file_the_comicinfo_read_cannot_open_says_nothing_but_a_failing_share_
 
     monkeypatch.setattr(archive, "read_comicinfo", share_gone)
     place(world, "Local/Other export", "Chapter 1")
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="I/O error"):
         scan(world)
 
 

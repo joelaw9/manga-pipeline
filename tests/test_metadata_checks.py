@@ -4,12 +4,14 @@ every library series, storing ids, records and covers, holding a series whose id
 import io
 import json
 from contextlib import closing
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from PIL import Image
 
 from manga_pipeline import db, intake
 from manga_pipeline.clients import http
+from manga_pipeline.metadata import check
 
 from tests.timing import budget
 from tests.world import World
@@ -54,7 +56,8 @@ def test_every_library_series_gets_a_row_and_a_first_check_finding_nothing_compl
     sid = series_id(world, kavita_id)
     assert checks(world) == [(sid, 1, False)], "a check that found nothing completes: data version 0 -> 1"
     stored = world.rows("SELECT source, kind, payload IS NULL FROM fetched WHERE series_id = %s ORDER BY 1, 2", sid)
-    assert all(none for _, _, none in stored) and len(stored) == 6, "each source's kinds stored as not found"
+    assert all(none for _, _, none in stored), "each source's kinds stored as not found"
+    assert len(stored) == 6, "each source's kinds stored as not found"
     names = [c[2] for c in world.sources.calls if c[1] == "search"]
     assert "Solo Leveling" in names, "a source with no id is searched by the series' name"
     world.run(intake)
@@ -93,7 +96,8 @@ def test_ids_that_disagree_hold_the_series_and_store_both(world):
     world.run(intake)
     sid = series_id(world, kavita_id)
     reason = world.rows("SELECT status, status_reason FROM series WHERE id = %s", sid)[0]
-    assert reason[0] == "needs_human" and "anilist ids disagree: 1 (kavita), 2 (suwayomi)" in reason[1]
+    assert reason[0] == "needs_human"
+    assert "anilist ids disagree: 1 (kavita), 2 (suwayomi)" in reason[1]
     assert checks(world) == [], "a held check does not complete"
     assert world.sources.calls == [], "no source is asked"
 
@@ -157,12 +161,14 @@ def test_a_new_chapter_makes_its_series_check_run_beyond_the_cap(world):
 def test_a_source_that_cannot_be_reached_leaves_the_check_due_with_nothing_stored(world, monkeypatch):
     world.kavita_series("Solo Leveling")
 
-    def down(name):
-        raise http.Unreachable("mangabaka", "down")
+    def down(_name):
+        msg = "mangabaka"
+        raise http.Unreachable(msg, "down")
 
     monkeypatch.setattr(world.sources.mangabaka, "search", down)
     world.run(intake)
-    assert checks(world) == [] and world.rows("SELECT count(*) FROM fetched") == [(0,)]
+    assert checks(world) == []
+    assert world.rows("SELECT count(*) FROM fetched") == [(0,)]
 
 
 @budget(load="db")
@@ -196,9 +202,8 @@ def test_the_cover_is_a_wide_thumbnail_else_mangadex_volume_1_in_english(world):
     world.run(intake)
     sid = series_id(world, kavita_id)
     url, path = world.rows("SELECT source_url, path FROM series_cover WHERE series_id = %s", sid)[0]
-    assert url == f"mangadex:{MD}/v1.png" and path.startswith("covers/series/"), (
-        "English volume 1 beats a thin thumbnail"
-    )
+    assert url == f"mangadex:{MD}/v1.png", "English volume 1 beats a thin thumbnail"
+    assert path.startswith("covers/series/"), "English volume 1 beats a thin thumbnail"
     world.suwayomi.thumbnails[manga] = png(1600)
     execute(world, "UPDATE series_check SET next_check_at = '2000-01-01T00:00:00+00:00'")
     world.run(intake)
@@ -235,7 +240,7 @@ def test_a_check_that_fails_on_a_bad_reply_holds_the_chapter_until_it_completes(
     manga = world.manga("Solo Leveling")
     world.suwayomi.thumbnails[manga] = b"<html>challenge</html>"
     world.download(manga, "Chapter 2")
-    monkeypatch.setattr(world.sources.mangaupdates, "search", lambda name: [{"unexpected": "shape"}])
+    monkeypatch.setattr(world.sources.mangaupdates, "search", lambda _name: [{"unexpected": "shape"}])
     world.run(intake)
     assert world.rows("SELECT stage, waiting_on, attempts FROM chapter") == [("validate", "metadata_check", 0)], (
         "a series never checked holds its chapter at validate, at no attempt: its name and covers need the data"
@@ -257,8 +262,9 @@ def test_kavita_unreachable_skips_the_metadata_step_not_validation(world, monkey
     world.run(intake)
     world.download(manga, "Chapter 3")
 
-    def down(library_id):
-        raise http.Unreachable("kavita", "down")
+    def down(_library_id):
+        msg = "kavita"
+        raise http.Unreachable(msg, "down")
 
     monkeypatch.setattr(world.kavita, "series_in_library", down)
     world.run(intake)
@@ -309,10 +315,6 @@ def test_the_sweep_never_links_a_series_out_of_scope(tmp_path):
     [(10, False, 7), (200, False, 30), (200, True, 30), (400, True, 365), (400, False, 30), (None, True, 365)],
 )
 def test_the_next_check_follows_the_last_published_update(tmp_path, last_days, complete, days):
-    from datetime import UTC, datetime, timedelta
-
-    from manga_pipeline.metadata import check
-
     cfg = World(tmp_path).cfg
     now = datetime(2026, 11, 1, tzinfo=UTC)
     last = None if last_days is None else now - timedelta(days=last_days)

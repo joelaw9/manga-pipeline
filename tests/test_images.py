@@ -53,11 +53,11 @@ def page_class(rgb, limits=LIMITS):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "make, want",
+    ("make", "want"),
     [
-        (lambda p: fx.jpeg(p), images.JPEG),
-        (lambda p: fx.png(p), images.PNG),
-        (lambda p: fx.webp(p), images.WEBP_LOSSY),
+        (fx.jpeg, images.JPEG),
+        (fx.png, images.PNG),
+        (fx.webp, images.WEBP_LOSSY),
         (lambda p: fx.webp(p, lossless=True), images.WEBP_LOSSLESS),
         (lambda p: fx.encode(p, "AVIF", quality=60), images.AVIF),
         (lambda p: fx.encode(p.convert("P"), "GIF"), images.GIF),
@@ -135,7 +135,7 @@ def test_extended_webp_needs_the_whole_file(extended):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "data, want",
+    ("data", "want"),
     [
         (riff((b"VP8X", bytes(10)), (b"ICCP", bytes(3)), (b"VP8L", bytes(5))), images.WEBP_LOSSLESS),
         (riff((b"VP8X", bytes(10)), (b"ANIM", bytes(6))), images.WEBP_ANIMATED),
@@ -164,11 +164,11 @@ def test_broken_downloads_are_unknown(data):
 @pytest.mark.parametrize(
     "make",
     [
-        lambda p: fx.webp(p),
+        fx.webp,
         lambda p: fx.webp(p, lossless=True),
         lambda p: fx.webp(p, extended=True),
-        lambda p: fx.jpeg(p),
-        lambda p: fx.png(p),
+        fx.jpeg,
+        fx.png,
     ],
     ids=["webp-lossy", "webp-lossless", "webp-vp8x", "jpeg", "png"],
 )
@@ -180,9 +180,9 @@ def test_dimensions_from_header_only(make):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "make, n",
+    ("make", "n"),
     [
-        (lambda p: fx.webp(p), 30),
+        (fx.webp, 30),
         (lambda p: fx.webp(p, extended=True), 30),
         (lambda p: fx.webp(p, lossless=True), 25),
     ],
@@ -215,7 +215,7 @@ def test_file_dimensions_reads_a_path(tmp_path):
 def test_file_dimensions_reads_an_open_file(tmp_path):
     p = tmp_path / "p.webp"
     p.write_bytes(fx.webp(fx.webtoon_page((200, 300))))
-    with open(p, "rb") as f:
+    with Path(p).open("rb") as f:
         assert images.file_dimensions(f) == (200, 300), "file_dimensions takes an open binary file"
 
 
@@ -304,7 +304,7 @@ def test_srgb_profile_variants_are_srgb(name):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "icc, want",
+    ("icc", "want"),
     [(None, True), (b"", True), (b"junk sRGB junk", True), (b"junk", False)],
     ids=["none", "empty", "unparsable-naming-srgb", "unparsable"],
 )
@@ -439,7 +439,7 @@ def test_real_alpha_is_composited_onto_white(data):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "data, want",
+    ("data", "want"),
     [
         (lambda: fx.jpeg(fx.webtoon_page((W, H))), False),
         (lambda: fx.png(fx.webtoon_page((W, H))), False),
@@ -454,8 +454,9 @@ def test_may_have_alpha_reads_only_the_header(tmp_path, monkeypatch, data, want)
     p = tmp_path / "page"
     p.write_bytes(data())
 
-    def no_decode(*args, **kw):
-        raise AssertionError("may_have_alpha decoded pixels")
+    def no_decode(*_args, **_kw):
+        msg = "may_have_alpha decoded pixels"
+        raise AssertionError(msg)
 
     monkeypatch.setattr(ImageFile.ImageFile, "load", no_decode)
     assert images.may_have_alpha(p) is want, "an alpha band or a transparency entry in the header allows alpha"
@@ -480,12 +481,14 @@ def test_to_gray_drops_a_colour_profile():
 def test_to_gray_keeps_a_gray_profile():
     im = fx.manga_page((40, 40)).convert("L")
     im.info["icc_profile"] = (fx.PAGE_FIX / "icc_gray_azumi.icc").read_bytes()
-    assert "icc_profile" in images.to_gray(im, False).info, "a GRAY profile describes gray pixels and stays"
+    assert "icc_profile" in images.to_gray(im, alpha=False).info, "a GRAY profile describes gray pixels and stays"
 
 
 @budget(load="pure")
 def test_to_gray_keeps_alpha():
-    assert images.to_gray(Image.new("RGBA", (4, 4), (10, 20, 30, 0)), True).mode == "LA", "a page with alpha is LA"
+    assert images.to_gray(Image.new("RGBA", (4, 4), (10, 20, 30, 0)), alpha=True).mode == "LA", (
+        "a page with alpha is LA"
+    )
 
 
 @budget(load="fs")
@@ -535,7 +538,7 @@ def test_wide_or_tall_mark_is_colour(box):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "box, want",
+    ("box", "want"),
     [
         ((400, 1648, 368, 40), images.GRAY_MARK),
         ((400, 1648, 376, 40), images.COLOUR),
@@ -562,7 +565,7 @@ def test_mark_size_limits(box, want):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "limit, want",
+    ("limit", "want"),
     [(0.0062, images.GRAY_MARK), (0.0061, images.COLOUR)],
     ids=["cap-above-mark", "cap-below-mark"],
 )
@@ -602,7 +605,7 @@ def test_mark_limits_come_from_the_caller():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("threshold, want", [(99, images.COLOUR), (100, images.GRAY)], ids=["below", "at"])
+@pytest.mark.parametrize(("threshold", "want"), [(99, images.COLOUR), (100, images.GRAY)], ids=["below", "at"])
 def test_colour_strength_is_the_strongest_tile_mean(threshold, want):
     """An 8 x 8 tile half filled with spread 200 has mean 100; the patch covers 1 of 4 tiles, never a gray mark."""
     rgb = np.zeros((16, 16, 3), np.uint8)
@@ -623,7 +626,7 @@ def test_page_smaller_than_a_tile_uses_its_max_spread(shape):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "box, want",
+    ("box", "want"),
     [((940, 1683, 260, 40), (912, 1656, 1200, 1720)), ((0, 0, 260, 40), (0, 0, 288, 64))],
     ids=["bottom-right", "top-left"],
 )
@@ -662,7 +665,7 @@ def test_page_whose_strongest_tile_is_at_the_threshold_is_gray():
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "limits, want",
+    ("limits", "want"),
     [
         (dict(LIMITS, mark_max_w=0.26), images.GRAY_MARK),
         (dict(LIMITS, mark_max_h=96 / 1723), images.GRAY_MARK),
@@ -679,7 +682,7 @@ def test_mark_limits_at_equality(limits, want):
 
 
 @budget(load="fs")
-@pytest.mark.parametrize("spread, want", [(6, images.GRAY), (7, images.TINTED)], ids=["at-threshold", "above"])
+@pytest.mark.parametrize(("spread", "want"), [(6, images.GRAY), (7, images.TINTED)], ids=["at-threshold", "above"])
 def test_tint_threshold(spread, want):
     rgb = np.full((1723, 1200, 3), 128, np.uint8)
     rgb[..., 1] = 128 + spread

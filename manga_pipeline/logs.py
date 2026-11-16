@@ -15,9 +15,11 @@ def setup(cfg, command):
     <command>.log unless command is None. Returns the log file path, or None."""
     settings = cfg["logging"]
     if settings["level"] not in LEVELS:
-        raise config.ConfigError(f"logging.level must be one of {', '.join(LEVELS)}, got {settings['level']!r}")
+        msg = f"logging.level must be one of {', '.join(LEVELS)}, got {settings['level']!r}"
+        raise config.ConfigError(msg)
     if settings["keep_days"] < 1:
-        raise config.ConfigError(f"logging.keep_days must be at least 1, got {settings['keep_days']}")
+        msg = f"logging.keep_days must be at least 1, got {settings['keep_days']}"
+        raise config.ConfigError(msg)
     handlers = [logging.StreamHandler()]
     path = None
     if command is not None:

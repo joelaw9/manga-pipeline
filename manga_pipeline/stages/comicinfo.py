@@ -36,7 +36,8 @@ LEFT_TO_RIGHT = {"manhwa", "manhua", "korean", "chinese", "webtoon", "long strip
 def run(ctx, chapter):
     series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
     if not series["comicinfo_series"]:
-        raise ValueError(f"series {series['id']} has no ComicInfo Series name (no baseline)")
+        msg = f"series {series['id']} has no ComicInfo Series name (no baseline)"
+        raise ValueError(msg)
     if baseline.needed(ctx.conn, series):  # a chapter past validate when the baseline's naming fields were added
         why = baseline.take(ctx, series)
         if why:
@@ -107,8 +108,14 @@ def _copy_name(ctx, chapter):
         return None
     f = _file(ctx, chapter)
     volume = names.to_volume(f["comicinfo_volume"])
-    return naming.Naming(f["kind"], volume, float(f["comicinfo_number"]), f["comicinfo_title"] or "",
-                         f["volume_source"], False)  # fmt: skip
+    return naming.Naming(
+        f["kind"],
+        volume,
+        float(f["comicinfo_number"]),
+        f["comicinfo_title"] or "",
+        f["volume_source"],
+        opens_covered_volume=False,
+    )
 
 
 def series_fields(ctx, series, chapter, group):
@@ -151,5 +158,6 @@ def page_entries(pages, cover, spreads):
 def _layout(conn, series_id):
     row = conn.execute("SELECT layout FROM series_conversion WHERE series_id = %s", (series_id,)).fetchone()
     if row is None:
-        raise RuntimeError(f"series {series_id} has no layout (series_conversion)")
+        msg = f"series {series_id} has no layout (series_conversion)"
+        raise RuntimeError(msg)
     return row["layout"]

@@ -16,11 +16,37 @@ MAIN, SIDE = names.MAIN, names.SIDE
 
 
 def pub(file_id, number, volume, source, kind=MAIN, season=None):
-    return Row(("published", file_id), True, kind, float(number), season, None, volume, source, "", "", None, file_id)
+    return Row(
+        key=("published", file_id),
+        settled=True,
+        kind=kind,
+        number=float(number),
+        season=season,
+        src_volume=None,
+        volume=volume,
+        volume_source=source,
+        marker_title="",
+        title="",
+        date=None,
+        order=file_id,
+    )
 
 
 def new(key, number, src_volume=None):
-    return Row(key, False, MAIN, float(number), None, src_volume, None, None, "", "", None, 1000 + key)
+    return Row(
+        key=key,
+        settled=False,
+        kind=MAIN,
+        number=float(number),
+        season=None,
+        src_volume=src_volume,
+        volume=None,
+        volume_source=None,
+        marker_title="",
+        title="",
+        date=None,
+        order=1000 + key,
+    )
 
 
 @budget(load="fs")

@@ -7,7 +7,6 @@ never sees half a file.
 """
 
 import hashlib
-import os
 import re
 import struct
 import zipfile
@@ -27,7 +26,7 @@ FIXED_TIME = (1980, 1, 1, 0, 0, 0)  # every member's date: the same members give
 UNREADABLE = (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError, ValueError, struct.error)
 # Kavita's Parser.CoverImageRegex: a page named like this is the archive's cover
 COVER_NAME = re.compile(
-    r"(?<!back[\s_-])(?<!\(back )(?<!back)(?:^|[^a-zA-Z0-9])(!?cover|folder)(?![a-zA-Z0-9]|s\b)", re.I
+    r"(?<!back[\s_-])(?<!\(back )(?<!back)(?:^|[^a-zA-Z0-9])(!?cover|folder)(?![a-zA-Z0-9]|s\b)", re.IGNORECASE
 )
 
 
@@ -123,7 +122,7 @@ def write(dest, members):
                 info.external_attr = 0
                 z.writestr(info, data)
         size = part.stat().st_size
-        os.replace(part, dest)
+        part.replace(dest)
     except BaseException:
         part.unlink(missing_ok=True)
         raise
@@ -150,8 +149,10 @@ def test(cbz, size):
     """Raise when cbz is not `size` bytes or fails the zip test (a CRC or a member it cannot read)."""
     actual = Path(cbz).stat().st_size
     if actual != size:
-        raise OSError(f"{cbz} is {actual} bytes, expected {size}")
+        msg = f"{cbz} is {actual} bytes, expected {size}"
+        raise OSError(msg)
     with zipfile.ZipFile(cbz) as z:
         bad = z.testzip()
     if bad is not None:
-        raise zipfile.BadZipFile(f"{cbz}: member {bad} fails its CRC")
+        msg = f"{cbz}: member {bad} fails its CRC"
+        raise zipfile.BadZipFile(msg)

@@ -44,7 +44,8 @@ def test_a_rule_edit_changes_the_lists_and_the_fingerprint(tmp_path, rules):
     edited = tags.load(folder)
     assert edited.fingerprint != rules.fingerprint, "an edited rule file changes the fingerprint"
     before, after = tags.compute(records(fixture), rules)[1], tags.compute(records(fixture), edited)[1]
-    assert "Angels" in before and "Angels" not in after, "the edit reaches the series from its stored records alone"
+    assert "Angels" in before, "the edit reaches the series from its stored records alone"
+    assert "Angels" not in after, "the edit reaches the series from its stored records alone"
 
 
 @budget()
@@ -55,7 +56,8 @@ def test_a_series_no_source_knows_has_no_genres_or_tags(rules):
 @budget()
 def test_mangaupdates_plural_markers_and_a_final_s_are_one_name():
     assert tags.term_key("Concubine/s") == tags.term_key("Concubines") == tags.term_key("concubine"), "1 name"
-    assert tags.term_key("Elf/ves") == tags.term_key("Elf") and tags.display_name("Angel/s") == "Angel", "1 name"
+    assert tags.term_key("Elf/ves") == tags.term_key("Elf"), "1 name"
+    assert tags.display_name("Angel/s") == "Angel", "1 name"
 
 
 @budget()
@@ -78,7 +80,8 @@ def mb_with(*named, genres=()):
 def test_a_promoted_tag_needs_its_minimum_mangabaka_weight(rules):
     weak = tags.compute({("mangabaka", "series"): mb_with(("Revenge", "incidental"))}, rules)[1]
     strong = tags.compute({("mangabaka", "series"): mb_with(("Revenge", "recurrent"))}, rules)[1]
-    assert "Revenge" not in weak and "Revenge" in strong, "promote_tags.txt: Revenge: recurrent"
+    assert "Revenge" not in weak, "promote_tags.txt: Revenge: recurrent"
+    assert "Revenge" in strong, "promote_tags.txt: Revenge: recurrent"
 
 
 @budget()

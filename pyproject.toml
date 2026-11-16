@@ -22,16 +22,40 @@ dev = [
     "hypothesis",
     "xmlschema",
     "coverage",
-    "ruff",
+    # Exact pins: select = ["ALL"] takes in every rule a new ruff release adds; upgrading is a deliberate change.
+    "ruff==0.17.3",
+    "basedpyright==1.40.2",
 ]
 
 [tool.ruff]
 line-length = 120
 target-version = "py313"
-extend-exclude = ["tests/timing.py"]  # copied from the unit-tests skill; kept as shipped
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP"]
+select = ["ALL"]
+ignore = [
+    "COM", "CPY", "ANN",          # not used (ANN: to revisit once basedpyright is in)
+    "ISC001", "W191", "E111", "E114", "E117", "D206", "D300", "Q000", "Q001", "Q002", "Q003",  # the formatter's job
+    "D203", "D213",               # incompatible with D211 / D212, which are kept (ruff must drop 1 of each pair)
+    "BLE001",                     # every catch-all is deliberate: a stage, row or check boundary, or Pillow's many errors
+    "S603",                       # every subprocess call is list-form with runtime arguments, no shell
+    "S310",                       # Service.request refuses a URL that is not http or https before opening it
+    "S314",                       # xml.etree on expat >= 2.4.1 resists entity expansion and resolves no external entity
+    "TRY004",                     # every isinstance check validates a parsed YAML file: a value error, not a type error
+    "S105",                       # every hit is a false positive (a meta key name; a fake test token)
+    # lint phase: pending (rules the next lint PRs resolve; this block shrinks to nothing)
+    "D", "S608", "S324", "TRY301", "TRY400", "N812", "N818", "SLOT001", "PLW0603", "C901", "PLR0911", "PLR0912",
+    "PLR0913", "PLR0915", "PLR0917", "PLR2004", "SLF001",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR2004", "S311"]                  # pytest asserts; literal expectations and test data; seeded data
+"tests/test_*.py" = ["D103", "PLR0913"]                   # a test's name is its statement; pytest injects fixtures by name
+"tests/fakes/**" = ["D1"]                                 # a fake imitates a documented real class
+"manga_pipeline/{cli,smoke,status}.py" = ["T201"]         # printing is these modules' job: a command's own output
+"manga_pipeline/metadata/audit.py" = ["T201"]
+"tests/fake_claude.py" = ["T201"]                         # a fake CLI whose stdout is its result
+"manga_pipeline/junk/ocr.py" = ["PLC0415"]                # lint phase: pending
 
 [tool.ruff.lint.isort]
 known-local-folder = ["tests"]

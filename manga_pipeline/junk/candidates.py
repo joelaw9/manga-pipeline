@@ -181,7 +181,8 @@ def join(conn, series_key, picks, at):
         row = find(conn, decisions, p["kind"], p["key"])
         if row is None:
             if "folder" not in p:
-                raise Gone(f"junk candidate for {p['kind']} {p['key'][:40]} was cleaned up meanwhile")
+                msg = f"junk candidate for {p['kind']} {p['key'][:40]} was cleaned up meanwhile"
+                raise Gone(msg)
             new = conn.execute(
                 """INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",

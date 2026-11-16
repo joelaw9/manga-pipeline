@@ -92,7 +92,8 @@ def test_a_new_size_on_the_same_thread_gets_its_own_handle(scorer):
     here = [scorer.score(*pr) for pr in pairs]
     with ThreadPoolExecutor(1) as t:
         fresh = [t.submit(scorer.score, *pr).result() for pr in pairs[:2]]
-    assert here[:2] == fresh and here[0] == here[2], "each size scores as on a fresh thread"
+    assert here[:2] == fresh, "each size scores as on a fresh thread"
+    assert here[0] == here[2], "each size scores as on a fresh thread"
 
 
 @pytest.mark.gpu
@@ -147,8 +148,8 @@ def test_a_handle_vship_fails_to_free_raises_with_vships_message():
         "Lib",
         (),
         {
-            "Vship_FreeHandler": staticmethod(lambda ptr: 5),
-            "Vship_GetDetailedLastError": staticmethod(lambda buf, n: 0),
+            "Vship_FreeHandler": staticmethod(lambda _ptr: 5),
+            "Vship_GetDetailedLastError": staticmethod(lambda _buf, _n: 0),
         },
     )()
     h = object.__new__(vship._Handle)

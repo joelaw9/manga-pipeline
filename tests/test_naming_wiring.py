@@ -66,7 +66,7 @@ def test_a_named_side_story_held_at_publish_keeps_its_number(world, monkeypatch)
     """A chapter comicinfo named keeps its name while it is needs_human: the next side story is numbered after it."""
     world.kavita_series("Solo Leveling")
     manga = world.manga("Solo Leveling")
-    monkeypatch.setattr(publish, "run", lambda ctx, chapter: workflow.NeedsHuman("held for the test"))
+    monkeypatch.setattr(publish, "run", lambda _ctx, _chapter: workflow.NeedsHuman("held for the test"))
     world.download(manga, "Side Story 1", scanlator="Grp")
     for part in (intake, process, export):
         world.run(part)
@@ -170,7 +170,8 @@ def test_a_volume_cover_mangadex_no_longer_serves_gives_no_cover(world, monkeypa
     world.download(manga, "Chapter 3", scanlator="Grp")
     world.run(intake)
     assert world.rows("SELECT stage, status FROM chapter") == [("junk", "ready")], "the chapter goes on"
-    assert asked and world.rows("SELECT count(*) FROM volume_cover") == [(0,)], "asked, answered 404: no cover"
+    assert asked, "asked, answered 404: no cover"
+    assert world.rows("SELECT count(*) FROM volume_cover") == [(0,)], "asked, answered 404: no cover"
 
 
 @budget(load="db", seconds=4)
@@ -229,4 +230,5 @@ def test_a_fractional_volume_is_only_read_against_a_file_name_volume(world, basi
     world.run(intake)
     world.run(process)
     ((stage, status, error),) = world.rows("SELECT stage, status, last_error FROM chapter")
-    assert (stage, status) == want[:2] and want[2] in error, f"{basis}: {stage}: {error}"
+    assert (stage, status) == want[:2], f"{basis}: {stage}: {error}"
+    assert want[2] in error, f"{basis}: {stage}: {error}"

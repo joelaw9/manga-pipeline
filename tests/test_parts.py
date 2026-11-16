@@ -12,7 +12,7 @@ from manga_pipeline import cli, config, db, export, intake, process, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.metadata import check
-from manga_pipeline.stages import junk
+from manga_pipeline.stages import comicinfo, confirm, junk, publish
 
 from tests.builders import add_chapter, add_series, config_file, run_part
 from tests.timing import budget
@@ -26,8 +26,8 @@ class Site:
         self.world = World(tmp_path, **changes)
         self.cfg = self.world.cfg
         self.mangas = {}
-        monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: self.world.suwayomi)
-        monkeypatch.setattr(kavita_client, "from_config", lambda cfg: self.world.kavita)
+        monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: self.world.suwayomi)
+        monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: self.world.kavita)
         monkeypatch.setattr(check, "new_sources", lambda: self.world.sources)
 
     def download(self, series, number, data=None):
@@ -110,7 +110,8 @@ def test_failing_chapter_does_not_stop_the_chapters_after_it(site, monkeypatch):
 
     def convert(ctx, chapter):
         if chapter["download_path"] == config.to_stored(site.cfg, bad):
-            raise ValueError("cannot decode page 3")
+            msg = "cannot decode page 3"
+            raise ValueError(msg)
         return real(ctx, chapter)
 
     monkeypatch.setitem(process.STAGES, "convert", convert)
@@ -136,7 +137,7 @@ def test_new_chapter_of_a_known_series_is_worked_next(site, monkeypatch):
         return workflow.Done()
 
     monkeypatch.setitem(process.STAGES, "junk", recording_junk)
-    monkeypatch.setitem(process.STAGES, "convert", lambda ctx, chapter: workflow.Done())
+    monkeypatch.setitem(process.STAGES, "convert", lambda _ctx, _chapter: workflow.Done())
     run_part(cfg, process)
     assert order[:3] == ["big00", "ongoing-ch9", "big01"], "process picks again by priority after every chapter"
     assert len(order) == 51
@@ -155,7 +156,8 @@ def test_out_of_scope_series_is_untouched_by_every_part(tmp_path, monkeypatch):
     assert published(site.cfg) == ["Alpha/Ch.2.cbz"]
     assert rows(site.cfg, "SELECT * FROM chapter WHERE series_id = %s", beta) == before, "no Beta row is written"
     assert rows(site.cfg, "SELECT count(*) FROM series") == [(2,)], "Beta's manga is never identified"
-    assert len(before) == len(seeded) and outside.exists()
+    assert len(before) == len(seeded)
+    assert outside.exists()
 
 
 @budget(load="db", seconds=2)
@@ -172,7 +174,7 @@ def test_unreachable_share_is_the_runs_result_with_exit_0(site, tmp_path, monkey
             conn.execute("UPDATE chapter SET stage = 'junk'")
         before = ("junk", "ready", 0)
 
-    def eio(*args):
+    def eio(*_args):
         raise OSError(errno.EIO, "Input/output error")
 
     monkeypatch.setitem(process.STAGES, "junk", eio)
@@ -213,7 +215,8 @@ def test_unreadable_downloads_folder_is_an_unreachable_share(site, monkeypatch):
     failing_scan(monkeypatch, site.cfg, (errno.EIO, "Input/output error"))
     run_part(site.cfg, intake)
     got = meta(site.cfg, "intake")
-    assert got["intake.last_result"] == "unreachable: share" and "intake.last_success" not in got
+    assert got["intake.last_result"] == "unreachable: share"
+    assert "intake.last_success" not in got
     assert rows(site.cfg, "SELECT count(*) FROM chapter") == [(0,)]
 
 
@@ -244,8 +247,6 @@ def test_leftover_staged_files_are_not_taken_for_a_chapters_output(site):
 
 @budget(load="db", seconds=3)
 def test_an_export_stage_that_lost_its_claim_leaves_every_file_untouched(site):
-    from manga_pipeline.stages import comicinfo, confirm, publish
-
     download = site.download("Alpha", 2)
     run_part(site.cfg, intake)
     run_part(site.cfg, process)
@@ -275,7 +276,8 @@ def test_an_export_stage_that_lost_its_claim_leaves_every_file_untouched(site):
         assert staged.read_bytes() == before, "no ComicInfo.xml is written under a lost claim"
         done("comicinfo", comicinfo.run)
         lost("publish", publish.run)
-        assert staged.exists() and not published(site.cfg), "nothing is moved into the library under a lost claim"
+        assert staged.exists(), "nothing is moved into the library under a lost claim"
+        assert not published(site.cfg), "nothing is moved into the library under a lost claim"
         done("publish", publish.run)
         export.request_scan(ctx)
         site.world.kavita.run_scans()
@@ -301,7 +303,7 @@ def test_unreachable_share_in_a_wait_check_ends_the_run(site, monkeypatch, error
     run_part(site.cfg, intake)
     run_part(site.cfg, process)
 
-    def wait_over(ctx, chapter):
+    def wait_over(_ctx, _chapter):
         raise error
 
     monkeypatch.setattr(junk, "junk_decision_over", wait_over)
@@ -323,7 +325,8 @@ def test_run_end_line_counts_waiting_and_failed(site, monkeypatch, caplog):
 
     def convert(ctx, chapter):
         if chapter["download_path"] == config.to_stored(site.cfg, bad):
-            raise ValueError("cannot decode page 3")
+            msg = "cannot decode page 3"
+            raise ValueError(msg)
         return real(ctx, chapter)
 
     monkeypatch.setitem(process.STAGES, "convert", convert)

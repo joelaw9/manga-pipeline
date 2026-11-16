@@ -20,12 +20,12 @@ def p(stem):
     return parse_name(stem, None, NAMES)
 
 
-# classification (parse_name)
+# classification, by parse_name
 
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "stem, want",
+    ("stem", "want"),
     [
         (
             "Byleth_Chapter 1 _ 5 Seconds Before a Witch Falls in Love",
@@ -142,7 +142,7 @@ def test_comicinfo_number_is_digits_with_an_optional_decimal(number):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "stem, num, want",
+    ("stem", "num", "want"),
     [
         ("ComicDom_Vol. 7, Ch. 56", "56", (MAIN, "56", "7", None, "")),
         (
@@ -206,7 +206,7 @@ def test_label_word_without_a_number_is_a_title():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "stem, num, want",
+    ("stem", "num", "want"),
     [("hua_Episode 15-1", "15.1", "15.1"), ("Chapter 172-5", "172.5", "172.5"), ("Chapter 45-1", "45.2", "45.1")],
     ids=["bokja-moon", "webtoon-character", "filename-wins-over-comicinfo"],
 )
@@ -222,7 +222,7 @@ def test_a_decimal_with_a_hyphen_part_has_no_number():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "stem, prefix",
+    ("stem", "prefix"),
     [
         ("Easy Going Scans_Vol.1 Ch.3.1", "Easy Going Scans_Vol.1 Ch."),
         ("Easy Going Scans_Vol.3 Ch.3.1", "Easy Going Scans_Vol.3 Ch."),
@@ -258,7 +258,7 @@ def test_number_start_is_where_the_parsed_number_starts(stem, prefix):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "number, want",
+    ("number", "want"),
     [("3.10", (3, "10")), ("3.1", (3, "1")), ("3", (3, "")), ("3.0", (3, "")), (" 17.5 ", (17, "5")), (None, None)],
     ids=["3.10", "3.1", "plain", "point-zero", "spaces", "none"],
 )
@@ -268,7 +268,7 @@ def test_number_key_keeps_parts_apart(number, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "n, want",
+    ("n", "want"),
     [
         (1.0, "1"),
         ("01", "1"),
@@ -301,7 +301,7 @@ def test_item_num_is_the_float_number():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "title, want",
+    ("title", "want"),
     [
         ("SP2 [R19]", "uncensored"),
         ("[R18]", "uncensored"),
@@ -321,12 +321,12 @@ def test_rating_tags(title, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "title, want",
+    ("title", "want"),
     [
         ("Reunion [END]", "reunion"),
         ("SP2 [R15]", "sp2 rated_r15"),
         ("Chapter 99 [🔞]", "chapter 99 rated_adult"),
-        ("Where Is She’s Ring?", "where is she's ring"),
+        ("Where Is She\u2019s Ring?", "where is she's ring"),
     ],
     ids=["end-marker-dropped", "rating-kept", "adult-kept", "curly-apostrophe"],
 )
@@ -336,7 +336,7 @@ def test_normalize_title(title, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "a, b, want",
+    ("a", "b", "want"),
     [
         ("", "", True),
         ("", "Reunion", False),
@@ -353,7 +353,7 @@ def test_similar_titles(a, b, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "ci, want",
+    ("ci", "want"),
     [
         ({"Year": "2021", "Month": "Mar"}, "2021-03-01"),
         ({"Year": "2024", "Month": "9", "Day": "23"}, "2024-09-23"),
@@ -395,7 +395,7 @@ def test_ci_date_parts_names_the_unusable_values():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "stem, want",
+    ("stem", "want"),
     [
         ("Emile's Lovers_Special Episode 1", "special episode"),
         ("Spin off 2", "spin-off"),
@@ -410,7 +410,7 @@ def test_side_label(stem, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "stem, want",
+    ("stem", "want"),
     [
         ("Easy Going Scans_Vol.1 Ch.1", ("Easy Going Scans", "Vol.1 Ch.1")),
         ("_dumbcat__Chapter 45", ("_dumbcat_", "Chapter 45")),
@@ -431,7 +431,7 @@ def identity(stem, ci_number=""):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "a, b",
+    ("a", "b"),
     [
         ("Official_S2 Episode 5", "Official_S1 Episode 5"),
         ("rishe_Side Story 1", "rishe_Chapter 1"),
@@ -446,7 +446,7 @@ def test_identity_tells_chapters_apart(a, b):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "a, b",
+    ("a", "b"),
     [
         ("Byleth_Chapter 1 _ Title", "Byleth_Chapter 1 : Title"),
         ("Chapter 01", "Chapter 1"),
@@ -460,10 +460,13 @@ def test_identity_agrees_across_spellings(a, b):
 
 @budget(load="pure")
 def test_a_number_with_2_readings_keeps_its_digits_in_the_identity():
-    assert '"26.10"' in identity("Chapter 26.10") and '"26.10"' in identity("Chapter 026-10"), "as written, not 26.1"
+    assert '"26.10"' in identity("Chapter 26.10"), "as written, not 26.1"
+    assert '"26.10"' in identity("Chapter 026-10"), "as written, not 26.1"
     assert identity("Chapter 26.10") != identity("Chapter 26.1"), "never the identity of the shorter decimal"
-    assert '"3"' in identity("Chapter 3.0") and '"26.5"' in identity("Chapter 26.5"), "numbers with 1 reading as before"
-    assert names.two_readings("26.10") and names.two_readings("17.50"), "a decimal part ending in 0"
+    assert '"3"' in identity("Chapter 3.0"), "numbers with 1 reading as before"
+    assert '"26.5"' in identity("Chapter 26.5"), "numbers with 1 reading as before"
+    assert names.two_readings("26.10"), "a decimal part ending in 0"
+    assert names.two_readings("17.50"), "a decimal part ending in 0"
     assert [names.two_readings(n) for n in ("26.1", "3.0", "10", "100.5", None)] == [None] * 5
 
 
@@ -493,7 +496,7 @@ def test_identity_takes_the_comicinfo_number():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "stem, ci_title, volume, want",
+    ("stem", "ci_title", "volume", "want"),
     [
         ("rishe_Chapter 01", None, None, "Ch.1.cbz"),
         ("rishe_Chapter 01", None, 2, "Vol.2 Ch.1.cbz"),
@@ -532,7 +535,8 @@ def test_a_long_title_is_capped_at_80_characters():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "value, want", [("2", 2), ("02", 2), ("2.0", 2), ("2.5", 2.5), ("-1", None), ("IV", None), (None, None), ("", None)]
+    ("value", "want"),
+    [("2", 2), ("02", 2), ("2.0", 2), ("2.5", 2.5), ("-1", None), ("IV", None), (None, None), ("", None)],
 )
 def test_to_volume(value, want):
     assert names.to_volume(value) == want

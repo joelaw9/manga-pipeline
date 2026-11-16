@@ -6,7 +6,7 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import config, db, intake, process
+from manga_pipeline import config, db, intake, process, state
 
 from tests.timing import budget
 from tests.world import World, cbz
@@ -17,7 +17,7 @@ def world(tmp_path):
     return World(tmp_path)
 
 
-def at_junk(world, record=True, name="Chapter 2", data=None, **series):
+def at_junk(world, *, record=True, name="Chapter 2", data=None, **series):
     """A Kavita series with 2 bulk chapters (record or not) and 1 download of it taken through intake (which takes the
     baseline at validate)."""
     bulk = (("Ch.1.cbz", "Grp_Chapter 1", "1"), ("Ch.1.5 - Extra.cbz", "Grp_Chapter 1.5 - Extra", "1.5"))
@@ -42,7 +42,7 @@ def test_a_series_without_a_record_holds_its_chapters_until_the_record_parses(wo
 
 @budget(load="db")
 def test_a_partial_record_is_no_record(world):
-    kavita_id, _ = at_junk(world, record=False)
+    _kavita_id, _ = at_junk(world, record=False)
     folder = world.library / "Solo Leveling"
     (folder / ".optimizer.json").write_text(json.dumps({"schema": 4, "stages": ["structure"]}), encoding="utf-8")
     world.run(intake)
@@ -86,7 +86,8 @@ def test_a_record_naming_another_series_records_nothing_and_needs_a_human(world)
     world.write_record("Some Other Name", kavita_id, "Solo Leveling", [])
     world.run(intake)
     ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
-    assert status == "needs_human" and "Some Other Name" in reason
+    assert status == "needs_human"
+    assert "Some Other Name" in reason
     assert world.rows("SELECT count(*) FROM published_file") == [(0,)], "nothing of the baseline is written"
     assert world.rows("SELECT waiting_on FROM chapter") == [("bulk_conversion",)], "its chapter stays held"
 
@@ -130,8 +131,6 @@ def test_the_baseline_imports_the_junk_decisions_the_record_carries(world):
 
 @budget(load="db")
 def test_the_baseline_stores_the_records_probed_calibration_groups_and_a_reset_keeps_them(world):
-    from manga_pipeline import state
-
     at_junk(world)
     world.run(process)
     want = [("colour", 75, 1, "record")]

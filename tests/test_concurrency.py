@@ -43,8 +43,8 @@ sys.exit(cli.main(["--config", sys.argv[2], "process"]))
 def world(tmp_path, monkeypatch):
     """A World whose fakes the parts run in this process get too."""
     world = World(tmp_path)
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: world.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     return world
 
@@ -88,7 +88,7 @@ def test_parts_at_once_publish_every_chapter_exactly_once(world, tmp_path):
     for round_ in range(ROUNDS):
         runs = []
         for part in PARTS:
-            out = open(tmp_path / f"{part}-{round_}.out", "wb")
+            out = (tmp_path / f"{part}-{round_}.out").open("wb")
             runs.append((part, out, start(part_argv(world_file, config_path, part), out)))
         for part, out, run in runs:
             code = run.wait(timeout=STEP_TIMEOUT_S)
@@ -113,7 +113,7 @@ def test_killed_process_run_is_finished_by_the_next_run(world, tmp_path, monkeyp
     downloads(world, 1, 1)
     run_part(cfg, intake)
     step = tmp_path / "in-convert"
-    out = open(tmp_path / "killed.out", "wb")
+    out = (tmp_path / "killed.out").open("wb")
     run = start(["-c", BLOCKING_PROCESS, str(step), str(config_file(tmp_path, cfg))], out)
     try:
         deadline = time.monotonic() + STEP_TIMEOUT_S
@@ -129,7 +129,7 @@ def test_killed_process_run_is_finished_by_the_next_run(world, tmp_path, monkeyp
     assert got == [("convert", "claimed", workflow.owner("process"), 0)], "the killed run left its claim"
 
     junk_runs = []
-    monkeypatch.setitem(process.STAGES, "junk", lambda ctx, chapter: junk_runs.append(chapter["id"]))
+    monkeypatch.setitem(process.STAGES, "junk", lambda _ctx, chapter: junk_runs.append(chapter["id"]))
     run_part(cfg, process)
     got = rows(cfg, "SELECT stage, status, claimed_by, attempts FROM chapter")
     assert got == [("comicinfo", "ready", None, 0)], "the next run releases the claim and finishes the chapter"
@@ -140,7 +140,7 @@ def outcome_lines(text, outcome):
     """(chapter id, stage) of each per-outcome log line "<part>: chapter N (series S, identity, at STAGE) <outcome>"."""
     found = []
     for line in text.splitlines():
-        head, sep, tail = line.partition(": chapter ")
+        _head, sep, tail = line.partition(": chapter ")
         if not sep or not tail.endswith(f") {outcome}"):
             continue
         chapter_id, _, rest = tail.partition(" (")
@@ -160,7 +160,7 @@ def test_2_unlocked_runs_of_a_part_never_work_a_chapter_twice(world, tmp_path):
     world_file = world.dump(tmp_path / "world.json")
     runs = []
     for n in range(2):
-        out = open(tmp_path / f"process-{n}.out", "wb")
+        out = (tmp_path / f"process-{n}.out").open("wb")
         argv = part_argv(world_file, path, "process")
         runs.append((out, start(argv, out)))
     for out, run in runs:
@@ -169,5 +169,6 @@ def test_2_unlocked_runs_of_a_part_never_work_a_chapter_twice(world, tmp_path):
     text = "".join((tmp_path / f"process-{n}.out").read_text(encoding="utf-8") for n in range(2))
     done = outcome_lines(text, "done")
     assert sorted(done) == sorted({(i, s) for i, s in done}), "every (chapter, stage) is worked at most once"
-    assert len(done) == 80 and "outcome is dropped" not in text
+    assert len(done) == 80
+    assert "outcome is dropped" not in text
     assert rows(cfg, "SELECT DISTINCT stage, status FROM chapter") == [("comicinfo", "ready")]

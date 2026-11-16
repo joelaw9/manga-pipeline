@@ -235,9 +235,12 @@ def _store_platform(conn, series_id, platform, now):
         "SELECT source, payload FROM fetched WHERE series_id = %s AND kind = %s", (series_id, platforms.KIND)
     ).fetchone()
     same = stored is not None and platform is not None and stored["payload"]["ref"] == platform["ref"]
-    if same and stored["source"] == platform["name"]:
-        if platforms.main_episodes(platform) < platforms.main_episodes(stored["payload"]):
-            return
+    if (
+        same
+        and stored["source"] == platform["name"]
+        and platforms.main_episodes(platform) < platforms.main_episodes(stored["payload"])
+    ):
+        return
     conn.execute("DELETE FROM fetched WHERE series_id = %s AND kind = %s", (series_id, platforms.KIND))
     if platform is not None:
         conn.execute(
@@ -324,10 +327,10 @@ def _store_ids(conn, series_id, known):
 def _store(conn, series_id, known, records, now):
     """Store the ids and records; returns whether any record's hash changed (or is new)."""
     _store_ids(conn, series_id, known)
-    old = dict(
-        ((r["source"], r["kind"]), r["payload_hash"])
+    old = {
+        (r["source"], r["kind"]): r["payload_hash"]
         for r in conn.execute("SELECT source, kind, payload_hash FROM fetched WHERE series_id = %s", (series_id,))
-    )
+    }
     rows = [
         (series_id, source, kind, None if p is None else json.dumps(p), _hash(p), now)
         for (source, kind), p in records.items()

@@ -131,7 +131,7 @@ def log_files(site):
 def test_each_command_runs_in_its_table_row(site, command, monkeypatch):
     seen = {}
 
-    def probe(cfg, args, conn):
+    def probe(cfg, _args, _conn):
         held = set()
         with closing(db.connect(cfg)) as other:  # another session asks for each lock
             tries = {name: ([workflow.owner(name)], None) for name in PARTS}
@@ -145,7 +145,7 @@ def test_each_command_runs_in_its_table_row(site, command, monkeypatch):
         seen["locks"] = held
         log.info("probe ran")
 
-    monkeypatch.setattr(preflight, "run", lambda cfg, checks: seen.setdefault("checks", [c.name for c in checks]))
+    monkeypatch.setattr(preflight, "run", lambda _cfg, checks: seen.setdefault("checks", [c.name for c in checks]))
     monkeypatch.setitem(cli.COMMANDS, command, dataclasses.replace(cli.COMMANDS[command], handler=probe))
     assert run(site, command) == 0
     locks, log_file, checks = SPEC[command]
@@ -157,8 +157,8 @@ def test_each_command_runs_in_its_table_row(site, command, monkeypatch):
 def test_part_logs_that_it_ran(site, tmp_path, monkeypatch):
     adopt(site)
     # intake asks Kavita and Suwayomi for the library each run: empty fakes
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: FakeSuwayomi(tmp_path / "share" / "downloads"))
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: FakeKavita({}, {"/kavita": str(tmp_path)}))
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: FakeSuwayomi(tmp_path / "share" / "downloads"))
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: FakeKavita({}, {"/kavita": str(tmp_path)}))
     monkeypatch.setattr(check, "new_sources", fake_sources)
     assert run(site, "intake") == 0
     log_file = config.abs_path(site_cfg(site)["logging"]["dir"]) / "intake.log"
@@ -181,6 +181,7 @@ def test_module_run_writes_the_log(site, tmp_path):
         cwd=config.ROOT,
         capture_output=True,
         text=True,
+        check=False,
     )
     assert done.returncode == 0, done.stderr
     assert "export: run ended: ok" in (tmp_path / "logs" / "export.log").read_text(encoding="utf-8")
@@ -188,7 +189,7 @@ def test_module_run_writes_the_log(site, tmp_path):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "command, holder",
+    ("command", "holder"),
     [
         (["intake"], "intake"),
         (["export"], "export"),
@@ -228,7 +229,8 @@ def test_junk_review_on_an_unmounted_share_exits_4(site, capsys):
     adopt(site)
     preflight.owner_file(site_cfg(site)).unlink()  # the share is not mounted: its owner file is not there
     assert cli.main([*(a for item in site for a in ("--set", item)), "junk", "review"]) == 4
-    assert "share ownership" in (err := capsys.readouterr().err) and "is missing" in err, err
+    assert "share ownership" in (err := capsys.readouterr().err), err
+    assert "is missing" in err, err
 
 
 @budget(load="db")
@@ -244,14 +246,16 @@ def test_adopt_without_the_staging_folder_exits_4_and_creates_it_not(site, tmp_p
 def test_state_commands_refuse_without_yes(command, capsys):
     with pytest.raises(SystemExit) as exit_:
         cli.main(ARGV[command][:2])
-    assert exit_.value.code == 2 and "--yes" in capsys.readouterr().err
+    assert exit_.value.code == 2
+    assert "--yes" in capsys.readouterr().err
 
 
 @budget(load="fs")
 def test_bad_logging_value_is_a_usage_error(site, capsys):
     with pytest.raises(SystemExit) as exit_:
         run(site, "status", "--set", "logging.level=LOUD")
-    assert exit_.value.code == 2 and "logging.level" in capsys.readouterr().err
+    assert exit_.value.code == 2
+    assert "logging.level" in capsys.readouterr().err
 
 
 @budget(load="fs")
@@ -265,29 +269,32 @@ def test_set_and_env_reach_the_run(site, monkeypatch):
 def test_bad_set_is_a_usage_error(capsys):
     with pytest.raises(SystemExit) as exit_:
         cli.main(["--set", "logging.keep_days=14days", "status"])
-    assert exit_.value.code == 2 and "--set logging.keep_days: must be int" in capsys.readouterr().err
+    assert exit_.value.code == 2
+    assert "--set logging.keep_days: must be int" in capsys.readouterr().err
 
 
 @budget(load="fs")
 def test_hard_preflight_failure_exits_4(site, monkeypatch, capsys):
-    stub = preflight.Check("stub", preflight.HARD, lambda cfg: "missing")
+    stub = preflight.Check("stub", preflight.HARD, lambda _cfg: "missing")
     monkeypatch.setitem(cli.COMMANDS, "intake", dataclasses.replace(cli.COMMANDS["intake"], checks=(stub,)))
     assert run(site, "intake") == 4
     assert "preflight failed: stub: missing" in capsys.readouterr().err
     text = (config.abs_path(site_cfg(site)["logging"]["dir"]) / "intake.log").read_text(encoding="utf-8")
-    assert "stub: missing" in text and "run ended" not in text, "the work must not start after a hard failure"
+    assert "stub: missing" in text, "the work must not start after a hard failure"
+    assert "run ended" not in text, "the work must not start after a hard failure"
 
 
 @budget(load="db")
 def test_crash_inside_a_part_exits_1_with_1_traceback_in_its_log(site, monkeypatch):
-    def unreadable(ctx):
+    def unreadable(_ctx):
         raise PermissionError(errno.EACCES, "Permission denied", "downloads")
 
     adopt(site)
     monkeypatch.setattr(discovery, "scan", unreadable)
     assert run(site, "intake") == 1, "SPEC 'CLI': an unexpected error exits 1"
     text = (config.abs_path(site_cfg(site)["logging"]["dir"]) / "intake.log").read_text(encoding="utf-8")
-    assert text.count("Traceback") == 1 and "PermissionError" in text, "logged with its traceback, once"
+    assert text.count("Traceback") == 1, "logged with its traceback, once"
+    assert "PermissionError" in text, "logged with its traceback, once"
     with closing(db.connect(site_cfg(site))) as conn:
         result = conn.execute("SELECT value FROM meta WHERE key = 'intake.last_result'").fetchone()[0]
     assert result == "error"
@@ -295,13 +302,16 @@ def test_crash_inside_a_part_exits_1_with_1_traceback_in_its_log(site, monkeypat
 
 @budget(load="fs")
 def test_unexpected_error_of_a_command_without_a_log_file_exits_1_with_its_traceback(site, capsys, monkeypatch):
-    def broken(conn):
-        raise RuntimeError("an unexpected fault")
+    def broken(_conn):
+        msg = "an unexpected fault"
+        raise RuntimeError(msg)
 
     monkeypatch.setattr(status, "report", broken)
     assert run(site, "status") == 1
     err = capsys.readouterr().err
-    assert "status: failed" in err and "Traceback" in err and "an unexpected fault" in err
+    assert "status: failed" in err
+    assert "Traceback" in err
+    assert "an unexpected fault" in err
     assert log_files(site) == []
 
 
@@ -317,7 +327,8 @@ def test_help_exits_cleanly(argv):
 def test_missing_command_is_a_usage_error(capsys):
     with pytest.raises(SystemExit) as exit_:
         cli.main([])
-    assert exit_.value.code == 2 and "COMMAND" in capsys.readouterr().err
+    assert exit_.value.code == 2
+    assert "COMMAND" in capsys.readouterr().err
 
 
 @budget(load="fs")

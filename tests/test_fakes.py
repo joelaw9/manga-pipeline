@@ -48,7 +48,8 @@ def test_a_finished_download_lies_where_the_name_helpers_say_and_is_flagged(suw,
 def test_a_download_being_written_is_visible_but_not_flagged(suw):
     suw.enqueue([suw.c1])
     suw.begin_download(suw.c1)
-    assert suw.path(suw.c1).exists() and not suw.chapters(suw.manga_id)[0]["isDownloaded"]
+    assert suw.path(suw.c1).exists()
+    assert not suw.chapters(suw.manga_id)[0]["isDownloaded"]
     assert suw.download_queue()["queue"][0]["state"] == "DOWNLOADING"
 
 
@@ -87,12 +88,14 @@ def test_a_failed_download_stays_queued_as_error(suw):
 @budget(load="fs")
 def test_reads_have_the_clients_shapes(suw):
     other = suw.add_manga("Elsewhere", suw.source, in_library=False)
-    assert suw.library_size() == 1 and [m["id"] for m in suw.library_manga()] == [suw.manga_id]
+    assert suw.library_size() == 1
+    assert [m["id"] for m in suw.library_manga()] == [suw.manga_id]
     manga = suw.manga(suw.manga_id)
     assert set(manga) == {"id", "title", "status", "url", "inLibrary", "sourceId", "source", "trackRecords"}
     assert manga["source"] == {"id": suw.source, "name": "MangaDex", "lang": "en", "displayName": "MangaDex (EN)"}
     assert set(suw.chapters(suw.manga_id)[0]) == set(suwayomi.CHAPTER.split()), "the fields the real query asks for"
-    assert suw.manga(other)["inLibrary"] is False and suw.manga(12345) is None
+    assert suw.manga(other)["inLibrary"] is False
+    assert suw.manga(12345) is None
     assert suw.sources() == [manga["source"]]
 
 
@@ -155,7 +158,8 @@ def test_a_held_series_reports_its_files_and_the_top_folder_as_folder_path(kav, 
     file = kav.series_files(sid)[0]
     assert (file["path"], file["pages"]) == (tmp_path / "library" / "Local" / "Alpha" / "Ch.1.cbz", 5)
     assert file["bytes"] == file["path"].stat().st_size
-    assert [s["id"] for s in kav.series_in_library(4)] == [sid] and kav.series_in_library(5) == []
+    assert [s["id"] for s in kav.series_in_library(4)] == [sid]
+    assert kav.series_in_library(5) == []
     assert kav.libraries()[0] == {"id": 4, "name": "Library 4", "folders": [ROOT]}
 
 
@@ -180,10 +184,12 @@ def test_a_requested_scan_changes_nothing_until_kavita_runs_it(kav, tmp_path):
     put(tmp_path, "Alpha/Ch.2.cbz", "Alpha")
     put(tmp_path, "Beta/Ch.1.cbz", "Beta")
     kav.scan_library(4)
-    assert names(kav, sid) == ["Ch.1.cbz"] and len(kav.series_in_library(4)) == 1, "SPEC 'Services': never awaited"
+    assert names(kav, sid) == ["Ch.1.cbz"], "SPEC 'Services': never awaited"
+    assert len(kav.series_in_library(4)) == 1, "SPEC 'Services': never awaited"
     assert kav.writes == [("scan_library", 4)]
     kav.run_scans()
-    assert names(kav, sid) == ["Ch.1.cbz", "Ch.2.cbz"] and len(kav.series_in_library(4)) == 2
+    assert names(kav, sid) == ["Ch.1.cbz", "Ch.2.cbz"]
+    assert len(kav.series_in_library(4)) == 2
     assert kav.pending == []
 
 
@@ -196,7 +202,8 @@ def test_a_file_carrying_another_name_is_not_indexed_into_the_series(kav, tmp_pa
     kav.run_scans()
     assert names(kav, sid) == ["Ch.1.cbz"], "Kavita files it under another series"
     other = [s for s in kav.series_in_library(4) if s["id"] != sid]
-    assert [s["name"] for s in other] == ["Alpha (Source Title)"] and names(kav, other[0]["id"]) == ["Ch.2.cbz"]
+    assert [s["name"] for s in other] == ["Alpha (Source Title)"]
+    assert names(kav, other[0]["id"]) == ["Ch.2.cbz"]
 
 
 @budget(load="fs")
@@ -205,9 +212,11 @@ def test_a_series_whose_files_all_carry_another_name_is_deleted_and_recreated(ka
     sid = kav.add_series("Alpha", "Alpha")
     kav.scan_library(4)
     kav.run_scans()
-    assert kav.series(sid) is None and kav.volumes(sid) == [], "the series id is gone"
+    assert kav.series(sid) is None, "the series id is gone"
+    assert kav.volumes(sid) == [], "the series id is gone"
     [new] = kav.series_in_library(4)
-    assert new["id"] != sid and new["name"] == "Source Title"
+    assert new["id"] != sid
+    assert new["name"] == "Source Title"
 
 
 @budget(load="fs")
@@ -279,9 +288,12 @@ def test_library_scan_adds_new_series_and_keeps_the_ids_of_held_ones(kav, tmp_pa
     kav.scan_library(4)
     kav.run_scans()
     held = {s["name"]: s for s in kav.series_in_library(4)}
-    assert sorted(held) == ["Alpha", "Beta"] and held["Alpha"]["id"] == sid
-    assert names(kav, sid) == ["Ch.1.cbz", "Ch.2.cbz"] and names(kav, held["Beta"]["id"]) == ["Ch.1.cbz", "Ch.2.cbz"]
-    assert held["Beta"]["folderPath"] == f"{ROOT}/Beta" and kav.writes == [("scan_library", 4)]
+    assert sorted(held) == ["Alpha", "Beta"]
+    assert held["Alpha"]["id"] == sid
+    assert names(kav, sid) == ["Ch.1.cbz", "Ch.2.cbz"]
+    assert names(kav, held["Beta"]["id"]) == ["Ch.1.cbz", "Ch.2.cbz"]
+    assert held["Beta"]["folderPath"] == f"{ROOT}/Beta"
+    assert kav.writes == [("scan_library", 4)]
 
 
 @budget(load="fs")
@@ -294,7 +306,8 @@ def test_library_scan_follows_a_renamed_folder_by_name_and_drops_a_series_withou
     kav.scan_library(4)
     kav.run_scans()
     assert [s["id"] for s in kav.series_in_library(4)] == [sid], "matched by ComicInfo Series: same id"
-    assert kav.series_folder(sid) == tmp_path / "library" / "New Name" and kav.series(gone_id) is None
+    assert kav.series_folder(sid) == tmp_path / "library" / "New Name"
+    assert kav.series(gone_id) is None
 
 
 @budget(load="fs")
@@ -303,12 +316,12 @@ def test_series_of_two_libraries_are_kept_apart(kav, tmp_path):
     (tmp_path / "books" / "Alpha").mkdir(parents=True)
     (tmp_path / "books" / "Alpha" / "Vol.1.cbz").write_bytes(cbz(2, comicinfo("Alpha")))
     manga, book = kav.add_series("Alpha", "Alpha"), kav.add_series("Alpha", "Alpha", library_id=5)
-    assert [s["id"] for s in kav.series_in_library(4)] == [manga] and [s["id"] for s in kav.series_in_library(5)] == [
-        book
-    ]
+    assert [s["id"] for s in kav.series_in_library(4)] == [manga]
+    assert [s["id"] for s in kav.series_in_library(5)] == [book]
     kav.scan_library(5)
     kav.run_scans()
-    assert names(kav, manga) == ["Ch.1.cbz"] and names(kav, book) == ["Vol.1.cbz"]
+    assert names(kav, manga) == ["Ch.1.cbz"]
+    assert names(kav, book) == ["Vol.1.cbz"]
 
 
 @budget(load="fs")

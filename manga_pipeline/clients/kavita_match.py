@@ -21,7 +21,7 @@ from collections import Counter, defaultdict
 ARCHIVE_EXT = (".cbz", ".zip", ".cbr", ".rar", ".cb7", ".7z")
 SERIES_NAME_KEYS = ("name", "localizedName", "originalName")  # the names a Kavita series DTO matches on
 USABLE = frozenset({"matched", "shared"})  # folder statuses the pipeline works on
-NORMALIZE_KEEP = frozenset("0123456789+!＊！＋")  # kept by normalize besides letters (Kavita's class)
+NORMALIZE_KEEP = frozenset("0123456789+!\uff0a\uff01\uff0b")  # kept by normalize besides letters (Kavita's class)
 
 
 def series_names(series):
@@ -31,16 +31,16 @@ def series_names(series):
 
 def normalize(name):
     """Kavita's series key, exactly (Kavita v0.9.1.4 Kavita.Common/Extensions/StringExtensions.cs `ToNormalized`, which
-    Parser.Normalize calls): keep Unicode letters (category L*), ASCII digits and + ! ＊ ！ ＋, drop everything else
-    (spaces, punctuation, combining marks, other digits), then lower-case. No Unicode folding (NFKC, casefold).
-    As .NET does: a letter above U+FFFF is a UTF-16 surrogate pair, not \\p{L}, so it is dropped; each character is
-    lowered on its own (never the whole string: Python lowers a final capital sigma to "ς" by context), and what
-    lowering adds is filtered again ("İ" lowers to "i" + a combining dot: "i")."""
+    Parser.Normalize calls): keep Unicode letters (category L*), ASCII digits, + ! and full-width * ! +, drop everything
+    else (spaces, punctuation, combining marks, other digits), then lower-case. No Unicode folding (NFKC, casefold). As
+    .NET does: a letter above U+FFFF is a UTF-16 surrogate pair, not \\p{L}, so it is dropped; each character is lowered
+    on its own (never the whole string: Python lowers a final capital sigma to "ς" by context), and what lowering adds
+    is filtered again ("İ" lowers to "i" + a combining dot: "i")."""
     return "".join(low for c in name or "" if _kept(c) for low in c.lower() if _kept(low))
 
 
 def _kept(c):
-    """A character Kavita's normalize keeps (a BMP letter, an ASCII digit, + ! ＊ ！ ＋)."""
+    """A character Kavita's normalize keeps (a BMP letter, an ASCII digit, ASCII + ! and full-width * ! +)."""
     return c in NORMALIZE_KEEP or (ord(c) <= 0xFFFF and unicodedata.category(c).startswith("L"))
 
 
@@ -64,7 +64,8 @@ def series_titles(kseries):
     A series without a Kavita Name (unmatched: the plan skips it at S0 before naming) raises."""
     name = (kseries or {}).get("name")
     if not name:
-        raise ValueError("naming: no Kavita series Name: ComicInfo Series follows Kavita's Name")
+        msg = "naming: no Kavita series Name: ComicInfo Series follows Kavita's Name"
+        raise ValueError(msg)
     localized = kseries.get("localizedName") or None
     if localized is not None and normalize(localized) == normalize(name):
         localized = None

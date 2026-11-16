@@ -16,6 +16,7 @@ is its own unit). The watermark rule reads this chapter and the watermark keys t
 Constants are the bulk converter's, frozen: the stored decisions were made with them.
 """
 
+import itertools
 from collections import Counter
 
 import numpy as np
@@ -54,10 +55,10 @@ def measure_piece(im):
     }
 
 
-# ---------------------------------------------------------------- scan (decodes)
+# ---------------------------------------------------------------- the scan, which decodes
 
 
-def scan(st, ocr_text=None, undecided=lambda sig: True):
+def scan(st, ocr_text=None, undecided=lambda _sig: True):
     """The scan of a Strip (strip.make_strip over the chapter's non-cover pages). ocr_text(image) -> text, called for
     every edge block and non-uniform hard-join piece whose signature `undecided(sig)` (no stored decision) says so;
     None: no OCR. Returns a JSON-able dict."""
@@ -312,7 +313,7 @@ def join_rule(layout, removed, gutter):
         hard = [x for m in g for x in m[3]]
         c = _merge(
             ([before] if before else [])
-            + [(x[1], y[0]) for x, y in zip(g, g[1:], strict=False) if y[0] > x[1]]
+            + [(x[1], y[0]) for x, y in itertools.pairwise(g) if y[0] > x[1]]
             + [x for m in g for x in uncovered(m[0], m[1], hard)]
             + ([after] if after else [])
         )
@@ -385,7 +386,8 @@ def decide(sc, decide_unit, known=()):
             if not p["blank"]:
                 m = sc["measured"].get(f"{p['start']}:{p['end']}")
                 if m is None:
-                    raise ValueError(f"tail piece {p['start']}-{p['end']} was not measured by the scan")
+                    msg = f"tail piece {p['start']}-{p['end']} was not measured by the scan"
+                    raise ValueError(msg)
                 p.update(m)
             pieces.append(p)
         classes = tail_classes(

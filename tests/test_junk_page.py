@@ -81,9 +81,9 @@ def test_rescaled_page_cut_on_the_seam_not_at_the_naive_height():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "page, where",
+    ("page", "where"),
     [
-        (lambda: art(), "top"),
+        (art, "top"),
         (lambda: art(858), "top"),
         (lambda: fx.stack((300, 600), art()), "top"),
         (lambda: fx.stack(art(), (6, 600), fx.credit((600, 12))), "bottom"),
@@ -117,7 +117,7 @@ def test_the_gutter_nearest_the_naive_cut_wins():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("gutter, found", [(60, False), (61, True)], ids=["at-the-limit", "one-px-over"])
+@pytest.mark.parametrize(("gutter", "found"), [(60, False), (61, True)], ids=["at-the-limit", "one-px-over"])
 def test_only_a_page_taller_than_the_limit_is_band_checked(gutter, found):
     """Shape 1.0 at 600 px, band_tolerance 0.5: a 900 px page (band + gutter + page) is not examined, 901 px is."""
     page = fx.stack(fx.warning_banner(), (gutter, 600), art(600))
@@ -180,7 +180,7 @@ def test_thin_footer_matched_wherever_its_text_sits(x):
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("height, want", [(60, None), (240, "seam")], ids=["60-px", "240-px"])
+@pytest.mark.parametrize(("height", "want"), [(60, None), (240, "seam")], ids=["60-px", "240-px"])
 def test_a_band_cut_on_a_seam_needs_band_seam_min_px(height, want):
     """Gunslinger Girl / Immortal Hounds: a seam cut under band_seam_min_px 100 is art or a scan line: never cut."""
     b = find_band(fx.stack(art(852, seed=2), fx.warning_banner(height=height)), "bottom")
@@ -209,7 +209,7 @@ def test_find_band_uses_the_one_gap_row_classifier_unchanged():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("delta, want", [(41, (10, 5, 11, 6)), (40, None)], ids=["41-off", "40-off"])
+@pytest.mark.parametrize(("delta", "want"), [(41, (10, 5, 11, 6)), (40, None)], ids=["41-off", "40-off"])
 def test_ink_is_more_than_ink_delta_from_the_border_median(delta, want):
     """A white band with one pixel delta luma darker: ink only beyond INK_DELTA 40; the box is that pixel."""
     a = np.full((20, 50, 3), 255, np.uint8)
@@ -231,7 +231,10 @@ def test_ink_box_spans_the_text():
     b = Image.new("RGB", (600, 40), "white")
     b.paste(fx.credit((300, 30)), (100, 5))
     x0, y0, x1, y1 = page_units.ink_box(b)
-    assert 100 <= x0 and x1 <= 400 and 5 <= y0 and y1 <= 35, (x0, y0, x1, y1)
+    assert x0 >= 100, (x0, y0, x1, y1)
+    assert x1 <= 400, (x0, y0, x1, y1)
+    assert y0 >= 5, (x0, y0, x1, y1)
+    assert y1 <= 35, (x0, y0, x1, y1)
 
 
 @budget(load="pure")
@@ -253,8 +256,40 @@ AK_CH17 = [(1200, 1855), (1200, 1706)] + [STORY] * 36 + [(1200, 1855)]
 AK_CH22 = [(512, 728)] + [STORY] * 32 + [(1200, 1855)]
 GG_CH13 = [
     (800, h)
-    for h in (1161, 1172, 1199, 1124, 1144, 1136, 1169, 1177, 1202, 1166, 1205, 1192, 1186, 1134, 1173, 1136)
-    + (1182, 1147, 1193, 1121, 1147, 1129, 1187, 1159, 1177, 1121, 1154, 1130, 1184, 1222, 1191, 1130)
+    for h in (
+        1161,
+        1172,
+        1199,
+        1124,
+        1144,
+        1136,
+        1169,
+        1177,
+        1202,
+        1166,
+        1205,
+        1192,
+        1186,
+        1134,
+        1173,
+        1136,
+        1182,
+        1147,
+        1193,
+        1121,
+        1147,
+        1129,
+        1187,
+        1159,
+        1177,
+        1121,
+        1154,
+        1130,
+        1184,
+        1222,
+        1191,
+        1130,
+    )
 ]  # Gunslinger Girl ch13 (scanned volume)
 
 
@@ -331,7 +366,7 @@ def test_variable_scan_heights_use_the_chapter_range():
 def test_cover_named_pages_and_joined_slices_never_listed():
     """An inserted 000_cover and a 1,500 + 100 slice at the end (Little Lord ch3) that slice repair joins."""
     sizes = [(700, 1000)] + [(1125, 1600)] * 6 + [(1125, 1500), (1125, 100)]
-    assert cands(sizes, [1600 / 1125], ["000_cover.jpg"] + names(8), joined={7, 8}) == [], (
+    assert cands(sizes, [1600 / 1125], ["000_cover.jpg", *names(8)], joined={7, 8}) == [], (
         "cover-named pages and joined slices are never listed"
     )
 
@@ -440,7 +475,7 @@ def test_a_one_page_chapter_has_no_text_end_page():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "fill, want",
+    ("fill", "want"),
     [
         ((128, 128, 128), {"plain": 0.875, "mid": 0.125, "chroma": 0.0}),
         ((255, 0, 0), {"plain": 0.875, "mid": 0.0, "chroma": 0.125}),
@@ -457,12 +492,12 @@ def test_text_features_shares(fill, want):
 # ---------------------------------------------------------------- decide
 
 
-def row(id, verdict, series_key="Series", decider="import", decided_at="2026-01-01T00:00:00+00:00"):
+def row(row_id, verdict, series_key="Series", decider="import", decided_at="2026-01-01T00:00:00+00:00"):
     return {
-        "id": id,
+        "id": row_id,
         "verdict": verdict,
         "series_key": series_key,
-        "key": f"k{id}",
+        "key": f"k{row_id}",
         "decider": decider,
         "decided_at": decided_at,
     }
@@ -512,7 +547,7 @@ def test_an_edge_page_decided_junk_is_dropped(tmp_path):
 
 
 @budget(2.0, load="fs")
-@pytest.mark.parametrize("all_white, want", [(False, [0, 5]), (True, [])], ids=["white-ends", "every-page-white"])
+@pytest.mark.parametrize(("all_white", "want"), [(False, [0, 5]), (True, [])], ids=["white-ends", "every-page-white"])
 def test_white_end_pages_are_dropped_unless_every_page_is_white(tmp_path, all_white, want):
     """White pages at either end are dropped with no decision; a chapter of white pages only keeps them all."""
     white = Image.new("RGB", (600, 852), "white")
@@ -566,7 +601,7 @@ def test_a_stitched_chapter_is_only_split():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "page, frame, dropped",
+    ("page", "frame", "dropped"),
     [
         (row(1, "keep"), row(2, "junk", ""), False),
         (row(1, "junk", ""), row(2, "keep"), False),
@@ -627,7 +662,7 @@ def test_slice_joins_are_found_among_kept_pages(tmp_path):
         [art(seed=8)] + [art(seed=s) for s in range(4)] + [whole.crop((0, 0, 600, 700)), whole.crop((0, 700, 600, 852))]
     )
     ims.append(art(seed=7))
-    sc = scan_of(tmp_path, ims, names=["000_cover.png"] + names(len(ims) - 1))
+    sc = scan_of(tmp_path, ims, names=["000_cover.png", *names(len(ims) - 1)])
     out = page_units.decide(sc, decider({("page", edge(sc, 1)["sig"]): row(1, "junk")}))
     assert out["edit"]["drop_pages"] == [1], "the junk first page is dropped"
     assert out["edit"]["join"] == [[5, 6]], "the page and its sliver are joined, by download index"

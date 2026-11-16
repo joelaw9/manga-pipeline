@@ -167,7 +167,8 @@ def volume_cover(ctx, series_id, volume):
         return (row["path"], row["sha256"]) if stored else None
     image = _image(url, data)
     if image is None:  # an error page served as the image: fails the attempt, a later run tries again
-        raise NotAnImage(f"the volume {volume} cover from {url} is not an image")
+        msg = f"the volume {volume} cover from {url} is not an image"
+        raise NotAnImage(msg)
     _, data, (_, ext) = image
     sha256 = hashlib.sha256(data).hexdigest()
     rel = f"{VOLUME_FOLDER}/{sha256}.{ext}"
@@ -205,7 +206,7 @@ def refresh_volumes(ctx, series_id):
             volume_cover(ctx, series_id, volume)
         except (NotAnImage, errors.Unreachable, http.Timeout, http.HttpError) as e:
             log.warning("%s: series %s volume %s cover not refreshed: %s", ctx.part, series_id, volume, e)
-            if isinstance(e, NotAnImage) or isinstance(e, http.HttpError) and e.status < 500:
+            if isinstance(e, NotAnImage) or (isinstance(e, http.HttpError) and e.status < 500):
                 continue
             with db.transaction(ctx.conn):  # MangaDex down: the next intake checks the series again
                 ctx.conn.execute(

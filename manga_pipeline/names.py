@@ -7,6 +7,7 @@ bulk converter settled on over its library.
 """
 
 import json
+import math
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -41,16 +42,18 @@ _NUM = r"\d+(?:\.\d+)?(?:-\d+(?![\d.]))?"
 NAME_RE = re.compile(
     rf"^(?:vol(?:ume)?\.?\s*(?P<vol>\d+(?:\.\d+)?)\s*[,.]?\s*)?(?P<label>{_LABEL})(?![a-z])\.?\s*#?\s*(?P<num>{_NUM})?"
     rf"(?P<rest>.*)$",
-    re.I,
+    re.IGNORECASE,
 )
-VOLUME_ONLY = re.compile(r"^vol(?:ume)?\.?\s*(?P<vol>\d+(?:\.\d+)?)(?P<rest>(?:\s*[-_:].*)?)$", re.I)  # "Volume 1"
+VOLUME_ONLY = re.compile(
+    r"^vol(?:ume)?\.?\s*(?P<vol>\d+(?:\.\d+)?)(?P<rest>(?:\s*[-_:].*)?)$", re.IGNORECASE
+)  # "Volume 1"
 CI_NUMBER = re.compile(r"\d+(?:\.\d+)?")  # ComicInfo Number
 NUM_DOT = re.compile(r"^(?P<num>\d+(?:\.\d+)?)\.\s+(?P<rest>\S.*)$")  # "64. Title"
 # leading season tags: "S1 - Chapter 1", "S1 Episode 29", "(S2) Episode 100", "[Season 2] Chapter 2"
 SEASON_TAG = re.compile(
     r"^\s*(?:\[\s*season\s*(\d+)\s*\]|\(\s*s(?:eason)?\s*(\d+)\s*\)|s(\d+)(?:\s*-)?(?=\s)|"
     r"season\s*(\d+)\s*[-:]?(?=\s))\s*",
-    re.I,
+    re.IGNORECASE,
 )
 LEAD_TAG = re.compile(r"^\s*[\[({〖【][^\])}〗】]*[\])}〗】]\s*")
 TITLE_SEP = re.compile(r"^\s*(?:[-_:]+\s*)+|\s*[-_:]+\s*$")
@@ -61,13 +64,13 @@ SIDE_MARKER = re.compile(
     r"^\s*[\[({〖【]\s*(?P<side>"
     + "|".join(re.escape(label) for label in SIDE_LABELS)
     + r")(?:\s*\d+(?:\.\d+)?)?\s*[\])}〗】]",
-    re.I,
+    re.IGNORECASE,
 )
 # rated editions: "[R15]" (censored), "[R19]", "[R19 version]", "[🔞]" (uncensored)
-RATING = re.compile(r"[\[(]\s*(?:R-?(?P<age>\d{2})\+?(?:\s*version)?|(?P<adult>🔞))\s*[\])]", re.I)
-END_MARKER = re.compile(r"[\[({〖【][^\])}〗】]*\b(?:end|finale)\b[^\])}〗】]*[\])}〗】]", re.I)
+RATING = re.compile(r"[\[(]\s*(?:R-?(?P<age>\d{2})\+?(?:\s*version)?|(?P<adult>🔞))\s*[\])]", re.IGNORECASE)
+END_MARKER = re.compile(r"[\[({〖【][^\])}〗】]*\b(?:end|finale)\b[^\])}〗】]*[\])}〗】]", re.IGNORECASE)
 # a bare chapter label ("Chapter 18", "Ep. 3"): as a whole title it only repeats the number (naming, episodes)
-BARE_LABEL = re.compile(r"(?:chapter|ch\.?|episode|ep\.?)\s*\d+(?:\.\d+)?", re.I)
+BARE_LABEL = re.compile(r"(?:chapter|ch\.?|episode|ep\.?)\s*\d+(?:\.\d+)?", re.IGNORECASE)
 MONTHS = {
     m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)
 }
@@ -189,7 +192,7 @@ def split_group(stem):
     for k, ch in enumerate(stem):
         if ch == "_" and _numbered(stem[k + 1 :]):
             return stem[:k], stem[k + 1 :]
-    m = re.match(rf"^(?P<group>.+?)_(?=(?:vol(?:ume)?\.?\s*\d|(?:{_LABEL})(?![a-z])))", stem, re.I)
+    m = re.match(rf"^(?P<group>.+?)_(?=(?:vol(?:ume)?\.?\s*\d|(?:{_LABEL})(?![a-z])))", stem, re.IGNORECASE)
     if m and not _match(stem):
         return m.group("group"), stem[m.end() :]
     m = re.match(r"^(?P<group>[^_]+)_(?P<rest>.+)$", stem)
@@ -274,7 +277,7 @@ def rating(title):
 def normalize_title(t):
     """Lowercase words for comparison; bracketed markers ([END], [FIXED]) dropped, rating tags kept as tokens."""
     t = RATING.sub(lambda m: " rated_" + ("adult" if m.group("adult") else "r" + m.group("age")) + " ", t or "")
-    t = BRACKETS.sub(" ", t).lower().replace("’", "'")
+    t = BRACKETS.sub(" ", t).lower().replace("\u2019", "'")  # right single quotation mark
     return re.sub(r"[^a-z0-9'_]+", " ", t).strip()
 
 
@@ -366,7 +369,7 @@ def to_volume(v):
         f = float(str(v).strip())
     except (TypeError, ValueError):
         return None
-    if f != f or f < 0 or f in (float("inf"),):
+    if math.isnan(f) or f < 0 or f == float("inf"):
         return None
     return int(f) if f == int(f) else f
 
@@ -387,7 +390,7 @@ def clean_marker_title(title):
     decorative brackets (〖Main Story Finale〗 -> Main Story Finale) and tidy separators (" _ " was ":" before
     Suwayomi)."""
     for m in TITLE_MARKERS:
-        title = re.sub(m, " ", title, flags=re.I)
+        title = re.sub(m, " ", title, flags=re.IGNORECASE)
     title = re.sub(r"[〖【]\s*([^〗】]*?)\s*[〗】]", r"\1", title)
     title = re.sub(r"\s+_\s+|\s+:\s*", ": ", title)
     title = re.sub(r"\s+", " ", title)
@@ -421,7 +424,8 @@ def file_name(number, title, volume=None):
     "Vol.<volume> " when the volume is None and without " - <title>" when the title is empty once made safe.
     ValueError for no number."""
     if number is None:
-        raise ValueError("a published file needs a chapter number")
+        msg = "a published file needs a chapter number"
+        raise ValueError(msg)
     name = (f"Vol.{fmt_num(volume)} " if volume is not None else "") + f"Ch.{fmt_num(number)}"
     safe = safe_title(title) if title else ""
     return name + (f" - {safe}" if safe else "") + ".cbz"

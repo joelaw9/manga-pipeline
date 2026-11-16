@@ -41,7 +41,8 @@ class Template:
         self.rgb = np.where(mask[..., None], rgb, 0).astype(np.uint8)
         self.mask = np.asarray(mask, dtype=bool)
         if not self.mask.any():
-            raise ValueError("template has no coloured pixels")
+            msg = "template has no coloured pixels"
+            raise ValueError(msg)
 
     @property
     def size(self):
@@ -129,7 +130,7 @@ def ring_stats(rgb, box):
         return (0, 0, 0), 0.0
     med = np.median(ring, axis=0)
     frac = float((np.abs(ring - med).max(axis=1) <= RING_TOL).mean())
-    return tuple(int(round(v)) for v in med), frac
+    return tuple(round(v) for v in med), frac
 
 
 @dataclass(frozen=True)

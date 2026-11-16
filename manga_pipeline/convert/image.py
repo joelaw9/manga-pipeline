@@ -59,9 +59,8 @@ def encode_page(job):
     src, out, tmp = Path(task["src"]), Path(task["out"]), Path(task["tmp"])
     t0 = time.perf_counter()
     if task["jpeg_feed"] and (task["fmt"] != images.JPEG or task["yuv"] == "400"):
-        raise ValueError(
-            f"{src.name}: a JPEG feed needs a colour-encoded JPEG page, not {task['fmt']} at --yuv {task['yuv']}"
-        )
+        msg = f"{src.name}: a JPEG feed needs a colour-encoded JPEG page, not {task['fmt']} at --yuv {task['yuv']}"
+        raise ValueError(msg)
     im, alpha = images.open_image(src)
     if task["yuv"] == "400":
         ref = _tmp(tmp, src, "gray")
@@ -91,7 +90,7 @@ def _cancel(jobs):
     wait([g for g in jobs if not g.cancelled()])
 
 
-def encode_avif_pages(pool, scorer, tasks, stop_on_fail=False):
+def encode_avif_pages(pool, scorer, tasks, *, stop_on_fail=False):
     """Encode and score AVIF pages. Workers in pool encode and decode each page (encode_page); scorer threads in this
     process score each decode against its reference (scorer.score_files); a page under SCORE_FLOOR (its score rounded
     to 2 decimals) is encoded once more at task["retry_q"] (None: no retry, a calibration probe). With stop_on_fail,
@@ -237,7 +236,8 @@ def lossless_page(task):
     mode = "luma" if gray else "exact"
     ok, diff = pages.pixels_match(src.read_bytes(), out.read_bytes(), mode)
     if not ok:
-        raise RuntimeError(f"lossless verification failed: {src.name} ({mode}, max difference {diff})")
+        msg = f"lossless verification failed: {src.name} ({mode}, max difference {diff})"
+        raise RuntimeError(msg)
     grayed = gray and fmt in (images.JPEG, images.PNG)
     if out.stat().st_size >= src.stat().st_size:  # optimisation did not help: keep the original bytes
         shutil.copyfile(src, out)
@@ -337,13 +337,13 @@ class _Chapter:
     def rendered_avif(self, rec):
         ch = self.plan
         tasks = [
-            self.task(p, r["class"], r["yuv"], RENDERED_FMT, False)
+            self.task(p, r["class"], r["yuv"], RENDERED_FMT, jpeg_feed=False)
             for p, r in zip(self.rendered, ch.render, strict=True)
         ]
         results, failed = encode_avif_pages(self.pool, self.scorer, tasks, stop_on_fail=True)
         rec["avif_pages"] = results
         rec["reshape"] = {"kind": reshape_kind(ch.edits), "pages_in": len(self.kept), "pages_out": len(tasks)}
-        return self.avif(results, failed, False)
+        return self.avif(results, failed, size_gate=False)
 
     def pages_avif(self, rec, size_gate):
         ch = self.plan
@@ -352,7 +352,7 @@ class _Chapter:
             cls = ch.classes[q["name"]]
             yuv = plan.yuv_for(cls, q["chroma"])
             if q["name"] in self.blanked:  # a new image: encoded from its blanked PNG and scored against it
-                tasks.append(self.task(self.blanked[q["name"]], cls, yuv, RENDERED_FMT, False))
+                tasks.append(self.task(self.blanked[q["name"]], cls, yuv, RENDERED_FMT, jpeg_feed=False))
             else:
                 tasks.append(self.task(self.x / q["name"], cls, yuv, q["format"], plan.feeds_jpeg(q, yuv)))
         results, failed = encode_avif_pages(self.pool, self.scorer, tasks, stop_on_fail=True)
@@ -393,7 +393,8 @@ class _Chapter:
             return self.lossless(rec)
         if o["outcome"] == "untouched":
             return self.untouched()
-        raise ValueError(f"{self.plan.name}: unknown outcome {o['outcome']!r}")
+        msg = f"{self.plan.name}: unknown outcome {o['outcome']!r}"
+        raise ValueError(msg)
 
 
 def _clear(d):
@@ -455,7 +456,8 @@ def process_chapter(x_dir, rendered, blanked, cover, out_dir, work_dir, pool, sc
         for f in tmp.glob("*.avif"):
             f.unlink()
     else:
-        raise RuntimeError(f"{ch.name}: no outcome stood")
+        msg = f"{ch.name}: no outcome stood"
+        raise RuntimeError(msg)
     rec["quality"] = ch.quality
     rec["blanked"] = sorted(blanked, key=archive.natural_key) if rec["outcome"] == "avif" else []
     avif = rec["avif_pages"] if rec["outcome"] == "avif" else []
@@ -467,7 +469,8 @@ def process_chapter(x_dir, rendered, blanked, cover, out_dir, work_dir, pool, sc
         rec["cover"] = covers.insert(out_dir, cover["data"], o["cover"], cover["width"], cover["avif"])
     outputs = sorted(out_dir.iterdir(), key=lambda p: archive.natural_key(p.name))
     if len(outputs) != o["pages_out"]:
-        raise RuntimeError(f"{ch.name}: {len(outputs)} output pages, the outcome writes {o['pages_out']}")
+        msg = f"{ch.name}: {len(outputs)} output pages, the outcome writes {o['pages_out']}"
+        raise RuntimeError(msg)
     rec["bytes_out"] = sum(p.stat().st_size for p in outputs)
     rec["output"] = [{"name": p.name, "sha1": archive.sha1(p.read_bytes())} for p in outputs]
     rec["scores"] = {Path(r["name"]).stem + ".avif": r["score"] for r in avif}

@@ -61,7 +61,8 @@ def test_a_numbered_notice_title_with_an_end_marker_is_published_with_a_note(wor
         world.run(part)
     assert world.rows("SELECT comicinfo_number FROM published_file WHERE pages_in = 3") == [("131",)]
     (note,) = kept(chapter(world)[3])
-    assert note.endswith(": end marker") and len(listed_notes(world)) == 1, "published as 131, listed by status"
+    assert note.endswith(": end marker"), "published as 131, listed by status"
+    assert len(listed_notes(world)) == 1, "published as 131, listed by status"
 
 
 @budget(load="db", seconds=3)
@@ -80,9 +81,11 @@ def test_a_short_numbered_notice_is_dropped_at_junk_once_and_not_listed(world):
     published(world, 14, (101, 102, 103))
     world.run(process)
     stage, status_, error, _ = chapter(world)
-    assert (stage, status_) == ("junk", "done") and error.startswith("dropped: "), "1 page against a median of 14"
+    assert (stage, status_) == ("junk", "done"), "1 page against a median of 14"
+    assert error.startswith("dropped: "), "1 page against a median of 14"
     kept_copy = config.abs_path(world.cfg["paths"]["retention"]) / "Src (EN)" / "Solo Leveling" / path.name
-    assert not path.exists() and kept_copy.exists(), "removed the retention way"
+    assert not path.exists(), "removed the retention way"
+    assert kept_copy.exists(), "removed the retention way"
     assert world.rows("SELECT count(*) FROM handled_chapter WHERE outcome = 'dropped'") == [(1,)], "handled once"
     assert listed_notes(world) == [], "a dropped chapter is not listed"
 
@@ -94,7 +97,8 @@ def test_a_numbered_notice_as_long_as_the_series_median_is_kept(world):
     published(world, 14, (101, 102, 103))
     world.run(process)
     stage, _, _, notes = chapter(world)
-    assert stage != "junk" and "15 pages" in kept(notes)[0], "15 pages against a median of 14"
+    assert stage != "junk", "15 pages against a median of 14"
+    assert "15 pages" in kept(notes)[0], "15 pages against a median of 14"
 
 
 @budget(load="db", seconds=10)
@@ -105,8 +109,11 @@ def test_a_numbered_notice_in_a_strip_series_of_bulk_files_only_is_kept(tmp_path
     world.download(world.manga("Solo Leveling"), "Chapter 12 - Hiatus", data=cbz(pages=1))
     world.run(intake)
     world.run(process)
-    stage, status_, error, notes = chapter(world)
-    assert not error.startswith("dropped") and "no median" in kept(notes)[0], (
+    _stage, _status, error, notes = chapter(world)
+    assert not error.startswith("dropped"), (
+        "a bulk strip file's page count is of re-cut pages: no like-with-like median, so kept"
+    )
+    assert "no median" in kept(notes)[0], (
         "a bulk strip file's page count is of re-cut pages: no like-with-like median, so kept"
     )
 
@@ -118,12 +125,14 @@ def test_a_kept_notice_waiting_on_a_junk_decision_stays_kept_when_the_median_ris
     published(world, 14, (101, 102, 103))
     world.run(process)
     stage, status_, _, notes = chapter(world)
-    assert (stage, status_) == ("junk", "waiting") and len(kept(notes)) == 1, "kept, then waits on its credit page"
+    assert (stage, status_) == ("junk", "waiting"), "kept, then waits on its credit page"
+    assert len(kept(notes)) == 1, "kept, then waits on its credit page"
     published(world, 30, (104, 105, 106, 107, 108))
     assert decide_junk(world.cfg, "junk") == 1
     world.run(process)
     stage, _, error, notes = chapter(world)
-    assert stage != "junk" and not error.startswith("dropped"), "once kept, never judged again"
+    assert stage != "junk", "once kept, never judged again"
+    assert not error.startswith("dropped"), "once kept, never judged again"
     assert len(kept(notes)) == 1, "the note is written once"
 
 
@@ -132,4 +141,5 @@ def test_an_unnumbered_notice_is_dropped_at_discover(world):
     world.download(world.manga_id, "Hiatus")
     world.run(intake)
     stage, status_, error, _ = chapter(world)
-    assert (stage, status_) == ("discover", "done") and "a notice" in error
+    assert (stage, status_) == ("discover", "done")
+    assert "a notice" in error

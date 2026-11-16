@@ -175,16 +175,18 @@ def test_an_unmatched_edge_block_carries_its_banner_probe_with_its_text():
     """Nothing approved: the cover block keeps its banner piece as a probe, each with its own OCR text."""
     got = su.decide(su.scan(strip_of([BANNER]), lambda im: f"{im.height} px"), store())
     (block,) = got["undecided"]
-    assert block["text"] == "300 px" and [q["text"] for q in block["probes"]] == ["166 px"], "each unit's own read"
+    assert block["text"] == "300 px", "each unit's own read"
+    assert [q["text"] for q in block["probes"]] == ["166 px"], "each unit's own read"
 
 
 @budget(load="fs")
 def test_a_unit_with_a_stored_decision_is_not_read():
     """ocr_text reads only units `undecided` says have no stored decision: the decided banner piece gets no text."""
     banner = images.signature(Image.open(BANNER).convert("RGB").crop((0, 0, 360, 166)))
-    sc = su.scan(strip_of([BANNER]), lambda im: "read", lambda sig: not images.matches(sig, banner))
+    sc = su.scan(strip_of([BANNER]), lambda _im: "read", lambda sig: not images.matches(sig, banner))
     (block,) = sc["blocks"]
-    assert block["text"] == "read" and "text" not in block["joins"][0], block["joins"]
+    assert block["text"] == "read", block["joins"]
+    assert "text" not in block["joins"][0], block["joins"]
 
 
 def glued_block(where):
@@ -221,7 +223,7 @@ def approver(approved, row=7):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "where, approved, cut, left",
+    ("where", "approved", "cut", "left"),
     [("head", "p0-120", (0, 120), (120, 200)), ("tail", "p60-200", (60, 200), (0, 60))],
     ids=["head-from-the-top", "tail-from-the-bottom"],
 )
@@ -248,17 +250,20 @@ def test_match_blocks_without_an_approved_piece_cuts_nothing():
     block["joins"][0]["uniform"] = True
     approve = approver(None)
     removed, blocks = su.match_blocks([block], approve)
-    assert removed == [] and approve.calls == [("block", "whole"), ("probe", "p0-60"), ("probe", "p0-120")]
+    assert removed == []
+    assert approve.calls == [("block", "whole"), ("probe", "p0-60"), ("probe", "p0-120")]
     (b,) = blocks
     assert span(b["probes"]) == [(0, 120)], "a uniform piece is no probe"
-    assert "joins" not in b and set(b["probes"][0]) == {"start", "end", "sig"}
+    assert "joins" not in b
+    assert set(b["probes"][0]) == {"start", "end", "sig"}
 
 
 @budget(load="pure")
 def test_a_block_matching_whole_is_removed_why_match():
     blocks = [{"start": 0, "end": 100, "where": "head", "sig": "a", "joins": []}]
-    removed, left = su.match_blocks(blocks, lambda kind, sig: 4)
-    assert removed == [{"start": 0, "end": 100, "where": "head", "decision": 4, "why": "match"}] and left == []
+    removed, left = su.match_blocks(blocks, lambda _kind, _sig: 4)
+    assert removed == [{"start": 0, "end": 100, "where": "head", "decision": 4, "why": "match"}]
+    assert left == []
 
 
 @budget(1.0, load="fs")
@@ -290,7 +295,8 @@ def test_a_block_decision_removes_the_magus_band_of_a_real_end_card(tmp_path):
     got = su.decide(sc, store(("block", band["sig"], "junk", 298)))
     assert {"start": start, "end": st.height, "why": "match"} in got["removed"], got["removed"]
     assert [r["why"] for r in got["removed"]] == ["join", "match"], "the blank run above the band joins the strip end"
-    assert got["undecided"] and all(u["end"] <= got["removed"][0]["start"] for u in got["undecided"]), got["undecided"]
+    assert got["undecided"], got["undecided"]
+    assert all(u["end"] <= got["removed"][0]["start"] for u in got["undecided"]), got["undecided"]
     assert got["kept_problem"] is None
 
 
@@ -369,7 +375,8 @@ def test_uniform_middle_blocks_are_left_out(tmp_path):
         fx.webtoon_page((200, 5960), seed=4), (40,),
     )  # fmt: skip
     sc = su.scan(save_one(tmp_path, im))
-    assert len(sc["middle"]) == 1 and images.matches(images.sig_from_str(sc["middle"][0]), images.signature(art))
+    assert len(sc["middle"]) == 1
+    assert images.matches(images.sig_from_str(sc["middle"][0]), images.signature(art))
 
 
 @budget(3.0, load="fs")
@@ -384,7 +391,8 @@ def test_a_block_too_tall_to_match_a_band_is_never_rendered(tmp_path):
         sc = su.scan(st)
     assert sc["middle"] == []
     rendered = [c.args[2:4] for c in spy.call_args_list]
-    assert (6000, 12500) not in rendered and rendered, rendered
+    assert (6000, 12500) not in rendered, rendered
+    assert rendered, rendered
 
 
 # ---------------------------------------------------------------- the tail pass (W1 blank, W3 wedge), via decide
@@ -441,7 +449,7 @@ def test_short_wedge_between_two_credits_dropped_a_taller_one_reviewed():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("height, want", [(129, "wedge"), (130, "review")], ids=["129-px", "130-px"])
+@pytest.mark.parametrize(("height", "want"), [(129, "wedge"), (130, "review")], ids=["129-px", "130-px"])
 def test_wedge_px_is_the_first_reviewed_height(height, want):
     """W3: shorter than WEDGE_PX 130 is a wedge; 130 px is reviewed."""
     got = classes([(1000, 1300, 1), (1300 + height, 1600, 2)], [piece(1300, 1300 + height)])
@@ -464,7 +472,7 @@ def test_blank_piece_dropped_a_faint_line_is_not_blank():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "std, ink, want",
+    ("std", "ink", "want"),
     [(2.9, 40, "blank"), (3.0, 0, "review"), (0.0, 41, "review")],
     ids=["std-under-3-ink-40", "std-3", "ink-41"],
 )
@@ -534,9 +542,11 @@ def test_a_piece_decision_removes_a_tail_piece():
         )
 
     junk = su.decide(sc, with_piece("junk"))
-    assert {"start": 1300, "end": 1500, "why": "piece"} in junk["removed"] and junk["undecided"] == []
+    assert {"start": 1300, "end": 1500, "why": "piece"} in junk["removed"]
+    assert junk["undecided"] == []
     keep = su.decide(sc, with_piece("keep"))
-    assert all(r["why"] != "piece" for r in keep["removed"]) and keep["undecided"] == []
+    assert all(r["why"] != "piece" for r in keep["removed"])
+    assert keep["undecided"] == []
 
 
 @budget(load="pure")
@@ -649,7 +659,10 @@ def test_measure_piece_reads_std_ink_and_signs_only_signable_pieces():
     flat = su.measure_piece(Image.new("RGB", (200, 60), (250, 250, 250)))
     assert (flat["uniform"], flat["sig"], flat["std"], flat["ink"]) == (True, None, 0.0, 0)
     inked = su.measure_piece(fx.blob(1, (200, 150)))
-    assert not inked["uniform"] and not inked["unsignable"] and inked["sig"] and inked["ink"] > su.BLANK_INK
+    assert not inked["uniform"]
+    assert not inked["unsignable"]
+    assert inked["sig"]
+    assert inked["ink"] > su.BLANK_INK
 
 
 # ---------------------------------------------------------------- the join rule and settle

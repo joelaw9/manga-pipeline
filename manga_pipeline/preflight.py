@@ -6,7 +6,6 @@ lists (cli.py).
 """
 
 import logging
-import os
 import shutil
 import sys
 import urllib.parse
@@ -18,6 +17,9 @@ from manga_pipeline import config, db, fleet
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.convert import tools, vship
 from manga_pipeline.junk import ocr
+
+if sys.platform == "win32":
+    import winreg
 
 log = logging.getLogger(__name__)
 HARD, SOFT = "hard", "soft"
@@ -44,7 +46,7 @@ def owner_file(cfg):
     return config.abs_path(cfg["paths"]["staging"]) / OWNER_FILE
 
 
-def python_version(cfg, version=sys.version_info):
+def python_version(_cfg, version=sys.version_info):
     if version < (3, 13):
         return f"Python 3.13 or later is required, this is {version[0]}.{version[1]}"
     return None
@@ -110,21 +112,25 @@ def folder_layout(cfg):
         for name, path in {**kept, **others}.items():
             if path.is_relative_to(folder):
                 problems.append(f"paths.{key} {folder} contains {name} {path}")
-        for name in ("paths.downloads", "paths.library"):
-            if folder.is_relative_to(kept[name]) and folder != kept[name]:
-                problems.append(f"paths.{key} {folder} lies inside {name} {kept[name]}")
+        problems.extend(
+            f"paths.{key} {folder} lies inside {name} {kept[name]}"
+            for name in ("paths.downloads", "paths.library")
+            if folder.is_relative_to(kept[name]) and folder != kept[name]
+        )
     retention = paths["retention"]
-    for name in ("paths.downloads", "paths.library"):
-        if retention.is_relative_to(kept[name]) or kept[name].is_relative_to(retention):
-            problems.append(f"paths.retention {retention} and {name} {kept[name]} overlap")
+    problems.extend(
+        f"paths.retention {retention} and {name} {kept[name]} overlap"
+        for name in ("paths.downloads", "paths.library")
+        if retention.is_relative_to(kept[name]) or kept[name].is_relative_to(retention)
+    )
     return "; ".join(problems) or None
 
 
 def _missing_folders(cfg, keys):
     """keys: paths.<key> names, or (key, subfolder) for a folder below one."""
     problems = []
-    for key in keys:
-        key, sub = key if isinstance(key, tuple) else (key, None)
+    for entry in keys:
+        key, sub = entry if isinstance(entry, tuple) else (entry, None)
         folder = config.abs_path(cfg["paths"][key])
         name = f"paths.{key}" if sub is None else f"the {sub} folder of paths.{key}"
         folder = folder if sub is None else folder / sub
@@ -153,7 +159,7 @@ def share_folders(cfg):
     retention = config.abs_path(cfg["paths"]["retention"])
     for key in ("downloads", "library"):
         try:
-            if os.stat(config.abs_path(cfg["paths"][key])).st_dev != os.stat(retention).st_dev:
+            if config.abs_path(cfg["paths"][key]).stat().st_dev != retention.stat().st_dev:
                 return f"paths.retention is not on the same filesystem as paths.{key}"
         except OSError as e:
             return f"cannot read the filesystem of paths.{key} or paths.retention: {e}"
@@ -276,8 +282,9 @@ def naming_overrides(cfg):
 
 def long_paths_value():
     """Windows' LongPathsEnabled registry value, or None when it is absent."""
-    import winreg
-
+    if sys.platform != "win32":
+        msg = "LongPathsEnabled is a Windows registry value"
+        raise RuntimeError(msg)
     try:
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, LONG_PATHS_KEY) as key:
             return winreg.QueryValueEx(key, "LongPathsEnabled")[0]
@@ -285,7 +292,7 @@ def long_paths_value():
         return None
 
 
-def long_paths(cfg):
+def long_paths(_cfg):
     """On Windows, paths of 260 or more characters open (SPEC "Preflight"); elsewhere they always do."""
     if sys.platform != "win32":
         return None
@@ -334,7 +341,8 @@ def run(cfg, checks):
     logs each and raises PreflightFailed naming all of them."""
     unknown = [c.name for c in checks if c.level not in (HARD, SOFT)]
     if unknown:
-        raise ValueError(f"preflight check level must be HARD or SOFT: {', '.join(unknown)}")
+        msg = f"preflight check level must be HARD or SOFT: {', '.join(unknown)}"
+        raise ValueError(msg)
     soft, hard = [], []
     for check in checks:
         problem = check.run(cfg)
@@ -347,5 +355,6 @@ def run(cfg, checks):
             log.warning("%s: %s", check.name, problem)
             soft.append(f"{check.name}: {problem}")
     if hard:
-        raise PreflightFailed(f"preflight failed: {'; '.join(hard)}")
+        msg = f"preflight failed: {'; '.join(hard)}"
+        raise PreflightFailed(msg)
     return soft

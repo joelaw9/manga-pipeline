@@ -6,6 +6,7 @@ import secrets
 import shutil
 import sys
 from contextlib import closing
+from pathlib import Path
 
 import pytest
 
@@ -18,13 +19,16 @@ from tests.builders import site_cfg
 from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
+if sys.platform == "win32":
+    import _winapi
 
-def ok(cfg):
+
+def ok(_cfg):
     return None
 
 
 def broken(text):
-    return lambda cfg: text
+    return lambda _cfg: text
 
 
 def with_min_free(mb, folder=None):
@@ -77,7 +81,7 @@ def test_hard_problems_stop_the_run_after_every_check_ran():
     seen = []
     checks = [
         Check("a", HARD, broken("first")),
-        Check("b", SOFT, lambda cfg: seen.append("b")),
+        Check("b", SOFT, lambda _cfg: seen.append("b")),
         Check("c", HARD, broken("second")),
     ]
     with pytest.raises(preflight.PreflightFailed, match="a: first; c: second"):
@@ -114,7 +118,7 @@ def test_zero_skips_the_check_and_negative_is_a_problem(tmp_path):
 
 @budget(load="fs")
 def test_free_space_reports_an_unreadable_drive(tmp_path, monkeypatch):
-    def unreadable(path):
+    def unreadable(_path):
         raise OSError(5, "Input/output error")
 
     monkeypatch.setattr(shutil, "disk_usage", unreadable)
@@ -183,7 +187,7 @@ def layout(tmp_path, **paths):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "case, paths, problem",
+    ("case", "paths", "problem"),
     [
         ("staging = share root", {"staging": "share"}, "paths.staging {share} contains paths.downloads"),
         ("scratch = project root", {"scratch": config.ROOT}, "contains the project root"),
@@ -205,12 +209,10 @@ def test_example_folder_layout_passes():
 
 def dir_link(link, target):
     """A link to a folder that needs no privilege: a junction on Windows, a symlink elsewhere."""
-    if os.name == "nt":
-        import _winapi
-
+    if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:
-        os.symlink(target, link, target_is_directory=True)
+        Path(link).symlink_to(target, target_is_directory=True)
 
 
 @budget(load="fs")
@@ -224,7 +226,7 @@ def test_staging_linked_into_the_library_is_a_problem(tmp_path):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "paths, problem",
+    ("paths", "problem"),
     [
         ({"staging": "x/../scratch"}, "contains paths.scratch"),
         ({"scratch": "state/.."}, "contains the project root"),
@@ -329,12 +331,14 @@ def test_share_folders_missing_is_a_problem(tmp_path):
     cfg = site(tmp_path)
     (tmp_path / "share" / "library").mkdir(parents=True)
     text = preflight.share_folders(cfg)
-    assert "paths.downloads" in text and "is not an existing folder" in text and "paths.library" not in text
+    assert "paths.downloads" in text
+    assert "is not an existing folder" in text
+    assert "paths.library" not in text
 
 
 @budget(load="pure")
 def test_folder_checks_report_what_they_cannot_measure(tmp_path, monkeypatch):
-    def broken(self, *args, **kwargs):
+    def broken(_self, *_args, **_kwargs):
         raise OSError(5, "Input/output error")
 
     cfg = site(tmp_path)
@@ -366,7 +370,7 @@ def test_share_ownership_applies_no_schema_step(tmp_path, monkeypatch):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "section, key, value, want",
+    ("section", "key", "value", "want"),
     [
         ("kavita", "rescan_after_minutes", 0, "kavita.rescan_after_minutes must be at least 1, got 0"),
         ("export", "retention_days", -1, "export.retention_days must be at least 0, got -1"),
@@ -404,7 +408,7 @@ def test_share_folders_need_retention_on_the_downloads_filesystem(tmp_path, monk
         st = real_stat(path, *args, **kwargs)
         return os.stat_result((*st[:2], st.st_dev + 1, *st[3:])) if str(path) == retention else st
 
-    monkeypatch.setattr(preflight.os, "stat", other_device)
+    monkeypatch.setattr(os, "stat", other_device)  # Path.stat calls os.stat
     assert "same filesystem" in preflight.share_folders(cfg), "a download moves to retention by rename"
 
 
@@ -431,7 +435,8 @@ def test_image_tools_names_every_missing_tool(tmp_path):
         (tmp_path / name).touch()
     assert preflight.image_tools(with_tools(tmp_path)) is None
     problem = preflight.image_tools(with_tools(tmp_path, oxipng=tmp_path / "gone", vship=tmp_path))
-    assert "tools.oxipng" in problem and "tools.vship" in problem, "a missing file and a folder are both problems"
+    assert "tools.oxipng" in problem, "a missing file and a folder are both problems"
+    assert "tools.vship" in problem, "a missing file and a folder are both problems"
     assert "tools.avifenc" not in problem, "a present tool is not named"
 
 
@@ -440,7 +445,8 @@ def test_scorer_reports_a_library_that_does_not_load(tmp_path, monkeypatch):
     monkeypatch.setattr(vship, "Scorer", fake_convert.REAL_SCORER)
     (tmp_path / "vship").write_bytes(b"not a library")
     problem = preflight.scorer(with_tools(tmp_path))
-    assert problem is not None and "cannot load the Vship library" in problem
+    assert problem is not None
+    assert "cannot load the Vship library" in problem
 
 
 @budget(load="fs")
@@ -461,7 +467,7 @@ def test_scratch_space_measures_the_scratch_drive(tmp_path):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "value, problem",
+    ("value", "problem"),
     [(1, None), (0, "LongPathsEnabled under HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem is 0: set it to 1")],
 )
 def test_long_paths_on_windows_need_the_registry_value_1(monkeypatch, value, problem):
@@ -483,7 +489,8 @@ def test_long_paths_absent_is_a_problem(monkeypatch):
 @budget(load="pure")
 def test_long_paths_are_no_problem_off_windows(monkeypatch):
     def unread():
-        raise AssertionError("no registry off Windows")
+        msg = "no registry off Windows"
+        raise AssertionError(msg)
 
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(preflight, "long_paths_value", unread)

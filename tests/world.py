@@ -20,6 +20,7 @@ from tests.fakes.kavita import FakeKavita
 from tests.fakes.sources import fake_sources
 from tests.fakes.suwayomi import FakeSuwayomi
 from tests.fakes.suwayomi import page as fake_page
+from tests.pages import PAGE_FIX
 
 LIBRARY_ID = 4  # tests/test_config.yaml kavita.library_id
 
@@ -33,7 +34,7 @@ def credit_page(seed=""):
     return out.getvalue()
 
 
-def cbz(pages=3, comicinfo=None, seed="", credit=False):
+def cbz(pages=3, comicinfo=None, seed="", *, credit=False):
     """A small CBZ: `pages` small page images whose colour carries seed (other seed = other content), then a credit
     page when `credit` (credit_page: the same in every chapter), and a ComicInfo.xml when given (bytes or str)."""
     data = io.BytesIO()
@@ -50,7 +51,6 @@ def cbz(pages=3, comicinfo=None, seed="", credit=False):
 def logo_page(badge="marks_scans_plain.png", size=(1200, 1800), at=(100, 100)):
     """A white page (PNG bytes) with a real scanlator badge crop (tests/fixtures_pages) pasted at `at`: a gray-mark
     page. 1200 x 1800 has the fake pages' aspect, so it is no other page size."""
-    from tests.pages import PAGE_FIX
 
     im = Image.new("RGB", size, "white")
     im.paste(Image.open(PAGE_FIX / badge).convert("RGB"), at)
@@ -165,6 +165,7 @@ class World:
         self,
         name,
         folder=None,
+        *,
         record=True,
         bulk=(("Ch.1.cbz", "Grp_Chapter 1", "1"),),
         basis="none",
@@ -197,7 +198,7 @@ class World:
     def manga(self, title):
         return self.suwayomi.add_manga(title, self.source)
 
-    def download(self, manga_id, name, scanlator=None, data=None, settled=True):
+    def download(self, manga_id, name, scanlator=None, data=None, *, settled=True):
         """A chapter of the manga whose CBZ is in the downloads folder, flagged downloaded; settled (modified long
         enough ago for intake to take it) unless settled=False. Returns (Suwayomi chapter id, path)."""
         chapter_id = self.suwayomi.add_chapter(manga_id, name, scanlator)

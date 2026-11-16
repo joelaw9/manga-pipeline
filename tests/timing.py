@@ -7,38 +7,41 @@ Copy this file into the project's test package (for example tests/timing.py). Py
 
 Over-budget tests are reported, never failed. pytest wiring: see the skill's references/timing.md.
 """
+
 import argparse
 import json
 import math
 import sys
 import unittest
-from datetime import datetime, timezone
-
-if sys.version_info < (3, 12):
-    raise RuntimeError("timing.py needs Python 3.12+ (unittest.TestResult.addDuration)")
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import override
 
 # Default budget in seconds per load: the costliest resource a test touches. "sleep" has no default.
 LOADS = {"pure": 0.1, "fs": 0.5, "db": 1.0, "network": 2.0, "subprocess": 5.0, "pool": 5.0, "sleep": None}
 ATTR = "_test_budget"
 SLOWEST = 10
-NO_TESTS_EXIT = 5    # unittest's exit code when nothing ran
+NO_TESTS_EXIT = 5  # unittest's exit code when nothing ran
 
 
 def budget(seconds=None, load="pure"):
     """Tag a test function or class with its load and budget (seconds for setup + test + teardown)."""
     if load not in LOADS:
-        raise ValueError(f"unknown load {load!r}; one of {sorted(LOADS)}")
+        msg = f"unknown load {load!r}; one of {sorted(LOADS)}"
+        raise ValueError(msg)
     if seconds is None:
         seconds = LOADS[load]
         if seconds is None:
-            raise ValueError(f"load {load!r} needs explicit seconds")
-    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) \
-            or seconds <= 0:
-        raise ValueError(f"budget seconds must be a positive number, got {seconds!r}")
+            msg = f"load {load!r} needs explicit seconds"
+            raise ValueError(msg)
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds <= 0:
+        msg = f"budget seconds must be a positive number, got {seconds!r}"
+        raise ValueError(msg)
 
     def mark(obj):
         setattr(obj, ATTR, {"seconds": float(seconds), "load": load})
         return obj
+
     return mark
 
 
@@ -48,11 +51,16 @@ def budget_for(func, cls=None):
 
 
 def row(test_id, seconds, tag):
-    return {"id": test_id, "seconds": round(seconds, 4), "load": tag["load"] if tag else None,
-            "budget": tag["seconds"] if tag else None, "over": bool(tag) and seconds > tag["seconds"]}
+    return {
+        "id": test_id,
+        "seconds": round(seconds, 4),
+        "load": tag["load"] if tag else None,
+        "budget": tag["seconds"] if tag else None,
+        "over": bool(tag) and seconds > tag["seconds"],
+    }
 
 
-def report(rows, out, path, check_budgets=True):
+def report(rows, out, path, *, check_budgets=True):
     """Print the slowest tests, over-budget tests and untagged tests; write all rows to path as JSON. Budgets are set
     for a serial run: with check_budgets False (a parallel run) the over-budget list is not printed."""
     rows = sorted(rows, key=lambda r: r["seconds"], reverse=True)
@@ -71,9 +79,16 @@ def report(rows, out, path, check_budgets=True):
         out.write(f"  {r['seconds']:8.3f}s  {r['id']}\n")
     if len(untagged) > SLOWEST:
         out.write(f"  ... {len(untagged) - SLOWEST} more in {path}\n")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"run_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "total_seconds": round(total, 3),
-                   "tests": rows}, f, indent=1)
+    with Path(path).open("w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "run_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "total_seconds": round(total, 3),
+                "tests": rows,
+            },
+            f,
+            indent=1,
+        )
     out.write(f"Timings written to {path}\n")
 
 
@@ -88,6 +103,7 @@ class TimedResult(unittest.TextTestResult):
         super().__init__(*args, **kwargs)
         self.timing_rows = []
 
+    @override
     def addDuration(self, test, elapsed):
         super().addDuration(test, elapsed)
         if isinstance(test, unittest.TestCase):
@@ -97,6 +113,7 @@ class TimedResult(unittest.TextTestResult):
 
 class TimedRunner(unittest.TextTestRunner):
     """Passed to unittest.main as a class, so -v / -f / -b / --durations / warnings reach it like the default runner."""
+
     resultclass = TimedResult
 
 

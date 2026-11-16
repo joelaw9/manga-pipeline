@@ -32,14 +32,16 @@ def snapshot(path):
     """An in-memory copy of the SQLite database at `path`, read through a read-only connection."""
     path = Path(path).resolve()
     if not path.is_file():
-        raise SourceError(f"no database at {path}")
+        msg = f"no database at {path}"
+        raise SourceError(msg)
     mem = sqlite3.connect(":memory:")
     try:
         with closing(sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=SOURCE_TIMEOUT_S)) as src:
             src.backup(mem)
     except sqlite3.DatabaseError as e:
         mem.close()
-        raise SourceError(f"{path} is not a readable SQLite database: {e}") from e
+        msg = f"{path} is not a readable SQLite database: {e}"
+        raise SourceError(msg) from e
     mem.row_factory = sqlite3.Row
     return mem
 
@@ -83,7 +85,8 @@ def bulk_rows(src, name):
         if r["chain"] is not None:
             skipped["chain"] += 1
         if r["origin"] not in UNIT_ORIGINS:
-            raise SourceError(f"{name}: junk row {r['id']} has origin {r['origin']!r}, not one this program knows")
+            msg = f"{name}: junk row {r['id']} has origin {r['origin']!r}, not one this program knows"
+            raise SourceError(msg)
         tiles = tuple(int(t, 16) for t in r["tiles"].split(":"))
         key = images.sig_to_str((tiles, r["aspect"]))
         rows.append(_row(r["series"], r["origin"], key, r, f"{name} junk row {r['id']}"))
@@ -106,15 +109,18 @@ def logo_key(png, size, source):
     try:
         template = marks.Template.from_png(png)
     except (OSError, ValueError) as e:
-        raise SourceError(f"{source}: template is not a logo template: {e}") from None
+        msg = f"{source}: template is not a logo template: {e}"
+        raise SourceError(msg) from None
     if template.size != tuple(size):
-        raise SourceError(f"{source}: template is {template.size}, recorded as {tuple(size)}")
+        msg = f"{source}: template is {template.size}, recorded as {tuple(size)}"
+        raise SourceError(msg)
     return template.key_text()
 
 
 def _row(series, kind, key, r, source):
     if r["decision"] not in VERDICT:
-        raise SourceError(f"{source}: decision {r['decision']!r} is neither approve nor keep")
+        msg = f"{source}: decision {r['decision']!r} is neither approve nor keep"
+        raise SourceError(msg)
     return {
         "series_key": store.GLOBAL if series is None else series,
         "kind": kind,
@@ -141,7 +147,8 @@ def record_rows(record):
             if r["origin"] == "cut":
                 continue
             if r["origin"] not in UNIT_ORIGINS:
-                raise SourceError(f"origin {r['origin']!r}")
+                msg = f"origin {r['origin']!r}"
+                raise SourceError(msg)
             tiles, aspect = r["key"]
             sig = images.sig_to_str((tuple(int(t, 16) for t in tiles.split(":")), float(aspect)))
             out.append(_row(r["series"], r["origin"], sig, r, f"record junk row {r['row']}"))
@@ -156,7 +163,8 @@ def record_rows(record):
             out.append(_row(r["series"], "logo", logo_key(png, (w, h), source), r, source))
     except (AttributeError, KeyError, TypeError, ValueError) as e:
         why = f"{type(e).__name__}: {e}"
-        raise record_reader.RecordError(f"record series.decisions.rows: malformed row ({why})") from None
+        msg = f"record series.decisions.rows: malformed row ({why})"
+        raise record_reader.RecordError(msg) from None
     return out
 
 
@@ -164,14 +172,16 @@ def read_database(cfg, name):
     """(rows, skipped, seen) of another pipeline database on the server: its decisions with their deciders, times and
     sources; its sightings are not read (seen None)."""
     if name == cfg["database"]["name"]:
-        raise SourceError(f"{name} is this pipeline's own database")
+        msg = f"{name} is this pipeline's own database"
+        raise SourceError(msg)
     try:
         with closing(db.read_only({**cfg, "database": {**cfg["database"], "name": name}})) as src:
             rows = [{c: r[c] for c in DECISION_COLUMNS} for r in src.execute("SELECT * FROM junk_decision ORDER BY id")]
     except db.NoDatabase as e:
         raise SourceError(str(e)) from None
     except db.SchemaError as e:
-        raise SourceError(f"{name} is not a pipeline database of this version: {e}") from None
+        msg = f"{name} is not a pipeline database of this version: {e}"
+        raise SourceError(msg) from None
     return rows, {}, None
 
 
@@ -212,11 +222,13 @@ def read_store(path):
     path = Path(path).resolve()
     with closing(snapshot(path)) as src:
         if not {"junk", "frames", "marks", "junk_seen"} <= tables(src):
-            raise SourceError(f"{path} is not a bulk-converter junk store")
+            msg = f"{path} is not a bulk-converter junk store"
+            raise SourceError(msg)
         try:
             (rows, skipped), seen = bulk_rows(src, path.name), bulk_seen(src)
         except sqlite3.Error as e:
-            raise SourceError(f"{path}: its tables are not the expected ones: {e}") from e
+            msg = f"{path}: its tables are not the expected ones: {e}"
+            raise SourceError(msg) from e
     return rows, skipped, seen
 
 

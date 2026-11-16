@@ -27,7 +27,8 @@ def record(conn, series_id, identity, outcome, digest):
     """Record a handled chapter (digest None for an archive that could not be read); inside the caller's
     transaction."""
     if outcome not in OUTCOMES:
-        raise ValueError(f"handled chapter outcome must be one of {OUTCOMES}, got {outcome!r}")
+        msg = f"handled chapter outcome must be one of {OUTCOMES}, got {outcome!r}"
+        raise ValueError(msg)
     conn.execute(
         "INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at)"
         " VALUES (%s, %s, %s, %s, %s)",

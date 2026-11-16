@@ -9,6 +9,7 @@ chapter gets the volume the converter would give it (flat text heuristics, not a
 """
 
 import dataclasses
+import itertools
 from dataclasses import dataclass
 
 from manga_pipeline import names, volumes
@@ -91,10 +92,12 @@ def parse_token(text):
     elif len(parts) == 1:
         kind, season, number = names.MAIN, None, parts[0]
     else:
-        raise ValueError(f"chapter {text!r} is not a number, 'S<season> <number>' or 'side <number>'")
+        msg = f"chapter {text!r} is not a number, 'S<season> <number>' or 'side <number>'"
+        raise ValueError(msg)
     n = names.to_volume(number)  # a non-negative number, or None
     if n is None:
-        raise ValueError(f"chapter {text!r}: {number!r} is not a chapter number")
+        msg = f"chapter {text!r}: {number!r} is not a chapter number"
+        raise ValueError(msg)
     return edit_key(kind, season, n)
 
 
@@ -142,7 +145,8 @@ def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset(), e
     edits = edits or {}
     rows = [apply_edit(r, edits) if r.settled else r for r in rows]
     if basis == OVERRIDE and overrides is None:
-        raise VolumeError("the series' volume basis is its override file, and it has none")
+        msg = "the series' volume basis is its override file, and it has none"
+        raise VolumeError(msg)
     override = (overrides or {}).get("volumes") or {}
     main = sorted(
         (i for i, r in enumerate(rows) if r.kind == names.MAIN), key=lambda i: (rows[i].number, rows[i].order)
@@ -171,7 +175,8 @@ def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset(), e
         v = vol[i][0]
         if not rows[i].settled and rows[i].key not in fill and v is not None and v != int(v):
             number, volume = names.fmt_num(rows[i].number), names.fmt_num(v)
-            raise VolumeError(f"chapter {number}: volume {volume} ({vol[i][1]}) is not a whole number")
+            msg = f"chapter {number}: volume {volume} ({vol[i][1]}) is not a whole number"
+            raise VolumeError(msg)
     out = {}
     covered = _opens_covered(basis, rows, main, vol, override, mangadex)
     titles = platforms.chapter_titles(platform)
@@ -182,7 +187,8 @@ def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset(), e
             e = edits.get(edit_key(names.MAIN, rows[i].season, rows[i].number))
             title = e.title if e is not None and e.title is not None else title
             out[rows[i].key] = Naming(names.MAIN, v, rows[i].number, title, source, i in covered)
-    for key, named in _side_stories(rows, side, [vol[i][0] for i in main], platform, past).items():
+    for key, side_named in _side_stories(rows, side, [vol[i][0] for i in main], platform, past).items():
+        named = side_named
         e = edits.get(edit_key(names.SIDE, None, named.number))
         if e is not None and e.title is not None:
             named = dataclasses.replace(named, title=edited_title(names.SIDE, named.number, e.title))
@@ -287,7 +293,7 @@ def _basis_volumes(basis, rows, main, free, override, mangadex, platform):
     elif basis == OVERRIDE:
         vols = _override_volumes(override, rows, free)
     elif basis == SIDE_DEFAULT:
-        vols = {i: 1 for i in free}
+        vols = dict.fromkeys(free, 1)
     elif basis in platforms.BASES and platform and platform["name"] == platforms.BASES[basis]:
         vols = platforms.volumes(platform, {i: rows[i].number for i in free})[0]
     else:
@@ -338,7 +344,7 @@ def _gap_fill(main, known, primary, targets, fillers):
                 if not ((before[k] is not None and w < before[k]) or (after[k + 1] is not None and w > after[k + 1])):
                     added[i] = w
         seq = [added[i] for i in main if i in added]
-        if any(a > b for a, b in zip(seq, seq[1:], strict=False)):
+        if any(a > b for a, b in itertools.pairwise(seq)):
             continue
         known.update(added)
         fills.update({i: (v, name) for i, v in added.items()})
@@ -490,5 +496,7 @@ def _side_stories(rows, side, main_volumes, platform, past=frozenset()):
         t = t or names.clean_marker_title(special_titles.get(n) or "")
         base = SIDE_TITLE.format(n=n)
         source = SIDE_SOURCE if side_volume is not None else NONE
-        out[rows[i].key] = Naming(names.SIDE, side_volume, float(n), f"{base}: {t}" if t else base, source, False)
+        out[rows[i].key] = Naming(
+            names.SIDE, side_volume, float(n), f"{base}: {t}" if t else base, source, opens_covered_volume=False
+        )
     return out

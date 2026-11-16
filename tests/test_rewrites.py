@@ -45,7 +45,7 @@ def library(world):
 
 
 def files(world):
-    return sorted(n for n in os.listdir(world.library / SERIES) if n.endswith(".cbz"))
+    return sorted(p.name for p in (world.library / SERIES).iterdir() if p.name.endswith(".cbz"))
 
 
 def override(world, volumes):
@@ -113,7 +113,8 @@ def test_a_rewrite_keeps_the_old_files_own_fields_and_pages_and_carries_the_seri
         assert all(new.read(n) == old.read(n) for n in pages), "pages copied byte for byte"
         fields = comicinfo_xml.read_all(new.read("ComicInfo.xml"))
     assert (fields["Volume"], fields["Number"], fields["Translator"]) == ("2", "2", "Grp"), "new volume, own fields"
-    assert fields["Manga"] and fields["Series"] == SERIES, "the series-level fields now"
+    assert fields["Manga"], "the series-level fields now"
+    assert fields["Series"] == SERIES, "the series-level fields now"
 
 
 def crash_after(monkeypatch, step, name):
@@ -123,7 +124,8 @@ def crash_after(monkeypatch, step, name):
     def record(conn, file_id, done):
         path = conn.execute("SELECT library_path FROM published_file WHERE id = %s", (file_id,)).fetchone()[0]
         if done == step and path.endswith("/" + name):
-            raise KeyboardInterrupt("killed")
+            msg = "killed"
+            raise KeyboardInterrupt(msg)
         return real(conn, file_id, done)
 
     monkeypatch.setattr(rewrite, "_record", record)
@@ -151,10 +153,11 @@ def test_a_crash_after_each_act_of_a_rewrite_recovers_on_the_next_export(world, 
     with zipfile.ZipFile(world.library / SERIES / "Vol.1 Ch.2.cbz") as z:
         assert comicinfo_xml.read_fields(z.read("ComicInfo.xml"))["Volume"] == "2", "the new file is in place"
     kept = config.abs_path(world.cfg["paths"]["retention"]) / "library-files" / SERIES
-    assert os.stat(kept / name).st_mtime > started, "the old file kept, with its retention period from now"
+    assert (kept / name).stat().st_mtime > started, "the old file kept, with its retention period from now"
     scan(world)
     world.run(export)
-    assert progress(world, kid)["Vol.1 Ch.2.cbz"][0] == 2 and progress(world, kid)["Vol.2 Ch.3.cbz"][0] == 2
+    assert progress(world, kid)["Vol.1 Ch.2.cbz"][0] == 2
+    assert progress(world, kid)["Vol.2 Ch.3.cbz"][0] == 2
 
 
 @budget(load="db", seconds=30)
@@ -170,7 +173,8 @@ def test_state_reset_mid_rewrite_loses_neither_the_file_nor_the_progress(world, 
         state.reset(world.cfg, conn)
     assert world.rows("SELECT count(*) FROM chapter") == [(0,)], "the rewrite chapters are gone"
     world.run(export)
-    assert "Vol.2 Ch.3.cbz" in files(world) and "Ch.3.cbz" not in files(world), "finished from its row"
+    assert "Vol.2 Ch.3.cbz" in files(world), "finished from its row"
+    assert "Ch.3.cbz" not in files(world), "finished from its row"
     scan(world)
     world.run(export)
     assert progress(world, kid)["Vol.2 Ch.3.cbz"][0] == 2, "the progress is restored"
@@ -185,7 +189,8 @@ def test_a_target_already_in_the_library_is_never_overwritten(world):
     ((status, error),) = world.rows(
         "SELECT status, last_error FROM chapter WHERE kind = 'rewrite' AND status <> 'done'"
     )
-    assert status == "needs_human" and "Vol.2 Ch.3.cbz" in error
+    assert status == "needs_human"
+    assert "Vol.2 Ch.3.cbz" in error
     assert (world.library / SERIES / "Vol.2 Ch.3.cbz").read_bytes() == b"someone else's"
 
 
@@ -193,7 +198,7 @@ def test_a_target_already_in_the_library_is_never_overwritten(world):
 def test_a_rewrite_failing_before_its_rename_is_retried_then_stuck_and_dropped(world, monkeypatch):
     library(world)
     override(world, {2: "2-"})
-    monkeypatch.setattr(retention, "put_library", lambda *a: (_ for _ in ()).throw(PermissionError("denied")))
+    monkeypatch.setattr(retention, "put_library", lambda *_a: (_ for _ in ()).throw(PermissionError("denied")))
     for _ in range(4):  # workflow.attempt_limit 3: tried 3 times, then left for a person
         world.run(export)
     monkeypatch.undo()
@@ -214,7 +219,8 @@ def test_a_rewrite_failing_after_its_rename_is_not_dropped_but_retried(world, mo
 
     def unlink(self, *args, **kwargs):
         if self.name == "Ch.3.cbz":
-            raise PermissionError("locked")
+            msg = "locked"
+            raise PermissionError(msg)
         return real(self, *args, **kwargs)
 
     monkeypatch.setattr(type(world.library), "unlink", unlink)
@@ -253,7 +259,8 @@ def test_a_rewrite_kavita_never_re_reads_is_charged_to_the_limit(world):
         world.rows(f"UPDATE published_file SET indexed_since = '{old}' WHERE indexed_since IS NOT NULL RETURNING id")
         world.run(export)
     errors = world.rows("SELECT pending_error FROM published_file WHERE pending_error IS NOT NULL")
-    assert len(errors) == 2 and all("not re-read" in e for (e,) in errors), "past the limit: listed for a person"
+    assert len(errors) == 2, "past the limit: listed for a person"
+    assert all("not re-read" in e for (e,) in errors), "past the limit: listed for a person"
 
 
 @budget(load="db", seconds=30)
@@ -269,7 +276,8 @@ def test_naming_diff_lists_the_rewrites_and_the_differences_apart(world):
         (f"library/{SERIES}/Ch.3.cbz", None, "2", f"library/{SERIES}/Vol.2 Ch.3.cbz", None, None),
     ]
     assert (wants, unknown) == ([], False), "export's comparisons read the files' covers; no image to want"
-    assert apart == [] and edits == [], "no source volume to read again in a filename series; no hand edits"
+    assert apart == [], "no source volume to read again in a filename series; no hand edits"
+    assert edits == [], "no source volume to read again in a filename series; no hand edits"
     assert world.rows("SELECT count(*) FROM chapter WHERE kind = 'rewrite'") == [(0,)], "it writes nothing"
 
 

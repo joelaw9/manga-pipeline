@@ -35,7 +35,8 @@ def _edit(conn, chapter_id):
     """The chapter's checked edit; raises plan.EditError when the row is missing or malformed (a program error)."""
     row = conn.execute("SELECT edit FROM chapter_edit WHERE chapter_id = %s", (chapter_id,)).fetchone()
     if row is None:
-        raise plan.EditError("no chapter_edit row: the junk stage wrote none (a program error)")
+        msg = "no chapter_edit row: the junk stage wrote none (a program error)"
+        raise plan.EditError(msg)
     return plan.check_edit(row[0])
 
 
@@ -45,12 +46,14 @@ def _layout(conn, series_id):
         "SELECT layout, page_aspect FROM series_conversion WHERE series_id = %s", (series_id,)
     ).fetchone()
     if row is None:
-        raise RuntimeError(f"series {series_id} has no layout (series_conversion)")
+        msg = f"series {series_id} has no layout (series_conversion)"
+        raise RuntimeError(msg)
     aspect = None if row["page_aspect"] is None else json.loads(row["page_aspect"])
     if aspect is not None and (
         not isinstance(aspect, list) or not aspect or not all(isinstance(a, (int, float)) for a in aspect)
     ):
-        raise RuntimeError(f"series {series_id} page_aspect must be a non-empty list of numbers, got {aspect!r}")
+        msg = f"series {series_id} page_aspect must be a non-empty list of numbers, got {aspect!r}"
+        raise RuntimeError(msg)
     return row["layout"], aspect
 
 
@@ -88,7 +91,7 @@ def _calibrate(ctx, chapter, chapter_plan, x_dir, rendered, work, pool, scorer, 
             for u in picked
         ]
         stored[group] = calibrate.add(
-            ctx.conn, chapter["series_id"], group, chapter["id"], new, lambda conn: workflow.holds_claim(ctx, chapter)
+            ctx.conn, chapter["series_id"], group, chapter["id"], new, lambda _conn: workflow.holds_claim(ctx, chapter)
         )
         log.info("series %s %s calibration: %s", chapter["series_id"], group, stored[group]["why"])
     return calibrate.quality(stored)
@@ -191,7 +194,8 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
         size = archive.write(staged, [(p["name"], (out_dir / p["name"]).read_bytes()) for p in rec["output"]])
         fails = check.check(staged, rec, x_dir, chapter_plan.kept())
         if fails:
-            raise RuntimeError(f"post-check failed: {'; '.join(fails)}")
+            msg = f"post-check failed: {'; '.join(fails)}"
+            raise RuntimeError(msg)
     except BaseException:
         staged.unlink(missing_ok=True)  # a staged file without its chapter's record is never left behind
         raise

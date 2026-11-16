@@ -107,7 +107,7 @@ def write(ctx, series_id, rules):
         "cover": before["cover_sha256"] if before else None,
     }
 
-    def record(final=False):
+    def record(*, final=False):
         _record(conn, series_id, kid, inputs(version, rules) if final else INCOMPLETE, state)
 
     guard = _Guard(series, state, imported)
@@ -244,7 +244,7 @@ def _cover(ctx, series, kid, state, imported, guard, record):
     held = state["cover"] or (imported["cover_sha256"] if imported else None)
     uploaded = ctx.kavita.has_uploaded_cover(kid)
     if uploaded and (held is None or COVER in state["kept"]):
-        guard.may(COVER, True, "a cover uploaded by hand", row["sha256"])
+        guard.may(COVER, locked=True, current="a cover uploaded by hand", ours=row["sha256"])
         return row["sha256"]  # settled: the person's cover stays, and the series is not due again for it
     if held == row["sha256"] and uploaded:
         return held

@@ -69,7 +69,8 @@ def cfg_for(name):
 
 def _owned(name):
     if not name.startswith(PREFIX):
-        raise ValueError(f"the test harness touches only {PREFIX}* databases, not {name!r}")
+        msg = f"the test harness touches only {PREFIX}* databases, not {name!r}"
+        raise ValueError(msg)
     return sql.Identifier(name)
 
 
@@ -130,7 +131,8 @@ class Process:
                 _set_print(self.owner, name, "")  # whoever takes it next rebuilds it
                 failures.append(e)
                 if len(failures) == MAX_FAILED_TAKES:  # a fault in the harness, not 1 bad database: stop here
-                    raise RuntimeError(f"{MAX_FAILED_TAKES} pool databases in a row could not be made right") from e
+                    msg = f"{MAX_FAILED_TAKES} pool databases in a row could not be made right"
+                    raise RuntimeError(msg) from e
                 continue
             return name
 
@@ -168,7 +170,8 @@ class Process:
         if failed:
             raise failed
         if leaks:
-            raise LeakedConnection(f"the test left database connections open (ended now): {', '.join(leaks)}")
+            msg = f"the test left database connections open (ended now): {', '.join(leaks)}"
+            raise LeakedConnection(msg)
 
     def _end_leaks(self, name):
         """End and return the test's connections still open: a connection dropped but not yet collected closes with
@@ -245,7 +248,8 @@ def _order(conn):
     while parents:
         leaves = sorted(t for t in parents if not any(t in ps for ps in parents.values()))
         if not leaves:
-            raise RuntimeError(f"foreign keys form a cycle among {sorted(parents)}")
+            msg = f"foreign keys form a cycle among {sorted(parents)}"
+            raise RuntimeError(msg)
         order += leaves
         for t in leaves:
             del parents[t]
@@ -263,7 +267,8 @@ def _order(conn):
 def drop_pool(pool):
     """Drop every database of `pool` (the pool's own tests clean up after themselves; the run's pool stays)."""
     if pool == POOL:
-        raise ValueError("the run's pool is never dropped by the harness")
+        msg = "the run's pool is never dropped by the harness"
+        raise ValueError(msg)
     with closing(_connect(db.MAINTENANCE_DATABASE)) as conn:
         names = [r[0] for r in conn.execute("SELECT datname FROM pg_database WHERE starts_with(datname, %s)", (pool,))]
         for name in names:

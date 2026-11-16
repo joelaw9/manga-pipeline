@@ -7,8 +7,9 @@ from datetime import datetime as real_datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
-from manga_pipeline import cli, config, db, handled, images, lock, notices, page_store, workflow
+from manga_pipeline import cli, config, db, handled, images, lock, notices, page_store, state, workflow
 from manga_pipeline.convert import calibrate
 from manga_pipeline.workflow import Failed, Waiting
 
@@ -42,7 +43,8 @@ class Fleet:
         for _ in range(50):  # until the server has seen the session end
             if not self.conn.execute(f"SELECT {lock.HELD_SQL.format(name='%s')}", (f"process@{name}",)).fetchone()[0]:
                 return
-        raise AssertionError(f"the server still holds {name}'s lock")
+        msg = f"the server still holds {name}'s lock"
+        raise AssertionError(msg)
 
     def _close(self, name):
         ctx, held = self.machines[name]
@@ -68,7 +70,7 @@ def fleet(tmp_path):
 
 
 def returns(outcome):
-    return lambda ctx, chapter: outcome
+    return lambda _ctx, _chapter: outcome
 
 
 @budget(load="db", seconds=2)
@@ -111,7 +113,8 @@ def test_a_dead_machines_claims_are_freed_by_another_machines_next_claim(fleet):
     assert fleet.row(c1)["claimed_by"] == "process@a"
     fleet.vanish("a")
     taken = workflow.claim(b, ("junk",))
-    assert taken["id"] == c1 and taken["claimed_by"] == "process@b", "freed within the next claim, then taken"
+    assert taken["id"] == c1, "freed within the next claim, then taken"
+    assert taken["claimed_by"] == "process@b", "freed within the next claim, then taken"
     assert taken["attempts"] == 0, "freeing a dead claim costs no attempt"
 
 
@@ -122,9 +125,8 @@ def test_with_locks_off_no_claim_is_freed(fleet):
     a, b = fleet.machine("a", off), fleet.machine("b", off)
     workflow.claim(a, ("junk",))
     workflow.release_own_claims(b)
-    assert workflow.claim(b, ("junk",)) is None and fleet.row(c1)["claimed_by"] == "process@a", (
-        "with no run locks every owner would look dead: nothing is freed"
-    )
+    assert workflow.claim(b, ("junk",)) is None, "with no run locks every owner would look dead: nothing is freed"
+    assert fleet.row(c1)["claimed_by"] == "process@a", "with no run locks every owner would look dead: nothing is freed"
 
 
 @budget(load="db")
@@ -157,7 +159,8 @@ def test_a_run_that_lost_its_claim_records_nothing_and_spends_no_attempt(fleet):
 
     def stage(ctx, chapter):
         workflow.holds_claim(ctx, chapter)  # what a stage does before an act it cannot undo
-        raise AssertionError("never reached")
+        msg = "never reached"
+        raise AssertionError(msg)
 
     assert isinstance(workflow.work(a, stale, stage), workflow.ClaimLost)
     after = fleet.row(stale["id"])
@@ -194,7 +197,7 @@ def test_a_lost_claim_puts_no_download_aside_and_adds_no_calibration_sample(flee
     assert download.exists(), "no download is put aside under a lost claim"
     with pytest.raises(workflow.ClaimLost):
         calibrate.add(
-            a.conn, stale["series_id"], "colour", stale["id"], [], lambda conn: workflow.holds_claim(a, stale)
+            a.conn, stale["series_id"], "colour", stale["id"], [], lambda _conn: workflow.holds_claim(a, stale)
         )
     assert fleet.conn.execute("SELECT count(*) FROM series_calibration").fetchone()[0] == 0
 
@@ -226,7 +229,7 @@ def test_a_lost_claim_neither_notes_a_kept_notice_nor_puts_a_dropped_one_aside(f
 
 @budget(load="db")
 def test_a_failed_chapter_waits_5_minutes_on_every_machine_and_its_series_goes_on(fleet):
-    _, (c1, c2) = fleet.series("S", chapters=2)
+    _, (_c1, _c2) = fleet.series("S", chapters=2)
     a, b = fleet.machine("a"), fleet.machine("b")
     first = workflow.claim(a, ("junk",))
     workflow.work(a, first, returns(Failed("bad page")))
@@ -328,7 +331,6 @@ def test_2_claims_of_1_chapter_never_share_a_scratch_folder_or_staged_file():
 
 def argv(cfg, tmp_path, *command):
     path = tmp_path / "config.yaml"
-    import yaml
 
     path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
     return ["--config", str(path), *command]
@@ -358,8 +360,6 @@ def test_a_command_with_locks_on_no_database_exits_4_and_creates_none(tmp_path, 
 
 @budget(load="db")
 def test_state_reset_holds_its_lock_until_its_folders_are_emptied(tmp_path, monkeypatch):
-    from manga_pipeline import state
-
     cfg = site_cfg(tmp_path)
     with closing(db.connect(cfg)) as conn:
         state.adopt(cfg, conn)
@@ -379,7 +379,7 @@ def test_state_reset_holds_its_lock_until_its_folders_are_emptied(tmp_path, monk
         cli.COMMANDS,
         "state reset",
         cli.COMMANDS["state reset"].__class__(
-            **{**cli.COMMANDS["state reset"].__dict__, "handler": lambda cfg, args, conn: watched(cfg, conn)}
+            **{**cli.COMMANDS["state reset"].__dict__, "handler": lambda cfg, _args, conn: watched(cfg, conn)}
         ),
     )
     assert cli.main(argv(cfg, tmp_path, "state", "reset", "--yes")) == 0

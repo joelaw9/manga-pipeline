@@ -94,11 +94,13 @@ def test_a_volume_edit_opening_a_covered_volume_inserts_its_cover_and_its_remova
     through(world)
     assert files(world) == ["Vol.1 Ch.1.cbz", "Vol.1 Ch.2.cbz", "Vol.2 Ch.3.cbz"]
     got, fields, _ = members(world, "Vol.2 Ch.3.cbz")
-    assert got[0].startswith("000_cover") and fields["Volume"] == "2", "a hand-given volume is covered"
+    assert got[0].startswith("000_cover"), "a hand-given volume is covered"
+    assert fields["Volume"] == "2", "a hand-given volume is covered"
     edit(world, {"3": {"volume": None}})
     through(world)
     got, fields, _ = members(world, "Ch.3.cbz")
-    assert not got[0].startswith("000_cover") and "Volume" not in fields, "back to no volume, its cover dropped"
+    assert not got[0].startswith("000_cover"), "back to no volume, its cover dropped"
+    assert "Volume" not in fields, "back to no volume, its cover dropped"
 
 
 @budget(load="db", seconds=60)
@@ -129,7 +131,8 @@ def test_a_malformed_edit_file_changes_nothing_and_names_every_problem(world):
         edit(world, {"9": {"title": "x"}, "S 3": {}, "2": {"volume": 1.5, "colour": "red"}, "1": {"title": " "}})
     problems = str(refused.value).splitlines()
     want = ("'S 3'", "colour", "1.5", "' '", "'9': no chapters")
-    assert len(problems) == 5 and all(any(w in p for p in problems) for w in want), problems
+    assert len(problems) == 5, problems
+    assert all(any(w in p for p in problems) for w in want), problems
     with pytest.raises(workflow.Refused) as refused:
         edit(world, {"9": {"title": "x"}})
     assert "'9': no chapters of the series match" in str(refused.value)
@@ -144,7 +147,7 @@ def test_an_edit_out_of_volume_order_is_refused(world):
     library(world)
     with pytest.raises(workflow.Refused) as refused:
         edit(world, {"1": {"volume": 2}})  # chapter 2 stays in volume 1
-    assert "chapter '2': volume 1 is out of order with chapter 1 in volume 2" == str(refused.value), "1 line per clash"
+    assert str(refused.value) == "chapter '2': volume 1 is out of order with chapter 1 in volume 2", "1 line per clash"
     edit(world, {"1": {"volume": 2}, "2": {"volume": 2}})  # together they keep the order
 
 
@@ -160,7 +163,7 @@ def test_an_edit_stored_again_prints_unchanged(world):
 
 @budget(load="pure", seconds=1)
 @pytest.mark.parametrize(
-    "token, key",
+    ("token", "key"),
     [("10", (names.MAIN, None, 10.0)), ("S2 4.5", (names.MAIN, 2, 4.5)), ("side 3", (names.SIDE, None, 3.0))],
 )
 def test_a_chapter_token_reads_back_as_written(token, key):
@@ -171,7 +174,7 @@ def test_a_chapter_token_reads_back_as_written(token, key):
 @budget(load="pure", seconds=1)
 @pytest.mark.parametrize("token", ["", "ten", "S 3", "side", "S2 x", "1 2 3"])
 def test_a_token_that_is_no_chapter_is_refused(token):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not a"):
         naming.parse_token(token)
 
 
@@ -204,7 +207,7 @@ def test_an_open_chapter_edited_to_its_sources_volume_keeps_their_source():
 
 
 @budget(load="fs", seconds=2)
-@pytest.mark.parametrize("held, want", [("Old", False), ("New", True)])
+@pytest.mark.parametrize(("held", "want"), [("Old", False), ("New", True)])
 def test_a_same_name_file_is_the_rewritten_one_only_with_the_new_title(tmp_path, held, want):
     path = tmp_path / "Vol.1 Ch.1.cbz"
     path.write_bytes(cbz(pages=2, comicinfo=comicinfo(Number=1, Volume=1, Title=held)))

@@ -2,14 +2,18 @@
 retries, the lossless path, drops, rendered pages, and the record. Tools and scorer are the fakes
 (tests/fakes/convert.py): avifenc writes a real AVIF with Pillow, jpegtran and oxipng copy."""
 
+import io
+import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import images
-from manga_pipeline.convert import image, pages, plan, tools
+from manga_pipeline import archive, images
+from manga_pipeline.convert import covers, image, pages, plan, tools
 
 from tests import pages as fx
 from tests.convert_pages import NO_EDIT, Chapter, colour, gray, jpeg, png, webp
@@ -24,7 +28,7 @@ def calls(tool):
 def score_by_q(scores):
     """A fake score from the encode quality in the decode's name (<stem>.q<Q>.png): scores[q], else 90."""
 
-    def f(ref, dec):
+    def f(_ref, dec):
         return scores.get(int(re.search(r"\.q(\d+)\.png$", dec.name).group(1)), 90.0)
 
     return f
@@ -65,7 +69,8 @@ def test_yuv_and_quality_group():
 @budget(load="pure")
 def test_only_a_colour_encode_of_a_feedable_jpeg_feeds_the_jpeg():
     q = {"format": images.JPEG, "jpeg_feed": True}
-    assert plan.feeds_jpeg(q, "420") and not plan.feeds_jpeg(q, "400")
+    assert plan.feeds_jpeg(q, "420")
+    assert not plan.feeds_jpeg(q, "400")
     assert not plan.feeds_jpeg({"format": images.PNG, "jpeg_feed": False}, "444")
 
 
@@ -73,8 +78,10 @@ def test_only_a_colour_encode_of_a_feedable_jpeg_feeds_the_jpeg():
 def test_jpeg_feed_and_gray_read_the_header():
     rgb = jpeg(colour())
     cmyk = jpeg(colour().convert("CMYK"))
-    assert pages.jpeg_feed(rgb) and pages.jpeg_gray(rgb), "a plain YCbCr JPEG is fed as is and can be grayed"
-    assert not pages.jpeg_feed(cmyk) and not pages.jpeg_gray(cmyk), "avifenc refuses CMYK; jpegtran cannot gray it"
+    assert pages.jpeg_feed(rgb), "a plain YCbCr JPEG is fed as is and can be grayed"
+    assert pages.jpeg_gray(rgb), "a plain YCbCr JPEG is fed as is and can be grayed"
+    assert not pages.jpeg_feed(cmyk), "avifenc refuses CMYK; jpegtran cannot gray it"
+    assert not pages.jpeg_gray(cmyk), "avifenc refuses CMYK; jpegtran cannot gray it"
     exif = Image.Exif()
     exif[0x0112] = 6
     turned = jpeg_with_exif(colour(), exif)
@@ -82,8 +89,6 @@ def test_jpeg_feed_and_gray_read_the_header():
 
 
 def jpeg_with_exif(im, exif):
-    import io
-
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=92, exif=exif.tobytes())
     return buf.getvalue()
@@ -115,16 +120,12 @@ def jpeg_with_exif(im, exif):
     ],
 )
 def test_a_malformed_edit_is_refused_naming_what_is_wrong(edit, match):
-    import json
-
     with pytest.raises(plan.EditError, match=match):
         plan.check_edit(json.dumps(edit))
 
 
 @budget(load="pure")
 def test_a_well_formed_edit_passes():
-    import json
-
     edit = {**NO_EDIT, "drop_pages": [0], "bands": [{"page": 1, "box": [0, 2, 10, 20]}], "join": [[2, 3]]}
     assert plan.check_edit(json.dumps(edit)) == edit
 
@@ -153,12 +154,12 @@ def test_cover_names_are_kept_or_prefixed_to_keep_the_order():
 
 @budget(load="pool")
 def test_2_pages_whose_names_share_a_stem_are_not_extracted(tmp_path):
-    from manga_pipeline import archive
-
     cbz = tmp_path / "c.cbz"
     archive.write(cbz, [("cover.jpg", jpeg(colour())), ("cover.png", png(gray()))])
     paths, problems = pages.extract(cbz, tmp_path / "x")
-    assert paths == [] and "share a name stem" in problems[0] and not (tmp_path / "x").exists()
+    assert paths == []
+    assert "share a name stem" in problems[0]
+    assert not (tmp_path / "x").exists()
 
 
 @budget(load="pool")
@@ -181,7 +182,8 @@ def test_colour_jpeg_chapter_becomes_avif_fed_as_is_at_its_chroma(tmp_path):
     enc = calls("avifenc")
     assert all(a[a.index("--yuv") + 1] == "420" for a in enc), "a 4:2:0 JPEG keeps 4:2:0"
     assert all("--ignore-exif" in a and a[-2].endswith(".jpg") for a in enc), "a feedable colour JPEG is fed as is"
-    assert rec["scores"] == {"001.avif": 90.0, "002.avif": 90.0} and rec["mean_score"] == 90.0
+    assert rec["scores"] == {"001.avif": 90.0, "002.avif": 90.0}
+    assert rec["mean_score"] == 90.0
     assert rec["gray"] is False
 
 
@@ -190,7 +192,8 @@ def test_gray_png_chapter_encodes_400_from_the_gray_reference(tmp_path):
     ch = Chapter(tmp_path, [("001.png", png(gray().convert("RGB")))])
     rec = ch.run(ch.plan())
     a = calls("avifenc")[0]
-    assert a[a.index("--yuv") + 1] == "400" and a[-2].endswith(".gray.png"), "gray pages: 4:0:0 of the gray version"
+    assert a[a.index("--yuv") + 1] == "400", "gray pages: 4:0:0 of the gray version"
+    assert a[-2].endswith(".gray.png"), "gray pages: 4:0:0 of the gray version"
     assert rec["gray"] is True
 
 
@@ -208,7 +211,9 @@ def test_a_page_under_the_floor_retries_once_at_q90(tmp_path, monkeypatch):
     fake.SCORE[0] = score_by_q({80: 79.994, 90: 85.0})
     ch = Chapter(tmp_path, [("001.png", png(colour()))])
     rec = ch.run(ch.plan())
-    assert rec["outcome"] == "avif" and rec["avif_pages"][0]["retried"] and rec["avif_pages"][0]["q"] == 90
+    assert rec["outcome"] == "avif"
+    assert rec["avif_pages"][0]["retried"]
+    assert rec["avif_pages"][0]["q"] == 90
     assert rec["avif_pages"][0]["score"] == 85.0
 
 
@@ -217,9 +222,11 @@ def test_a_page_failing_after_its_retry_sends_the_chapter_to_lossless(tmp_path):
     fake.SCORE[0] = score_by_q({80: 70.0, 90: 75.0})
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.png", png(gray()))])
     rec = ch.run(ch.plan())
-    assert rec["outcome"] == "lossless" and "scored 75.0 at q90" in rec["avif_rejected"]
+    assert rec["outcome"] == "lossless"
+    assert "scored 75.0 at q90" in rec["avif_rejected"]
     assert [o["name"] for o in rec["output"]] == ["001.jpg", "002.png"]
-    assert rec["mean_score"] is None and rec["scores"] == {}
+    assert rec["mean_score"] is None
+    assert rec["scores"] == {}
     assert not list(ch.work.glob("*.avif")), "the rejected attempt's AVIF pages are removed"
 
 
@@ -228,7 +235,8 @@ def test_the_size_gate_rejects_avif_over_the_ratio(tmp_path, monkeypatch):
     monkeypatch.setattr(image, "MAX_SIZE_RATIO", 0.0)
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour()))])
     rec = ch.run(ch.plan())
-    assert rec["outcome"] == "lossless" and "of original > 0%" in rec["avif_rejected"]
+    assert rec["outcome"] == "lossless"
+    assert "of original > 0%" in rec["avif_rejected"]
 
 
 @budget(load="pool")
@@ -237,23 +245,26 @@ def test_lossy_webp_chapter_stays_untouched_byte_for_byte(tmp_path):
     ch = Chapter(tmp_path, [("001.webp", data)])
     p = ch.plan()
     rec = ch.run(p)
-    assert (p.route, rec["outcome"]) == ("untouched", "untouched") and not calls("avifenc")
+    assert (p.route, rec["outcome"]) == ("untouched", "untouched")
+    assert not calls("avifenc")
     assert (ch.out / "001.webp").read_bytes() == data
 
 
 @budget(load="pool")
 def test_jpeg_webp_mix_failing_the_gate_stays_untouched(tmp_path):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.webp", webp(colour(seed=5)))])
     rec = ch.run(ch.plan())
-    assert rec["outcome"] == "untouched" and [o["name"] for o in rec["output"]] == ["001.jpg", "002.webp"]
+    assert rec["outcome"] == "untouched"
+    assert [o["name"] for o in rec["output"]] == ["001.jpg", "002.webp"]
 
 
 @budget(load="pool")
 def test_dropped_pages_are_left_out(tmp_path):
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour(seed=6)))])
     rec = ch.run(ch.plan({**NO_EDIT, "drop_pages": [1]}))
-    assert [o["name"] for o in rec["output"]] == ["001.avif"] and rec["dropped"] == ["002.jpg"]
+    assert [o["name"] for o in rec["output"]] == ["001.avif"]
+    assert rec["dropped"] == ["002.jpg"]
     assert rec["pages"] == 1
 
 
@@ -262,16 +273,17 @@ def test_dropped_pages_are_left_out(tmp_path):
 
 @budget(load="pool")
 def test_lossless_output_not_smaller_keeps_the_source_bytes(tmp_path):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     data = jpeg(colour())
     ch = Chapter(tmp_path, [("001.jpg", data)])
     rec = ch.run(ch.plan())
-    assert rec["lossless_pages"][0]["verify"] == "exact" and (ch.out / "001.jpg").read_bytes() == data
+    assert rec["lossless_pages"][0]["verify"] == "exact"
+    assert (ch.out / "001.jpg").read_bytes() == data
 
 
 @budget(load="pool")
 def test_a_lossless_pixel_mismatch_names_the_page(tmp_path, monkeypatch):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
 
     def bad_jpegtran(*args):
         args = [str(a) for a in args]
@@ -288,7 +300,7 @@ def test_a_lossless_pixel_mismatch_names_the_page(tmp_path, monkeypatch):
 
 @budget(load="pool")
 def test_gray_jpeg_on_the_lossless_path_is_grayscaled(tmp_path):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     ch = Chapter(tmp_path, [("001.jpg", jpeg(gray().convert("RGB")))])
     ch.run(ch.plan())
     assert "-grayscale" in calls("jpegtran")[0], "a gray YCbCr JPEG loses its chroma losslessly"
@@ -312,7 +324,8 @@ def test_crop_and_join_render_numbered_avif_pages(tmp_path):
     edit = {**NO_EDIT, "bands": [{"page": 2, "box": [0, 0, 96, 100]}], "join": [[0, 1]]}
     p = ch.plan(edit)
     rec = ch.run(p)
-    assert p.route == plan.RENDERED and rec["outcome"] == "avif"
+    assert p.route == plan.RENDERED
+    assert rec["outcome"] == "avif"
     assert [o["name"] for o in rec["output"]] == ["001.avif", "002.avif"]
     assert [r["src"] for r in p.render] == [["001.jpg", "002.jpg"], ["003.jpg"]]
     assert rec["reshape"] == {"kind": "rejoin", "pages_in": 3, "pages_out": 2}
@@ -322,10 +335,11 @@ def test_crop_and_join_render_numbered_avif_pages(tmp_path):
 
 @budget(load="pool")
 def test_a_rendered_chapter_failing_the_floor_keeps_its_original_pages_minus_drops(tmp_path):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour(seed=9))), ("003.jpg", jpeg(gray()))])
     rec = ch.run(ch.plan({**NO_EDIT, "drop_pages": [2], "bands": [{"page": 0, "box": [0, 0, 96, 64]}]}))
-    assert rec["outcome"] == "untouched" and [o["name"] for o in rec["output"]] == ["001.jpg", "002.jpg"]
+    assert rec["outcome"] == "untouched"
+    assert [o["name"] for o in rec["output"]] == ["001.jpg", "002.jpg"]
 
 
 @budget(load="pool")
@@ -339,16 +353,19 @@ def test_strip_chapter_restitches_and_keeps_a_cover_page_first(tmp_path):
     rec = ch.run(p)
     assert p.edits["strip"]["pages"][0]["name"] == "001.jpg", "the cover-named page is not in the strip"
     names = [o["name"] for o in rec["output"]]
-    assert names[0] == "000_cover.avif" and names[1:] == [f"{n:03d}.avif" for n in range(1, len(names))]
+    assert names[0] == "000_cover.avif"
+    assert names[1:] == [f"{n:03d}.avif" for n in range(1, len(names))]
     heights = [Image.open(ch.rendered_dir / f"{n:03d}.png").height for n in range(1, len(names))]
-    assert sum(heights) == 4200 and all(1500 <= h <= 5000 for h in heights), "cut into 1500-5000 px pages"
+    assert sum(heights) == 4200, "cut into 1500-5000 px pages"
+    assert all(1500 <= h <= 5000 for h in heights), "cut into 1500-5000 px pages"
 
 
 @budget(load="pool")
 def test_strip_removed_rows_are_cut_out(tmp_path):
     ch = Chapter(tmp_path, [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=i))) for i in range(1, 4)])
     p = ch.plan({**NO_EDIT, "strip_removed": [{"start": 3900, "end": 4200, "why": "credits"}]}, layout="strip")
-    assert p.edits["strip"]["kept"] == [(0, 3900)] and p.edits["strip"]["cuts"][-1] == 3900
+    assert p.edits["strip"]["kept"] == [(0, 3900)]
+    assert p.edits["strip"]["cuts"][-1] == 3900
 
 
 @budget(load="pool")
@@ -363,7 +380,8 @@ def test_a_split_chapter_is_cut_at_the_series_page_aspect(tmp_path):
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour((100, 280)))), ("002.jpg", jpeg(colour((100, 280), seed=3)))])
     p = ch.plan({**NO_EDIT, "split": True}, page_aspect=[1.4])
     rec = ch.run(p)
-    assert rec["reshape"]["kind"] == "split" and len(rec["output"]) == 4, "2 stitched pages of 2 pages each"
+    assert rec["reshape"]["kind"] == "split", "2 stitched pages of 2 pages each"
+    assert len(rec["output"]) == 4, "2 stitched pages of 2 pages each"
 
 
 @budget(load="pure")
@@ -371,7 +389,8 @@ def test_a_cover_inside_the_chapter_is_a_name_problem():
     names = pages.target_names([("a.jpg", images.JPEG), ("Ch1_cover.jpg", images.JPEG), ("b.jpg", images.JPEG)])
     assert pages.name_problems(names) == ["the renamed pages sort differently by natural and by plain order"]
     leading = pages.target_names([("cover.jpg", images.JPEG), ("a.jpg", images.JPEG)])
-    assert leading == ["000-cover.jpg", "001.jpg"] and pages.name_problems(leading) == [], "a leading cover is fine"
+    assert leading == ["000-cover.jpg", "001.jpg"], "a leading cover is fine"
+    assert pages.name_problems(leading) == [], "a leading cover is fine"
 
 
 @budget(load="fs")
@@ -442,7 +461,6 @@ BLANK = {**NO_EDIT, "blank": [{"page": 0, "box": BOX, "fill": FILL}]}
 
 def filled(path, box=BOX, fill=FILL):
     """Is box of the PNG at path exactly fill?"""
-    import numpy as np
 
     with Image.open(path) as im:
         a = np.asarray(im.convert("RGB"))
@@ -479,11 +497,13 @@ def test_a_blanked_page_is_encoded_from_its_blanked_pixels_and_keeps_its_name_an
     data = jpeg(colour())
     ch = Chapter(tmp_path, [("001.jpg", data), ("002.jpg", jpeg(colour(seed=4)))])
     rec = ch.run(ch.plan(BLANK))
-    assert rec["outcome"] == "avif" and rec["blanked"] == ["001.jpg"]
+    assert rec["outcome"] == "avif"
+    assert rec["blanked"] == ["001.jpg"]
     blanked = ch.root / "blank" / "001.png"
     assert filled(blanked), "the box is filled with the fill colour"
     by_page = {Path(a[-1]).stem: a for a in calls("avifenc")}
-    assert by_page["001"][-2].endswith("001.ref.png") and "--ignore-exif" not in by_page["001"], "no JPEG feed"
+    assert by_page["001"][-2].endswith("001.ref.png"), "no JPEG feed"
+    assert "--ignore-exif" not in by_page["001"], "no JPEG feed"
     assert by_page["002"][-2].endswith("002.jpg"), "an unblanked page keeps its JPEG feed"
     first = rec["avif_pages"][0]
     assert (first["name"], first["bytes_in"], first["fmt"]) == ("001.jpg", len(data), image.RENDERED_FMT)
@@ -492,11 +512,12 @@ def test_a_blanked_page_is_encoded_from_its_blanked_pixels_and_keeps_its_name_an
 
 @budget(load="pool")
 def test_a_blank_is_not_applied_on_the_lossless_or_untouched_outcomes(tmp_path):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     data = jpeg(colour())
     ch = Chapter(tmp_path, [("001.jpg", data)])
     rec = ch.run(ch.plan(BLANK))
-    assert rec["outcome"] == "lossless" and rec["blanked"] == []
+    assert rec["outcome"] == "lossless"
+    assert rec["blanked"] == []
     assert pages.pixels_match(data, (ch.out / "001.jpg").read_bytes(), "exact")[0], "the logo is kept"
 
 
@@ -505,7 +526,9 @@ def test_a_chapter_whose_first_outcome_is_not_avif_is_never_blanked(tmp_path):
     data = webp(colour())
     ch = Chapter(tmp_path / "w", [("001.webp", data)])
     rec = ch.run(ch.plan(BLANK))
-    assert rec["outcome"] == "untouched" and rec["blanked"] == [] and not (ch.root / "blank").exists()
+    assert rec["outcome"] == "untouched"
+    assert rec["blanked"] == []
+    assert not (ch.root / "blank").exists()
     assert (ch.out / "001.webp").read_bytes() == data
 
 
@@ -514,7 +537,8 @@ def test_a_rendered_chapter_is_rendered_from_its_blanked_page(tmp_path):
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour(seed=4)))])
     edit = {**BLANK, "bands": [{"page": 0, "box": [0, 0, 96, 100]}]}
     rec = ch.run(ch.plan(edit))
-    assert rec["outcome"] == "avif" and rec["blanked"] == ["001.jpg"]
+    assert rec["outcome"] == "avif"
+    assert rec["blanked"] == ["001.jpg"]
     assert filled(ch.rendered_dir / "001.png"), "the render reads the blanked page"
 
 
@@ -527,7 +551,8 @@ def test_a_strip_chapter_is_blanked_before_it_is_stacked(tmp_path):
     top = p.edits["strip"]["pages"][1]["top"]  # page 002 starts here in the stacked strip
     with Image.open(ch.rendered_dir / "001.png") as first:
         h = first.height
-    assert top + 30 <= h and filled(ch.rendered_dir / "001.png", [10, top + 10, 40, top + 30])
+    assert top + 30 <= h
+    assert filled(ch.rendered_dir / "001.png", [10, top + 10, 40, top + 30])
 
 
 @budget(load="pool")
@@ -538,14 +563,13 @@ def test_a_blanked_page_keeps_its_alpha(tmp_path):
     p = ch.plan({**NO_EDIT, "blank": [{"page": 0, "box": BOX, "fill": FILL}]})
     blanked = image.blank_pages(p, ch.x, tmp_path / "blank")
     with Image.open(blanked["001.png"]) as out:
-        assert out.mode == "RGBA" and out.getchannel("A").getextrema() == (128, 128), "alpha kept"
+        assert out.mode == "RGBA", "alpha kept"
+        assert out.getchannel("A").getextrema() == (128, 128), "alpha kept"
     assert filled(blanked["001.png"])
 
 
 @budget(load="pure")
 def test_a_luma_check_refuses_pages_that_differ_only_in_alpha():
-    import numpy as np
-
     page = gray()
     opaque = page.convert("LA")
     holed = page.convert("LA")
@@ -574,8 +598,6 @@ def _matrix_gray():
 
 
 def _gray16():
-    import numpy as np
-
     a = np.asarray(_matrix_gray()).astype(np.uint16) * 257
     im = Image.fromarray(a)  # uint16 gray: Pillow's I;16
     assert im.mode == "I;16", im.mode
@@ -584,7 +606,6 @@ def _gray16():
 
 def _transparent(im):
     """im with rows 0-31 fully transparent over black and rows 32-47 half transparent (the matrix's with_alpha)."""
-    import numpy as np
 
     a = np.full(im.size[::-1], 255, np.uint8)
     rgb = np.asarray(im).copy()
@@ -682,19 +703,21 @@ def test_a_page_mode_gets_the_bulk_converters_lossless_and_avif_decisions(tmp_pa
     rec = ch.run(p)
     [enc] = calls("avifenc")
     fed = Path(enc[-2]).name
-    assert rec["outcome"] == "avif" and enc[enc.index("--yuv") + 1] == yuv, f"{mode}: AVIF at --yuv {yuv}"
+    assert rec["outcome"] == "avif", f"{mode}: AVIF at --yuv {yuv}"
+    assert enc[enc.index("--yuv") + 1] == yuv, f"{mode}: AVIF at --yuv {yuv}"
     assert fed == {"jpeg": name, "ref": "001.ref.png", "gray": "001.gray.png"}[reads], f"{mode}: avifenc reads {reads}"
     assert ("--ignore-exif" in enc) == (reads == "jpeg"), f"{mode}: only a fed JPEG has its EXIF ignored"
 
     fake.CALLS.clear()
-    fake.SCORE[0] = lambda ref, dec: 50.0  # every AVIF fails: the lossless path
+    fake.SCORE[0] = lambda _ref, _dec: 50.0  # every AVIF fails: the lossless path
     modes = []
     real = pages.pixels_match
     monkeypatch.setattr(pages, "pixels_match", lambda a, b, m: modes.append(m) or real(a, b, m))
     ch = Chapter(tmp_path / "lossless", [(name, data)])
     rec = ch.run(ch.plan())
     [run] = calls(tool)
-    assert rec["outcome"] == "lossless" and not calls({"jpegtran": "oxipng", "oxipng": "jpegtran"}[tool])
+    assert rec["outcome"] == "lossless"
+    assert not calls({"jpegtran": "oxipng", "oxipng": "jpegtran"}[tool])
     out_flag = "-outfile" if tool == "jpegtran" else "--out"
     assert run[: run.index(out_flag)] == args, f"{mode}: {tool} {' '.join(args)}"
     assert Path(run[-1]).name == name, f"{mode}: {tool} reads the page itself (no 8-bit colour container to gray)"
@@ -703,10 +726,6 @@ def test_a_page_mode_gets_the_bulk_converters_lossless_and_avif_decisions(tmp_pa
 
 @budget(load="pure")
 def test_the_cover_width_is_the_most_common_non_cover_width_first_seen_on_a_tie():
-    from types import SimpleNamespace
-
-    from manga_pipeline.convert import covers
-
     def p(*pages):
         return SimpleNamespace(pages=[{"size": [w, 10], "cover": c} for w, c in pages])
 

@@ -78,8 +78,11 @@ def test_a_title_differing_by_a_kept_mark_is_a_near_hit_needing_a_human_not_a_ne
     world.download(manga, "Chapter 1")
     scan(world)
     rows = world.rows("SELECT name, status, status_reason, kavita_series_id FROM series")
-    assert len(rows) == 1 and rows[0][1] == "needs_human" and rows[0][3] is None, "a near hit is never matched"
-    assert "nearly matches: Kaiju No. 8!" in rows[0][2] and f"series link {manga}" in rows[0][2]
+    assert len(rows) == 1, "a near hit is never matched"
+    assert rows[0][1] == "needs_human", "a near hit is never matched"
+    assert rows[0][3] is None, "a near hit is never matched"
+    assert "nearly matches: Kaiju No. 8!" in rows[0][2]
+    assert f"series link {manga}" in rows[0][2]
     assert world.rows("SELECT status FROM chapter") == [("ready",)], "its chapters are recorded and held"
 
 
@@ -90,7 +93,8 @@ def test_2_strict_hits_need_a_human(world):
     world.download(world.manga("Tower"), "Chapter 1")
     scan(world)
     ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
-    assert status == "needs_human" and "matches 2 or more Kavita series" in reason
+    assert status == "needs_human"
+    assert "matches 2 or more Kavita series" in reason
 
 
 @budget(load="db")
@@ -102,7 +106,8 @@ def test_a_title_no_kavita_series_matches_is_a_new_series_listed_and_not_taken(w
         ("Brand New Thing", "new", "ok", None)
     ], "a pending new series: its row and link, no chapter until it is admitted"
     ((listed, reason),) = world.rows("SELECT path, reason FROM unmatched_download")
-    assert listed == config.to_stored(world.cfg, path) and reason == "new series, metadata not fetched yet"
+    assert listed == config.to_stored(world.cfg, path)
+    assert reason == "new series, metadata not fetched yet"
 
 
 def _unlistable(monkeypatch, *folders, error=(22, "An unexpected network error occurred"), root=None):
@@ -136,23 +141,25 @@ def test_a_manga_folder_that_cannot_be_listed_is_listed_and_the_rest_is_taken(wo
         "the other downloads are still taken"
     )
     ((listed, reason),) = world.rows("SELECT path, reason FROM unmatched_download")
-    assert listed == config.to_stored(world.cfg, bad.parent) and reason.startswith("its folder cannot be listed"), (
-        "the folder is listed"
-    )
+    assert listed == config.to_stored(world.cfg, bad.parent), "the folder is listed"
+    assert reason.startswith("its folder cannot be listed"), "the folder is listed"
 
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    "error, root_fails",
-    [((22, "An unexpected network error occurred"), True), ((errno.EIO, "Input/output error"), False)],
+    ("error", "root_fails", "raised"),
+    [
+        ((22, "An unexpected network error occurred"), True, "The network name cannot be found"),
+        ((errno.EIO, "Input/output error"), False, "Input/output error"),
+    ],
     ids=["root-gone-after-listing", "share-errno"],
 )
-def test_a_manga_folder_error_ends_the_scan_when_the_share_is_failing(world, monkeypatch, error, root_fails):
+def test_a_manga_folder_error_ends_the_scan_when_the_share_is_failing(world, monkeypatch, error, root_fails, raised):
     world.kavita_series("Solo Leveling")
     _, path = world.download(world.manga("Solo Leveling"), "Chapter 2")
     root = path.parent.parent.parent
     _unlistable(monkeypatch, path.parent, error=error, root=root if root_fails else None)
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match=raised):
         scan(world)
     assert world.rows("SELECT count(*) FROM unmatched_download") == [(0,)], "a failing share lists nothing"
 
@@ -342,7 +349,8 @@ def test_a_number_with_2_readings_from_comicinfo_alone_needs_a_human(world):
     chapter_id, _ = discovered(world, "Oneshot", data=cbz(comicinfo=comicinfo(Number="26.10")))
     run_stage(world, chapter_id)
     ((status, error),) = world.rows("SELECT status, last_error FROM chapter")
-    assert status == "needs_human" and "number 26.10 has no single reading" in error
+    assert status == "needs_human"
+    assert "number 26.10 has no single reading" in error
 
 
 @budget(load="db")
@@ -359,7 +367,7 @@ def test_a_number_with_2_readings_whose_pages_were_handled_is_put_aside_not_held
 
 
 @budget(load="db")
-@pytest.mark.parametrize("name, number", [("Chapter 26.1", "26.1"), ("Chapter 26.5", "26.5"), ("Chapter 30", "30")])
+@pytest.mark.parametrize(("name", "number"), [("Chapter 26.1", "26.1"), ("Chapter 26.5", "26.5"), ("Chapter 30", "30")])
 def test_other_decimal_and_whole_numbers_pass_discover(world, name, number):
     chapter_id, _ = discovered(world, name)
     assert isinstance(run_stage(world, chapter_id), workflow.Done)
@@ -382,7 +390,8 @@ def test_the_same_pages_as_a_handled_chapter_are_put_aside(world):
     assert isinstance(outcome, workflow.Dropped), "whatever its outcome or identity, the same pages are not redone"
     assert world.rows("SELECT stage, status FROM chapter") == [("discover", "done")]
     kept = config.abs_path(world.cfg["paths"]["retention"]) / "Src (EN)" / "Solo Leveling" / path.name
-    assert not path.exists() and kept.exists(), "put aside the retention way"
+    assert not path.exists(), "put aside the retention way"
+    assert kept.exists(), "put aside the retention way"
 
 
 @budget(load="db")
@@ -409,7 +418,8 @@ def test_an_unnumbered_notice_is_dropped_put_aside_and_recorded(tmp_path):
     outcome = run_stage(world, chapter_id)
     assert isinstance(outcome, workflow.Dropped), "a notice is not a chapter"
     kept = config.abs_path(world.cfg["paths"]["retention"]) / "Src (EN)" / "Solo Leveling" / path.name
-    assert not path.exists() and kept.exists(), "removed the retention way"
+    assert not path.exists(), "removed the retention way"
+    assert kept.exists(), "removed the retention way"
     assert world.rows("SELECT outcome, content_digest FROM handled_chapter") == [
         ("dropped", archive.pages_digest(kept))
     ], "recorded as handled, so the same pages arriving again are put aside"

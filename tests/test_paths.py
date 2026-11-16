@@ -3,7 +3,7 @@ separators, and each machine maps it by its own configured roots, so a database 
 another that mounts the share elsewhere and writes its roots otherwise."""
 
 import json
-import os
+import sys
 from contextlib import closing
 from pathlib import Path
 
@@ -17,6 +17,9 @@ from manga_pipeline.metadata import check
 from tests.builders import run_part
 from tests.timing import budget
 from tests.world import World
+
+if sys.platform == "win32":
+    import _winapi
 
 # Every stored path of the step 0 inventory (agent-workspace/progress/step0e-path-inventory.md, items 1-8).
 STORED = [
@@ -42,7 +45,7 @@ def is_stored_form(text):
 
 
 @pytest.mark.parametrize(
-    "path, stored",
+    ("path", "stored"),
     [
         ("{share}/downloads/mangas/Src (EN)/T/Ch 1.cbz", "downloads/mangas/Src (EN)/T/Ch 1.cbz"),
         ("{share}/library/S/Vol.1 Ch.1.cbz", "library/S/Vol.1 Ch.1.cbz"),
@@ -69,19 +72,17 @@ def test_a_path_under_no_root_and_a_stored_text_naming_none_are_refused(tmp_path
 
 def mount(target, link):
     """A second name for the share, as another machine mounts it."""
-    if os.name == "nt":
-        import _winapi
-
+    if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:
-        os.symlink(target, link, target_is_directory=True)
+        Path(link).symlink_to(target, target_is_directory=True)
 
 
 @budget(load="db", seconds=6)
 def test_a_database_filled_under_1_mount_is_worked_under_another_and_back(tmp_path, monkeypatch):
     world = World(tmp_path)
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: world.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     world.kavita_series("Alpha")
     manga = world.manga("Alpha")
@@ -121,8 +122,8 @@ def test_a_database_filled_under_1_mount_is_worked_under_another_and_back(tmp_pa
 @budget(load="db", seconds=3)
 def test_no_stored_path_is_absolute_after_a_full_run(tmp_path, monkeypatch):
     world = World(tmp_path)
-    monkeypatch.setattr(suwayomi_client, "from_config", lambda cfg: world.suwayomi)
-    monkeypatch.setattr(kavita_client, "from_config", lambda cfg: world.kavita)
+    monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: world.suwayomi)
+    monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: world.kavita)
     monkeypatch.setattr(check, "new_sources", lambda: world.sources)
     world.kavita_series("Alpha")
     manga = world.manga("Alpha")
@@ -134,6 +135,7 @@ def test_no_stored_path_is_absolute_after_a_full_run(tmp_path, monkeypatch):
     for part in (intake, process, export):
         run_part(world.cfg, part)
     found = stored_paths(world.cfg)
-    assert any(p.startswith("downloads/") for p in found) and any(p.startswith("library/") for p in found)
+    assert any(p.startswith("downloads/") for p in found)
+    assert any(p.startswith("library/") for p in found)
     assert all(is_stored_form(p) for p in found), [p for p in found if not is_stored_form(p)]
     assert json.dumps(found)  # all text

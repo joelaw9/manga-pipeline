@@ -8,7 +8,8 @@ import yaml
 
 from manga_pipeline import config, db, fleet, preflight, workflow
 
-from tests.builders import adopted
+from tests.builders import add_chapter, add_series, adopted
+from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
 
@@ -28,7 +29,7 @@ def test_the_machine_that_set_the_version_passes(cfg):
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    "section, key, value",
+    ("section", "key", "value"),
     [
         ("junk", "claude_path", "/elsewhere/claude"),
         ("convert", "workers", 3),
@@ -55,7 +56,7 @@ def test_a_secret_in_a_shared_section_is_left_out(tmp_path, monkeypatch):
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    "section, key, value",
+    ("section", "key", "value"),
     [
         ("workflow", "attempt_limit", 9),
         ("series", "only", ["X"]),
@@ -74,11 +75,10 @@ def test_another_program_or_package_or_tool_version_stops_the_machine(cfg, monke
     monkeypatch.setattr(fleet, "_packages", lambda: {"pillow": "12.3.0"})
     assert "runtime packages" in problem(cfg), "an older Pillow changes junk scans"
     monkeypatch.undo()
-    from tests.fakes import convert as fake_convert
 
-    monkeypatch.setattr(fleet, "_tools", lambda cfg: {**fake_convert.FAKE_TOOL_VERSIONS, "avifenc": "Version: 1.2.1"})
+    monkeypatch.setattr(fleet, "_tools", lambda _cfg: {**fake_convert.FAKE_TOOL_VERSIONS, "avifenc": "Version: 1.2.1"})
     assert "tools" in problem(cfg), "another avifenc version output"
-    monkeypatch.setattr(fleet, "_tools", lambda cfg: dict(fake_convert.FAKE_TOOL_VERSIONS))
+    monkeypatch.setattr(fleet, "_tools", lambda _cfg: dict(fake_convert.FAKE_TOOL_VERSIONS))
     monkeypatch.setattr(fleet, "_program", lambda: {"manga_pipeline/x.py": "another"})
     assert "program" in problem(cfg)
     assert fleet.digest(cfg) != real
@@ -93,20 +93,19 @@ def test_a_database_with_no_version_stops_every_machine(cfg):
 
 @budget(load="pure")
 def test_jpegtran_s_build_date_is_left_out_and_package_names_are_read_from_requirements():
-    assert fleet._name("psycopg[binary]==3.3.9") == "psycopg" and fleet._name("pillow==13.0.0") == "pillow"
+    assert fleet._name("psycopg[binary]==3.3.9") == "psycopg"
+    assert fleet._name("pillow==13.0.0") == "pillow"
 
 
 @budget(load="db")
 def test_a_winerror_59_share_drop_costs_no_attempt(cfg):
-    from tests.builders import add_chapter, add_series
-
     with closing(db.connect(cfg)) as conn:
         series_id = add_series(conn, "S")
         chapter_id = add_chapter(conn, series_id, "c1", "junk")
         ctx = workflow.Context(cfg, conn, "process", suwayomi=object(), kavita=object())
         row = workflow.claim(ctx, ("junk",))
 
-        def stage(ctx, chapter):
+        def stage(_ctx, _chapter):
             error = OSError(22, "An unexpected network error occurred")
             error.winerror = 59
             raise error

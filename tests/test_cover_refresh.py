@@ -73,13 +73,15 @@ def test_a_new_image_at_mangadex_replaces_the_stored_one_and_the_files_cover(wor
     mangadex(world, "b.png", png(900, colour=(20, 160, 60)))
     check_now(world)
     ((_, url, second),) = stored(world)
-    assert url.endswith("/b.png") and second != first, "the check fetched MangaDex's new choice"
+    assert url.endswith("/b.png"), "the check fetched MangaDex's new choice"
+    assert second != first, "the check fetched MangaDex's new choice"
     assert states(world)["library/Solo Leveling/Vol.2 Ch.3.cbz"] == "stale:2", "the file holds the old image"
     world.run(export)
     world.run(process)
     world.run(export)
     names_, _, pages = members(world, "Vol.2 Ch.3.cbz")
-    assert names_[0].startswith("000_cover.") and sum(n.startswith("000_cover.") for n in names_) == 1
+    assert names_[0].startswith("000_cover.")
+    assert sum(n.startswith("000_cover.") for n in names_) == 1
     assert pages[0]["Type"] == "FrontCover"
     assert states(world)["library/Solo Leveling/Vol.2 Ch.3.cbz"] == "volume:2", "the new image in place of the old"
     ((sha,),) = world.rows(
@@ -129,7 +131,7 @@ B = [{"volume": "2", "locale": "en", "fileName": "b.png"}]
 
 @budget(load="db", seconds=30)
 @pytest.mark.parametrize(
-    "case, tried, due",
+    ("case", "tried", "due"),
     [
         ("no-choice", False, False),
         ("tie", False, False),
@@ -156,7 +158,8 @@ def test_the_stored_image_stays_unless_mangadex_serves_a_new_choice(world, monke
         else:
             answer(world, 404 if case == "not-served" else 503)
     check_now(world)
-    assert lists_read(world) > lists and refreshed == [series_id(world)], "the check read the list and refreshed"
+    assert lists_read(world) > lists, "the check read the list and refreshed"
+    assert refreshed == [series_id(world)], "the check read the list and refreshed"
     assert stored(world) == before, "the stored image stays"
     assert ("volume 2 cover not refreshed" in caplog.text) is tried, "b.png tried only when it is the new choice"
     assert due_now(world) is due, "MangaDex down: the series' check is due again; a refused file waits for the next"
@@ -169,7 +172,8 @@ def test_an_english_cover_replaces_a_stored_one_of_another_language(world):
     world.sources.mangadex.images[(MD, "b.png")] = png(900, colour=(20, 160, 60))
     world.sources.mangadex.records[("covers", MD)] = [{"volume": "2", "locale": "ja", "fileName": "a.png"}, *B]
     check_now(world)
-    assert stored(world)[0][1].endswith("/b.png") and stored(world) != before
+    assert stored(world)[0][1].endswith("/b.png")
+    assert stored(world) != before
 
 
 @budget(load="db", seconds=30)
@@ -215,7 +219,7 @@ def test_a_chapter_published_with_a_replaced_image_holds_a_stale_cover(world):
 
 @budget(load="pure", seconds=1)
 @pytest.mark.parametrize(
-    "state, volume", [("volume:2", "2"), ("stale:2", "2"), ("volume:", ""), ("none", None), ("unfit:ab", None)]
+    ("state", "volume"), [("volume:2", "2"), ("stale:2", "2"), ("volume:", ""), ("none", None), ("unfit:ab", None)]
 )
 def test_a_cover_page_is_held_for_a_current_or_an_old_image(state, volume):
     assert rewrite_covers.cover_volume(state) == volume

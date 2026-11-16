@@ -43,7 +43,8 @@ def load(folder):
     try:
         record = json.loads(text)
     except json.JSONDecodeError as e:
-        raise RecordError(f"{path}: not JSON: {e}") from None
+        msg = f"{path}: not JSON: {e}"
+        raise RecordError(msg) from None
     return parse(record)
 
 
@@ -52,7 +53,8 @@ def parse(rec):
     check(rec)
     missing = sorted(set(STAGES) - set(rec["stages"]))
     if missing:
-        raise PartialRecord(f"record written without stage(s) {missing}")
+        msg = f"record written without stage(s) {missing}"
+        raise PartialRecord(msg)
     return rec
 
 
@@ -61,27 +63,35 @@ def check(rec):
     naming restart flag, the calibration groups' shape, unique outputs and chapter files, and sources that name
     existing outputs. Raises RecordError."""
     if not isinstance(rec, dict):
-        raise RecordError(f"record is a {type(rec).__name__}, not an object")
+        msg = f"record is a {type(rec).__name__}, not an object"
+        raise RecordError(msg)
     if rec.get("schema") not in (FROZEN, SCHEMA) or isinstance(rec.get("schema"), bool):
-        raise RecordError(f"record schema {rec.get('schema')!r}: only schema {FROZEN} and {SCHEMA} are read")
+        msg = f"record schema {rec.get('schema')!r}: only schema {FROZEN} and {SCHEMA} are read"
+        raise RecordError(msg)
     for k, t in TOP.items():
         if not isinstance(rec.get(k), t):
-            raise RecordError(f"record: {k!r} missing or not a {t.__name__}")
+            msg = f"record: {k!r} missing or not a {t.__name__}"
+            raise RecordError(msg)
     for k in SERIES:
         if not isinstance(rec["series"].get(k), dict):
-            raise RecordError(f"record: series.{k} missing or not an object")
+            msg = f"record: series.{k} missing or not an object"
+            raise RecordError(msg)
     if not rec["runs"]:
-        raise RecordError("record: no runs")
+        msg = "record: no runs"
+        raise RecordError(msg)
     if not rec["folders"] or any(
         not isinstance(f, dict) or not isinstance(f.get("name"), str) or not isinstance(f.get("from_run"), str)
         for f in rec["folders"]
     ):
-        raise RecordError("record: folders missing or not [{name, from_run}]")
+        msg = "record: folders missing or not [{name, from_run}]"
+        raise RecordError(msg)
     naming = rec["series"]["naming"]
     if not isinstance(naming.get("restart"), bool):
-        raise RecordError("record: series.naming.restart missing or not a bool")
+        msg = "record: series.naming.restart missing or not a bool"
+        raise RecordError(msg)
     if not isinstance(naming.get("series_name"), str) or not naming["series_name"]:
-        raise RecordError("record: series.naming.series_name missing or empty")
+        msg = "record: series.naming.series_name missing or empty"
+        raise RecordError(msg)
     groups = rec["series"]["calibration"].get("groups", {})
     if not isinstance(groups, dict) or any(
         not isinstance(g, dict)
@@ -90,39 +100,49 @@ def check(rec):
         or not isinstance(g.get("probes", []), list)
         for g in groups.values()
     ):
-        raise RecordError("record: series.calibration.groups is not {group: {q: integer 0-100, probes: list}}")
+        msg = "record: series.calibration.groups is not {group: {q: integer 0-100, probes: list}}"
+        raise RecordError(msg)
     outputs, files = {}, set()
     for c in rec["chapters"]:
         absent = [k for k in CHAPTER_KEYS if k not in c]
         if absent:
-            raise RecordError(f"record: chapter {c.get('output')!r} lacks {absent}")
+            msg = f"record: chapter {c.get('output')!r} lacks {absent}"
+            raise RecordError(msg)
         low = c["output"].lower()
         if low in outputs:
-            raise RecordError(f"record: output {c['output']!r} listed twice")
+            msg = f"record: output {c['output']!r} listed twice"
+            raise RecordError(msg)
         outputs[low] = c
         if c["file"] in files:
-            raise RecordError(f"record: chapter file {c['file']!r} listed twice")
+            msg = f"record: chapter file {c['file']!r} listed twice"
+            raise RecordError(msg)
         files.add(c["file"])
     seen = set()
     for s in rec["sources"]:
         for k in ("file", "sha256", "fate"):
             if not isinstance(s.get(k), str):
-                raise RecordError(f"record: source {s.get('file')!r}: {k!r} missing")
+                msg = f"record: source {s.get('file')!r}: {k!r} missing"
+                raise RecordError(msg)
         if s["fate"] not in FATES:
-            raise RecordError(f"record: source {s['file']!r}: unknown fate {s['fate']!r}")
+            msg = f"record: source {s['file']!r}: unknown fate {s['fate']!r}"
+            raise RecordError(msg)
         if ("trash_run" in s) != ("trash_folder" in s) or (s.get("trash_run") is None) != (
             s.get("trash_folder") is None
         ):
-            raise RecordError(f"record: source {s['file']!r}: trash_run and trash_folder go together")
+            msg = f"record: source {s['file']!r}: trash_run and trash_folder go together"
+            raise RecordError(msg)
         if (s["file"], s["sha256"]) in seen:
-            raise RecordError(f"record: source {s['file']!r} listed twice")
+            msg = f"record: source {s['file']!r} listed twice"
+            raise RecordError(msg)
         seen.add((s["file"], s["sha256"]))
         if s["fate"] in (CHAPTER, MERGED) and (s.get("output") or "").lower() not in outputs:
-            raise RecordError(f"record: source {s['file']!r} names output {s.get('output')!r}, not a chapter")
+            msg = f"record: source {s['file']!r} names output {s.get('output')!r}, not a chapter"
+            raise RecordError(msg)
     by_name = {}
     for s in rec["sources"]:
         by_name.setdefault(s["file"], []).append(s)
     for c in rec["chapters"]:
         for f in c["sources"]:
             if not any(s["fate"] in (CHAPTER, MERGED) and s.get("output") == c["output"] for s in by_name.get(f, [])):
-                raise RecordError(f"record: chapter {c['output']!r}: source {f!r} not in sources")
+                msg = f"record: chapter {c['output']!r}: source {f!r} not in sources"
+                raise RecordError(msg)

@@ -67,7 +67,7 @@ def library():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "folder, status",
+    ("folder", "status"),
     [
         ("Alone", "matched"),
         ("Twice", "shared"),
@@ -173,7 +173,7 @@ def test_archive_extensions_ignore_case():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "low, want",
+    ("low", "want"),
     [
         (f"{ROOT}/A", True),
         (ROOT, True),
@@ -201,18 +201,18 @@ def test_relevant(low, want):
     assert relevant(series(1, "x", low), ROOT) is want
 
 
-# normalize (Kavita v0.9.1.4 StringExtensions.ToNormalized: keep [\p{L}0-9+!＊！＋], then lower-case)
+# normalize (Kavita v0.9.1.4 StringExtensions.ToNormalized: keep [\p{L}0-9+!\uff0a\uff01\uff0b], then lower-case)
 
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "a, b",
+    ("a", "b"),
     [
         (
             "Gal Maid & Villainess: Only Milady's Happy End Will Win!",
             "Gal Maid  Villainess: Only Miladys Happy End Will Win!",
         ),
-        ("Swordmaster’s Youngest Son", "Swordmaster's Youngest Son"),
+        ("Swordmaster\u2019s Youngest Son", "Swordmaster's Youngest Son"),
         ("SOLO LEVELING", "solo leveling"),
         ("Cafe\u0301", "Cafe"),
     ],
@@ -226,13 +226,16 @@ def test_normalize_same_key(a, b):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "a, b",
+    ("a", "b"),
     [
         ("Master Villainess the Invincible!", "Master Villainess the Invincible"),  # sample library
-        ("Heavenly Demon Reborn!", "Heavenly Demon Reborn！"),  # ASCII vs fullwidth "!"
-        ("Ｓｏｌｏ Ｌｅｖｅｌｉｎｇ", "Solo Leveling"),  # no NFKC folding
+        ("Heavenly Demon Reborn!", "Heavenly Demon Reborn\uff01"),  # ASCII vs fullwidth "!"
+        (
+            "\uff33\uff4f\uff4c\uff4f \uff2c\uff45\uff56\uff45\uff4c\uff49\uff4e\uff47",
+            "Solo Leveling",
+        ),  # full-width; no NFKC folding
         ("Caf\u00e9", "Cafe\u0301"),  # precomposed letter kept, mark dropped
-        ("Kill Me Now ２", "Kill Me Now 2"),
+        ("Kill Me Now \uff12", "Kill Me Now 2"),
     ],  # only ASCII digits kept
     ids=[
         "exclamation-kept",
@@ -250,11 +253,11 @@ def test_normalize_different_key(a, b):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "name, want",
+    ("name", "want"),
     [
         ("Kill Me Now 2", "killmenow2"),
         ("Trash Belongs in the Trash Can!", "trashbelongsinthetrashcan!"),
-        ("A+B＋C＊D！", "a+b＋c＊d！"),
+        ("A+B\uff0bC\uff0aD\uff01", "a+b\uff0bc\uff0ad\uff01"),
         ("Straße", "straße"),
         (None, ""),
         ("", ""),
@@ -275,9 +278,10 @@ def test_normalize_different_key(a, b):
     ],
 )
 def test_normalize_value(name, want):
-    """The key is letters, ASCII digits and + ! ＊ ！ ＋, lower-cased (not case-folded: ß stays); a missing name is the
-    empty key. Like .NET, each character is lowered on its own ("İ" gives "i", a final capital sigma "σ", never the
-    context-sensitive "ς"), and a letter above U+FFFF (a UTF-16 surrogate pair, not \\p{L} to .NET) is dropped."""
+    """The key is letters, ASCII digits, + ! and full-width * ! +, lower-cased (not case-folded: ß stays); a missing
+    name is the empty key. Like .NET, each character is lowered on its own ("İ" gives "i", a final capital sigma
+    "\u03c3", never the context-sensitive "ς"), and a letter above U+FFFF (a UTF-16 surrogate pair, not \\p{L} to .NET)
+    is dropped."""
     assert normalize(name) == want
 
 
@@ -299,5 +303,5 @@ def test_series_names_of_no_series_is_empty():
 @budget(load="pure")
 def test_chapter_files_pairs_every_file_with_its_chapter():
     """Every file of every chapter of every volume, in order; a volume without chapters adds nothing."""
-    v = vols("/a/1.cbz", "/a/2.cbz") + [{"id": 2}]
+    v = [*vols("/a/1.cbz", "/a/2.cbz"), {"id": 2}]
     assert [(c["id"], p) for c, p in chapter_files(v)] == [(0, "/a/1.cbz"), (1, "/a/2.cbz")]

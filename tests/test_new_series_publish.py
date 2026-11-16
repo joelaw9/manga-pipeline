@@ -2,7 +2,6 @@
 under the run's 1 library scan, never while a scan is awaited; once Kavita lists it, its id is found by its name and
 folder, once per run, and it is an ordinary series."""
 
-import os
 from types import SimpleNamespace
 
 import pytest
@@ -44,7 +43,7 @@ def scans(world):
 
 
 def files(world, folder):
-    return sorted(os.listdir(world.library / folder))
+    return sorted(p.name for p in (world.library / folder).iterdir())
 
 
 def kavita_id(world, series_id):
@@ -67,8 +66,8 @@ def test_a_ready_new_series_lands_whole_under_1_scan_and_is_attached_by_its_fold
 
 @budget(load="db", seconds=30)
 def test_2_new_series_ready_together_land_under_1_scan(world):
-    a, _ = ready(world, "Brand New Thing", al_id=7)
-    b, _ = ready(world, "Other New Thing", al_id=8)
+    _a, _ = ready(world, "Brand New Thing", al_id=7)
+    _b, _ = ready(world, "Other New Thing", al_id=8)
     world.run(export)
     assert scans(world) == [("scan_library", LIBRARY_ID)], "1 scan for both"
     assert len(files(world, "Brand New Thing")) == len(files(world, "Other New Thing")) == 3
@@ -88,7 +87,7 @@ def test_a_new_series_waits_while_a_scan_is_awaited_and_publishes_in_the_run_aft
 
 @budget(load="db", seconds=20)
 def test_a_chapter_on_its_way_holds_the_series_and_a_waiting_one_does_not(world):
-    sid, _ = ready(world)
+    _sid, _ = ready(world)
     world.rows("UPDATE chapter SET stage = 'convert' WHERE id = (SELECT min(id) FROM chapter) RETURNING id")
     world.run(export)
     assert not (world.library / "Brand New Thing").exists(), "a chapter still at convert holds the whole series"
@@ -101,7 +100,7 @@ def test_a_chapter_on_its_way_holds_the_series_and_a_waiting_one_does_not(world)
 
 @budget(load="db", seconds=30)
 def test_a_chapter_finished_after_the_scan_request_publishes_once_the_id_is_found(world):
-    sid, manga = ready(world)
+    _sid, manga = ready(world)
     world.run(export)
     world.download(manga, "Chapter 4", data=cbz(seed="4", pages=4))
     world.run(intake)
@@ -126,7 +125,7 @@ def test_a_crash_leftover_folder_is_used_and_a_foreign_file_holds_the_series(wor
     )
     world.run(only_comicinfo)
     (staged, target), *_ = world.rows("SELECT staged_path, library_path FROM chapter ORDER BY id")
-    os.replace(config.to_local(world.cfg, staged), folder / target.rpartition("/")[2])  # renamed, then a crash
+    config.to_local(world.cfg, staged).replace(folder / target.rpartition("/")[2])  # renamed, then a crash
     world.run(export)
     assert files(world, "Brand New Thing") == ["Ch.1.cbz", "Ch.2.cbz", "Ch.3.cbz", "Thumbs.db"], "used; finished"
     assert world.rows("SELECT status FROM series WHERE id = %s", sid) == [("ok",)]
@@ -137,7 +136,8 @@ def test_a_crash_leftover_folder_is_used_and_a_foreign_file_holds_the_series(wor
     (other.library / "Brand New Thing" / "Stray.cbz").write_bytes(cbz(seed="stray"))
     other.run(export)
     ((status, reason),) = other.rows("SELECT status, status_reason FROM series WHERE id = %s", osid)
-    assert status == "needs_human" and "Stray.cbz" in reason, "a file it did not publish"
+    assert status == "needs_human", "a file it did not publish"
+    assert "Stray.cbz" in reason, "a file it did not publish"
 
 
 @budget(load="db", seconds=30)
@@ -177,7 +177,10 @@ def test_a_listed_series_of_its_name_in_another_folder_is_neither_attached_nor_a
     world.download(second, "Chapter 9", data=cbz(seed="9", pages=4))
     world.run(intake)
     ((status, reason),) = world.rows("SELECT status, status_reason FROM series WHERE id <> %s", sid)
-    assert status == "needs_human" and "published new series not found in Kavita yet" in reason, (
+    assert status == "needs_human", (
+        "a manga whose strict hit a published new series is named as is held, not a second Kavita series"
+    )
+    assert "published new series not found in Kavita yet" in reason, (
         "a manga whose strict hit a published new series is named as is held, not a second Kavita series"
     )
 

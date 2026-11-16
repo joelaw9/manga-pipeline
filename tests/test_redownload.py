@@ -2,11 +2,17 @@
 suwayomi_download wait, against FakeSuwayomi."""
 
 import argparse
+import io
 import json
+import zipfile
+import zlib
+from contextlib import closing
 
+import numpy as np
 import pytest
+from PIL import Image
 
-from manga_pipeline import cli, config, intake, workflow
+from manga_pipeline import cli, config, db, images, intake, measures, redownload, status, workflow
 
 from tests.timing import budget
 from tests.world import World, cbz
@@ -56,7 +62,8 @@ def retained(world, path):
 def test_a_bad_download_is_removed_and_downloaded_again_from_the_same_chapter_first(world):
     chapter_id, path = bad_download(world)
     assert chapter(world)[:3] == ("validate", "waiting", "suwayomi_download")
-    assert not path.exists() and retained(world, path).exists(), "the rejected copy goes the retention way"
+    assert not path.exists(), "the rejected copy goes the retention way"
+    assert retained(world, path).exists(), "the rejected copy goes the retention way"
     assert writes(world, "delete_downloaded", "enqueue", "start_downloader") == [
         ("delete_downloaded", [chapter_id]),
         ("enqueue", [chapter_id]),
@@ -115,7 +122,7 @@ def test_a_download_in_error_is_dequeued_and_the_next_source_tried(world):
 @budget(load="db")
 def test_a_download_older_than_the_timeout_is_given_up(world):
     bad_download(world)
-    with world_conn(world) as conn:
+    with WorldConn(world) as conn:
         old = "2000-01-01T00:00:00+00:00"
         conn.execute(
             "UPDATE chapter SET redownload = jsonb_set(redownload::jsonb, '{expected,enqueued_at}',"
@@ -152,7 +159,8 @@ def test_every_remaining_source_down_fails_the_chapter_at_an_attempt(world):
     world.suwayomi.fail_download(chapter_id)
     world.run(intake)
     ((status, attempts, error),) = world.rows("SELECT status, attempts, last_error FROM chapter")
-    assert (status, attempts) == ("ready", 1) and "could not answer" in error
+    assert (status, attempts) == ("ready", 1)
+    assert "could not answer" in error
     assert state(world)["tried"] == ["Src (EN)"], "a source that could not answer is not counted as tried"
 
 
@@ -162,9 +170,10 @@ def test_suwayomi_unreachable_at_any_step_resumes_on_the_next_run(world, monkeyp
     chapter_id, _ = world.download(world.manga_id, "Chapter 12", data=BAD)
     original = getattr(world.suwayomi, call)
 
-    def down(*args):
+    def down(*_args):
         monkeypatch.setattr(world.suwayomi, call, original)
-        raise workflow.Unreachable("suwayomi")
+        msg = "suwayomi"
+        raise workflow.Unreachable(msg)
 
     monkeypatch.setattr(world.suwayomi, call, down)
     world.run(intake)
@@ -178,7 +187,7 @@ def test_suwayomi_unreachable_at_any_step_resumes_on_the_next_run(world, monkeyp
 
 @budget(load="db")
 def test_a_replacement_of_an_unknown_format_becomes_the_chapters_download_and_needs_a_human(world):
-    chapter_id, path = bad_download(world)
+    _chapter_id, path = bad_download(world)
     world.suwayomi.finish_downloads(_cbz_with(b"\x00\x01 unknown"))
     world.run(intake)
     ((status, download, redownload),) = world.rows("SELECT status, download_path, redownload FROM chapter")
@@ -206,7 +215,8 @@ def test_chapter_use_queues_the_chosen_chapter_on_the_next_intake(world):
     command(cli.chapter_use, world, chapter=1, suwayomi_chapter=chosen)
     assert world.rows("SELECT status, attempts FROM chapter") == [("ready", 0)]
     world.run(intake)
-    assert writes(world, "enqueue")[-1] == ("enqueue", [chosen]) and state(world)["expected"]["chapter_id"] == chosen
+    assert writes(world, "enqueue")[-1] == ("enqueue", [chosen])
+    assert state(world)["expected"]["chapter_id"] == chosen
     world.suwayomi.finish_downloads(cbz(seed="fixed"))
     world.run(intake)
     assert chapter(world)[:2] == ("junk", "ready"), "the chosen replacement is validated like any other"
@@ -219,7 +229,8 @@ def test_chapter_use_on_a_chapter_whose_file_is_in_hand_rejects_that_file_first(
     assert world.rows("SELECT status FROM chapter") == [("needs_human",)]
     command(cli.chapter_use, world, chapter=1, suwayomi_chapter=world.other_chapters[12])
     world.run(intake)
-    assert not path.exists() and retained(world, path).exists(), "the file in hand goes the retention way"
+    assert not path.exists(), "the file in hand goes the retention way"
+    assert retained(world, path).exists(), "the file in hand goes the retention way"
     assert world.rows("SELECT outcome FROM handled_chapter WHERE outcome = 'rejected'") == [("rejected",)]
     assert state(world)["expected"]["chapter_id"] == world.other_chapters[12]
 
@@ -229,7 +240,7 @@ def test_chapter_use_on_a_chapter_whose_file_is_in_hand_rejects_that_file_first(
 def test_chapter_use_and_drop_refuse_a_chapter_that_is_not_needs_human(world, status):
     world.download(world.manga_id, "Chapter 12")
     world.run(intake)
-    with world_conn(world) as conn:
+    with WorldConn(world) as conn:
         conn.execute("UPDATE chapter SET status = %s", (status,))
     with pytest.raises(workflow.Refused, match="not needs_human"):
         command(cli.chapter_use, world, chapter=1, suwayomi_chapter=5)
@@ -244,7 +255,8 @@ def test_chapter_drop_removes_the_download_and_records_it_dropped(world):
     _, path = world.download(world.manga_id, "Chapter 12", data=_cbz_with(b"\x00 unknown format"))
     world.run(intake)
     command(cli.chapter_drop, world, chapter=1)
-    assert not path.exists() and retained(world, path).exists()
+    assert not path.exists()
+    assert retained(world, path).exists()
     assert world.rows("SELECT status, last_error FROM chapter") == [("done", "dropped by a person")]
     assert world.rows("SELECT outcome FROM handled_chapter WHERE outcome = 'dropped'") == [("dropped",)]
     world.run(intake)
@@ -267,22 +279,24 @@ def test_an_interrupted_chapter_use_keeps_the_choice(world, monkeypatch):
     command(cli.chapter_use, world, chapter=1, suwayomi_chapter=chosen)
     original = world.suwayomi.enqueue
 
-    def down(ids):
+    def down(_ids):
         monkeypatch.setattr(world.suwayomi, "enqueue", original)
-        raise workflow.Unreachable("suwayomi")
+        msg = "suwayomi"
+        raise workflow.Unreachable(msg)
 
     monkeypatch.setattr(world.suwayomi, "enqueue", down)
     world.run(intake)
     world.run(intake)
     assert writes(world, "enqueue")[-1] == ("enqueue", [chosen]), "the chosen chapter is queued on the next run"
-    assert state(world)["expected"]["chapter_id"] == chosen and state(world)["chosen"] is None
+    assert state(world)["expected"]["chapter_id"] == chosen
+    assert state(world)["chosen"] is None
 
 
 @budget(load="db")
 def test_a_download_finished_after_the_timeout_is_still_taken(world):
-    chapter_id, path = bad_download(world)
+    _chapter_id, _path = bad_download(world)
     world.suwayomi.finish_downloads(cbz(seed="late"))
-    with world_conn(world) as conn:
+    with WorldConn(world) as conn:
         old = "2000-01-01T00:00:00+00:00"
         conn.execute(
             "UPDATE chapter SET redownload = jsonb_set(redownload::jsonb, '{expected,enqueued_at}',"
@@ -298,17 +312,19 @@ def test_a_download_neither_queued_nor_downloaded_is_queued_again(world):
     chapter_id, _ = bad_download(world)
     world.suwayomi.queue.clear()  # Suwayomi dropped it
     world.run(intake)
-    assert writes(world, "enqueue")[-1] == ("enqueue", [chapter_id]) and chapter(world)[1] == "waiting"
+    assert writes(world, "enqueue")[-1] == ("enqueue", [chapter_id])
+    assert chapter(world)[1] == "waiting"
     assert state(world)["tried"] == [], "no source is given up for it"
 
 
 @budget(load="db")
 def test_a_download_flagged_without_its_file_fails_its_source(world):
-    chapter_id, path = bad_download(world)
+    _chapter_id, path = bad_download(world)
     world.suwayomi.finish_downloads(cbz(seed="good"))
     path.unlink()
     world.run(intake)
-    assert state(world)["tried"] == ["Src (EN)"] and state(world)["expected"]["source"] == OTHER
+    assert state(world)["tried"] == ["Src (EN)"]
+    assert state(world)["expected"]["source"] == OTHER
 
 
 @budget(load="db")
@@ -320,7 +336,8 @@ def test_a_chosen_download_numbered_otherwise_needs_a_human(world):
     world.suwayomi.finish_downloads(cbz(seed="13"))
     world.run(intake)
     ((status, error, download),) = world.rows("SELECT status, last_error, download_path FROM chapter")
-    assert status == "needs_human" and "numbered" in error, "never published under the chapter's number"
+    assert status == "needs_human", "never published under the chapter's number"
+    assert "numbered" in error, "never published under the chapter's number"
     assert download == config.to_stored(world.cfg, world.suwayomi.path(other_number)), (
         "it is the chapter's download now: drop removes it"
     )
@@ -339,9 +356,11 @@ def test_a_chosen_download_numbered_12_10_is_never_taken_for_chapter_12_1(world)
     world.suwayomi.finish_downloads(cbz(seed="12.10"))
     world.run(intake)
     ((status, error, identity),) = world.rows("SELECT status, last_error, identity FROM chapter")
-    assert status == "needs_human" and "'12.10'" in error and "'12.1')" in error, (
+    assert status == "needs_human", (
         "a number with 2 readings is numbered otherwise than chapter 12.1: never published as it"
     )
+    assert "'12.10'" in error, "a number with 2 readings is numbered otherwise than chapter 12.1: never published as it"
+    assert "'12.1')" in error, "a number with 2 readings is numbered otherwise than chapter 12.1: never published as it"
     assert json.loads(identity)[3] == "12.1", "the chapter keeps its own identity"
 
 
@@ -359,15 +378,17 @@ def test_a_refused_choice_stays_recorded_until_retry(world):
     exhausted(world)
     command(cli.chapter_use, world, chapter=1, suwayomi_chapter=999999)
     world.run(intake)
-    assert world.rows("SELECT status FROM chapter") == [("needs_human",)] and state(world)["chosen"] == 999999
+    assert world.rows("SELECT status FROM chapter") == [("needs_human",)]
+    assert state(world)["chosen"] == 999999
     command(cli.retry, world, chapter=1, series=None)
-    assert state(world)["chosen"] is None and state(world)["tried"] == [], "retry forgets it and searches again"
+    assert state(world)["chosen"] is None, "retry forgets it and searches again"
+    assert state(world)["tried"] == [], "retry forgets it and searches again"
 
 
 @budget(load="db")
 def test_chapter_drop_is_refused_while_re_download_work_is_outstanding(world):
     exhausted(world)
-    with world_conn(world) as conn:
+    with WorldConn(world) as conn:
         conn.execute(
             "UPDATE chapter SET redownload = jsonb_set(redownload::jsonb, '{remove}',"
             " jsonb_build_array(jsonb_build_object('path', 'x.cbz')))::text"
@@ -398,7 +419,8 @@ def test_a_suwayomi_chapter_another_open_chapter_holds_is_never_picked(world):
     world.suwayomi.fail_download(chapter_id)
     world.run(intake)
     ((status, error),) = world.rows("SELECT status, last_error FROM chapter WHERE suwayomi_chapter_id = %s", chapter_id)
-    assert status == "needs_human" and "Other (EN)" in error, "Other's Ch. 12 belongs to the other chapter"
+    assert status == "needs_human", "Other's Ch. 12 belongs to the other chapter"
+    assert "Other (EN)" in error, "Other's Ch. 12 belongs to the other chapter"
     assert held.exists(), "the other chapter's download is untouched"
 
 
@@ -409,9 +431,10 @@ def test_suwayomi_unreachable_on_the_way_to_the_next_source_resumes(world, monke
     world.suwayomi.fail_download(chapter_id)
     original = getattr(world.suwayomi, call)
 
-    def down(*args):
+    def down(*_args):
         monkeypatch.setattr(world.suwayomi, call, original)
-        raise workflow.Unreachable("suwayomi")
+        msg = "suwayomi"
+        raise workflow.Unreachable(msg)
 
     monkeypatch.setattr(world.suwayomi, call, down)
     world.run(intake)
@@ -422,15 +445,13 @@ def test_suwayomi_unreachable_on_the_way_to_the_next_source_resumes(world, monke
 
 @budget(load="db")
 def test_a_replacement_repeating_another_published_chapter_is_mislabelled(world):
-    from manga_pipeline import images, measures
-
     bad_download(world)
     copy = _textured_cbz("a copy of chapter 30")  # the mislabel check compares page pHashes: pages need content
     probe = world.mangas / "probe.cbz"
     probe.write_bytes(copy)
     phashes = measures.summary(images.measure_pages(probe))["page_phashes"]
     probe.unlink()
-    with world_conn(world) as conn:
+    with WorldConn(world) as conn:
         for n in (30, 31, 32):
             conn.execute(
                 """INSERT INTO published_file (library_path, series_id, identity, state, page_phashes, strip_length,
@@ -440,15 +461,12 @@ def test_a_replacement_repeating_another_published_chapter_is_mislabelled(world)
     world.suwayomi.finish_downloads(copy)
     world.run(intake)
     ((status, error),) = world.rows("SELECT status, last_error FROM chapter")
-    assert status == "needs_human" and "mislabelled" in error
+    assert status == "needs_human"
+    assert "mislabelled" in error
 
 
 @budget(load="db")
 def test_status_lists_re_downloads_notes_and_the_commands_that_settle_a_chapter(world):
-    from contextlib import closing
-
-    from manga_pipeline import db, status
-
     bad_download(world)
     world.download(world.manga_id, "Chapter 23", data=_cbz_with(b"\x00 unknown format"))
     page = cbz(seed="dup")
@@ -456,15 +474,15 @@ def test_status_lists_re_downloads_notes_and_the_commands_that_settle_a_chapter(
     world.run(intake)
     with closing(db.connect(world.cfg)) as conn:
         text = "\n".join(status.report(conn))
-    assert "waiting on Src (EN) chapter" in text and "tried: none" in text, text
+    assert "waiting on Src (EN) chapter" in text, text
+    assert "tried: none" in text, text
     assert "-> retry 2, chapter use 2 SUWAYOMI_CHAPTER_ID, chapter drop 2" in text
-    assert "chapter 3 (Solo Leveling" in text and "duplicate pages: 001.png, 002.png" in text
+    assert "chapter 3 (Solo Leveling" in text
+    assert "duplicate pages: 001.png, 002.png" in text
 
 
 def _cbz_with_pages(*cbzs):
     """A CBZ whose pages are the first page of each of cbzs."""
-    import io
-    import zipfile
 
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
@@ -483,26 +501,17 @@ def test_the_path_rebuilt_for_a_download_is_where_suwayomi_wrote_it(world):
     found = _target(world, chapter_id)
     # Observed on the real Suwayomi 2026-11-13: a non-library download landed exactly here.
     real = "Manga Ball (EN)/A Martial Master Wakes Up as a Concubine/Articuno_Chapter 141.cbz"
-    assert found["path"] == config.to_stored(world.cfg, world.mangas / real) and found["source"] == "Manga Ball (EN)"
+    assert found["path"] == config.to_stored(world.cfg, world.mangas / real)
+    assert found["source"] == "Manga Ball (EN)"
 
 
 def _target(world, chapter_id):
-    from contextlib import closing
-
-    from manga_pipeline import db, redownload
-
     with closing(db.connect(world.cfg)) as conn:
         return redownload.target(world.context(conn, "intake"), chapter_id)
 
 
 def _textured_cbz(seed, pages=3):
     """A CBZ of noise pages (16 x 24): unlike the world's 1-colour pages, they have pHashes."""
-    import io
-    import zipfile
-    import zlib
-
-    import numpy as np
-    from PIL import Image
 
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
@@ -515,21 +524,16 @@ def _textured_cbz(seed, pages=3):
 
 
 def _cbz_with(page):
-    import io
-    import zipfile
-
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         z.writestr("001.png", page)
     return out.getvalue()
 
 
-class world_conn:
+class WorldConn:
     """A connection with an open transaction, for a test's direct changes."""
 
     def __init__(self, world):
-        from manga_pipeline import db
-
         self.conn = db.connect(world.cfg)
         self.tx = db.transaction(self.conn)
 

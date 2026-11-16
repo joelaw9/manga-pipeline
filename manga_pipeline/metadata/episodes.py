@@ -18,50 +18,53 @@ from manga_pipeline import names
 
 MAIN, SPECIAL, NON_CHAPTER = "main", "special", "non-chapter"
 
-# "Ep. 1 - Memento Mortem", "Episode 30 (Season Finale)", "Chapter 4: X", "1. The Grand Sorcerer"
+# labels as in: Ep. 1 - Memento Mortem; Episode 30 (Season Finale); Chapter 4: X; 1. The Grand Sorcerer
 LABEL = re.compile(
-    r"^\s*(?:(?:Episode|Ep|Chapter|Ch)\.?\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\.(?=\s))\s*(?:[-–—:.|]\s*)?", re.I
+    r"^\s*(?:(?:Episode|Ep|Chapter|Ch)\.?\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\.(?=\s))\s*(?:[-\u2013\u2014:.|]\s*)?",
+    re.IGNORECASE,
 )
-# "SE 1. He's Just a Puppy", "SP 2 - X", "Special Episode 3: X", "Side Story 1 - X", "Extra: The First Day"
+# labels as in: SE 1. He's Just a Puppy; SP 2 - X; Special Episode 3: X; Side Story 1 - X; Extra: The First Day
 SPECIAL_LABEL = re.compile(
     r"^\s*(?:(?:SE|SP)(?=\s*\d)|(?:Special(?:\s+Episode)?|Side\s+Story|Extra|Bonus(?:\s+Episode)?)\b)\s*\.?\s*"
-    r"(\d+(?:\.\d+)?)?\s*(?:[-–—:.|]\s*)?",
-    re.I,
+    r"(\d+(?:\.\d+)?)?\s*(?:[-\u2013\u2014:.|]\s*)?",
+    re.IGNORECASE,
 )
-SPECIAL_WORDS = re.compile(r"^\s*(?:SE|SP)\s*\d|^\s*(?:special|side\s+story|extra|bonus|epilogue|omake)\b", re.I)
+SPECIAL_WORDS = re.compile(
+    r"^\s*(?:SE|SP)\s*\d|^\s*(?:special|side\s+story|extra|bonus|epilogue|omake)\b", re.IGNORECASE
+)
 NON_CHAPTER_WORDS = re.compile(
     r"\b(?:announcements?|notice|hiatus|author'?s\s+notes?|creator'?s?\s+(?:notes?|interview)|interview|contests?|"
     r"giveaway|Q\s*&\s*A|poll|recap|teaser|preview|trailer|coming\s+soon|now\s+available|available\s+now|"
     r"schedule|life\s+update|merch|BTS|wallpapers?|character\s+profiles?|fan\s*art|happy\s+birthday)\b",
-    re.I,
+    re.IGNORECASE,
 )
 
 WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
 _NUM = r"(\d+|" + "|".join(WORDS) + r")"
 END_MARKERS = [  # first group: the season number (digits or a word), absent for a bare "(Season Finale)"
-    re.compile(r"(?<!Mid-)(?<!Mid )\bSeason\s*" + _NUM + r"?\s*(?:-\s*)?(?:Finale|END)\b", re.I),
-    re.compile(r"\bEnd\s+of\s+Season\s*" + _NUM + r"?\b", re.I),
-    re.compile(r"\bS(\d+)\s*-?\s*(?:END|Finale)\b", re.I),
+    re.compile(r"(?<!Mid-)(?<!Mid )\bSeason\s*" + _NUM + r"?\s*(?:-\s*)?(?:Finale|END)\b", re.IGNORECASE),
+    re.compile(r"\bEnd\s+of\s+Season\s*" + _NUM + r"?\b", re.IGNORECASE),
+    re.compile(r"\bS(\d+)\s*-?\s*(?:END|Finale)\b", re.IGNORECASE),
 ]
 START_MARKERS = [  # "Season 3 is Coming Soon!" / "Season 2 Teaser" posts sit between seasons: they start the next one
-    re.compile(r"\bSeason\s*" + _NUM + r"?\s*-?\s*(?:Premiere|Begins|START)\b", re.I),
-    re.compile(r"\bS(\d+)\s*-?\s*START\b", re.I),
-    re.compile(r"\[Season\s*(\d+)\]", re.I),
-    re.compile(r"\bSeason\s*" + _NUM + r"\s*(?:Teaser|Preview|Trailer|(?:is\s+)?Coming)\b", re.I),
+    re.compile(r"\bSeason\s*" + _NUM + r"?\s*-?\s*(?:Premiere|Begins|START)\b", re.IGNORECASE),
+    re.compile(r"\bS(\d+)\s*-?\s*START\b", re.IGNORECASE),
+    re.compile(r"\[Season\s*(\d+)\]", re.IGNORECASE),
+    re.compile(r"\bSeason\s*" + _NUM + r"\s*(?:Teaser|Preview|Trailer|(?:is\s+)?Coming)\b", re.IGNORECASE),
 ]
-MAIN_END = re.compile(r"\bMain\s+Story\s+Finale\b|\bEnd\s+of\s+(?:the\s+)?Main\s+Story\b", re.I)
+MAIN_END = re.compile(r"\bMain\s+Story\s+Finale\b|\bEnd\s+of\s+(?:the\s+)?Main\s+Story\b", re.IGNORECASE)
 # bracketed markers removed from titles once read: "(Season Finale)", "(Season 2 Premiere)", "[S1 END]",
-# "(End of Season 1)", "(Main Story Finale)", "(Series Finale)", "(Season 1 Prequel Finale)", "(End)"
+# and "(End of Season 1)", "(Main Story Finale)", "(Series Finale)", "(Season 1 Prequel Finale)", "(End)"
 BRACKETED_MARKER = re.compile(
     r"\s*[(\[{]\s*(?:[^()\[\]{}]*\b(?:Finale|Premiere)|(?:Mid-?\s*)?Season\s*\w*\s*(?:END|Begins|START)|"
     r"End\s+of\s+(?:the\s+)?(?:Season\s*\w*|Main\s+Story)|S\d+\s*-?\s*(?:END|START)|"
     r"Season\s*\d+|END)\s*[)\]}]",
-    re.I,
+    re.IGNORECASE,
 )
 BARE_MARKER = re.compile(
     r"^\s*(?:(?:Mid-?\s*)?Season\s*\w*\s*(?:Finale|END|Premiere|Begins|START)|End\s+of\s+Season\s*\w*|"
     r"S\d+\s*-?\s*(?:END|Finale|START))\s*[!.]*\s*$",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -118,7 +121,7 @@ def _same(a, b):
 
 def _tidy(t):
     t = re.sub(r"\s+", " ", t or "").strip()
-    return re.sub(r"^[\s\-–—:|.]+|[\s\-–—:|]+$", "", t) or None
+    return re.sub(r"^[\s\-\u2013\u2014:|.]+|[\s\-\u2013\u2014:|]+$", "", t) or None
 
 
 def classify(raw_title):
@@ -129,7 +132,7 @@ def classify(raw_title):
         m = SPECIAL_LABEL.match(t)
         if m and m.group(1):
             return SPECIAL, m.group(1), t[m.end() :]
-        if m and re.search(r"[-–—:|]\s*$", m.group(0)) and t[m.end() :].strip():
+        if m and re.search(r"[-\u2013\u2014:|]\s*$", m.group(0)) and t[m.end() :].strip():
             return SPECIAL, None, t[m.end() :]
         return SPECIAL, None, t
     m = LABEL.match(t)
@@ -149,10 +152,9 @@ def build(items):
     numbered = sum(1 for k, stated, _ in kinds if k == MAIN and stated is not None)
     unnumbered_are_chapters = numbered < len(parsed) / 2
     out, prev_main, last_end, started = [], None, 0, None
-    for (number, raw, date, eid), (kind, stated, rest) in zip(parsed, kinds, strict=True):
+    for (number, raw, date, eid), (classified, stated, rest) in zip(parsed, kinds, strict=True):
         chapter, title = None, raw
-        if kind == MAIN and stated is None and not unnumbered_are_chapters:
-            kind = NON_CHAPTER
+        kind = NON_CHAPTER if classified == MAIN and stated is None and not unnumbered_are_chapters else classified
         if kind == MAIN:
             expected = int(prev_main) + 1 if prev_main is not None else None
             # the label is the episode's own number when it repeats the site index or the running chapter count; in a
@@ -257,7 +259,7 @@ def gaps(episodes, key="number"):
     return [n for n in range(1, nums[-1] + 1) if n not in have]
 
 
-def coverage(episodes, listed_total=None, app_only=False, list_page_read=True):
+def coverage(episodes, listed_total=None, *, app_only=False, list_page_read=True):
     """{"status": complete | partial | unknown, "reason"}: partial when the site lists fewer episodes than it says it
     has, when site numbers are missing, when none is listed, or when the platform keeps episodes to its app; unknown
     when the page that tells is unread."""

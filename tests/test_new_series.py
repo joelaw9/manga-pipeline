@@ -82,8 +82,9 @@ def test_a_hand_placed_new_folder_is_named_by_its_files_comicinfo_series(world):
 def test_sources_down_at_the_first_check_leave_the_series_pending_until_a_run_reaches_them(world, monkeypatch):
     world.download(world.manga("Brand New Thing"), "Chapter 1")
 
-    def down(name):
-        raise workflow.Unreachable("AniList", "down")
+    def down(_name):
+        msg = "AniList"
+        raise workflow.Unreachable(msg, "down")
 
     with monkeypatch.context() as m:
         m.setattr(world.sources.anilist, "search", down)
@@ -99,7 +100,8 @@ def test_a_fuzzy_near_hit_is_held_and_series_new_admits_it(world):
     world.download(world.manga("Solo Levelling"), "Chapter 1")
     world.run(intake)
     ((sid, status, reason),) = world.rows("SELECT id, status, status_reason FROM series WHERE origin = 'new'")
-    assert status == "needs_human" and "nearly matches: Solo Leveling" in reason, "ratio >= 90 is a near hit (D7.18)"
+    assert status == "needs_human", "ratio >= 90 is a near hit (D7.18)"
+    assert "nearly matches: Solo Leveling" in reason, "ratio >= 90 is a near hit (D7.18)"
     assert world.rows("SELECT status FROM chapter") == [("ready",)], "its chapter is recorded and held"
     with closing(db.connect(world.cfg)) as conn, pytest.raises(workflow.Refused, match="series new"):
         workflow.retry_series(conn, sid)
@@ -115,7 +117,9 @@ def test_a_name_clash_holds_the_series_and_series_new_name_admits_it(world):
     world.download(world.manga("Brand New Thing"), "Chapter 1")
     world.run(intake)
     ((sid, status, reason),) = world.rows("SELECT id, status, status_reason FROM series")
-    assert status == "needs_human" and "already has a folder" in reason and f"series new {sid} --name" in reason
+    assert status == "needs_human"
+    assert "already has a folder" in reason
+    assert f"series new {sid} --name" in reason
     with closing(db.connect(world.cfg)) as conn, pytest.raises(workflow.Refused, match="series new"):
         workflow.retry_series(conn, sid)
     with closing(db.connect(world.cfg)) as conn:
@@ -187,8 +191,9 @@ def test_a_held_new_series_chapters_wait_until_it_is_admitted(world, monkeypatch
     with closing(db.connect(world.cfg)) as conn:
         human.new_series(conn, sid)
 
-    def down(library_id):
-        raise workflow.Unreachable("Kavita", "down")
+    def down(_library_id):
+        msg = "Kavita"
+        raise workflow.Unreachable(msg, "down")
 
     monkeypatch.setattr(world.kavita, "series_in_library", down)
     world.run(intake)  # the metadata step is skipped: no admission this run

@@ -3,19 +3,25 @@ errors that need a human, scratch life, the post-check, and the calibration of a
 time. Tools and scorer are the fakes; each test inserts its own chapter_edit row."""
 
 import errno
+import hashlib
+import io
 import json
+import os
+import pathlib
 import re
 import zipfile
 from contextlib import closing
+from pathlib import Path
 
 import pytest
+from PIL import Image
 
-from manga_pipeline import archive, config, db, page_store, workflow
-from manga_pipeline.convert import calibrate, check
+from manga_pipeline import archive, config, db, errors, images, page_store, process, workflow
+from manga_pipeline.convert import calibrate, check, covers, image
 from manga_pipeline.stages import convert
 
 from tests.builders import add_chapter, add_series, adopted, chapter, claimed, download
-from tests.convert_pages import NO_EDIT, colour, gray, jpeg, png, webp
+from tests.convert_pages import NO_EDIT, colour, encoded, gray, jpeg, png, webp
 from tests.fakes import convert as fake
 from tests.timing import budget
 
@@ -96,7 +102,8 @@ def test_a_converted_chapter_is_staged_and_recorded_and_its_scratch_is_gone(site
     name = f"{db.database_id(site.conn)[:8]}-{workflow.claim_name(chapter(site.conn, chapter_id))}.cbz"
     staged = config.abs_path(site.cfg["paths"]["staging"]) / name
     assert name.endswith(f"-{chapter_id}-1.cbz"), "the staged name carries the chapter id and its claim count"
-    assert row["staged_path"] == config.to_stored(site.cfg, staged) and row["staged_size"] == staged.stat().st_size
+    assert row["staged_path"] == config.to_stored(site.cfg, staged)
+    assert row["staged_size"] == staged.stat().st_size
     with zipfile.ZipFile(staged) as z:
         assert [i.filename for i in z.infolist()] == ["001.avif", "002.avif"]
         assert all(i.compress_type == zipfile.ZIP_STORED for i in z.infolist()), "store mode"
@@ -119,14 +126,16 @@ def test_a_converted_chapter_is_staged_and_recorded_and_its_scratch_is_gone(site
 def test_a_chapter_with_no_edit_row_needs_a_human(site):
     chapter_id = site.chapter(site.series(), pages(1), edit=None)
     outcome = site.run(chapter_id)
-    assert isinstance(outcome, workflow.NeedsHuman) and "no chapter_edit row" in outcome.reason
+    assert isinstance(outcome, workflow.NeedsHuman)
+    assert "no chapter_edit row" in outcome.reason
 
 
 @budget(load="pool")
 def test_a_malformed_edit_needs_a_human_naming_the_key(site):
     chapter_id = site.chapter(site.series(), pages(1), edit={**NO_EDIT, "split": "no"})
     outcome = site.run(chapter_id)
-    assert isinstance(outcome, workflow.NeedsHuman) and "split must be a bool" in outcome.reason
+    assert isinstance(outcome, workflow.NeedsHuman)
+    assert "split must be a bool" in outcome.reason
 
 
 @budget(load="pool")
@@ -138,24 +147,21 @@ def test_a_series_without_a_layout_fails(site):
 
 @budget(load="pool")
 def test_an_exif_rotated_page_needs_a_human_and_leaves_no_scratch(site):
-    from PIL import Image
-
     exif = Image.Exif()
     exif[0x0112] = 6
-    import io
 
     buf = io.BytesIO()
     colour().save(buf, "JPEG", exif=exif.tobytes())
     chapter_id = site.chapter(site.series(), [("001.jpg", buf.getvalue())])
     outcome = site.run(chapter_id)
-    assert isinstance(outcome, workflow.NeedsHuman) and "EXIF orientation 6" in outcome.reason
+    assert isinstance(outcome, workflow.NeedsHuman)
+    assert "EXIF orientation 6" in outcome.reason
     assert not site.scratch(chapter_id).exists()
 
 
 @budget(load="pool")
 def test_a_stale_stored_measurement_fails_the_chapter(site):
     chapter_id = site.chapter(site.series(), pages(1))
-    from manga_pipeline import images
 
     stale = images.measure_pages(config.to_local(site.cfg, chapter(site.conn, chapter_id)["download_path"]))
     stale[0]["sha1"] = "0" * 40
@@ -167,7 +173,7 @@ def test_a_stale_stored_measurement_fails_the_chapter(site):
 
 @budget(load="pool")
 def test_a_failed_post_check_deletes_the_staged_file_and_fails(site, monkeypatch):
-    monkeypatch.setattr(check, "check", lambda *a: ["page-count: 1 != expected 2"])
+    monkeypatch.setattr(check, "check", lambda *_a: ["page-count: 1 != expected 2"])
     chapter_id = site.chapter(site.series(), pages(1))
     with pytest.raises(RuntimeError, match="post-check failed: page-count"):
         site.run(chapter_id)
@@ -177,12 +183,12 @@ def test_a_failed_post_check_deletes_the_staged_file_and_fails(site, monkeypatch
 
 @budget(load="pool")
 def test_a_share_error_while_staging_reaches_the_workflow_as_an_oserror(site, monkeypatch):
-    def eio(*a):
+    def eio(*_a):
         raise OSError(errno.EIO, "Input/output error")
 
     chapter_id = site.chapter(site.series(), pages(1))
     monkeypatch.setattr(archive, "write", eio)
-    with pytest.raises(OSError) as e:
+    with pytest.raises(OSError, match="Input/output error") as e:
         site.run(chapter_id)
     assert e.value.errno == errno.EIO, "workflow.share_errors turns it into Unreachable('share')"
     assert not site.scratch(chapter_id).exists()
@@ -232,7 +238,8 @@ def test_the_post_check_holds_avif_scores_lossless_pixels_and_size(tmp_path):
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
     fails = check.check(staged(tmp_path, [("001.jpg", a)]), avif, tmp_path, [{"name": "001.jpg", "bytes": 1}])
-    assert "score-missing: 001.jpg" in fails and "mixed-formats: JPEG" in fails
+    assert "score-missing: 001.jpg" in fails
+    assert "mixed-formats: JPEG" in fails
     assert any(f.startswith("output-larger-than-input") for f in fails), "page bytes above the source pages'"
     (tmp_path / "001.jpg").write_bytes(jpeg(gray().convert("RGB")))
     lossless = {
@@ -270,7 +277,7 @@ def test_the_post_check_refuses_a_deflated_archive(tmp_path):
 def q_scores(by_q):
     """Fake scores from the encode quality in the decode's name: by_q(q)."""
 
-    def f(ref, dec):
+    def f(_ref, dec):
         return by_q(int(re.search(r"\.q(\d+)\.png$", dec.name).group(1)))
 
     return f
@@ -308,14 +315,15 @@ def test_a_retried_chapter_adds_no_samples_twice(site):
 @budget(load="pool", seconds=15)
 def test_samples_failing_at_q80_are_not_counted(site):
     low = {"001", "002", "003"}
-    fake.SCORE[0] = lambda ref, dec: (
+    fake.SCORE[0] = lambda _ref, dec: (
         70.0 if dec.name.split(".")[0] in low else 95 - (80 - int(dec.name.split(".q")[1][:2])) * 0.5
     )
     series_id = site.series()
     for n in range(3):
         site.record(site.run(site.chapter(series_id, pages(7, seed=n))))
     row = calibration(site, series_id)["colour"]
-    assert len(row["samples"]) == 21 and row["fixed"] == 0, "18 counted samples are not enough to fix the group"
+    assert len(row["samples"]) == 21, "18 counted samples are not enough to fix the group"
+    assert row["fixed"] == 0, "18 counted samples are not enough to fix the group"
 
 
 @budget(load="pure")
@@ -339,17 +347,17 @@ def test_choose_follows_the_bulk_converters_rule():
     def sample(chapter, by_q):
         return {"chapter_id": chapter, "scores": {str(q): [by_q(q), 1] for q in (80, *calibrate.LADDER)}}
 
-    passing = [sample(c % 3, lambda q: 90.0) for c in range(20)]
+    passing = [sample(c % 3, lambda _q: 90.0) for c in range(20)]
     assert calibrate.choose(passing) == (50, "ladder floor q50 passes (20 samples)")
     assert calibrate.choose(passing[:19]) is None, "fewer than 20 counted samples"
-    two_chapters = [sample(c % 2, lambda q: 90.0) for c in range(20)]
+    two_chapters = [sample(c % 2, lambda _q: 90.0) for c in range(20)]
     assert calibrate.choose(two_chapters) is None, "samples from fewer than 3 chapters"
-    third_low = [*two_chapters, sample(2, lambda q: 79.0)]
+    third_low = [*two_chapters, sample(2, lambda _q: 79.0)]
     assert calibrate.choose(third_low) is not None, (
         "a 3rd chapter counts though its samples score under the floor: a group takes no sample past 40, so it "
         "would otherwise stay open for good"
     )
-    one_low = passing[:-1] + [sample(0, lambda q: 90.0 if q >= 70 else 79.0)]
+    one_low = [*passing[:-1], sample(0, lambda q: 90.0 if q >= 70 else 79.0)]
     assert calibrate.choose(one_low)[0] == 70, "a sample under the floor at q65 fails that probe"
 
 
@@ -365,8 +373,10 @@ def test_a_strip_chapter_is_restitched_with_its_removed_rows_cut_out(site):
     site.record(site.run(chapter_id))
     result = json.loads(chapter(site.conn, chapter_id)["convert_result"])
     out = json.loads(chapter(site.conn, chapter_id)["output_pages"])
-    assert result["route"] == "rendered-avif" and result["reshape"]["kind"] == "restitch"
-    assert out[0]["name"] == "000_cover.avif" and out[0]["height"] == 300, "the cover page stays a page of its own"
+    assert result["route"] == "rendered-avif"
+    assert result["reshape"]["kind"] == "restitch"
+    assert out[0]["name"] == "000_cover.avif", "the cover page stays a page of its own"
+    assert out[0]["height"] == 300, "the cover page stays a page of its own"
     assert sum(p["height"] for p in out[1:]) == 3900, "the strip without its removed 300 rows"
 
 
@@ -389,14 +399,13 @@ def test_a_group_takes_no_more_than_40_samples():
 def test_2_pages_whose_names_share_a_stem_need_a_human_through_the_stage(site):
     chapter_id = site.chapter(site.series(), [("cover.jpg", jpeg(colour())), ("cover.png", jpeg(gray()))])
     outcome = site.run(chapter_id)
-    assert isinstance(outcome, workflow.NeedsHuman) and "share a name stem" in outcome.reason
+    assert isinstance(outcome, workflow.NeedsHuman)
+    assert "share a name stem" in outcome.reason
     assert not site.scratch(chapter_id).exists()
 
 
 @budget(load="fs")
 def test_the_post_check_names_a_low_score_folders_and_an_ambiguous_order(tmp_path):
-    import io
-
     buf = io.BytesIO()
     colour().save(buf, "AVIF", quality=80, speed=10)
     avif = buf.getvalue()
@@ -431,16 +440,15 @@ def test_a_repeated_page_is_sampled_once():
 
 @budget(load="pool")
 def test_lossless_and_untouched_chapters_through_the_stage(site):
-    from tests.convert_pages import webp
-
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     series_id = site.series()
     lossless = site.chapter(series_id, pages(2))
     untouched = site.chapter(series_id, [("001.webp", webp(colour()))])
     for chapter_id, want in ((lossless, ("avif", "lossless")), (untouched, ("untouched", "untouched"))):
         site.record(site.run(chapter_id))
         result = json.loads(chapter(site.conn, chapter_id)["convert_result"])
-        assert (result["route"], result["outcome"]) == want and result["mean_score"] is None
+        assert (result["route"], result["outcome"]) == want
+        assert result["mean_score"] is None
 
 
 @budget(load="fs")
@@ -466,7 +474,8 @@ def test_a_luma_check_on_a_colour_page_is_done_exactly(tmp_path):
 def test_an_edit_dropping_every_page_needs_a_human(site):
     chapter_id = site.chapter(site.series(), pages(2), edit={**NO_EDIT, "drop_pages": [0, 1]})
     outcome = site.run(chapter_id)
-    assert isinstance(outcome, workflow.NeedsHuman) and "drops every page" in outcome.reason
+    assert isinstance(outcome, workflow.NeedsHuman)
+    assert "drops every page" in outcome.reason
 
 
 @budget(load="pool")
@@ -475,7 +484,10 @@ def test_a_strip_edit_removing_every_row_needs_a_human(site):
     edit = {**NO_EDIT, "strip_removed": [{"start": 0, "end": 4200, "why": "credits"}]}
     chapter_id = site.chapter(site.series(layout="strip"), members, edit=edit)
     outcome = site.run(chapter_id)
-    assert isinstance(outcome, workflow.NeedsHuman) and outcome.reason == "the chapter edit drops every page", (
+    assert isinstance(outcome, workflow.NeedsHuman), (
+        "removed rows covering the whole strip leave no page: needs_human at once, no attempt spent"
+    )
+    assert outcome.reason == "the chapter edit drops every page", (
         "removed rows covering the whole strip leave no page: needs_human at once, no attempt spent"
     )
     assert not site.scratch(chapter_id).exists()
@@ -483,8 +495,9 @@ def test_a_strip_edit_removing_every_row_needs_a_human(site):
 
 @budget(load="pool")
 def test_a_post_check_that_raises_still_removes_the_staged_file(site, monkeypatch):
-    def broken(*a):
-        raise OSError("source page unreadable")
+    def broken(*_a):
+        msg = "source page unreadable"
+        raise OSError(msg)
 
     monkeypatch.setattr(check, "check", broken)
     chapter_id = site.chapter(site.series(), pages(1))
@@ -502,8 +515,6 @@ def test_cover_pages_are_never_samples(site):
 
 @budget(load="pool")
 def test_a_chapter_whose_first_outcome_is_not_avif_adds_no_samples(site):
-    from tests.convert_pages import webp
-
     series_id = site.series()
     site.run(site.chapter(series_id, [("001.webp", webp(colour()))]))
     assert calibration(site, series_id) == {}
@@ -535,7 +546,8 @@ def test_a_chapter_feeds_both_groups_and_a_rendered_chapter_samples_its_rendered
         site.chapter(strip_series, [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=60 + i))) for i in range(1, 4)])
     )
     samples = calibration(site, strip_series)["colour"]["samples"]
-    assert samples and all(s["rendered"] for s in samples), "a rendered chapter samples its rendered pages"
+    assert samples, "a rendered chapter samples its rendered pages"
+    assert all(s["rendered"] for s in samples), "a rendered chapter samples its rendered pages"
 
 
 @budget(load="pool")
@@ -550,8 +562,6 @@ def test_1_scorer_serves_every_chapter_of_the_process(site):
 
 @budget(load="pool")
 def test_a_process_start_removes_chapter_scratch_folders_and_nothing_else(site):
-    from manga_pipeline import process
-
     root = config.abs_path(site.cfg["paths"]["scratch"])
     for name in ("7-1", "7-2", "junk-review", "notes"):
         (root / name).mkdir(parents=True)
@@ -567,10 +577,6 @@ def test_a_process_start_removes_chapter_scratch_folders_and_nothing_else(site):
 
 @budget(load="db")
 def test_a_process_start_deletes_day_old_staged_files_no_chapter_names(site):
-    import os
-
-    from manga_pipeline import process
-
     root = config.abs_path(site.cfg["paths"]["staging"])
     chapter_id = site.chapter(site.series(), pages(1))
     named, orphan, fresh, other = (root / n for n in ("named.cbz", "orphan.cbz", "fresh.cbz", "notes.txt"))
@@ -594,26 +600,19 @@ def test_a_process_start_deletes_day_old_staged_files_no_chapter_names(site):
 
 @budget(load="db")
 def test_a_process_start_deletes_a_day_old_part_file(site):
-    import os
-
-    from manga_pipeline import process
-
     root = config.abs_path(site.cfg["paths"]["staging"])
     old, fresh = root / "old.cbz.part", root / "fresh.cbz.part"
     for path in (old, fresh):
         path.write_bytes(b"x")
     os.utime(old, (old.stat().st_atime - 2 * 86400, old.stat().st_mtime - 2 * 86400))
     process.clean_staging(site.ctx)
-    assert not old.exists() and fresh.exists(), "a killed archive write's .part goes once a day old, as a .cbz does"
+    assert not old.exists(), "a killed archive write's .part goes once a day old, as a .cbz does"
+    assert fresh.exists(), "a killed archive write's .part goes once a day old, as a .cbz does"
 
 
 @budget(load="db")
 @pytest.mark.parametrize("winerror", [None, 53])
 def test_a_staged_file_that_vanishes_during_the_clean_up(site, monkeypatch, winerror):
-    import pathlib
-
-    from manga_pipeline import process
-
     root = config.abs_path(site.cfg["paths"]["staging"])
     (root / "gone.cbz").write_bytes(b"x")
     real = pathlib.Path.stat
@@ -635,8 +634,6 @@ def test_a_staged_file_that_vanishes_during_the_clean_up(site, monkeypatch, wine
 
 @budget(load="pool")
 def test_output_pages_not_as_many_as_the_outcome_writes_fail(site, monkeypatch):
-    from manga_pipeline.convert import image
-
     real = image._Chapter.untouched
 
     def extra(self):
@@ -644,7 +641,6 @@ def test_output_pages_not_as_many_as_the_outcome_writes_fail(site, monkeypatch):
         (self.out / "999.webp").write_bytes(b"stray")
 
     monkeypatch.setattr(image._Chapter, "untouched", extra)
-    from tests.convert_pages import webp
 
     chapter_id = site.chapter(site.series(), [("001.webp", webp(colour()))])
     with pytest.raises(RuntimeError, match="2 output pages, the outcome writes 1"):
@@ -669,7 +665,8 @@ def test_a_blanked_rendered_chapter_samples_its_unblanked_render_and_records_the
     chapter_id = site.chapter(site.series(), pages(2), edit=edit)
     outcome = site.run(chapter_id)
     site.record(outcome)
-    assert seen and set(seen) == {"render"}, "calibration samples come from the unblanked render"
+    assert seen, "calibration samples come from the unblanked render"
+    assert set(seen) == {"render"}, "calibration samples come from the unblanked render"
     result = json.loads(chapter(site.conn, chapter_id)["convert_result"])
     assert (result["outcome"], result["blanked"]) == ("avif", ["002.jpg"])
 
@@ -679,7 +676,6 @@ def test_a_blanked_rendered_chapter_samples_its_unblanked_render_and_records_the
 
 def add_cover(site, chapter_id, data, rel="vol/1.jpg", sha256=None, volume="1"):
     """Hand chapter_id a volume cover as intake does: the file under paths.covers and its volume_cover row."""
-    import hashlib
 
     path = config.abs_path(site.cfg["paths"]["covers"]) / rel
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -709,8 +705,11 @@ def test_a_volume_cover_goes_in_first_as_avif_at_the_page_width_and_bw_ignores_i
     result, out = staged_result(site, chapter_id)
     assert [p["name"] for p in out] == ["000_cover.avif", "001.avif", "002.avif"]
     assert (out[0]["width"], out[0]["height"]) == (96, 144), "scaled down to the pages' width, aspect kept"
-    assert result["cover"]["format"] == "AVIF" and result["cover"]["volume"] == "1" and result["cover_skipped"] is None
-    assert result["pages_out"] == 3 and result["gray"] is True, "a colour cover leaves a gray chapter gray"
+    assert result["cover"]["format"] == "AVIF"
+    assert result["cover"]["volume"] == "1"
+    assert result["cover_skipped"] is None
+    assert result["pages_out"] == 3, "a colour cover leaves a gray chapter gray"
+    assert result["gray"] is True, "a colour cover leaves a gray chapter gray"
 
 
 @budget(load="pool")
@@ -719,24 +718,25 @@ def test_a_cover_page_already_there_is_replaced(site):
     chapter_id = site.chapter(site.series(), members)
     add_cover(site, chapter_id, COVER)
     result, out = staged_result(site, chapter_id)
-    assert [p["name"] for p in out] == ["000_cover.avif", "001.avif", "002.avif"] and result["pages_out"] == 3
+    assert [p["name"] for p in out] == ["000_cover.avif", "001.avif", "002.avif"]
+    assert result["pages_out"] == 3
     assert (out[0]["width"], out[0]["height"]) == (96, 144), "the inserted cover, not the chapter's own"
 
 
 @budget(load="pool")
 def test_a_lossless_chapter_takes_the_cover_as_jpeg(site):
-    fake.SCORE[0] = lambda ref, dec: 50.0  # every AVIF fails: the cover's too
+    fake.SCORE[0] = lambda _ref, _dec: 50.0  # every AVIF fails: the cover's too
     chapter_id = site.chapter(site.series(), pages(2))
     add_cover(site, chapter_id, COVER)
     result, out = staged_result(site, chapter_id)
-    assert result["outcome"] == "lossless" and [p["name"] for p in out] == ["000_cover.jpg", "001.jpg", "002.jpg"]
-    assert result["cover"]["format"] == "JPEG" and result["cover"]["score"] is None
+    assert result["outcome"] == "lossless"
+    assert [p["name"] for p in out] == ["000_cover.jpg", "001.jpg", "002.jpg"]
+    assert result["cover"]["format"] == "JPEG"
+    assert result["cover"]["score"] is None
 
 
 @budget(load="pool")
 def test_pages_of_2_formats_convert_to_avif_for_the_cover_without_the_size_gate(site, monkeypatch):
-    from manga_pipeline.convert import image
-
     monkeypatch.setattr(image, "MAX_SIZE_RATIO", 0.0)  # the size gate would reject any AVIF
     members = [("001.jpg", jpeg(colour(seed=1))), ("002.png", png(colour(seed=2)))]
     chapter_id = site.chapter(site.series(), members)
@@ -751,27 +751,31 @@ def test_an_untouched_chapter_takes_the_cover_in_its_own_format(site):
     chapter_id = site.chapter(site.series(), [("001.webp", webp(colour(seed=1))), ("002.webp", webp(colour(seed=2)))])
     add_cover(site, chapter_id, COVER)
     result, out = staged_result(site, chapter_id)
-    assert result["outcome"] == "untouched" and [p["name"] for p in out] == ["000_cover.webp", "001.webp", "002.webp"]
+    assert result["outcome"] == "untouched"
+    assert [p["name"] for p in out] == ["000_cover.webp", "001.webp", "002.webp"]
 
 
 @budget(load="pool")
 def test_a_cover_whose_avif_fails_is_left_out_with_the_reason(site, caplog):
-    fake.SCORE[0] = lambda ref, dec: 50.0 if dec.name.startswith("000_cover") else 90.0
+    fake.SCORE[0] = lambda _ref, dec: 50.0 if dec.name.startswith("000_cover") else 90.0
     chapter_id = site.chapter(site.series(), pages(2))
     add_cover(site, chapter_id, COVER)
     result, out = staged_result(site, chapter_id)
-    assert result["outcome"] == "avif" and [p["name"] for p in out] == ["001.avif", "002.avif"]
-    assert result["cover"] is None and "below the floor" in result["cover_skipped"]
+    assert result["outcome"] == "avif"
+    assert [p["name"] for p in out] == ["001.avif", "002.avif"]
+    assert result["cover"] is None
+    assert "below the floor" in result["cover_skipped"]
     assert "cover not inserted" in caplog.text
 
 
 @budget(load="pool")
 def test_pages_sharing_no_cover_format_go_out_without_it(site):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     chapter_id = site.chapter(site.series(), [("001.jpg", jpeg(colour(seed=1))), ("002.webp", webp(colour(seed=2)))])
     add_cover(site, chapter_id, COVER)
     result, out = staged_result(site, chapter_id)
-    assert result["outcome"] == "untouched" and len(out) == 2
+    assert result["outcome"] == "untouched"
+    assert len(out) == 2
     assert result["cover_skipped"] == "its untouched pages (JPEG, WEBP_LOSSY) share no cover format"
 
 
@@ -788,8 +792,6 @@ def test_pages_sharing_no_cover_format_go_out_without_it(site):
 def test_a_cover_that_is_not_as_handed_over_fails_the_attempt_naming_its_path(
     site, tmp_path, rel, sha256, write, match
 ):
-    from manga_pipeline.convert import covers
-
     chapter_id = site.chapter(site.series(), pages(1))
     if rel == "ABSOLUTE":
         rel = str(tmp_path / "abs.jpg")
@@ -803,30 +805,30 @@ def test_a_cover_that_is_not_as_handed_over_fails_the_attempt_naming_its_path(
 
 @budget(load="pool")
 def test_an_avif_only_chapter_whose_avif_cover_fails_names_the_floor(site):
-    fake.SCORE[0] = lambda ref, dec: 50.0
-    from tests.convert_pages import encoded
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
 
     chapter_id = site.chapter(site.series(), [("001.avif", encoded(colour(seed=1), "AVIF"))])
     add_cover(site, chapter_id, COVER)
     result, _ = staged_result(site, chapter_id)
-    assert result["outcome"] == "untouched" and "below the floor" in result["cover_skipped"]
+    assert result["outcome"] == "untouched"
+    assert "below the floor" in result["cover_skipped"]
 
 
 @budget(load="pool")
 def test_a_lossless_png_chapter_replaces_its_cover_page_with_a_png_cover(site):
-    fake.SCORE[0] = lambda ref, dec: 50.0
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
     members = [("000_cover.png", png(colour(seed=5))), ("001.png", png(colour(seed=1))), ("002.png", png(gray()))]
     chapter_id = site.chapter(site.series(), members)
     add_cover(site, chapter_id, COVER)
     result, out = staged_result(site, chapter_id)
-    assert result["outcome"] == "lossless" and [p["name"] for p in out] == ["000_cover.png", "001.png", "002.png"]
-    assert result["cover"]["format"] == "PNG" and (out[0]["width"], out[0]["height"]) == (96, 144)
+    assert result["outcome"] == "lossless"
+    assert [p["name"] for p in out] == ["000_cover.png", "001.png", "002.png"]
+    assert result["cover"]["format"] == "PNG"
+    assert (out[0]["width"], out[0]["height"]) == (96, 144)
 
 
 @budget(load="pool")
 def test_a_blanked_rendered_chapter_of_a_fixed_series_is_rendered_once(site, monkeypatch):
-    from manga_pipeline.convert import image
-
     series_id = site.series()
     with db.transaction(site.conn):
         site.conn.execute(
@@ -843,7 +845,8 @@ def test_a_blanked_rendered_chapter_of_a_fixed_series_is_rendered_once(site, mon
         "blank": [{"page": 1, "box": [10, 10, 40, 30], "fill": [200, 30, 30]}],
     }
     result, _ = staged_result(site, site.chapter(series_id, pages(2), edit=edit))
-    assert renders == ["render-blanked"] and result["blanked"] == ["002.jpg"], "no group wants samples: 1 render"
+    assert renders == ["render-blanked"], "no group wants samples: 1 render"
+    assert result["blanked"] == ["002.jpg"], "no group wants samples: 1 render"
 
 
 BLANKED_RENDER_EDIT = {
@@ -855,8 +858,6 @@ BLANKED_RENDER_EDIT = {
 
 @budget(load="pool")
 def test_a_blanked_rendered_chapter_of_a_series_whose_open_group_is_full_is_rendered_once(site, monkeypatch):
-    from manga_pipeline.convert import image
-
     series_id = site.series()
     full = [{"sha1": f"s{i}", "chapter_id": 999, "rendered": True, "bytes_in": 1, "scores": {}} for i in range(40)]
     with db.transaction(site.conn):
@@ -874,8 +875,6 @@ def test_a_blanked_rendered_chapter_of_a_series_whose_open_group_is_full_is_rend
 
 @budget(load="pool")
 def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(site, monkeypatch):
-    from manga_pipeline.convert import image
-
     encoded = []
     real = image.process_chapter
 
@@ -889,7 +888,8 @@ def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(sit
     monkeypatch.setattr(image, "render", lambda p, src, out: renders.append(out.name) or real_render(p, src, out))
     result, _ = staged_result(site, site.chapter(site.series(), pages(2), edit=BLANKED_RENDER_EDIT))
     assert renders == ["render", "render-blanked"], "an open group wants samples: the unblanked render is made too"
-    assert encoded and set(encoded) == {"render-blanked"}, "the staged pages are encoded from the blanked render"
+    assert encoded, "the staged pages are encoded from the blanked render"
+    assert set(encoded) == {"render-blanked"}, "the staged pages are encoded from the blanked render"
     assert result["blanked"] == ["002.jpg"]
 
 
@@ -898,19 +898,13 @@ def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(sit
 def test_a_dropped_share_while_reading_a_cover_reaches_the_caller_and_a_missing_file_is_a_cover_error(
     site, monkeypatch, winerror
 ):
-    import hashlib
-    from pathlib import Path
-
-    from manga_pipeline import errors
-    from manga_pipeline.convert import covers
-
     path = config.abs_path(site.cfg["paths"]["covers"]) / "vol" / "1.jpg"
     path.parent.mkdir(parents=True)
     path.write_bytes(COVER)
     error = FileNotFoundError(errno.ENOENT, "The network path was not found", str(path))
     error.winerror = winerror
 
-    def gone(self):
+    def gone(_self):
         raise error
 
     monkeypatch.setattr(Path, "read_bytes", gone)
@@ -921,18 +915,20 @@ def test_a_dropped_share_while_reading_a_cover_reaches_the_caller_and_a_missing_
         return
     with pytest.raises(FileNotFoundError) as e:
         covers.load(site.cfg, row)
-    assert e.value is error and errors.dropped_share(e.value), (
+    assert e.value is error, "a dropped share reaches workflow.share_errors as it is, to become Unreachable('share')"
+    assert errors.dropped_share(e.value), (
         "a dropped share reaches workflow.share_errors as it is, to become Unreachable('share')"
     )
 
 
 @budget(load="pool")
 def test_a_gray_chapter_whose_colour_cover_page_is_replaced_stays_gray(site):
-    members = [("000_cover.jpg", jpeg(colour(seed=5)))] + pages(2, page=lambda seed: gray(seed=seed).convert("RGB"))
+    members = [("000_cover.jpg", jpeg(colour(seed=5))), *pages(2, page=lambda seed: gray(seed=seed).convert("RGB"))]
     chapter_id = site.chapter(site.series(), members)
     add_cover(site, chapter_id, COVER)
     result, _ = staged_result(site, chapter_id)
-    assert result["cover"] and result["gray"] is True, "neither the cover nor the page it replaces counts"
+    assert result["cover"], "neither the cover nor the page it replaces counts"
+    assert result["gray"] is True, "neither the cover nor the page it replaces counts"
 
 
 @budget(load="pool")
@@ -944,16 +940,20 @@ def test_a_strip_chapter_takes_the_cover_in_place_of_its_own(site):
     add_cover(site, chapter_id, COVER)
     result, out = staged_result(site, chapter_id)
     names = [p["name"] for p in out]
-    assert result["route"] == "rendered-avif" and names[0] == "000_cover.avif" and names.count("000_cover.avif") == 1
-    assert out[0]["width"] == 200 and result["pages_out"] == len(names), "the cover at the strip's page width"
+    assert result["route"] == "rendered-avif"
+    assert names[0] == "000_cover.avif"
+    assert names.count("000_cover.avif") == 1
+    assert out[0]["width"] == 200, "the cover at the strip's page width"
+    assert result["pages_out"] == len(names), "the cover at the strip's page width"
 
 
 @budget(load="pool")
 def test_a_forced_avif_that_fails_goes_out_untouched_without_the_cover(site):
-    fake.SCORE[0] = lambda ref, dec: 90.0 if dec.name.startswith("000_cover") else 50.0
+    fake.SCORE[0] = lambda _ref, dec: 90.0 if dec.name.startswith("000_cover") else 50.0
     members = [("001.jpg", jpeg(colour(seed=1))), ("002.png", png(colour(seed=2)))]
     chapter_id = site.chapter(site.series(), members)
     add_cover(site, chapter_id, COVER)
     result, out = staged_result(site, chapter_id)
-    assert (result["route"], result["outcome"]) == ("avif", "untouched") and len(out) == 2
+    assert (result["route"], result["outcome"]) == ("avif", "untouched")
+    assert len(out) == 2
     assert result["cover_skipped"] == "its untouched pages (JPEG, PNG) share no cover format"

@@ -15,12 +15,14 @@ def save(conn, chapter_id, pages):
     """Replace the chapter's page rows with pages, a complete measure_pages result. Runs in the caller's transaction:
     raises RuntimeError when none is open, ValueError when a page lacks a field."""
     if not db.in_transaction(conn):
-        raise RuntimeError("page_store.save needs an open transaction (db.transaction)")
+        msg = "page_store.save needs an open transaction (db.transaction)"
+        raise RuntimeError(msg)
     rows = []
     for page in pages:
         missing = [f for f in images.PAGE_FIELDS if f not in page]
         if missing:
-            raise ValueError(f"chapter {chapter_id}: page {page.get('index')} lacks {', '.join(missing)}")
+            msg = f"chapter {chapter_id}: page {page.get('index')} lacks {', '.join(missing)}"
+            raise ValueError(msg)
         row = [page[f] for f in images.PAGE_FIELDS]
         row[images.PAGE_FIELDS.index("blank")] = int(page["blank"])
         rows.append((chapter_id, *row))
