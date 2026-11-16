@@ -46,6 +46,9 @@ def run(ctx, chapter):
     overrides = config.abs_path(ctx.cfg["paths"]["naming_overrides"])
     try:
         named = _copy_name(ctx, chapter) or chapter_names.resolve(ctx, series)[chapter["id"]]
+        unedited = None
+        if chapter["published_file_id"] is None and chapter_names.edits(ctx.conn, series["id"]):
+            unedited = naming.unedited(named, chapter_names.resolve(ctx, series, edited=False)[chapter["id"]])
         group = volumes.series_group(overrides, series["rules_key"])
     except volumes.VolumeError as e:
         return workflow.NeedsHuman(str(e))
@@ -74,7 +77,7 @@ def run(ctx, chapter):
         conn.execute(
             """UPDATE chapter SET staged_size = %s, library_path = %s, comicinfo_series = %s, comicinfo_volume = %s,
                 comicinfo_number = %s, comicinfo_title = %s, comicinfo_date = %s, naming_kind = %s,
-                naming_volume_source = %s
+                naming_volume_source = %s, naming_unedited = %s
             WHERE id = %s""",
             (
                 size,
@@ -86,6 +89,7 @@ def run(ctx, chapter):
                 names.ci_date(fields),
                 named.kind,
                 named.volume_source,
+                None if unedited is None else json.dumps(unedited),
                 chapter["id"],
             ),
         )

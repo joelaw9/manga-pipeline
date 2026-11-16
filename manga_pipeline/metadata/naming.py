@@ -8,6 +8,7 @@ Season markers are read from free-form chapter titles by the bulk converter's pa
 chapter gets the volume the converter would give it (flat text heuristics, not a structured format).
 """
 
+import dataclasses
 from dataclasses import dataclass
 
 from manga_pipeline import names, volumes
@@ -22,6 +23,7 @@ FILENAME, SEASON_TAGS, OVERRIDE, SIDE_DEFAULT = (
 SEASON_MARKERS, MANGADEX = "season markers", "mangadex"
 # chapter volume sources beside the bases: none found, the side-story default, a side story's volume
 NONE, DEFAULT, SIDE_SOURCE = "none", "default", "side"
+EDIT = "edit"  # a hand edit's volume (SPEC "Retroactive updates", hand edits): wins over every source
 FILL_PRIMARIES = (FILENAME, MANGADEX)  # the bases whose gaps a later source fills (seasons are not tankobon volumes)
 SIDE_TITLE = "Side Story {n}"
 MANGADEX_SHARE = 0.5  # choose: half volumed, half loose reads worse than no volumes
@@ -58,14 +60,87 @@ class Naming:
     opens_covered_volume: bool
 
 
-def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset()):
+@dataclass(frozen=True)
+class Edit:
+    """A hand edit of 1 chapter (SPEC "Retroactive updates", hand edits): None = that field not edited. title: a main
+    chapter's title, or a side story's text after "Side Story <n>: "."""
+
+    title: str | None
+    volume: int | None
+
+
+def edit_key(kind, season, number):
+    """The key a chapter's hand edit is stored under: (kind, season, number); a side story by its own side number and
+    no season."""
+    return (kind, None if kind == names.SIDE else season, float(number))
+
+
+def edit_token(kind, season, number):
+    """A chapter as a person names it in an edit file: "10", "S2 10", "side 3" (parse_token reads it back)."""
+    n = names.fmt_num(number)
+    return f"side {n}" if kind == names.SIDE else f"S{season} {n}" if season is not None else n
+
+
+def parse_token(text):
+    """edit_key of an edit file's chapter: "10", "S2 10" (season 2), "side 3" (Side Story 3). ValueError otherwise."""
+    parts = str(text).split()
+    if len(parts) == 2 and parts[0].lower() == "side":
+        kind, season, number = names.SIDE, None, parts[1]
+    elif len(parts) == 2 and parts[0][:1] in "sS" and parts[0][1:].isdigit():
+        kind, season, number = names.MAIN, int(parts[0][1:]), parts[1]
+    elif len(parts) == 1:
+        kind, season, number = names.MAIN, None, parts[0]
+    else:
+        raise ValueError(f"chapter {text!r} is not a number, 'S<season> <number>' or 'side <number>'")
+    n = names.to_volume(number)  # a non-negative number, or None
+    if n is None:
+        raise ValueError(f"chapter {text!r}: {number!r} is not a chapter number")
+    return edit_key(kind, season, n)
+
+
+def edited_title(kind, number, title):
+    """The title a chapter's edited title gives it: a side story keeps its "Side Story <n>: " label."""
+    return f"{SIDE_TITLE.format(n=names.fmt_num(number))}: {title}" if kind == names.SIDE else title
+
+
+def unedited(named, plain):
+    """{published_file column-like field: value} of what a chapter's own hand edit changed in its naming (named) from
+    what the sources alone give it (plain): {"title": …} and/or {"volume": …, "volume_source": …} (volume as
+    ComicInfo text, an untitled one's title None); None when the edit changed nothing."""
+    out = {}
+    if named.title != plain.title:
+        out["title"] = plain.title or None
+    if named.volume_source == EDIT and named.volume != plain.volume:
+        out["volume"], out["volume_source"] = names.fmt_num(plain.volume), plain.volume_source
+    return out or None
+
+
+def apply_edit(row, edits):
+    """A settled row as its hand edit makes it: an edited field that differs from the row's (an edited volume with
+    source EDIT)."""
+    e = edits.get(edit_key(row.kind, row.season, row.number))
+    if e is None:
+        return row
+    if e.volume is not None and e.volume != row.volume:
+        row = dataclasses.replace(row, volume=e.volume, volume_source=EDIT)
+    if e.title is not None:
+        row = dataclasses.replace(row, title=edited_title(row.kind, row.number, e.title))
+    return row
+
+
+def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset(), edits=None):
     """{row key: Naming} for the open rows of 1 series. basis: the record's series.naming.basis (None: no volume);
     overrides: the override file's mapping, or None when the series has none; mangadex: mangadex_volumes' map;
     platform: the stored platform list (metadata/platforms.py), or None; fill: keys of open rows that are published
     files holding no volume, named only to fill it (SPEC "Retroactive updates": their caller takes a whole volume of a
     main chapter or nothing, so they raise no VolumeError).
+    edits: {edit_key: Edit} of the series, applied over every source: the settled rows as their edits make them, an
+    open row's edited volume before everything its volume decides (the volumes around it, covers, side-story
+    volumes), an edited title over its own.
     VolumeError for an `override` basis without an override file, and for an open chapter whose volume is not a
     whole number (ComicInfo Volume is an xs:int)."""
+    edits = edits or {}
+    rows = [apply_edit(r, edits) if r.settled else r for r in rows]
     if basis == OVERRIDE and overrides is None:
         raise VolumeError("the series' volume basis is its override file, and it has none")
     override = (overrides or {}).get("volumes") or {}
@@ -76,7 +151,22 @@ def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset()):
     past = _past_finale(basis, rows, main, platform)
     main, side = [i for i in main if i not in past], side + sorted(past, key=lambda i: (rows[i].number, rows[i].order))
     vol = {i: (rows[i].volume, rows[i].volume_source) for i in main if rows[i].settled}
-    vol.update(_open_main_volumes(basis, rows, main, override, mangadex, platform))
+    # An open chapter's edited volume is fixed first, as a settled one's: the volumes around it are named from it.
+    pinned = {
+        i: e.volume
+        for i in main
+        if not rows[i].settled
+        and (e := edits.get(edit_key(names.MAIN, rows[i].season, rows[i].number))) is not None
+        and e.volume is not None
+    }
+    fixed = [
+        dataclasses.replace(r, settled=True, volume=pinned[i], volume_source=EDIT) if i in pinned else r
+        for i, r in enumerate(rows)
+    ]
+    vol.update(_open_main_volumes(basis, fixed, main, override, mangadex, platform))
+    plain = _open_main_volumes(basis, rows, main, override, mangadex, platform) if pinned else {}
+    # an edit that gives the sources' own volume keeps their source (and whether it is covered)
+    vol.update({i: plain[i] if plain[i][0] == v else (v, EDIT) for i, v in pinned.items()})
     for i in main:
         v = vol[i][0]
         if not rows[i].settled and rows[i].key not in fill and v is not None and v != int(v):
@@ -89,8 +179,16 @@ def resolve(basis, rows, overrides, mangadex, platform=None, fill=frozenset()):
         if not rows[i].settled:
             v, source = vol[i]
             title = rows[i].title or names.clean_marker_title(titles.get(names.fmt_num(rows[i].number)) or "")
+            e = edits.get(edit_key(names.MAIN, rows[i].season, rows[i].number))
+            title = e.title if e is not None and e.title is not None else title
             out[rows[i].key] = Naming(names.MAIN, v, rows[i].number, title, source, i in covered)
-    out.update(_side_stories(rows, side, [vol[i][0] for i in main], platform, past))
+    for key, named in _side_stories(rows, side, [vol[i][0] for i in main], platform, past).items():
+        e = edits.get(edit_key(names.SIDE, None, named.number))
+        if e is not None and e.title is not None:
+            named = dataclasses.replace(named, title=edited_title(names.SIDE, named.number, e.title))
+        if e is not None and e.volume is not None and e.volume != named.volume:
+            named = dataclasses.replace(named, volume=e.volume, volume_source=EDIT)
+        out[key] = named
     return out
 
 
@@ -309,7 +407,7 @@ def season_volumes(rows, main):
     recorded = {}
     for i in main:
         r = rows[i]
-        if r.settled and r.volume is not None and r.volume_source == SEASON_MARKERS:
+        if r.settled and r.volume is not None and r.volume_source in (SEASON_MARKERS, EDIT):  # an edit ends one too
             recorded[r.volume] = max(recorded.get(r.volume, r.number), r.number)
     top = max(recorded, default=None)
     ends = set(season_ends(rows, main, {v: end for v, end in recorded.items() if v != top}).values())
@@ -344,14 +442,14 @@ def covered_volumes(basis, rows, override, mangadex):
 
 def _covered_firsts(basis, rows, main, vol, override, mangadex):
     """{volume: index of its first (lowest-numbered) main row} of the covered volumes: a volume whose first chapter's
-    volume came from MangaDex or the override, or is a filename volume confirmed by them."""
+    volume came from MangaDex, the override or a hand edit, or is a filename volume confirmed by them."""
     confirmed = _cover_confirmed(basis, rows, main, vol, override, mangadex)
     first = {}
     for i in main:  # in number order
         v = vol[i][0]
         if v is not None and v not in first:
             first[v] = i
-    return {v: i for v, i in first.items() if vol[i][1] in (MANGADEX, OVERRIDE) or i in confirmed}
+    return {v: i for v, i in first.items() if vol[i][1] in (MANGADEX, OVERRIDE, EDIT) or i in confirmed}
 
 
 def _cover_confirmed(basis, rows, main, vol, override, mangadex):
