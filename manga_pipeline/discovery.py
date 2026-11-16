@@ -56,7 +56,7 @@ def scan(ctx):
                 unmatched_here, found_here = _folder_downloads(ctx, f"{key[0]}/{key[1]}", paths, kavita_series)
             unmatched += unmatched_here
             found += found_here
-    record_found(ctx, found, unmatched)
+    _record(ctx, found, unmatched)
 
 
 def _settled(path, settled_by):
@@ -155,7 +155,7 @@ def _found(ctx, series, path, chapter, source):
     return series["id"], identity, config.to_stored(ctx.cfg, path), chapter_id, source, url
 
 
-def record_found(ctx, found, unmatched):
+def _record(ctx, found, unmatched):
     """Add the chapters not yet open at their path, and replace unmatched_download (first seen kept)."""
     stamp = workflow.now(ctx.conn)
     with db.transaction(ctx.conn):
