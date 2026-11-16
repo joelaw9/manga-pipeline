@@ -39,7 +39,7 @@ def _type_ok(value, xsd_type, enums):
         return value in ("true", "false", "1", "0")
     if xsd_type == "Rating":
         try:
-            return Decimal("0") <= Decimal(value) <= Decimal("5")
+            return Decimal(0) <= Decimal(value) <= Decimal(5)
         except InvalidOperation:
             return False
     if xsd_type == "ComicPageType":

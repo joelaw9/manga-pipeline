@@ -301,7 +301,7 @@ def test_from_config_reads_the_url():
         ("x" * 239 + ". tail", "x" * 239 + "."),
         ("x" * 239 + "\U0001f600" + "y", "x" * 239),
         ("é" * 121, "é" * 120),
-        ("​", "​"),
+        ("\u200b", "\u200b"),
     ],
     ids=[
         "suwayomi-test-1",
@@ -334,7 +334,7 @@ def test_folders_and_chapter_file():
     )
     assert suwayomi.chapter_file(None, "Chapter 5: End") == "Chapter 5_ End.cbz"
     assert suwayomi.chapter_file("", "Ch.1") == "_Ch.1.cbz", "an empty scanlator still counts as one"
-    assert suwayomi.chapter_file("​", "Ch.1") == "​_Ch.1.cbz"
+    assert suwayomi.chapter_file("\u200b", "Ch.1") == "\u200b_Ch.1.cbz"
     assert suwayomi.chapter_file(None, "...") == "(invalid).cbz"
     assert suwayomi.chapter_file(None, "a" * 300) == "a" * 240 + ".cbz", "the extension follows the cut"
 

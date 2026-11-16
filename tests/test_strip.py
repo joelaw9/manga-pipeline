@@ -399,7 +399,7 @@ def test_gaps_located_exactly_despite_varying_slice_heights(tmp_path):
     g = [s for s in gaps if 39000 < s[0] < 41000]
     assert len(g) == 1, f"one gap near the gutter: {gaps[-3:]}"
     s, e = g[0]
-    assert 39975 <= s and e <= 40025 and 39980 <= (s + e) // 2 < 40020, f"the gap is where the gutter is: {g}"
+    assert s >= 39975 and e <= 40025 and 39980 <= (s + e) // 2 < 40020, f"the gap is where the gutter is: {g}"
 
 
 @budget(2.0, load="fs")
@@ -745,8 +745,8 @@ def pairs_with_blank_last(seam_pairs, extra=((1500, 100),)):
     margin: (sizes, edges)."""
     heights = [(1500, 100)] * seam_pairs + list(extra)
     sizes = [(1125, h) for pair in heights for h in pair]
-    edges = {k: (TEX, TEX) for k in range(2 * seam_pairs)}
-    edges.update({k: (BLANK, BLANK) for k in range(2 * seam_pairs, len(sizes))})
+    edges = dict.fromkeys(range(2 * seam_pairs), (TEX, TEX))
+    edges.update(dict.fromkeys(range(2 * seam_pairs, len(sizes)), (BLANK, BLANK)))
     return sizes, edges
 
 
@@ -1030,7 +1030,7 @@ def test_glued_lines_are_one_span():
     st, crop = fixture_strip("s5_2_i_stole_c0006")
     got = spans_in(st, crop)
     assert (132462, 132663) in got, f"glued lines are one span: {got}"
-    assert [(132346, 132365), (132374, 132393), (132403, 132420)] == [s for s in got if 132340 <= s[0] < 132430], (
+    assert [s for s in got if 132340 <= s[0] < 132430] == [(132346, 132365), (132374, 132393), (132403, 132420)], (
         "lines 9 px apart are separate spans"
     )
 
@@ -1041,7 +1041,7 @@ def test_notice_lines_with_blank_runs_between_are_separate_spans():
     and ends on a non-blank row (no blank rows at its ends) and every walkable run between spans is >= SPAN_BREAK_PX."""
     st, crop = fixture_strip("s5_2_real_head_c0003")
     got = spans_in(st, crop)
-    assert [(111612, 111630), (111639, 111657), (111666, 111684)] == [s for s in got if 111600 <= s[0] < 111700], (
+    assert [s for s in got if 111600 <= s[0] < 111700] == [(111612, 111630), (111639, 111657), (111666, 111684)], (
         "each notice line is a span"
     )
     breaks = [(a[1], b[0]) for a, b in zip(got, got[1:], strict=False)]

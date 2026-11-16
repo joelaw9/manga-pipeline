@@ -88,7 +88,7 @@ def check_volumes(volumes):
     for vol, rng in volumes.items():
         if (
             isinstance(vol, bool)
-            or not (isinstance(vol, int) or isinstance(vol, str) and vol.isascii() and vol.isdigit())
+            or not (isinstance(vol, int) or (isinstance(vol, str) and vol.isascii() and vol.isdigit()))
             or int(vol) < 0
         ):
             raise ValueError(f"volumes key {vol!r} is not a volume number (a whole number)")

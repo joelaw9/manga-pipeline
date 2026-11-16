@@ -287,7 +287,7 @@ def _basis_volumes(basis, rows, main, free, override, mangadex, platform):
     elif basis == OVERRIDE:
         vols = _override_volumes(override, rows, free)
     elif basis == SIDE_DEFAULT:
-        vols = {i: 1 for i in free}
+        vols = dict.fromkeys(free, 1)
     elif basis in platforms.BASES and platform and platform["name"] == platforms.BASES[basis]:
         vols = platforms.volumes(platform, {i: rows[i].number for i in free})[0]
     else:

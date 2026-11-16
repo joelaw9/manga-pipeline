@@ -20,48 +20,50 @@ MAIN, SPECIAL, NON_CHAPTER = "main", "special", "non-chapter"
 
 # "Ep. 1 - Memento Mortem", "Episode 30 (Season Finale)", "Chapter 4: X", "1. The Grand Sorcerer"
 LABEL = re.compile(
-    r"^\s*(?:(?:Episode|Ep|Chapter|Ch)\.?\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\.(?=\s))\s*(?:[-–—:.|]\s*)?", re.I
+    r"^\s*(?:(?:Episode|Ep|Chapter|Ch)\.?\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\.(?=\s))\s*(?:[-–—:.|]\s*)?", re.IGNORECASE
 )
 # "SE 1. He's Just a Puppy", "SP 2 - X", "Special Episode 3: X", "Side Story 1 - X", "Extra: The First Day"
 SPECIAL_LABEL = re.compile(
     r"^\s*(?:(?:SE|SP)(?=\s*\d)|(?:Special(?:\s+Episode)?|Side\s+Story|Extra|Bonus(?:\s+Episode)?)\b)\s*\.?\s*"
     r"(\d+(?:\.\d+)?)?\s*(?:[-–—:.|]\s*)?",
-    re.I,
+    re.IGNORECASE,
 )
-SPECIAL_WORDS = re.compile(r"^\s*(?:SE|SP)\s*\d|^\s*(?:special|side\s+story|extra|bonus|epilogue|omake)\b", re.I)
+SPECIAL_WORDS = re.compile(
+    r"^\s*(?:SE|SP)\s*\d|^\s*(?:special|side\s+story|extra|bonus|epilogue|omake)\b", re.IGNORECASE
+)
 NON_CHAPTER_WORDS = re.compile(
     r"\b(?:announcements?|notice|hiatus|author'?s\s+notes?|creator'?s?\s+(?:notes?|interview)|interview|contests?|"
     r"giveaway|Q\s*&\s*A|poll|recap|teaser|preview|trailer|coming\s+soon|now\s+available|available\s+now|"
     r"schedule|life\s+update|merch|BTS|wallpapers?|character\s+profiles?|fan\s*art|happy\s+birthday)\b",
-    re.I,
+    re.IGNORECASE,
 )
 
 WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
 _NUM = r"(\d+|" + "|".join(WORDS) + r")"
 END_MARKERS = [  # first group: the season number (digits or a word), absent for a bare "(Season Finale)"
-    re.compile(r"(?<!Mid-)(?<!Mid )\bSeason\s*" + _NUM + r"?\s*(?:-\s*)?(?:Finale|END)\b", re.I),
-    re.compile(r"\bEnd\s+of\s+Season\s*" + _NUM + r"?\b", re.I),
-    re.compile(r"\bS(\d+)\s*-?\s*(?:END|Finale)\b", re.I),
+    re.compile(r"(?<!Mid-)(?<!Mid )\bSeason\s*" + _NUM + r"?\s*(?:-\s*)?(?:Finale|END)\b", re.IGNORECASE),
+    re.compile(r"\bEnd\s+of\s+Season\s*" + _NUM + r"?\b", re.IGNORECASE),
+    re.compile(r"\bS(\d+)\s*-?\s*(?:END|Finale)\b", re.IGNORECASE),
 ]
 START_MARKERS = [  # "Season 3 is Coming Soon!" / "Season 2 Teaser" posts sit between seasons: they start the next one
-    re.compile(r"\bSeason\s*" + _NUM + r"?\s*-?\s*(?:Premiere|Begins|START)\b", re.I),
-    re.compile(r"\bS(\d+)\s*-?\s*START\b", re.I),
-    re.compile(r"\[Season\s*(\d+)\]", re.I),
-    re.compile(r"\bSeason\s*" + _NUM + r"\s*(?:Teaser|Preview|Trailer|(?:is\s+)?Coming)\b", re.I),
+    re.compile(r"\bSeason\s*" + _NUM + r"?\s*-?\s*(?:Premiere|Begins|START)\b", re.IGNORECASE),
+    re.compile(r"\bS(\d+)\s*-?\s*START\b", re.IGNORECASE),
+    re.compile(r"\[Season\s*(\d+)\]", re.IGNORECASE),
+    re.compile(r"\bSeason\s*" + _NUM + r"\s*(?:Teaser|Preview|Trailer|(?:is\s+)?Coming)\b", re.IGNORECASE),
 ]
-MAIN_END = re.compile(r"\bMain\s+Story\s+Finale\b|\bEnd\s+of\s+(?:the\s+)?Main\s+Story\b", re.I)
+MAIN_END = re.compile(r"\bMain\s+Story\s+Finale\b|\bEnd\s+of\s+(?:the\s+)?Main\s+Story\b", re.IGNORECASE)
 # bracketed markers removed from titles once read: "(Season Finale)", "(Season 2 Premiere)", "[S1 END]",
 # "(End of Season 1)", "(Main Story Finale)", "(Series Finale)", "(Season 1 Prequel Finale)", "(End)"
 BRACKETED_MARKER = re.compile(
     r"\s*[(\[{]\s*(?:[^()\[\]{}]*\b(?:Finale|Premiere)|(?:Mid-?\s*)?Season\s*\w*\s*(?:END|Begins|START)|"
     r"End\s+of\s+(?:the\s+)?(?:Season\s*\w*|Main\s+Story)|S\d+\s*-?\s*(?:END|START)|"
     r"Season\s*\d+|END)\s*[)\]}]",
-    re.I,
+    re.IGNORECASE,
 )
 BARE_MARKER = re.compile(
     r"^\s*(?:(?:Mid-?\s*)?Season\s*\w*\s*(?:Finale|END|Premiere|Begins|START)|End\s+of\s+Season\s*\w*|"
     r"S\d+\s*-?\s*(?:END|Finale|START))\s*[!.]*\s*$",
-    re.I,
+    re.IGNORECASE,
 )
 
 

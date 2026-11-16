@@ -29,7 +29,7 @@ TOP_UP_WEIGHTS = ("core", "defining", "recurrent", "unweighted")
 PAST_MIN_WEIGHTS = ("core", "defining", "recurrent")  # only these are added past the minimum
 RULE_WEIGHTS = ("core", "defining", "recurrent", "incidental")
 SMALL_WORDS = {"a", "an", "and", "as", "at", "for", "in", "of", "on", "or", "the", "to"}
-PLURAL_MARKER = re.compile(r"/(?:ies|ves|e?s)\b", re.I)  # MangaUpdates' "Concubine/s", "Elf/ves"
+PLURAL_MARKER = re.compile(r"/(?:ies|ves|e?s)\b", re.IGNORECASE)  # MangaUpdates' "Concubine/s", "Elf/ves"
 
 
 @dataclass(frozen=True)

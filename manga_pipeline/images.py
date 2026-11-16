@@ -91,7 +91,7 @@ def dimensions(head):
         return None
     try:
         return Image.open(io.BytesIO(head)).size
-    except Exception:  # noqa: BLE001 - Pillow's format plugins raise many types on a partial header: size unknown
+    except Exception:  # Pillow's format plugins raise many types on a partial header: size unknown
         return None
 
 
@@ -122,7 +122,7 @@ def is_srgb(icc):
         return True
     try:
         return "srgb" in ImageCms.getProfileDescription(ImageCms.ImageCmsProfile(io.BytesIO(icc))).lower()
-    except Exception:  # noqa: BLE001 - a profile littlecms cannot parse (any error type) falls back to the byte test
+    except Exception:  # a profile littlecms cannot parse (any error type) falls back to the byte test
         return b"sRGB" in icc
 
 
@@ -486,7 +486,7 @@ def measure_pages(cbz, known=None):
                 page["chroma"] = chroma(data, page["format"])
             if any(f not in page for f in DECODED_FIELDS):
                 page.update({f: v for f, v in _measure_decoded(data).items() if f not in page})
-        except Exception as e:  # noqa: BLE001 - Pillow raises many types on a page it cannot read
+        except Exception as e:  # Pillow raises many types on a page it cannot read
             raise ValueError(f"{cbz}: page {index} ({name}) cannot be measured: {e}") from e
         out.append({f: page[f] for f in PAGE_FIELDS})
     return out

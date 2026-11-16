@@ -7,12 +7,13 @@ Copy this file into the project's test package (for example tests/timing.py). Py
 
 Over-budget tests are reported, never failed. pytest wiring: see the skill's references/timing.md.
 """
+
 import argparse
 import json
 import math
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 if sys.version_info < (3, 12):
     raise RuntimeError("timing.py needs Python 3.12+ (unittest.TestResult.addDuration)")
@@ -21,7 +22,7 @@ if sys.version_info < (3, 12):
 LOADS = {"pure": 0.1, "fs": 0.5, "db": 1.0, "network": 2.0, "subprocess": 5.0, "pool": 5.0, "sleep": None}
 ATTR = "_test_budget"
 SLOWEST = 10
-NO_TESTS_EXIT = 5    # unittest's exit code when nothing ran
+NO_TESTS_EXIT = 5  # unittest's exit code when nothing ran
 
 
 def budget(seconds=None, load="pure"):
@@ -32,13 +33,13 @@ def budget(seconds=None, load="pure"):
         seconds = LOADS[load]
         if seconds is None:
             raise ValueError(f"load {load!r} needs explicit seconds")
-    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) \
-            or seconds <= 0:
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds <= 0:
         raise ValueError(f"budget seconds must be a positive number, got {seconds!r}")
 
     def mark(obj):
         setattr(obj, ATTR, {"seconds": float(seconds), "load": load})
         return obj
+
     return mark
 
 
@@ -48,8 +49,13 @@ def budget_for(func, cls=None):
 
 
 def row(test_id, seconds, tag):
-    return {"id": test_id, "seconds": round(seconds, 4), "load": tag["load"] if tag else None,
-            "budget": tag["seconds"] if tag else None, "over": bool(tag) and seconds > tag["seconds"]}
+    return {
+        "id": test_id,
+        "seconds": round(seconds, 4),
+        "load": tag["load"] if tag else None,
+        "budget": tag["seconds"] if tag else None,
+        "over": bool(tag) and seconds > tag["seconds"],
+    }
 
 
 def report(rows, out, path, check_budgets=True):
@@ -72,8 +78,15 @@ def report(rows, out, path, check_budgets=True):
     if len(untagged) > SLOWEST:
         out.write(f"  ... {len(untagged) - SLOWEST} more in {path}\n")
     with open(path, "w", encoding="utf-8") as f:
-        json.dump({"run_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "total_seconds": round(total, 3),
-                   "tests": rows}, f, indent=1)
+        json.dump(
+            {
+                "run_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "total_seconds": round(total, 3),
+                "tests": rows,
+            },
+            f,
+            indent=1,
+        )
     out.write(f"Timings written to {path}\n")
 
 
@@ -97,6 +110,7 @@ class TimedResult(unittest.TextTestResult):
 
 class TimedRunner(unittest.TextTestRunner):
     """Passed to unittest.main as a class, so -v / -f / -b / --durations / warnings reach it like the default runner."""
+
     resultclass = TimedResult
 
 

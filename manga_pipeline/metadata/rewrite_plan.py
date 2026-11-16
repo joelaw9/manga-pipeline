@@ -71,8 +71,7 @@ def held(rows, edits, unedited):
         for r in rows
         if _published(r)
         and (
-            (e := edits.get(naming.edit_key(r.kind, r.season, r.number))) is not None
-            and e.volume is not None
+            ((e := edits.get(naming.edit_key(r.kind, r.season, r.number))) is not None and e.volume is not None)
             or "volume" in (unedited.get(r.key[1]) or {})
         )
     }
@@ -133,7 +132,7 @@ def cover_changes(basis, rows, overrides, mangadex, moved, states, taken, images
                 out[fid] = ("insert", v)
         elif fid in stale and stale[fid] == volume[fid] and stale[fid] in images:
             out[fid] = ("insert", stale[fid])  # its volume's new image replaces the old one
-        elif fid in held and held[fid] != volume[fid] or fid in stale:
+        elif (fid in held and held[fid] != volume[fid]) or fid in stale:
             out[fid] = ("drop", None)  # another volume's cover (an old image included)
     return out
 

@@ -41,16 +41,18 @@ _NUM = r"\d+(?:\.\d+)?(?:-\d+(?![\d.]))?"
 NAME_RE = re.compile(
     rf"^(?:vol(?:ume)?\.?\s*(?P<vol>\d+(?:\.\d+)?)\s*[,.]?\s*)?(?P<label>{_LABEL})(?![a-z])\.?\s*#?\s*(?P<num>{_NUM})?"
     rf"(?P<rest>.*)$",
-    re.I,
+    re.IGNORECASE,
 )
-VOLUME_ONLY = re.compile(r"^vol(?:ume)?\.?\s*(?P<vol>\d+(?:\.\d+)?)(?P<rest>(?:\s*[-_:].*)?)$", re.I)  # "Volume 1"
+VOLUME_ONLY = re.compile(
+    r"^vol(?:ume)?\.?\s*(?P<vol>\d+(?:\.\d+)?)(?P<rest>(?:\s*[-_:].*)?)$", re.IGNORECASE
+)  # "Volume 1"
 CI_NUMBER = re.compile(r"\d+(?:\.\d+)?")  # ComicInfo Number
 NUM_DOT = re.compile(r"^(?P<num>\d+(?:\.\d+)?)\.\s+(?P<rest>\S.*)$")  # "64. Title"
 # leading season tags: "S1 - Chapter 1", "S1 Episode 29", "(S2) Episode 100", "[Season 2] Chapter 2"
 SEASON_TAG = re.compile(
     r"^\s*(?:\[\s*season\s*(\d+)\s*\]|\(\s*s(?:eason)?\s*(\d+)\s*\)|s(\d+)(?:\s*-)?(?=\s)|"
     r"season\s*(\d+)\s*[-:]?(?=\s))\s*",
-    re.I,
+    re.IGNORECASE,
 )
 LEAD_TAG = re.compile(r"^\s*[\[({〖【][^\])}〗】]*[\])}〗】]\s*")
 TITLE_SEP = re.compile(r"^\s*(?:[-_:]+\s*)+|\s*[-_:]+\s*$")
@@ -61,13 +63,13 @@ SIDE_MARKER = re.compile(
     r"^\s*[\[({〖【]\s*(?P<side>"
     + "|".join(re.escape(label) for label in SIDE_LABELS)
     + r")(?:\s*\d+(?:\.\d+)?)?\s*[\])}〗】]",
-    re.I,
+    re.IGNORECASE,
 )
 # rated editions: "[R15]" (censored), "[R19]", "[R19 version]", "[🔞]" (uncensored)
-RATING = re.compile(r"[\[(]\s*(?:R-?(?P<age>\d{2})\+?(?:\s*version)?|(?P<adult>🔞))\s*[\])]", re.I)
-END_MARKER = re.compile(r"[\[({〖【][^\])}〗】]*\b(?:end|finale)\b[^\])}〗】]*[\])}〗】]", re.I)
+RATING = re.compile(r"[\[(]\s*(?:R-?(?P<age>\d{2})\+?(?:\s*version)?|(?P<adult>🔞))\s*[\])]", re.IGNORECASE)
+END_MARKER = re.compile(r"[\[({〖【][^\])}〗】]*\b(?:end|finale)\b[^\])}〗】]*[\])}〗】]", re.IGNORECASE)
 # a bare chapter label ("Chapter 18", "Ep. 3"): as a whole title it only repeats the number (naming, episodes)
-BARE_LABEL = re.compile(r"(?:chapter|ch\.?|episode|ep\.?)\s*\d+(?:\.\d+)?", re.I)
+BARE_LABEL = re.compile(r"(?:chapter|ch\.?|episode|ep\.?)\s*\d+(?:\.\d+)?", re.IGNORECASE)
 MONTHS = {
     m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)
 }
@@ -189,7 +191,7 @@ def split_group(stem):
     for k, ch in enumerate(stem):
         if ch == "_" and _numbered(stem[k + 1 :]):
             return stem[:k], stem[k + 1 :]
-    m = re.match(rf"^(?P<group>.+?)_(?=(?:vol(?:ume)?\.?\s*\d|(?:{_LABEL})(?![a-z])))", stem, re.I)
+    m = re.match(rf"^(?P<group>.+?)_(?=(?:vol(?:ume)?\.?\s*\d|(?:{_LABEL})(?![a-z])))", stem, re.IGNORECASE)
     if m and not _match(stem):
         return m.group("group"), stem[m.end() :]
     m = re.match(r"^(?P<group>[^_]+)_(?P<rest>.+)$", stem)
@@ -387,7 +389,7 @@ def clean_marker_title(title):
     decorative brackets (〖Main Story Finale〗 -> Main Story Finale) and tidy separators (" _ " was ":" before
     Suwayomi)."""
     for m in TITLE_MARKERS:
-        title = re.sub(m, " ", title, flags=re.I)
+        title = re.sub(m, " ", title, flags=re.IGNORECASE)
     title = re.sub(r"[〖【]\s*([^〗】]*?)\s*[〗】]", r"\1", title)
     title = re.sub(r"\s+_\s+|\s+:\s*", ": ", title)
     title = re.sub(r"\s+", " ", title)

@@ -122,22 +122,19 @@ def test_reopen_keeps_data_and_id(tmp_path):
 @budget(load="db")
 def test_transaction_rolls_back_when_the_block_raises(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
-        with pytest.raises(RuntimeError, match="stage failed"):
-            with db.transaction(conn):
-                conn.execute("INSERT INTO meta (key, value) VALUES ('probe', 'x')")
-                raise RuntimeError("stage failed")
+        with pytest.raises(RuntimeError, match="stage failed"), db.transaction(conn):
+            conn.execute("INSERT INTO meta (key, value) VALUES ('probe', 'x')")
+            raise RuntimeError("stage failed")
         assert conn.execute("SELECT 1 FROM meta WHERE key = 'probe'").fetchone() is None
         assert not db.in_transaction(conn)
 
 
 @budget(load="db")
 def test_a_transaction_inside_a_transaction_is_refused(tmp_path):
-    with closing(db.connect(db_cfg(tmp_path))) as conn:
-        with db.transaction(conn):
-            assert db.in_transaction(conn)
-            with pytest.raises(RuntimeError, match="already open"):
-                with db.transaction(conn):
-                    pass
+    with closing(db.connect(db_cfg(tmp_path))) as conn, db.transaction(conn):
+        assert db.in_transaction(conn)
+        with pytest.raises(RuntimeError, match="already open"), db.transaction(conn):
+            pass
 
 
 @budget(1.5, load="db")
@@ -146,11 +143,10 @@ def test_2_write_transactions_never_overlap(tmp_path):
     spans = []
 
     def writer():
-        with closing(db.connect(cfg)) as conn:
-            with db.transaction(conn):
-                start = time.perf_counter()
-                time.sleep(0.2)
-                spans.append((start, time.perf_counter()))
+        with closing(db.connect(cfg)) as conn, db.transaction(conn):
+            start = time.perf_counter()
+            time.sleep(0.2)
+            spans.append((start, time.perf_counter()))
 
     threads = [threading.Thread(target=writer) for _ in range(2)]
     for t in threads:
@@ -169,7 +165,7 @@ def test_2_runs_opening_a_new_database_at_once_apply_each_step_once(tmp_path):
     def opener():
         try:
             db.connect(cfg).close()
-        except Exception as e:  # noqa: BLE001 - reported by the assert below
+        except Exception as e:  # reported by the assert below
             errors.append(e)
 
     threads = [threading.Thread(target=opener) for _ in range(2)]
@@ -618,11 +614,10 @@ def test_a_bad_database_setting_exits_2_and_a_refused_login_exits_4(tmp_path, ca
 def test_a_wait_on_the_write_lock_longer_than_lock_timeout_raises(tmp_path, monkeypatch):
     cfg = db_cfg(tmp_path)
     monkeypatch.setattr(db, "LOCK_TIMEOUT", "200ms")  # the shipped 30 s, shortened for the test
-    with closing(db.connect(cfg)) as holder, closing(db.connect(cfg)) as waiter:
-        with db.transaction(holder):
-            with pytest.raises(psycopg.errors.LockNotAvailable):
-                with db.transaction(waiter):
-                    pass
+    with closing(db.connect(cfg)) as holder, closing(db.connect(cfg)) as waiter, db.transaction(holder):
+        with pytest.raises(psycopg.errors.LockNotAvailable):
+            with db.transaction(waiter):
+                pass
 
 
 @budget(load="db")

@@ -144,7 +144,7 @@ def test_an_edit_out_of_volume_order_is_refused(world):
     library(world)
     with pytest.raises(workflow.Refused) as refused:
         edit(world, {"1": {"volume": 2}})  # chapter 2 stays in volume 1
-    assert "chapter '2': volume 1 is out of order with chapter 1 in volume 2" == str(refused.value), "1 line per clash"
+    assert str(refused.value) == "chapter '2': volume 1 is out of order with chapter 1 in volume 2", "1 line per clash"
     edit(world, {"1": {"volume": 2}, "2": {"volume": 2}})  # together they keep the order
 
 

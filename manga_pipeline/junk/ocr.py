@@ -55,7 +55,7 @@ def provider_problem(device):
             str(model), providers=list(dict.fromkeys([PROVIDERS[device], "CPUExecutionProvider"]))
         )
         first = session.get_providers()[0]
-    except Exception as e:  # noqa: BLE001 - a missing or broken onnxruntime raises many types; reported as text
+    except Exception as e:  # a missing or broken onnxruntime raises many types; reported as text
         return f"OCR on {device} cannot start: {type(e).__name__}: {e}"
     if first != PROVIDERS[device]:
         return f"OCR on {device}: onnxruntime ran the session on {first}, not {PROVIDERS[device]}"

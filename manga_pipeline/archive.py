@@ -27,7 +27,7 @@ FIXED_TIME = (1980, 1, 1, 0, 0, 0)  # every member's date: the same members give
 UNREADABLE = (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError, ValueError, struct.error)
 # Kavita's Parser.CoverImageRegex: a page named like this is the archive's cover
 COVER_NAME = re.compile(
-    r"(?<!back[\s_-])(?<!\(back )(?<!back)(?:^|[^a-zA-Z0-9])(!?cover|folder)(?![a-zA-Z0-9]|s\b)", re.I
+    r"(?<!back[\s_-])(?<!\(back )(?<!back)(?:^|[^a-zA-Z0-9])(!?cover|folder)(?![a-zA-Z0-9]|s\b)", re.IGNORECASE
 )
 
 

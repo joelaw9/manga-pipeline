@@ -110,7 +110,7 @@ def find_band(im, aspect, where, cfg=BAND):
         while e < n and uniform[e]:
             e += 1
         ys, ye = y * step, e * step
-        if ye >= lo and ys <= hi and 0 < ys and ye < h:  # a page's own top/bottom margin is no seam
+        if ye >= lo and ys <= hi and ys > 0 and ye < h:  # a page's own top/bottom margin is no seam
             c = min(max(naive, ys), ye)
             if cut is None or abs(c - naive) < abs(cut - naive):
                 cut, how, run = c, "gap", (round(ys), round(ye))
