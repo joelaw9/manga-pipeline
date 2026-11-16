@@ -104,7 +104,7 @@ def check_gpu(lib, gpu=GPU):
         raise VshipError(msg)
 
 
-class Handle:
+class _Handle:
     """1 thread's Vship handle for 1 image size."""
 
     def __init__(self, lib, w, h):
@@ -141,8 +141,9 @@ class Scorer:
     handles. A thread's handle lives as long as the thread, so the threads live as long as the Scorer: a thread that
     ended would leave its handle's GPU memory allocated."""
 
-    def __init__(self, path):
-        self.lib = load(path)
+    def __init__(self, path, *, loader=load):
+        """loader(path): the library (load; a test passes a stub)."""
+        self.lib = loader(path)
         check_gpu(self.lib)
         self._local = threading.local()
         self.threads = ThreadPoolExecutor(SCORE_THREADS, thread_name_prefix="vship")
@@ -153,7 +154,7 @@ class Scorer:
             if hd is not None:
                 self._local.handle = None
                 hd.free()
-            self._local.handle = Handle(self.lib, w, h)
+            self._local.handle = _Handle(self.lib, w, h)
         return self._local.handle
 
     def score(self, ref, dist):

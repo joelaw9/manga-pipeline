@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import images
+from manga_pipeline import archive, images
 
 from tests import pages as fx
 from tests.timing import budget
@@ -287,17 +287,21 @@ def test_a_colour_page_is_classed_colour(tmp_path):
 
 
 @budget(load="fs")
-def test_known_fields_are_kept_and_a_fully_known_page_is_not_decoded(tmp_path, monkeypatch):
+def test_known_fields_are_kept_and_a_fully_known_page_is_not_decoded(tmp_path):
     """A page whose fields are all known is not decoded; a page missing one decoded field is decoded and gets only
     the missing ones."""
     cbz = chapter(tmp_path / "c.cbz")
     first = images.measure_pages(cbz)
-    decoded = []
-    real = images.measure_decoded
-    monkeypatch.setattr(images, "measure_decoded", lambda data: decoded.append(data) or real(data))
+    decoded, by_sha1 = [], {p["sha1"]: p for p in first}
+
+    def decode(data):  # the stand-in decode: counts the decodes, gives the page's measured fields
+        decoded.append(data)
+        page = by_sha1[archive.sha1(data)]
+        return {f: page[f] for f in images.DECODED_FIELDS}
+
     partial = {k: v for k, v in first[2].items() if k != "phash"}
     known = {0: first[0], 1: dict(first[1], colour_class="kept as known"), 2: partial}
-    got = images.measure_pages(cbz, known)
+    got = images.measure_pages(cbz, known, decode=decode)
     assert len(decoded) == 1, "only the page missing a decoded field is decoded"
     assert got[1]["colour_class"] == "kept as known", "a known field is never re-measured"
     assert got[2] == first[2], "the missing field is filled"

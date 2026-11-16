@@ -49,7 +49,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004", "S311"]                  # pytest asserts; literal expectations and test data; seeded data
-"tests/test_*.py" = ["D103", "PLR0913"]                   # a test's name is its statement; pytest injects fixtures by name
+"tests/test_*.py" = ["D103"]                              # a test's name is its statement
 "tests/fakes/**" = ["D1"]                                 # a fake imitates a documented real class
 "manga_pipeline/{cli,smoke,status}.py" = ["T201"]         # printing is these modules' job: a command's own output
 "manga_pipeline/metadata/audit.py" = ["T201"]

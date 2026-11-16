@@ -462,7 +462,7 @@ PAGE_FIELDS = (
 DECODED_FIELDS = ("width", "height", "blank", "phash", "junk_signature", "colour_class")  # need the page decoded
 
 
-def measure_decoded(data):
+def _measure_decoded(data):
     """The DECODED_FIELDS of a page from one decode: width, height, blank and phash from the stored pixels' 64x64 luma
     thumbnail (as the bulk converter's integrity check; phash None for a blank page), junk_signature and colour_class
     from the page composited onto white (open_flat, as the bulk converter's page scan; junk_signature None for a
@@ -482,11 +482,11 @@ def measure_decoded(data):
     }
 
 
-def measure_pages(cbz, known=None):
+def measure_pages(cbz, known=None, *, decode=_measure_decoded):
     """The one page measurement: [{PAGE_FIELDS}] of a CBZ's pages in archive.archive_pages order. known: {index: dict
     of fields measured before}; a page keeps its known fields and gets only the missing ones, and is decoded only when
-    a DECODED_FIELDS field is missing. A known sha1 that is not the page's raises ValueError (stale measurements).
-    Pure: writes nothing."""
+    a DECODED_FIELDS field is missing (decode(page bytes): its DECODED_FIELDS; a test passes a stand-in). A known sha1
+    that is not the page's raises ValueError (stale measurements). Pure: writes nothing."""
     known = known or {}
     out = []
     for index, (name, data) in enumerate(archive.pages(cbz)):
@@ -501,7 +501,7 @@ def measure_pages(cbz, known=None):
             if "chroma" not in page:
                 page["chroma"] = chroma(data, page["format"])
             if any(f not in page for f in DECODED_FIELDS):
-                page.update({f: v for f, v in measure_decoded(data).items() if f not in page})
+                page.update({f: v for f, v in decode(data).items() if f not in page})
         except Exception as e:  # Pillow raises many types on a page it cannot read
             msg = f"{cbz}: page {index} ({name}) cannot be measured: {e}"
             raise ValueError(msg) from e

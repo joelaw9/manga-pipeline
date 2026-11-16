@@ -300,7 +300,7 @@ def render(chapter_plan, x_dir, out_dir):
     return strip.render(chapter_plan.render, x_dir, out_dir, st)
 
 
-class ChapterRun:
+class _Chapter:
     """1 chapter plan executed into out_dir (the attempts of process_chapter)."""
 
     def __init__(self, x_dir, rendered, blanked, out_dir, tmp, *, pool, scorer, chapter_plan, tool_paths):
@@ -437,7 +437,7 @@ def process_chapter(x_dir, rendered, blanked, cover, out_dir, *, work_dir, pool,
     out_dir.mkdir(parents=True, exist_ok=True)
     tmp.mkdir(parents=True, exist_ok=True)
     ch = chapter_plan
-    run = ChapterRun(
+    run = _Chapter(
         x_dir,
         [Path(p) for p in rendered],
         blanked,

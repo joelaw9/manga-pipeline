@@ -7,7 +7,7 @@ import psycopg
 import pytest
 from PIL import Image
 
-from manga_pipeline import db, images, page_store, workflow
+from manga_pipeline import archive, db, images, page_store, workflow
 
 from tests import pages
 from tests.builders import add_chapter, add_series, one, site_cfg
@@ -34,7 +34,7 @@ def new_chapter(conn):
 
 
 @budget(load="db", seconds=2.0)
-def test_saved_pages_load_back_and_are_not_decoded_again(conn, tmp_path, monkeypatch):
+def test_saved_pages_load_back_and_are_not_decoded_again(conn, tmp_path):
     cbz = chapter_cbz(tmp_path / "c.cbz")
     measured = images.measure_pages(cbz)
     assert measured[-1]["phash"] is None, "the fixture's last page is blank"
@@ -44,10 +44,14 @@ def test_saved_pages_load_back_and_are_not_decoded_again(conn, tmp_path, monkeyp
         page_store.save(conn, chapter_id, measured)
     known = page_store.load(conn, chapter_id)
     assert [known[i] for i in sorted(known)] == measured, "load gives back what save stored, None and bools included"
-    decoded = []
-    real = images.measure_decoded
-    monkeypatch.setattr(images, "measure_decoded", lambda data: decoded.append(data) or real(data))
-    assert images.measure_pages(cbz, known=known) == measured
+    decoded, by_sha1 = [], {p["sha1"]: p for p in measured}
+
+    def decode(data):  # the stand-in decode: counts the decodes, gives the page's measured fields
+        decoded.append(data)
+        page = by_sha1[archive.sha1(data)]
+        return {f: page[f] for f in images.DECODED_FIELDS}
+
+    assert images.measure_pages(cbz, known=known, decode=decode) == measured
     assert decoded == [], "a page whose rows are stored is not decoded again, a blank page included"
 
 
