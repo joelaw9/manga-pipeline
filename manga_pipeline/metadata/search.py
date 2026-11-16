@@ -46,6 +46,13 @@ def mangabaka_titles(record):
 def mangabaka(client, series_names, agreed):
     """By the series' AniList id, else its MangaUpdates id; a title search only when it holds neither, or when they
     lead to a novel (a manga's ids pointing at its light novel)."""
+    found, search = _mangabaka_by_ids(client, agreed)
+    return _mangabaka_by_title(client, series_names) if search else found
+
+
+def _mangabaka_by_ids(client, agreed):
+    """(the MangaBaka id the series' AniList id, else its MangaUpdates id, leads to, or None; whether to search by
+    title instead): a search when the series holds neither id, or they lead only to novels."""
     lookups = []
     if "anilist" in agreed:
         lookups.append(("anilist", agreed["anilist"]))
@@ -55,10 +62,14 @@ def mangabaka(client, series_names, agreed):
     for source, value in lookups:
         found = client.by_source(source, value)
         if found and not _novel(found):
-            return ids.form("mangabaka", found["id"])
+            return ids.form("mangabaka", found["id"]), False
         novel = novel or bool(found)
-    if lookups and not novel:
-        return None
+    return None, novel or not lookups
+
+
+def _mangabaka_by_title(client, series_names):
+    """The 1 result whose title is a name, searched name by name; else the first name's top result when it is close
+    and no other result is."""
     wanted, first = _wanted(series_names), None
     for name in series_names[:NAMES_TRIED]:
         results = [r for r in client.search(name) if not _novel(r)]

@@ -79,35 +79,46 @@ def baseline_pass(ctx: workflow.Context):
     ).fetchall()
     taken = 0
     for listed in rows:
-        series = listed  # refreshed below once its folder is stored
-        if not baseline.needed(conn, series):
+        if not baseline.needed(conn, listed):
             continue
-        if series["folder"] is None:
-            try:
-                folder = kavita_link.library_folder(ctx.cfg, ctx.kavita.series_folder(series["kavita_series_id"]))
-            except (kavita_client.FolderError, config.PathError, ValueError, http.HttpError) as e:
-                # held only where a download needs the folder (SPEC "Metadata checks"); an error reply: this series'
-                log.info("%s: series %s (%s): folder not read: %s", ctx.part, series["id"], series["name"], e)
-                continue
-            with db.transaction(conn):
-                conn.execute("UPDATE series SET folder = %s WHERE id = %s AND folder IS NULL", (folder, series["id"]))
-            series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series["id"],))
-        if not errors.exists(config.to_local(ctx.cfg, series["folder"]) / record_reader.RECORD_NAME):
+        series = listed if listed["folder"] is not None else _with_folder(ctx, listed)
+        if series is None or not errors.exists(config.to_local(ctx.cfg, series["folder"]) / record_reader.RECORD_NAME):
             continue
-        try:
-            why = baseline.take(ctx, series)
-        except Exception as e:
-            if isinstance(e, (db.Error, workflow.Unreachable, http.HttpTimeoutError)) or (
-                isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS)
-            ):
-                raise  # the database, the share or a service down: the run's problem (the pass is tried again)
-            log.exception("%s: series %s (%s): baseline not taken", ctx.part, series["id"], series["name"])
-            continue
-        if why:
-            log.info("%s: series %s (%s): no baseline: %s", ctx.part, series["id"], series["name"], why)
-        else:
+        if _take(ctx, series):
             taken += 1
     with db.transaction(conn):
         workflow.set_meta(conn, BASELINE_PASS_AT, now)
     if taken:
         log.info("%s: baseline pass: %d series", ctx.part, taken)
+
+
+def _with_folder(ctx: workflow.Context, series):
+    """The series row once its folder, as Kavita gives it, is stored; None when Kavita gives no usable one (logged)."""
+    conn = ctx.conn
+    try:
+        folder = kavita_link.library_folder(ctx.cfg, ctx.kavita.series_folder(series["kavita_series_id"]))
+    except (kavita_client.FolderError, config.PathError, ValueError, http.HttpError) as e:
+        # held only where a download needs the folder (SPEC "Metadata checks"); an error reply: this series'
+        log.info("%s: series %s (%s): folder not read: %s", ctx.part, series["id"], series["name"], e)
+        return None
+    with db.transaction(conn):
+        conn.execute("UPDATE series SET folder = %s WHERE id = %s AND folder IS NULL", (folder, series["id"]))
+    return db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series["id"],))
+
+
+def _take(ctx: workflow.Context, series):
+    """Take the series' baseline; whether it was taken (why not logged). The database, the share or a service down
+    raises: the run's problem (the pass is tried again); any other failure is this series' (logged)."""
+    try:
+        why = baseline.take(ctx, series)
+    except Exception as e:
+        if isinstance(e, (db.Error, workflow.Unreachable, http.HttpTimeoutError)) or (
+            isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS)
+        ):
+            raise  # the database, the share or a service down: the run's problem (the pass is tried again)
+        log.exception("%s: series %s (%s): baseline not taken", ctx.part, series["id"], series["name"])
+        return False
+    if why:
+        log.info("%s: series %s (%s): no baseline: %s", ctx.part, series["id"], series["name"], why)
+        return False
+    return True
