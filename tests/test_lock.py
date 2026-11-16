@@ -6,6 +6,7 @@ from contextlib import closing
 import pytest
 
 from manga_pipeline import config, db, lock
+from manga_pipeline.db import sql
 
 from tests.builders import one, site_cfg
 from tests.timing import budget
@@ -17,8 +18,8 @@ def cfg(tmp_path):
 
 
 def held(_cfg, conn, name):
-    """Whether some session holds the run lock `name` (lock.HELD_SQL), asked on conn."""
-    return one(conn, f"SELECT {lock.HELD_SQL.format(name='%s')}", (name,))
+    """Whether some session holds the run lock `name` (lock.held_sql), asked on conn."""
+    return one(conn, sql.SQL("SELECT {}").format(lock.held_sql(sql.Placeholder())), (name,))
 
 
 @budget(load="db")

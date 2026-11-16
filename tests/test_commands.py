@@ -443,9 +443,10 @@ def test_status_sections_come_from_1_snapshot(tmp_path):
             def transaction(self):
                 return self.conn.transaction()
 
-            def execute(self, sql, *params):
-                cursor = self.conn.execute(sql, *params)
-                if sql.lstrip().upper().startswith("SELECT"):
+            def execute(self, query, *params):
+                cursor = self.conn.execute(query, *params)
+                text = query.as_string(self.conn) if isinstance(query, sql.Composable) else query
+                if text.lstrip().upper().startswith("SELECT"):
                     self.reads += 1
                     if self.reads == 1:
                         cursor = list(cursor)

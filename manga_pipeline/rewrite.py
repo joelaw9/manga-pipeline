@@ -29,6 +29,7 @@ from manga_pipeline import (
     volumes,
     workflow,
 )
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import covers as cover_images
 from manga_pipeline.metadata import naming, platforms, rewrite_plan
 from manga_pipeline.stages import comicinfo as comicinfo_stage
@@ -49,12 +50,18 @@ PENDING = ("pending_path", "pending_staged", "pending_size", "pending_volume", "
 PROGRESS = ("carry_pages_read", "carry_old_pages", "carry_new_pages", "carry_page_shift", "carry_kavita_modified")
 CARRY = (*PROGRESS, "carry_cover")
 # Open rewrite chapters and better copies (both name their file): the cap export.rewrites_open counts them.
-OPEN_REWRITES = "published_file_id IS NOT NULL AND status NOT IN ('done', 'needs_human')"
-# A published file busy with a change, {p} its alias: an open chapter names it (a rewrite or a copy), a queued
-# rewrite, a wait for Kavita, a cover refresh due, or a failed rewrite. No new rewrite or copy takes it meanwhile.
-BUSY = """({p}.pending_path IS NOT NULL OR {p}.indexed_since IS NOT NULL OR {p}.pending_error IS NOT NULL
+OPEN_REWRITES = sql.SQL("published_file_id IS NOT NULL AND status NOT IN ('done', 'needs_human')")
+# A published file busy with a change, {p} its alias (fill it with sql.Identifier(alias)): an open chapter names it (a
+# rewrite or a copy), a queued rewrite, a wait for Kavita, a cover refresh due, or a failed rewrite. No new rewrite or
+# copy takes it meanwhile.
+BUSY = sql.SQL("""({p}.pending_path IS NOT NULL OR {p}.indexed_since IS NOT NULL OR {p}.pending_error IS NOT NULL
     OR {p}.carry_cover IS TRUE OR EXISTS (
-        SELECT 1 FROM chapter b WHERE b.published_file_id = {p}.id AND b.status <> 'done'))"""
+        SELECT 1 FROM chapter b WHERE b.published_file_id = {p}.id AND b.status <> 'done'))""")
+
+
+def _set_null(columns):
+    """`column = NULL, ...` of columns, an SQL SET list."""
+    return sql.SQL(", ").join(sql.SQL("{} = NULL").format(sql.Identifier(c)) for c in columns)
 
 
 # --- the comparison
@@ -67,14 +74,14 @@ def compare(ctx):
     short, or whose files' covers could not be read, is compared again next run."""
     conn, cap = ctx.conn, ctx.cfg["export"]["rewrites_open"]
     candidates = conn.execute(
-        f"""SELECT s.* FROM series s WHERE s.status = 'ok' AND s.kavita_series_id IS NOT NULL AND {workflow.SCOPE}
-        ORDER BY s.id""",
+        sql.SQL("""SELECT s.* FROM series s WHERE s.status = 'ok' AND s.kavita_series_id IS NOT NULL AND {scope}
+        ORDER BY s.id""").format(scope=workflow.SCOPE),
         workflow.scope_params(ctx.cfg),
     ).fetchall()
     for series in candidates:
         if baseline.needed(conn, series):
             continue
-        room = cap - conn.execute(f"SELECT count(*) FROM chapter WHERE {OPEN_REWRITES}").fetchone()[0]
+        room = cap - conn.execute(sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(OPEN_REWRITES)).fetchone()[0]
         if room <= 0:
             log.info("%s: %d rewrites open (export.rewrites_open): the comparison waits", ctx.part, cap)
             return
@@ -251,7 +258,9 @@ def _queue_chapter(ctx, series, file_id, volume, source, cover, title, unedited)
     file's title and unedited values afterwards (title "" = untitled). Returns 1 when made, else 0."""
     conn = ctx.conn
     row = conn.execute(
-        f"SELECT * FROM published_file p WHERE p.id = %s AND p.state = 'confirmed' AND NOT {BUSY.format(p='p')}",
+        sql.SQL("SELECT * FROM published_file p WHERE p.id = %s AND p.state = 'confirmed' AND NOT {}").format(
+            BUSY.format(p=sql.Identifier("p"))
+        ),
         (file_id,),
     ).fetchone()
     if row is None:
@@ -535,17 +544,19 @@ def finish(ctx, row):
         if row["pending_copy"]:  # a better copy: the row describes it now (SPEC "Retroactive updates")
             values = {k: v for k, v in row["pending_copy"]["values"].items() if k not in ("size", "cover_state")}
             conn.execute(
-                f"UPDATE published_file SET {', '.join(f'{c} = %s' for c in values)} WHERE id = %s",
+                sql.SQL("UPDATE published_file SET {} WHERE id = %s").format(
+                    sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(c)) for c in values)
+                ),
                 (*values.values(), row["id"]),
             )
         conn.execute(
-            f"""UPDATE published_file SET library_path = pending_path, size = pending_size,
+            sql.SQL("""UPDATE published_file SET library_path = pending_path, size = pending_size,
                 comicinfo_volume = pending_volume, volume_source = pending_volume_source,
                 comicinfo_title = pending_title, unedited = pending_unedited,
                 cover_state = coalesce(pending_cover, cover_state),
-                {", ".join(f"{c} = NULL" for c in PENDING)}, pending_error = NULL, pending_attempts = 0,
+                {}, pending_error = NULL, pending_attempts = 0,
                 indexed_since = %s, wait_charges = 0
-            WHERE id = %s""",
+            WHERE id = %s""").format(_set_null(PENDING)),
             (workflow.now(conn), row["id"]),
         )
         conn.execute("UPDATE series SET scan_due = 1 WHERE id = %s", (row["series_id"],))
@@ -592,8 +603,8 @@ def _clear(conn, file_id):
     with db.transaction(conn):
         _give_up_copy(conn, conn.execute("SELECT * FROM published_file WHERE id = %s", (file_id,)).fetchone())
         conn.execute(
-            f"""UPDATE published_file SET {", ".join(f"{c} = NULL" for c in (*PENDING, *CARRY))}, pending_error = NULL,
-                pending_attempts = 0 WHERE id = %s""",
+            sql.SQL("""UPDATE published_file SET {}, pending_error = NULL,
+                pending_attempts = 0 WHERE id = %s""").format(_set_null((*PENDING, *CARRY))),
             (file_id,),
         )
 
@@ -616,8 +627,9 @@ def drop(conn, file_id, limit):
     with db.transaction(conn):
         _give_up_copy(conn, row)
         conn.execute(
-            f"""UPDATE published_file SET {", ".join(f"{c} = NULL" for c in (*PENDING, *CARRY))},
-                pending_error = NULL, pending_attempts = 0, indexed_since = NULL, wait_charges = 0 WHERE id = %s""",
+            sql.SQL("""UPDATE published_file SET {},
+                pending_error = NULL, pending_attempts = 0, indexed_since = NULL, wait_charges = 0
+                WHERE id = %s""").format(_set_null((*PENDING, *CARRY))),
             (file_id,),
         )
         conn.execute("DELETE FROM series_naming WHERE series_id = %s", (row["series_id"],))
@@ -673,8 +685,8 @@ def restore_all(ctx):
             continue
         with db.transaction(ctx.conn):  # carry_cover stays: refresh_covers ends it
             ctx.conn.execute(
-                f"""UPDATE published_file SET {", ".join(f"{c} = NULL" for c in PROGRESS)}, indexed_since = NULL,
-                    wait_charges = 0 WHERE id = %s""",
+                sql.SQL("""UPDATE published_file SET {}, indexed_since = NULL,
+                    wait_charges = 0 WHERE id = %s""").format(_set_null(PROGRESS)),
                 (row["id"],),
             )
     refresh_covers(ctx)
@@ -766,7 +778,10 @@ def diff(ctx, series):
     busy = {
         r[0]
         for r in ctx.conn.execute(
-            f"SELECT p.id FROM published_file p WHERE p.series_id = %s AND {BUSY.format(p='p')}", (series["id"],)
+            sql.SQL("SELECT p.id FROM published_file p WHERE p.series_id = %s AND {}").format(
+                BUSY.format(p=sql.Identifier("p"))
+            ),
+            (series["id"],),
         )
     }
     # what the comparison would queue now: confirmed files with nothing open, queued or awaited

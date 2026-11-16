@@ -14,6 +14,7 @@ from PIL import Image, UnidentifiedImageError
 
 from manga_pipeline import config, db, errors, images, names, workflow
 from manga_pipeline.clients import http
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import sources
 
 log = logging.getLogger(__name__)
@@ -221,8 +222,10 @@ def fetch_wanted(ctx):
     whose answer is wrong counts 1 attempt and records its error. A share or database error, or MangaDex down,
     timing out or failing on its side (5xx), is raised: the caller's problem, no attempt spent."""
     rows = ctx.conn.execute(
-        f"""SELECT w.series_id, w.volume FROM volume_cover_wanted w JOIN series s ON s.id = w.series_id
-        WHERE w.attempts < %(limit)s AND s.status = 'ok' AND {workflow.SCOPE} ORDER BY w.series_id, w.volume""",
+        sql.SQL("""SELECT w.series_id, w.volume FROM volume_cover_wanted w JOIN series s ON s.id = w.series_id
+        WHERE w.attempts < %(limit)s AND s.status = 'ok' AND {scope} ORDER BY w.series_id, w.volume""").format(
+            scope=workflow.SCOPE
+        ),
         {**workflow.scope_params(ctx.cfg), "limit": ctx.cfg["workflow"]["attempt_limit"]},
     ).fetchall()
     for r in rows:

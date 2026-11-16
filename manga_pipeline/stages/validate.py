@@ -28,6 +28,7 @@ from manga_pipeline import (
     volumes,
     workflow,
 )
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import check, covers
 
 
@@ -198,7 +199,9 @@ def _done(ctx, chapter, verdict, adopted=None):
         if adopted:
             columns["redownload"] = None
         conn.execute(
-            f"UPDATE chapter SET {', '.join(f'{name} = %s' for name in columns)} WHERE id = %s",
+            sql.SQL("UPDATE chapter SET {} WHERE id = %s").format(
+                sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(name)) for name in columns)
+            ),
             (*columns.values(), chapter["id"]),
         )
         page_store.save(conn, chapter["id"], verdict.pages)

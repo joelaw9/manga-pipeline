@@ -10,6 +10,7 @@ import pytest
 
 from manga_pipeline import cli, db, images, names
 from manga_pipeline.convert import record_reader
+from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates, frames, importing, marks, store
 
 from tests.builders import config_file, one, present, site_cfg
@@ -785,7 +786,7 @@ def test_step_0042_deletes_decisions_and_candidates_on_unsignable_keys(tmp_path,
     monkeypatch.undo()
     conn = db.connect(cfg)
     for table in ("junk_decision", "junk_candidate"):
-        left = sorted(tuple(r) for r in conn.execute(f"SELECT kind, key FROM {table}"))
+        left = sorted(tuple(r) for r in conn.execute(sql.SQL("SELECT kind, key FROM {}").format(sql.Identifier(table))))
         assert left == [("band", mixed), ("frame", "f")], f"{table}: only the signature of uniform tiles alone goes"
     conn.close()
     step = (db.SCHEMA / "0042_unsignable_keys.sql").read_text(encoding="utf-8")

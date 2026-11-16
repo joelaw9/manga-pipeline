@@ -20,6 +20,7 @@ from typing import Any
 from manga_pipeline import db, lock
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
+from manga_pipeline.db import sql
 from manga_pipeline.errors import SHARE_ERRNOS, SHARE_WINERRORS, Unreachable, dropped_share, exists  # noqa: F401
 
 log = logging.getLogger(__name__)
@@ -31,20 +32,22 @@ PART_STAGES = {
 }
 # The scope filter of every work-picking query, on series s: in_scope's rule in SQL, with the named parameters of
 # scope_params. tests/test_workflow.py runs both forms over 1 table of cases.
-SCOPE = """(s.kavita_library_id IS NULL OR s.kavita_library_id = %(scope_library)s::bigint)
+SCOPE = sql.SQL("""(s.kavita_library_id IS NULL OR s.kavita_library_id = %(scope_library)s::bigint)
     AND (cardinality(%(scope_only)s::text[]) = 0 OR s.name = ANY(%(scope_only)s::text[])
         OR s.alt_name = ANY(%(scope_only)s::text[]) OR s.comicinfo_series = ANY(%(scope_only)s::text[])
-        OR s.localized_name = ANY(%(scope_only)s::text[]) OR s.original_name = ANY(%(scope_only)s::text[]))"""
+        OR s.localized_name = ANY(%(scope_only)s::text[]) OR s.original_name = ANY(%(scope_only)s::text[]))""")
 # A series s whose chapters may be worked: not a new series waiting to be admitted (SPEC "Series identification": a
 # held one's chapters are recorded and wait for its name and folder).
-ADMITTED = "NOT (s.origin = 'new' AND s.admitted_at IS NULL)"
+ADMITTED = sql.SQL("NOT (s.origin = 'new' AND s.admitted_at IS NULL)")
 # A junk-stage chapter {c} holds a current junk scan (SPEC "Junk decisions"): same series, same content digest, and
-# made with logo detection (a scan without "marks" is not current). The one test of a current scan.
-SCANNED = """EXISTS (SELECT 1 FROM junk_scan js WHERE js.chapter_id = {c}.id AND js.series_id = {c}.series_id
-    AND js.content_digest = {c}.content_digest AND jsonb_typeof(js.scan::jsonb -> 'marks') = 'array')"""
-# A chapter {c} that failed less than RETRY_PAUSE ago is claimed by no machine (SPEC "Chapter stages").
+# made with logo detection (a scan without "marks" is not current). The one test of a current scan. Fill {c} with
+# sql.Identifier(alias): a plain str becomes a quoted literal.
+SCANNED = sql.SQL("""EXISTS (SELECT 1 FROM junk_scan js WHERE js.chapter_id = {c}.id AND js.series_id = {c}.series_id
+    AND js.content_digest = {c}.content_digest AND jsonb_typeof(js.scan::jsonb -> 'marks') = 'array')""")
+# A chapter {c} that failed less than RETRY_PAUSE ago is claimed by no machine (SPEC "Chapter stages"). Fill {c} with
+# sql.Identifier(alias).
 RETRY_PAUSE = timedelta(minutes=5)
-NOT_PAUSED = "({c}.retry_after IS NULL OR {c}.retry_after <= %(now)s)"
+NOT_PAUSED = sql.SQL("({c}.retry_after IS NULL OR {c}.retry_after <= %(now)s)")
 # A stored path holding a name Windows cannot use over the share (SPEC "Parts"): a Windows machine skips it.
 WINDOWS_UNUSABLE = r"""([<>:"|?*]|[. ](/|$))"""
 
@@ -222,14 +225,14 @@ def claim(ctx, stages, series_id=None):
             unusable=WINDOWS_UNUSABLE,
         )
         return ctx.conn.execute(
-            f"""UPDATE chapter SET status = 'claimed', claimed_by = %(owner)s, claim_count = claim_count + 1,
+            sql.SQL("""UPDATE chapter SET status = 'claimed', claimed_by = %(owner)s, claim_count = claim_count + 1,
                 updated_at = %(now)s
             WHERE id = (
                 SELECT c.id FROM chapter c JOIN series s ON s.id = c.series_id
                 WHERE c.status = 'ready' AND c.stage = ANY(%(stages)s::text[])
-                    AND s.status = 'ok' AND {SCOPE} AND {ADMITTED}
+                    AND s.status = 'ok' AND {scope} AND {admitted}
                     AND (%(series_id)s::bigint IS NULL OR c.series_id = %(series_id)s::bigint)
-                    AND c.id <> ALL(%(failed)s::bigint[]) AND {NOT_PAUSED.format(c="c")}
+                    AND c.id <> ALL(%(failed)s::bigint[]) AND {c_not_paused}
                     AND NOT (%(windows)s AND (coalesce(c.download_path, (
                             SELECT f.library_path FROM published_file f WHERE f.id = c.published_file_id), '')
                             ~ %(unusable)s
@@ -241,12 +244,12 @@ def claim(ctx, stages, series_id=None):
                     AND NOT (c.stage = 'convert' AND EXISTS (
                         SELECT 1 FROM chapter j
                         WHERE j.series_id = c.series_id AND j.stage = 'junk' AND j.status = 'ready'
-                            AND j.id <> ALL(%(failed)s::bigint[]) AND {NOT_PAUSED.format(c="j")}))
-                    AND NOT (c.stage = 'junk' AND {SCANNED.format(c="c")} AND EXISTS (
+                            AND j.id <> ALL(%(failed)s::bigint[]) AND {j_not_paused}))
+                    AND NOT (c.stage = 'junk' AND {c_scanned} AND EXISTS (
                         SELECT 1 FROM chapter u
                         WHERE u.series_id = c.series_id AND u.stage = 'junk' AND u.status = 'ready'
-                            AND u.id <> ALL(%(failed)s::bigint[]) AND {NOT_PAUSED.format(c="u")}
-                            AND NOT {SCANNED.format(c="u")}))
+                            AND u.id <> ALL(%(failed)s::bigint[]) AND {u_not_paused}
+                            AND NOT {u_scanned}))
                 AND NOT (c.stage = 'validate' AND s.origin = 'new' AND s.naming_basis IS NULL AND EXISTS (
                     SELECT 1 FROM chapter d WHERE d.series_id = c.series_id AND d.stage = 'discover'
                         AND d.status IN ('ready', 'claimed')))
@@ -261,7 +264,15 @@ def claim(ctx, stages, series_id=None):
                             AND d.stage IN ('discover', 'validate') AND d.status IN ('ready', 'claimed')))
                 ORDER BY s.origin = 'new' AND s.kavita_series_id IS NULL, c.discovered_at, c.id
                 LIMIT 1)
-            RETURNING *""",
+            RETURNING *""").format(
+                scope=SCOPE,
+                admitted=ADMITTED,
+                c_not_paused=NOT_PAUSED.format(c=sql.Identifier("c")),
+                j_not_paused=NOT_PAUSED.format(c=sql.Identifier("j")),
+                u_not_paused=NOT_PAUSED.format(c=sql.Identifier("u")),
+                c_scanned=SCANNED.format(c=sql.Identifier("c")),
+                u_scanned=SCANNED.format(c=sql.Identifier("u")),
+            ),
             params,
         ).fetchone()
 
@@ -272,11 +283,11 @@ def _free_dead_claims(ctx):
     if not ctx.cfg["lock"]["enabled"]:
         return
     freed = ctx.conn.execute(
-        f"""UPDATE chapter c SET status = 'ready', claimed_by = NULL, updated_at = %(now)s
+        sql.SQL("""UPDATE chapter c SET status = 'ready', claimed_by = NULL, updated_at = %(now)s
         WHERE c.status = 'claimed' AND c.claimed_by <> %(owner)s
             AND (c.claimed_by = %(part)s OR c.claimed_by LIKE %(part)s || '@%%')
-            AND NOT {lock.HELD_SQL.format(name="c.claimed_by")}
-        RETURNING c.id, c.claimed_by""",
+            AND NOT {held}
+        RETURNING c.id, c.claimed_by""").format(held=lock.held_sql(sql.Identifier("c", "claimed_by"))),
         _params(ctx),
     ).fetchall()
     for row in freed:
@@ -286,11 +297,13 @@ def _free_dead_claims(ctx):
 def series_with_ready(ctx, stages):
     """Ids of the in-scope, not needs_human series with a ready chapter at one of stages, in priority order."""
     rows = ctx.conn.execute(
-        f"""SELECT c.series_id FROM chapter c JOIN series s ON s.id = c.series_id
-        WHERE c.status = 'ready' AND c.stage = ANY(%(stages)s::text[]) AND s.status = 'ok' AND {SCOPE}
-            AND {ADMITTED} AND {NOT_PAUSED.format(c="c")}
+        sql.SQL("""SELECT c.series_id FROM chapter c JOIN series s ON s.id = c.series_id
+        WHERE c.status = 'ready' AND c.stage = ANY(%(stages)s::text[]) AND s.status = 'ok' AND {scope}
+            AND {admitted} AND {not_paused}
         GROUP BY c.series_id, s.origin, s.kavita_series_id
-        ORDER BY s.origin = 'new' AND s.kavita_series_id IS NULL, MIN(c.discovered_at), MIN(c.id)""",
+        ORDER BY s.origin = 'new' AND s.kavita_series_id IS NULL, MIN(c.discovered_at), MIN(c.id)""").format(
+            scope=SCOPE, admitted=ADMITTED, not_paused=NOT_PAUSED.format(c=sql.Identifier("c"))
+        ),
         _params(ctx, stages=list(stages)),
     )
     return [row[0] for row in rows]
@@ -376,8 +389,10 @@ def end_waits(ctx, on, holds):
     needs_human when it returns a NeedsHuman (no further wait can help). The chapters of a needs_human series keep
     waiting."""
     rows = ctx.conn.execute(
-        f"""SELECT c.* FROM chapter c JOIN series s ON s.id = c.series_id
-        WHERE c.status = 'waiting' AND c.waiting_on = %(on)s AND s.status = 'ok' AND {SCOPE} ORDER BY c.id""",
+        sql.SQL("""SELECT c.* FROM chapter c JOIN series s ON s.id = c.series_id
+        WHERE c.status = 'waiting' AND c.waiting_on = %(on)s AND s.status = 'ok' AND {scope} ORDER BY c.id""").format(
+            scope=SCOPE
+        ),
         _params(ctx, on=on),
     ).fetchall()
     for chapter in rows:
@@ -386,10 +401,8 @@ def end_waits(ctx, on, holds):
                 ended = holds(ctx, chapter)
         except Unreachable:
             raise
-        except Exception as e:
-            log.error(
-                "%s: checking the %s wait of %s failed: %s: %s", ctx.part, on, _name(chapter), type(e).__name__, e
-            )
+        except Exception:
+            log.exception("%s: checking the %s wait of %s failed", ctx.part, on, _name(chapter))
             continue
         if isinstance(ended, NeedsHuman):
             with db.transaction(ctx.conn):
@@ -418,10 +431,10 @@ def charge_waits(ctx, on, reason, waited_since, at):
         raise RuntimeError(msg)
     limit = ctx.cfg["workflow"]["attempt_limit"]
     rows = ctx.conn.execute(
-        f"""UPDATE chapter SET attempts = attempts + 1, last_error = %(reason)s, updated_at = %(at)s
+        sql.SQL("""UPDATE chapter SET attempts = attempts + 1, last_error = %(reason)s, updated_at = %(at)s
         WHERE status = 'waiting' AND waiting_on = %(on)s AND updated_at <= %(since)s
-            AND series_id IN (SELECT s.id FROM series s WHERE s.status = 'ok' AND {SCOPE})
-        RETURNING id, attempts""",
+            AND series_id IN (SELECT s.id FROM series s WHERE s.status = 'ok' AND {scope})
+        RETURNING id, attempts""").format(scope=SCOPE),
         _params(ctx, reason=reason, on=on, since=waited_since, at=at),
     ).fetchall()
     for row in rows:
@@ -493,7 +506,7 @@ def retry_chapter(conn, chapter_id):
         if row["status"] != "needs_human":
             msg = f"chapter {chapter_id} is {row['status']}, not needs_human"
             raise Refused(msg)
-        _ready_again(conn, "id = %s", chapter_id)
+        _ready_again(conn, sql.SQL("id = %s"), chapter_id)
 
 
 def retry_series(conn, series_id):
@@ -511,7 +524,7 @@ def retry_series(conn, series_id):
                 f"Kavita series, or series new {series_id} [--name NAME]"
             )
             raise Refused(msg)
-        chapters = _ready_again(conn, "series_id = %s AND status = 'needs_human'", series_id)
+        chapters = _ready_again(conn, sql.SQL("series_id = %s AND status = 'needs_human'"), series_id)
         if row["status"] != "needs_human" and not chapters:
             msg = f"series {series_id} is {row['status']} and has no needs_human chapter"
             raise Refused(msg)
@@ -525,10 +538,10 @@ def move_chapters(conn, from_series, to_series):
     junk = STAGES.index("junk")
     later = STAGES[junk + 1 :]
     conn.execute(
-        f"""UPDATE chapter SET stage = 'junk', status = 'ready', waiting_on = NULL, wait_data = NULL,
+        sql.SQL("""UPDATE chapter SET stage = 'junk', status = 'ready', waiting_on = NULL, wait_data = NULL,
             claimed_by = NULL, attempts = 0, retry_after = NULL, updated_at = %s
         WHERE series_id = %s AND status NOT IN ('done', 'needs_human')
-            AND stage IN ({",".join(["%s"] * len(later))})""",
+            AND stage IN ({stages})""").format(stages=sql.SQL(",").join([sql.Placeholder()] * len(later))),
         (now(conn), from_series, *later),
     )
     conn.execute("UPDATE chapter SET series_id = %s WHERE series_id = %s", (to_series, from_series))
@@ -540,7 +553,7 @@ def reset(conn):
     admitted) settles (identification never runs again)."""
     with db.transaction(conn):
         for table in db.WORKFLOW_TABLES:
-            conn.execute(f"DELETE FROM {table}")
+            conn.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
         conn.execute(
             """UPDATE series SET status = 'ok', status_reason = NULL
             WHERE folder IS NOT NULL AND (kavita_series_id IS NOT NULL OR admitted_at IS NOT NULL)"""
@@ -551,11 +564,11 @@ def _ready_again(conn, where, value):
     """Ready again at its stage, attempts 0; a re-download's source search starts again from the top, and a person's
     choice (chapter use) is forgotten (SPEC "Bad downloads")."""
     return conn.execute(
-        f"""UPDATE chapter SET status = 'ready', attempts = 0, retry_after = NULL, updated_at = %s,
+        sql.SQL("""UPDATE chapter SET status = 'ready', attempts = 0, retry_after = NULL, updated_at = %s,
             redownload = CASE WHEN redownload::jsonb ->> 'original' IS NULL THEN NULL
                 ELSE jsonb_set(jsonb_set(jsonb_set(redownload::jsonb, '{{tried}}', '[]'), '{{same_source_done}}',
                     'false'), '{{chosen}}', 'null')::text END
-        WHERE {where}""",
+        WHERE {where}""").format(where=where),
         (now(conn), value),
     ).rowcount
 
@@ -665,8 +678,10 @@ def _finish(ctx, chapter, outcome):
         stamp = now(ctx.conn)
         set_, values, at_limit = _outcome_columns(chapter, outcome, limit, stamp)
         changed = ctx.conn.execute(
-            f"UPDATE chapter SET {set_}, claimed_by = NULL, updated_at = %s "
-            "WHERE id = %s AND claimed_by = %s AND claim_count = %s AND status = 'claimed'",
+            sql.SQL(
+                "UPDATE chapter SET {set_}, claimed_by = NULL, updated_at = %s "
+                "WHERE id = %s AND claimed_by = %s AND claim_count = %s AND status = 'claimed'"
+            ).format(set_=set_),
             (*values, stamp, chapter["id"], ctx.owner, chapter["claim_count"]),
         ).rowcount
         if not changed:
@@ -691,7 +706,7 @@ def _outcome_columns(chapter, outcome, limit, stamp):
     if isinstance(outcome, Failed):
         attempts = chapter["attempts"] + 1
         return (
-            "status = 'ready', attempts = %s, last_error = %s, retry_after = %s",
+            sql.SQL("status = 'ready', attempts = %s, last_error = %s, retry_after = %s"),
             (attempts, outcome.error, after(stamp, RETRY_PAUSE)),
             attempts >= limit,
         )
@@ -701,14 +716,17 @@ def _outcome_columns(chapter, outcome, limit, stamp):
             chapter["published_file_id"] is not None and chapter["stage"] == "publish"
         )
         stage = chapter["stage"] if last else STAGES[STAGES.index(chapter["stage"]) + 1]
-        set_, values = "stage = %s, status = %s, attempts = 0", (stage, "done" if last else "ready")
+        set_, values = sql.SQL("stage = %s, status = %s, attempts = 0"), (stage, "done" if last else "ready")
     elif isinstance(outcome, Waiting):
-        set_, values = "status = 'waiting', waiting_on = %s, wait_data = %s", (outcome.on, json.dumps(outcome.data))
-    elif isinstance(outcome, Dropped):
-        set_, values = "status = 'done', last_error = %s, notes = NULL", (f"dropped: {outcome.reason}",)  # not listed
-    else:
-        set_, values = "status = 'ready'", ()  # Unreachable: no attempt; NeedsHuman: needs_human sets the status
-    return f"{set_}, retry_after = NULL", values, False
+        set_, values = (
+            sql.SQL("status = 'waiting', waiting_on = %s, wait_data = %s"),
+            (outcome.on, json.dumps(outcome.data)),
+        )
+    elif isinstance(outcome, Dropped):  # not listed
+        set_, values = sql.SQL("status = 'done', last_error = %s, notes = NULL"), (f"dropped: {outcome.reason}",)
+    else:  # Unreachable: no attempt; NeedsHuman: needs_human sets the status
+        set_, values = sql.SQL("status = 'ready'"), ()
+    return set_ + sql.SQL(", retry_after = NULL"), values, False
 
 
 @contextmanager

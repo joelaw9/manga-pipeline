@@ -189,23 +189,28 @@ def read_only(cfg):
     conn = _open(cfg)
     try:
         conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-        if not _has_record(conn):
-            msg = f"database {conn.info.dbname}: holds no schema record (empty, or not built by this program)"
-            raise SchemaError(msg)
-        applied = {row[0] for row in conn.execute("SELECT name FROM schema_step")}
-        steps = {p.stem for p in SCHEMA.glob("*.sql")}
-        if applied != steps:
-            unknown, missing = sorted(applied - steps), sorted(steps - applied)
-            msg = (
-                f"database {conn.info.dbname}: schema steps differ from this program's (unknown: "
-                f"{', '.join(unknown) or 'none'}; not applied yet: {', '.join(missing) or 'none'}; "
-                "a part's run applies them)"
-            )
-            raise SchemaError(msg)
+        _check_exact_steps(conn)
     except BaseException:
         conn.close()
         raise
     return conn
+
+
+def _check_exact_steps(conn):
+    """SchemaError unless the database holds a schema record with exactly this program's steps."""
+    if not _has_record(conn):
+        msg = f"database {conn.info.dbname}: holds no schema record (empty, or not built by this program)"
+        raise SchemaError(msg)
+    applied = {row[0] for row in conn.execute("SELECT name FROM schema_step")}
+    steps = {p.stem for p in SCHEMA.glob("*.sql")}
+    if applied != steps:
+        unknown, missing = sorted(applied - steps), sorted(steps - applied)
+        msg = (
+            f"database {conn.info.dbname}: schema steps differ from this program's (unknown: "
+            f"{', '.join(unknown) or 'none'}; not applied yet: {', '.join(missing) or 'none'}; "
+            "a part's run applies them)"
+        )
+        raise SchemaError(msg)
 
 
 def built(cfg):

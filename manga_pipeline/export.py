@@ -10,6 +10,7 @@ from pathlib import PurePosixPath
 from manga_pipeline import config, db, kavita_link, retention, rewrite, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import kavita_write
 from manga_pipeline.stages import comicinfo, confirm, publish
 
@@ -179,8 +180,10 @@ def _waiting(ctx):
     return (
         rewrite.waiting(ctx.conn)
         + ctx.conn.execute(
-            f"""SELECT COUNT(*) FROM chapter c JOIN series s ON s.id = c.series_id
-        WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {workflow.SCOPE}""",
+            sql.SQL("""SELECT COUNT(*) FROM chapter c JOIN series s ON s.id = c.series_id
+        WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {scope}""").format(
+                scope=workflow.SCOPE
+            ),
             workflow.scope_params(ctx.cfg),
         ).fetchone()[0]
     )
@@ -202,8 +205,8 @@ def request_scan(ctx):
         return
     try:
         ctx.kavita.scan_library(ctx.cfg["kavita"]["library_id"])
-    except http.HttpError as e:
-        log.error("%s: library scan request failed: %s", ctx.part, e)
+    except http.HttpError:
+        log.exception("%s: library scan request failed", ctx.part)
         return
     requested = workflow.now(ctx.conn)  # 1 stamp: a charged chapter must not count as waiting since after the request
     with db.transaction(ctx.conn):

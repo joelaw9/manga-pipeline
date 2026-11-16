@@ -7,6 +7,7 @@ import json
 from pathlib import Path, PurePosixPath
 
 from manga_pipeline import chapter_names, db, names, volumes, workflow
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import naming
 
 FIELDS = ("title", "volume")
@@ -120,7 +121,9 @@ def _series(ctx, name, series_id, problems):
         problems.append("'series' must be the series' Kavita name")
         return None
     rows = ctx.conn.execute(
-        f"SELECT s.* FROM series s WHERE s.name = %(name)s AND {workflow.SCOPE} ORDER BY s.id",
+        sql.SQL("SELECT s.* FROM series s WHERE s.name = %(name)s AND {scope} ORDER BY s.id").format(
+            scope=workflow.SCOPE
+        ),
         {**workflow.scope_params(ctx.cfg), "name": name},
     ).fetchall()
     if series_id is not None:

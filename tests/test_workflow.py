@@ -7,6 +7,7 @@ from contextlib import closing
 import pytest
 
 from manga_pipeline import db, workflow
+from manga_pipeline.db import sql
 from manga_pipeline.workflow import Done, Dropped, Failed, NeedsHuman, Waiting
 
 from tests.builders import add_chapter, add_series, chapter, one, site_cfg
@@ -128,7 +129,7 @@ def test_the_sql_scope_agrees_with_in_scope_on_every_case(ctx):
     for case, only, library, want in SCOPE_CASES:
         cfg = {"kavita": {"library_id": 4}, "series": {"only": only}}
         got = ctx.conn.execute(
-            f"SELECT 1 FROM series s WHERE s.id = %(id)s AND {workflow.SCOPE}",
+            sql.SQL("SELECT 1 FROM series s WHERE s.id = %(id)s AND {}").format(workflow.SCOPE),
             {**workflow.scope_params(cfg), "id": ids[library]},
         ).fetchone()
         assert (got is not None) is want is workflow.in_scope(cfg, ["S"], library), f"{case}: SQL and Python agree"

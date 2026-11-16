@@ -5,10 +5,10 @@ test_new_series_publish.py)."""
 
 from contextlib import closing
 
-import psycopg.sql
 import pytest
 
 from manga_pipeline import config, db, discovery, identify, intake, process, workflow
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import human, naming
 
 from tests.builders import one, settle
@@ -248,16 +248,16 @@ def test_series_only_names_a_series_by_any_of_its_names_in_sql_and_python(world,
     with closing(db.connect(world.cfg)) as conn:
         sid = one(
             conn,
-            psycopg.sql.SQL(
-                "INSERT INTO series (name, origin, {}) VALUES ('Base', 'new', 'Wanted') RETURNING id"
-            ).format(psycopg.sql.Identifier(column))
+            sql.SQL("INSERT INTO series (name, origin, {}) VALUES ('Base', 'new', 'Wanted') RETURNING id").format(
+                sql.Identifier(column)
+            )
             if column != "name"
             else "INSERT INTO series (name, origin) VALUES ('Wanted', 'new') RETURNING id",
         )
         cfg = {"kavita": {"library_id": 4}, "series": {"only": ["Wanted"]}}
         row = conn.execute("SELECT * FROM series WHERE id = %s", (sid,)).fetchone()
-        sql = conn.execute(
-            f"SELECT 1 FROM series s WHERE s.id = %(id)s AND {workflow.SCOPE}",
+        found = conn.execute(
+            sql.SQL("SELECT 1 FROM series s WHERE s.id = %(id)s AND {}").format(workflow.SCOPE),
             {**workflow.scope_params(cfg), "id": sid},
         ).fetchone()
-        assert (sql is not None) is workflow.row_in_scope(cfg, row) is True, f"{column}: SQL and Python agree"
+        assert (found is not None) is workflow.row_in_scope(cfg, row) is True, f"{column}: SQL and Python agree"

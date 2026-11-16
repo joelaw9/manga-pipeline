@@ -14,6 +14,7 @@ from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import record_reader
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import admit, check, covers, library, sources
 
 log = logging.getLogger(__name__)
@@ -65,8 +66,9 @@ def baseline_pass(ctx):
     if last is not None and last > workflow.after(now, -timedelta(days=1)):
         return
     rows = conn.execute(
-        f"""SELECT s.* FROM series s WHERE s.status = 'ok' AND s.origin = 'kavita' AND s.kavita_series_id IS NOT NULL
-            AND {workflow.SCOPE} ORDER BY s.id""",
+        sql.SQL("""SELECT s.* FROM series s
+            WHERE s.status = 'ok' AND s.origin = 'kavita' AND s.kavita_series_id IS NOT NULL
+            AND {scope} ORDER BY s.id""").format(scope=workflow.SCOPE),
         workflow.scope_params(ctx.cfg),
     ).fetchall()
     taken = 0

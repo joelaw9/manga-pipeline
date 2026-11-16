@@ -7,6 +7,7 @@ from contextlib import closing, contextmanager
 import yaml
 
 from manga_pipeline import config, db, fleet, lock, state, workflow
+from manga_pipeline.db import sql
 
 from tests import pg
 
@@ -23,10 +24,10 @@ class WinFileNotFoundError(FileNotFoundError):
     winerror: int | None
 
 
-def one(conn, sql, params=()):
+def one(conn, query, params=()):
     """The first column of the query's 1st row, asserting there is one."""
-    row = conn.execute(sql, params).fetchone()
-    assert row is not None, f"a row from: {sql}"
+    row = conn.execute(query, params).fetchone()
+    assert row is not None, f"a row from: {query}"
     return row[0]
 
 
@@ -109,8 +110,10 @@ def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None,
             (series_id, identity, download_path, stage, stamp, stamp),
         )
         if columns:
-            assignments = ", ".join(f"{name} = %s" for name in columns)
-            conn.execute(f"UPDATE chapter SET {assignments} WHERE id = %s", (*columns.values(), chapter_id))
+            assignments = sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(name)) for name in columns)
+            conn.execute(
+                sql.SQL("UPDATE chapter SET {} WHERE id = %s").format(assignments), (*columns.values(), chapter_id)
+            )
     return chapter_id
 
 

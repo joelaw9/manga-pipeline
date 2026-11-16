@@ -27,6 +27,7 @@ from manga_pipeline import (
     workflow,
 )
 from manga_pipeline.convert import record_reader
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import covers
 
 SAME_CHAPTER = 0.15  # page count or strip length within this share: the same chapter (old duplicate_page_tolerance)
@@ -212,7 +213,10 @@ def _take(ctx, chapter, published):
     with db.transaction(ctx.conn):
         workflow.holds_claim(ctx, chapter)
         free = ctx.conn.execute(
-            f"SELECT 1 FROM published_file p WHERE p.id = %s AND NOT {rewrite.BUSY.format(p='p')}", (published["id"],)
+            sql.SQL("SELECT 1 FROM published_file p WHERE p.id = %s AND NOT {}").format(
+                rewrite.BUSY.format(p=sql.Identifier("p"))
+            ),
+            (published["id"],),
         ).fetchone()
         if free is None:
             return workflow.NeedsHuman(

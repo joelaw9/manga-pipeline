@@ -16,6 +16,7 @@ from manga_pipeline import archive, comicinfo, config, db, kavita_link, names, w
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import ids as metadata_ids
 from manga_pipeline.metadata import search
 
@@ -47,6 +48,9 @@ class KavitaSeries:
         return self._rows
 
 
+ALL_COLUMNS = sql.SQL("s.*")  # every series column: what _Subject.linked reads by default
+
+
 @dataclass(frozen=True)
 class _Subject:
     """What is linked to a series: a Suwayomi manga or a hand-placed download folder."""
@@ -54,11 +58,11 @@ class _Subject:
     label: str  # how messages name it
     held_name: str  # a held row's series name
     command: str  # `series link` naming it, before KAVITA_SERIES_ID
-    find: str  # SQL of its linked series' row: 1 parameter, the key; {columns} picks the series columns
+    find: sql.SQL  # SQL of its linked series' row: 1 parameter, the key; {columns} picks the series columns
     key: object
     write_link: Callable  # (conn, series_id): store its link, inside the caller's transaction
 
-    def linked(self, conn, columns="s.*"):
+    def linked(self, conn, columns=ALL_COLUMNS):
         return conn.execute(self.find.format(columns=columns), (self.key,)).fetchone()
 
 
@@ -74,7 +78,9 @@ def _manga_subject(manga):
         label=f"Suwayomi manga {manga['id']}",
         held_name=manga["title"],
         command=f"series link {manga['id']}",
-        find="SELECT {columns} FROM suwayomi_manga m JOIN series s ON s.id = m.series_id WHERE m.manga_id = %s",
+        find=sql.SQL(
+            "SELECT {columns} FROM suwayomi_manga m JOIN series s ON s.id = m.series_id WHERE m.manga_id = %s"
+        ),
         key=manga["id"],
         write_link=write,
     )
@@ -92,7 +98,7 @@ def _folder_subject(folder):
         label=f"download folder {folder!r}",
         held_name=folder.split("/")[1],
         command=f'series link --folder "{folder}"',
-        find="SELECT {columns} FROM download_folder f JOIN series s ON s.id = f.series_id WHERE f.folder = %s",
+        find=sql.SQL("SELECT {columns} FROM download_folder f JOIN series s ON s.id = f.series_id WHERE f.folder = %s"),
         key=folder,
         write_link=write,
     )
@@ -414,7 +420,7 @@ def link(cfg, conn, suwayomi, kavita, kavita_series_id, *, manga_id=None, folder
         raise workflow.Refused(str(e)) from None
     with db.transaction(conn):
         by_kavita = conn.execute("SELECT id FROM series WHERE kavita_series_id = %s", (kavita_series_id,)).fetchone()
-        by_manga = subject.linked(conn, "s.id, s.kavita_series_id, s.origin, s.admitted_at")
+        by_manga = subject.linked(conn, sql.SQL("s.id, s.kavita_series_id, s.origin, s.admitted_at"))
         if by_manga and by_manga["origin"] == "new" and by_manga["admitted_at"] is not None:
             msg = (
                 f"{subject.label} is linked to series {by_manga['id']}, a new series admitted under its own name: "

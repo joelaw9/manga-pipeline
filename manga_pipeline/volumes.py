@@ -47,16 +47,21 @@ def series_group(overrides, folder_name):
     return data.get("series_group") and ", ".join(_group_names(data["series_group"]))
 
 
+def _mapping(data):
+    """data, when it is a mapping; ValueError otherwise."""
+    if not isinstance(data, dict):
+        msg = f"overrides must be a YAML mapping, not {type(data).__name__}"
+        raise ValueError(msg)
+    return data
+
+
 def override_file(overrides, folder_name):
     """The series' override file as a checked mapping, None when it does not exist. OverrideError when malformed."""
     path = Path(overrides) / f"{folder_name}.yaml"
     if not errors.exists(path):
         return None
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        if not isinstance(data, dict):
-            msg = f"overrides must be a YAML mapping, not {type(data).__name__}"
-            raise ValueError(msg)
+        data = _mapping(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
         check_volumes(data.get("volumes"))
         if "series_group" in data:
             _group_names(data["series_group"])
