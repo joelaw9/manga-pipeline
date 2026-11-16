@@ -48,6 +48,46 @@ def differences(basis, rows, overrides, mangadex, platform=None):
     return out
 
 
+def cover_changes(basis, rows, overrides, mangadex, moved, states, taken, images):
+    """{published file id: ("insert", volume) | ("drop", None)} of the published main files whose volume cover should
+    change (SPEC "Retroactive updates"). moved: changes' result; states: {file id: cover_state} (every one known);
+    taken: the volumes whose cover an open chapter took; images: {volume: sha256} of the series' stored cover images.
+    A covered volume whose files hold none of its cover gets it in its lowest-numbered published file; a file holding
+    another volume's cover drops it, unless it is that file; every other file keeps what it holds. An insert recorded
+    unfit for the volume's current image is not made again."""
+    override = (overrides or {}).get("volumes") or {}
+    now = list(rows)
+    for i, r in enumerate(rows):
+        if _published(r) and r.key[1] in moved:
+            now[i] = dataclasses.replace(r, volume=moved[r.key[1]][0], volume_source=moved[r.key[1]][1])
+    published = sorted(
+        (i for i, r in enumerate(now) if _published(r) and r.kind == names.MAIN),
+        key=lambda i: (now[i].number, now[i].order),
+    )
+    volume = {now[i].key[1]: _fmt(now[i].volume) for i in published}
+    held = {fid: (states[fid] or "").removeprefix("volume:") for fid in volume if states[fid].startswith("volume:")}
+    chosen = {}
+    for v in naming.covered_volumes(basis, now, override, mangadex):
+        v = _fmt(v)
+        files = [fid for fid in (now[i].key[1] for i in published) if volume[fid] == v]
+        if v in taken or not files or any(held.get(fid) == v for fid in files):
+            continue
+        chosen[files[0]] = v
+    out = {}
+    for fid in volume:
+        if fid in chosen:
+            v = chosen[fid]
+            if held.get(fid) != v and not (v in images and states[fid] == f"unfit:{images[v]}"):
+                out[fid] = ("insert", v)
+        elif fid in held and held[fid] != volume[fid]:
+            out[fid] = ("drop", None)
+    return out
+
+
+def _fmt(volume):
+    return "" if volume is None else names.fmt_num(volume)
+
+
 def _reopened(basis, rows, ids, overrides, mangadex, platform):
     """{key: naming.Naming} of the rows ids, named as open rows beside the others as they are."""
     if not ids:

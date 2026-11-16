@@ -182,13 +182,18 @@ def naming_diff(cfg, args):
         ).fetchall()
         for series in series_rows:
             try:
-                queued, apart = rewrite.diff(ctx, series)
+                queued, wants, unknown, apart = rewrite.diff(ctx, series)
             except volumes.VolumeError as e:
                 print(f"series {series['id']} ({series['name']}): {e}")
                 continue
-            for path, old, new, target in queued:
+            if unknown:
+                print(f"series {series['id']}: covers unknown (some files' covers not read yet: export reads them)")
+            for path, old, new, target, cover in queued:
                 renamed = f" -> {target}" if target != path else ""
-                print(f"series {series['id']}: {path}: volume {old or '-'} -> {new}{renamed}")
+                change = f"volume {old or '-'} -> {new or '-'}{renamed}" if old != new else f"volume {old or '-'}"
+                print(f"series {series['id']}: {path}: {change}{f', {cover}' if cover else ''}")
+            for volume in wants:
+                print(f"series {series['id']}: volume {volume} cover wanted (intake fetches it)")
             for path, stored, now in apart:
                 print(f"series {series['id']}: {path}: volume {stored}, the sources say {now or 'none'} (not applied)")
 

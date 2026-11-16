@@ -102,10 +102,25 @@ def _report(conn):
     open_rewrites = conn.execute(f"SELECT count(*) FROM chapter WHERE {rewrite.OPEN_REWRITES}").fetchone()[0]
     if open_rewrites:
         lines.append(f"  rewrite chapters open: {open_rewrites}")
-    if not (rows or open_rewrites):
+    unknown = conn.execute("SELECT count(DISTINCT series_id) FROM published_file WHERE cover_state IS NULL").fetchone()[
+        0
+    ]
+    if unknown:  # read by export's next comparison; a series whose files cannot be read stays here, logged
+        lines.append(f"  series with published files whose cover is not known yet: {unknown}")
+    limit = config.cached()["workflow"]["attempt_limit"]
+    given_up = conn.execute(
+        """SELECT w.series_id, s.name, w.volume, w.last_error FROM volume_cover_wanted w
+        JOIN series s ON s.id = w.series_id WHERE w.attempts >= %s ORDER BY w.series_id, w.volume""",
+        (limit,),
+    ).fetchall()
+    for r in given_up:
+        lines.append(
+            f"  series {r['series_id']} ({r['name']}) volume {r['volume']} cover not fetched: {r['last_error']}"
+        )
+    if not (rows or open_rewrites or unknown or given_up):
         lines.append("  none")
     for r in rows:
-        stuck = r["pending_path"] is None or r["pending_attempts"] >= config.cached()["workflow"]["attempt_limit"]
+        stuck = r["pending_path"] is None or r["pending_attempts"] >= limit
         if r["pending_error"] and not stuck:
             lines.append(f"  file {r['id']} ({r['library_path']}): {r['pending_error']} (tried again by export)")
         elif r["pending_error"]:

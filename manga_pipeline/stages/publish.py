@@ -31,6 +31,8 @@ def run(ctx, chapter):
         return workflow.NeedsHuman(f"{target} is already in the library at another size; the staged file is gone")
     # else: the rename happened before a crash; carry on
 
+    cover = json.loads(chapter["convert_result"])["cover"]
+
     def record(conn):
         # The download's original measurements, which a later copy of the chapter is judged against (SPEC "Library
         # copies"); none for a chapter that has no page rows.
@@ -40,8 +42,8 @@ def run(ctx, chapter):
         conn.execute(
             """INSERT INTO published_file (library_path, series_id, identity, source, state, size, median_page_width,
                 strip_length, page_phashes, pages_in, comicinfo_series, comicinfo_volume, comicinfo_number,
-                comicinfo_title, comicinfo_date, origin, source_name, kind, volume_source)
-            VALUES (%s, %s, %s, %s, 'unconfirmed', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pipeline', %s, %s, %s)
+                comicinfo_title, comicinfo_date, origin, source_name, kind, volume_source, cover_state)
+            VALUES (%s, %s, %s, %s, 'unconfirmed', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pipeline', %s, %s, %s, %s)
             ON CONFLICT (library_path) DO UPDATE SET series_id = excluded.series_id, identity = excluded.identity,
                 source = excluded.source, parse_fields = NULL, state = excluded.state, size = excluded.size,
                 median_page_width = excluded.median_page_width, strip_length = excluded.strip_length,
@@ -50,7 +52,7 @@ def run(ctx, chapter):
                 comicinfo_volume = excluded.comicinfo_volume, comicinfo_number = excluded.comicinfo_number,
                 comicinfo_title = excluded.comicinfo_title, comicinfo_date = excluded.comicinfo_date,
                 origin = excluded.origin, source_name = excluded.source_name, kind = excluded.kind,
-                volume_source = excluded.volume_source""",
+                volume_source = excluded.volume_source, cover_state = excluded.cover_state""",
             (
                 library_path,
                 chapter["series_id"],
@@ -69,6 +71,7 @@ def run(ctx, chapter):
                 PurePosixPath(chapter["download_path"]).stem,
                 chapter["naming_kind"],
                 chapter["naming_volume_source"],
+                f"volume:{cover['volume']}" if cover else "none",  # the volume cover convert inserted
             ),
         )
         conn.execute(

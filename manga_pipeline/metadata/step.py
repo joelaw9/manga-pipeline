@@ -34,6 +34,10 @@ def run(ctx, clients):
         baseline_pass(ctx)
     except CHECK_FAILURES as e:
         log.warning("%s: baseline pass not completed: %s", ctx.part, e)
+    try:
+        covers.fetch_wanted(ctx)
+    except CHECK_FAILURES as e:  # MangaDex down or failing: tried again next run
+        log.warning("%s: wanted volume covers not fetched: %s", ctx.part, e)
     covers.clean(ctx)
     for series_id in check.due(ctx):
         try:

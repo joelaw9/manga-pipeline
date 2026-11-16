@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 
 @functools.cache
-def _scorer(kind, path):
+def loaded_scorer(kind, path):
     """1 loaded, GPU-checked scorer per library path for the process: the library and its CUDA context are made once,
     not per chapter. kind: the scorer class (vship.Scorer)."""
     return kind(path)
@@ -154,7 +154,7 @@ def _convert(ctx, chapter, edit, layout, aspect, scratch):
     if cover_row is not None:
         cover = {"data": covers.load(cfg, cover_row), "width": covers.width(chapter_plan)}
     tool_paths = {name: str(config.abs_path(cfg["tools"][name])) for name in tools.NAMES}
-    scorer = _scorer(vship.Scorer, config.abs_path(cfg["tools"]["vship"]))
+    scorer = loaded_scorer(vship.Scorer, config.abs_path(cfg["tools"]["vship"]))
     with image.pool(cfg["convert"]["workers"]) as workers:
         if cover is not None:  # before the route: an AVIF cover that passed can make the chapter AVIF
             cover["avif"] = image.encode_cover(

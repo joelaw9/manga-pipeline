@@ -263,11 +263,12 @@ def test_naming_diff_lists_the_rewrites_and_the_differences_apart(world):
     with closing(db.connect(world.cfg)) as conn:
         ctx = world.context(conn, "export")
         series = conn.execute("SELECT * FROM series WHERE origin = 'kavita'").fetchone()
-        queued, apart = rewrite.diff(ctx, series)
+        queued, wants, unknown, apart = rewrite.diff(ctx, series)
     assert queued == [
-        (f"library/{SERIES}/Vol.1 Ch.2.cbz", "1", "2", f"library/{SERIES}/Vol.1 Ch.2.cbz"),
-        (f"library/{SERIES}/Ch.3.cbz", None, "2", f"library/{SERIES}/Vol.2 Ch.3.cbz"),
+        (f"library/{SERIES}/Vol.1 Ch.2.cbz", "1", "2", f"library/{SERIES}/Vol.1 Ch.2.cbz", None),
+        (f"library/{SERIES}/Ch.3.cbz", None, "2", f"library/{SERIES}/Vol.2 Ch.3.cbz", None),
     ]
+    assert (wants, unknown) == ([], False), "export's comparisons read the files' covers; no image to want"
     assert apart == [], "no source volume to read again in a filename series"
     assert world.rows("SELECT count(*) FROM chapter WHERE kind = 'rewrite'") == [(0,)], "it writes nothing"
 

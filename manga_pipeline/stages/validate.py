@@ -229,12 +229,15 @@ def _volume_cover(ctx, chapter, download):
     named = chapter_names.resolve(ctx, _series(ctx, chapter), {chapter["id"]: download}).get(chapter["id"])
     if named is None or not named.opens_covered_volume:
         return None
+    volume = names.fmt_num(named.volume)
     taken = ctx.conn.execute(
         """SELECT 1 FROM volume_cover v JOIN chapter c ON c.id = v.chapter_id
-        WHERE c.series_id = %s AND v.volume = %s AND c.status != 'done'""",
-        (chapter["series_id"], names.fmt_num(named.volume)),
+        WHERE c.series_id = %(series)s AND v.volume = %(volume)s AND c.status != 'done'
+        UNION ALL SELECT 1 FROM published_file WHERE series_id = %(series)s
+            AND (cover_state = 'volume:' || %(volume)s OR pending_cover = 'volume:' || %(volume)s)""",
+        {"series": chapter["series_id"], "volume": volume},
     ).fetchone()
-    if taken:  # an open chapter of that volume took its cover first: it keeps it
+    if taken:  # an open chapter of that volume, or a published file, took its cover first: it keeps it
         return None
     found = covers.volume_cover(ctx, chapter["series_id"], named.volume)
     return found and (*found, names.fmt_num(named.volume))

@@ -326,20 +326,32 @@ def season_volumes(rows, main):
 
 
 def _opens_covered(basis, rows, main, vol, override, mangadex):
-    """Open rows that are the first (lowest-numbered) main chapter of a covered volume no settled chapter has: a volume
-    whose first chapter's volume came from MangaDex or the override, or is a filename volume confirmed by them."""
+    """Open rows that are the first (lowest-numbered) main chapter of a covered volume no settled chapter has."""
+    settled = {r.volume for r in rows if r.settled and r.volume is not None}
+    return {i for v, i in _covered_firsts(basis, rows, main, vol, override, mangadex).items()
+            if not rows[i].settled and v not in settled}  # fmt: skip
+
+
+def covered_volumes(basis, rows, override, mangadex):
+    """The covered volumes (SPEC "Volume covers") of rows as they stand: each main row's volume and volume source
+    (the retroactive comparison passes the published rows with the volumes they will hold)."""
+    main = sorted(
+        (i for i, r in enumerate(rows) if r.kind == names.MAIN), key=lambda i: (rows[i].number, rows[i].order)
+    )
+    vol = {i: (rows[i].volume, rows[i].volume_source) for i in main}
+    return set(_covered_firsts(basis, rows, main, vol, override, mangadex))
+
+
+def _covered_firsts(basis, rows, main, vol, override, mangadex):
+    """{volume: index of its first (lowest-numbered) main row} of the covered volumes: a volume whose first chapter's
+    volume came from MangaDex or the override, or is a filename volume confirmed by them."""
     confirmed = _cover_confirmed(basis, rows, main, vol, override, mangadex)
     first = {}
     for i in main:  # in number order
         v = vol[i][0]
         if v is not None and v not in first:
             first[v] = i
-    settled = {r.volume for r in rows if r.settled and r.volume is not None}
-    return {
-        i
-        for v, i in first.items()
-        if not rows[i].settled and v not in settled and (vol[i][1] in (MANGADEX, OVERRIDE) or i in confirmed)
-    }
+    return {v: i for v, i in first.items() if vol[i][1] in (MANGADEX, OVERRIDE) or i in confirmed}
 
 
 def _cover_confirmed(basis, rows, main, vol, override, mangadex):

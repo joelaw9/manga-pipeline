@@ -174,6 +174,12 @@ class Kavita:
         }
         self._call("POST", "/api/reader/mark-multiple-read", json=body)
 
+    def refresh_covers(self, library_id, series_id):
+        """Kavita regenerates the series' chapter and volume cover images (POST /api/Series/refresh-metadata, forced):
+        a library scan keeps a re-read chapter's old one. The series' locked cover stays."""
+        body = {"libraryId": library_id, "seriesId": series_id, "forceUpdate": True}
+        self._call("POST", "/api/Series/refresh-metadata", json=body)
+
     def series_folder(self, series_id):
         """The single folder holding the series' files, as a local path. FolderError when its files lie in no folder,
         in 2 or more, or directly in one of a library's own folders. Never Kavita's folderPath: for a series under a
