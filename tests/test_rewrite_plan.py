@@ -1,6 +1,7 @@
 """Which published files' volumes change (SPEC "Retroactive updates"): only a fill of a published file holding no
 volume, or its override range's volume; a source moving or dropping a volume changes nothing and is listed."""
 
+import dataclasses
 import json
 
 import pytest
@@ -15,13 +16,13 @@ from tests.timing import budget
 MAIN, SIDE = names.MAIN, names.SIDE
 
 
-def pub(file_id, number, volume, source, kind=MAIN, *, season=None):
+def pub(file_id, number, volume, source, kind=MAIN):
     return Row(
         key=("published", file_id),
         settled=True,
         kind=kind,
         number=float(number),
-        season=season,
+        season=None,
         src_volume=None,
         volume=volume,
         volume_source=source,
@@ -84,7 +85,7 @@ def test_an_override_range_moves_a_published_volume():
 
 @budget(load="pure")
 def test_an_override_range_does_not_reach_a_season_chapter():
-    rows = [pub(1, 1, 1, "season tags", season=1), pub(2, 2, 1, "season tags", season=1)]
+    rows = [dataclasses.replace(pub(n, n, 1, "season tags"), season=1) for n in (1, 2)]
     assert rewrite_plan.changes("season tags", rows, {"volumes": {2: "2"}}, {}) == {}, "a season's numbers restart"
 
 

@@ -14,7 +14,7 @@ from manga_pipeline.metadata import naming, rewrite_plan
 
 from tests import test_better_copies as copies
 from tests.test_cover_rewrites import members, png, store_image
-from tests.test_naming_resolver import new, settled
+from tests.test_naming_resolver import new, new_side, settled, settled_side
 from tests.test_rewrites import SERIES, crash_after, files, library, progress, read, scan
 from tests.timing import budget
 from tests.world import World, cbz, comicinfo
@@ -180,7 +180,7 @@ def test_a_token_that_is_no_chapter_is_refused(token):
 
 @budget(load="pure", seconds=1)
 def test_an_edited_volume_names_the_chapters_around_it_and_a_side_storys_title_keeps_its_label():
-    rows = [settled(1, 1, "mangadex"), new(2), new(3), new(1, kind=names.SIDE)]
+    rows = [settled(1, 1, "mangadex"), new(2), new(3), new_side(1)]
     edits: dict[tuple, naming.Edit] = {naming.edit_key(names.MAIN, None, 2): naming.Edit(None, 3)}
     edits[naming.edit_key(names.SIDE, None, 1)] = naming.Edit("Beach Day", None)
     got = {(k[2], k[1]): v for k, v in naming.resolve("mangadex", rows, None, {"3": "3"}, edits=edits).items()}
@@ -218,7 +218,7 @@ def test_a_same_name_file_is_the_rewritten_one_only_with_the_new_title(tmp_path,
 
 @budget(load="pure", seconds=1)
 def test_edit_changes_apply_an_edit_and_restore_a_removed_one():
-    rows = [settled(1, 1, "filename"), settled(1, 2, "side", kind=names.SIDE)]
+    rows = [settled(1, 1, "filename"), settled_side(1, 2)]
     rows = [dataclasses.replace(r, key=("published", i)) for i, r in enumerate(rows, 1)]
     edits = {naming.edit_key(names.SIDE, None, 1): naming.Edit("Beach Day", 3)}
     got = rewrite_plan.edit_changes(rows, edits, {1: {"volume": "2", "volume_source": "mangadex"}})
