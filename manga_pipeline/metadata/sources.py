@@ -140,7 +140,9 @@ class MangaDex:
 
     def cover_image(self, md_id, file_name):
         url = f"{MANGADEX_UPLOADS}/covers/{md_id}/{urllib.parse.quote(file_name)}"
-        return self.service.request("GET", url, headers={"Accept": "image/*"}, timeout=IMAGE_TIMEOUT).body
+        return self.service.request(
+            "GET", url, headers={"Accept": "image/*"}, retry=http.Retry(timeout=IMAGE_TIMEOUT)
+        ).body
 
     def _get(self, path):
         return self.service.request("GET", MANGADEX + path).json()
@@ -159,7 +161,9 @@ class AniList:
 
     def cover_image(self, url):
         """The media's `coverImage.extraLarge` image (served by AniList's image host)."""
-        return self.service.request("GET", url, headers={"Accept": "image/*"}, timeout=IMAGE_TIMEOUT).body
+        return self.service.request(
+            "GET", url, headers={"Accept": "image/*"}, retry=http.Retry(timeout=IMAGE_TIMEOUT)
+        ).body
 
     def _query(self, query, variables):
         reply = self.service.request("POST", ANILIST, json={"query": query, "variables": variables}).json()

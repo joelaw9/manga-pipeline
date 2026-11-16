@@ -28,6 +28,19 @@ USER_AGENT = (
 BODY_SHOWN = 200  # characters of an error reply shown in its message
 
 
+@dataclass(frozen=True)
+class Retry:
+    """How a request is tried: its timeout in seconds, whether a timeout is retried, and how many retries a failure
+    gets (0: sent once)."""
+
+    timeout: float = 60
+    retry_timeout: bool = True
+    retries: int = RETRIES
+
+
+RETRY = Retry()  # every request's unless it names its own
+
+
 class HttpError(Exception):
     """The service answered with a status that is a failure of the request (SPEC "Services")."""
 
@@ -39,7 +52,7 @@ class HttpError(Exception):
 
 
 class HttpTimeoutError(Exception):
-    """A request sent with retry_timeout=False timed out; the service is not marked unreachable."""
+    """A request sent with Retry(retry_timeout=False) timed out; the service is not marked unreachable."""
 
 
 class NotJsonError(HttpError):
@@ -95,11 +108,11 @@ class Service:
         self._down = reason
         return Unreachable(self.name, reason)
 
-    def request(self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True, retries=RETRIES):
-        """Send 1 request, retried as SPEC "Services" says, and return its Response. Raises Unreachable (and marks
-        the service), HttpError, or HttpTimeoutError for a timeout when retry_timeout is false. retries=0 sends it
-        once: a 5xx reply other than UNREACHABLE_STATUS is then an HttpError. ValueError for a URL that is
-        not http or https: a wrong setting, never retried."""
+    def request(self, method, url, *, headers=None, json=None, retry=RETRY):
+        """Send 1 request, retried as SPEC "Services" and `retry` say, and return its Response. Raises Unreachable (and
+        marks the service), HttpError, or HttpTimeoutError for a timeout when retry.retry_timeout is false.
+        retry.retries=0 sends it once: a 5xx reply other than UNREACHABLE_STATUS is then an HttpError. ValueError for a
+        URL that is not http or https: a wrong setting, never retried."""
         if self._down is not None:
             raise Unreachable(self.name, self._down)
         shown = redact_url(url)
@@ -111,12 +124,14 @@ class Service:
         if json is not None:
             data = jsonlib.dumps(json).encode()
             headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        timeout, retries = retry.timeout, retry.retries
         for attempt in range(retries + 1):
             self._wait_for_gap()
             wait = 2**attempt * 2
             failed = None  # (status, body) of an HTTP failure; None for a network one
             try:
-                return _send(self.name, method, url, shown, headers, data, timeout)
+                return _send(self.name, request, shown, timeout)
             except urllib.error.HTTPError as e:
                 failed = (e.code, _error_body(e))
                 if e.code != HTTPStatus.TOO_MANY_REQUESTS and e.code < HTTPStatus.INTERNAL_SERVER_ERROR:
@@ -130,13 +145,13 @@ class Service:
                     wait = asked
             except (OSError, http.client.HTTPException) as e:
                 timed_out = isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError)
-                if timed_out and not retry_timeout:
+                if timed_out and not retry.retry_timeout:
                     msg = f"{method} {shown} timed out after {timeout} s"
                     raise HttpTimeoutError(msg) from None
                 problem = f"timed out after {timeout} s" if timed_out else f"{type(e).__name__}: {e}"
             if attempt < retries:
-                retry = f"retry {attempt + 1} of {retries} in {wait} s"
-                log.info("%s: %s from %s; %s", self.name, problem, shown, retry)
+                next_try = f"retry {attempt + 1} of {retries} in {wait} s"
+                log.info("%s: %s from %s; %s", self.name, problem, shown, next_try)
                 time.sleep(wait)
         if failed is not None and failed[0] not in UNREACHABLE_STATUS:
             raise HttpError(failed[0], url, failed[1])
@@ -151,8 +166,7 @@ class Service:
         self._last = time.monotonic()
 
 
-def _send(service, method, url, shown, headers, data, timeout):
-    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+def _send(service, request, shown, timeout):
     start = time.monotonic()
     outcome, size = None, 0
     try:
@@ -167,7 +181,7 @@ def _send(service, method, url, shown, headers, data, timeout):
         outcome = type(e).__name__
         raise
     finally:
-        log.debug("%s %s -> %s %d B %.3f s", method, shown, outcome, size, time.monotonic() - start)
+        log.debug("%s %s -> %s %d B %.3f s", request.get_method(), shown, outcome, size, time.monotonic() - start)
 
 
 def _error_body(error):

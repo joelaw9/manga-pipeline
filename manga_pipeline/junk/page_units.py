@@ -181,7 +181,7 @@ def _unpack_edges(packed):
 # ---------------------------------------------------------------- size and text rules (no decode)
 
 
-def page_candidates(sizes, aspects, banded, joined, cfg=BAND, spread_tolerance=END_PAGES["spread_tolerance"]):
+def page_candidates(sizes, aspects, banded, joined, cfg=BAND):
     """Edge pages (of the content pages, `sizes` in order) whose size no middle page of the chapter has: another width
     ("width") or an aspect outside the middle pages' range ("tall" / "short"). Never: band pages, joined pages,
     spreads. Returns [(content index, why)]."""
@@ -190,6 +190,7 @@ def page_candidates(sizes, aspects, banded, joined, cfg=BAND, spread_tolerance=E
     shape = strip.series_shape(aspects)
     width = Counter(w for w, _ in sizes).most_common(1)[0][0]
     wtol, margin = cfg["page_review_width_tolerance"], cfg["page_review_aspect_margin"]
+    spread_tolerance = END_PAGES["spread_tolerance"]
     edge = strip.edge_indexes(len(sizes))
     mid = [
         i

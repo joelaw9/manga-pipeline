@@ -95,14 +95,13 @@ class CannedService(http.Service):
         self.sent = []
         self.options = []  # (timeout, retry_timeout) per request
 
-    def request(self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True, retries=None):
-        del retries  # the real request's parameter, passed by keyword; the fake does not retry
+    def request(self, method, url, *, headers=None, json=None, retry=http.RETRY):
         if self._down is not None:
             raise Unreachable(self.name, self._down)
         parts = urllib.parse.urlsplit(url)
         path = parts.path + (f"?{parts.query}" if parts.query else "")
         self.sent.append((method, path, json))
-        self.options.append((timeout, retry_timeout))
+        self.options.append((retry.timeout, retry.retry_timeout))
         self.headers = headers
         for prefix, answer in self.answers.items():
             if path.startswith(prefix):
