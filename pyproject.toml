@@ -64,6 +64,12 @@ pythonVersion = "3.13"
 pythonPlatform = "Windows"  # CI's platform; CI and the merge hook also run --pythonplatform Linux (the LXC)
 include = ["manga_pipeline", "tests"]
 
+[tool.coverage.run]
+branch = true
+parallel = true
+patch = ["subprocess"]
+source = ["manga_pipeline"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider"
