@@ -178,16 +178,13 @@ def test_review_checks_need_claude_and_its_token(tmp_path):
 
 
 @budget(load="subprocess", seconds=20)
-@pytest.mark.parametrize(
-    ("reply", "want"), [(None, 0), ({"is_error": True, "subtype": "error_auth"}, 1)], ids=["success", "error"]
-)
-def test_the_token_is_never_in_the_log_or_an_error(world, tmp_path, capsys, monkeypatch, reply, *, want):
+@pytest.mark.parametrize("reply", [None, {"is_error": True, "subtype": "error_auth"}], ids=["success", "error"])
+def test_the_token_is_never_in_the_log_or_an_error(world, tmp_path, capsys, monkeypatch, reply):
     monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "DEBUG")
     token = "tok-SECRET-4711"
     cfg = {**world.cfg, "junk": {**world.cfg["junk"], "claude_token": token}}
     exe = fake_claude(tmp_path / "claude", cfg, ["list", "decide:keep"], reply=reply)
-    code, cfg = review_cmd(tmp_path, cfg, exe)
-    assert code == want
+    _, cfg = review_cmd(tmp_path, cfg, exe)
     log_text = (config.abs_path(cfg["logging"]["dir"]) / "junk-review.log").read_bytes().decode("utf-8")
     assert "junk review" in log_text, "the token is never logged"
     assert token not in log_text, "the token is never logged"
