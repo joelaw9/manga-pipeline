@@ -8,7 +8,7 @@ import yaml
 
 from manga_pipeline import config, db, fleet, preflight, workflow
 
-from tests.builders import add_chapter, add_series, adopted, problem_text
+from tests.builders import WinOSError, add_chapter, add_series, adopted, present, problem_text
 from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
@@ -106,10 +106,10 @@ def test_a_winerror_59_share_drop_costs_no_attempt(cfg):
         row = workflow.claim(ctx, ("junk",))
 
         def stage(_ctx, _chapter):
-            error = OSError(22, "An unexpected network error occurred")
+            error = WinOSError(22, "An unexpected network error occurred")
             error.winerror = 59
             raise error
 
         assert isinstance(workflow.work(ctx, row, stage), workflow.Unreachable)
         after = conn.execute("SELECT status, attempts FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
-    assert tuple(after) == ("ready", 0), "a Windows share drop is the share unreachable, not a failed attempt"
+    assert tuple(present(after)) == ("ready", 0), "a Windows share drop is the share unreachable, not a failed attempt"

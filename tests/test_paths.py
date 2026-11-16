@@ -6,6 +6,7 @@ import json
 import sys
 from contextlib import closing
 from pathlib import Path
+from typing import LiteralString
 
 import pytest
 
@@ -22,7 +23,7 @@ if sys.platform == "win32":
     import _winapi
 
 # Every stored path of the step 0 inventory (agent-workspace/progress/step0e-path-inventory.md, items 1-8).
-STORED = [
+STORED: list[LiteralString] = [
     "SELECT download_path FROM chapter",
     "SELECT staged_path FROM chapter",
     "SELECT library_path FROM chapter",

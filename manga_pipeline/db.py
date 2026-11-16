@@ -69,7 +69,7 @@ class Row(tuple):
             raise IndexError(msg)
         return tuple.__getitem__(self, key)
 
-    def keys(self):
+    def keys(self) -> list[str]:
         return list(self._keys)
 
     def __eq__(self, other):

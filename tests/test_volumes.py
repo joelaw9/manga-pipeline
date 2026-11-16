@@ -6,6 +6,7 @@ import pytest
 
 from manga_pipeline import chapter_names, config, export, intake, process, volumes
 
+from tests.builders import present
 from tests.timing import budget
 from tests.world import World, cbz
 from tests.world import comicinfo as ci
@@ -28,7 +29,7 @@ def world_overrides(world):
 )
 def test_override_ranges_as_the_bulk_converter_reads_them(tmp_path, number, want):
     write_override(tmp_path, "Solo Leveling", 'layout: strip\nvolumes: {0: "-3", 3: "4", 1: "6-65", 2: "66-"}\n')
-    ranges = volumes.override_file(tmp_path, "Solo Leveling")["volumes"]
+    ranges = present(volumes.override_file(tmp_path, "Solo Leveling"))["volumes"]
     assert volumes.override_volume(ranges, float(number)) == want
 
 

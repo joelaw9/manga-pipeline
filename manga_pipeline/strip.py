@@ -283,7 +283,7 @@ def render_rows(pages, width, start, end, cache=None):
     return out
 
 
-def plan_cuts(length, gaps, cfg=RESTITCH):
+def plan_cuts(length, gaps, cfg: Mapping[str, float] = RESTITCH):
     """Choose page boundaries over a strip of `length` px with gap candidates [(center, strength)].
     Every page within [min_page, max_page]; prefer lengths near the middle and stronger gaps; where no
     gap fits, cut through the art at exactly max_page — unless that would leave a remainder under min_page,
@@ -340,7 +340,7 @@ def plan_cuts(length, gaps, cfg=RESTITCH):
     return cuts, sorted(c for c in cuts if c in forced)
 
 
-def cut_strip(height, gaps, removed, cfg=RESTITCH):
+def cut_strip(height, gaps, removed, cfg: Mapping[str, float] = RESTITCH):
     """{"kept", "cuts", "forced", "length"} of a strip of `height` px with the removed ranges ([{"start", "end"}])
     taken out and the rest cut into pages on its gaps (plan_cuts). Also run again once a tail pass drops more
     pieces."""
@@ -586,7 +586,7 @@ def _content_indexes(pages):
     return [i for i, p in enumerate(pages) if not archive.is_cover_name(Path(str(p)).name)]
 
 
-def band_pages(pages, sizes, shape, cfg=SLICE_REPAIR):
+def band_pages(pages, sizes, shape, cfg: Mapping[str, float] = SLICE_REPAIR):
     """Indexes of the pages a credit band can sit on, the pages the band scan decodes: non-cover pages taller than the
     series shape (h > w * shape * (1 + band_tolerance)), anywhere in the chapter (Akuyaku Kizoku ch12/13: a Reset Scans
     ad on page 2). Sizes only; a page becomes a band page only when the scan finds a band on it."""

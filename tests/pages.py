@@ -68,7 +68,7 @@ def png(im):
 
 def webp(im, *, lossless=False, extended=False):
     """Lossy (VP8) or lossless (VP8L) WebP; extended=True adds an ICC profile, forcing the VP8X container."""
-    kw = {"lossless": True} if lossless else {"quality": 80}
+    kw: dict[str, object] = {"lossless": True} if lossless else {"quality": 80}
     if extended:
         kw["icc_profile"] = bytes(132)
     return encode(im, "WEBP", **kw)

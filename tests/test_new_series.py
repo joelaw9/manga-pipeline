@@ -5,6 +5,7 @@ test_new_series_publish.py)."""
 
 from contextlib import closing
 
+import psycopg.sql
 import pytest
 
 from manga_pipeline import config, db, discovery, identify, intake, process, workflow
@@ -247,7 +248,9 @@ def test_series_only_names_a_series_by_any_of_its_names_in_sql_and_python(world,
     with closing(db.connect(world.cfg)) as conn:
         sid = one(
             conn,
-            f"INSERT INTO series (name, origin, {column}) VALUES ('Base', 'new', 'Wanted') RETURNING id"
+            psycopg.sql.SQL(
+                "INSERT INTO series (name, origin, {}) VALUES ('Base', 'new', 'Wanted') RETURNING id"
+            ).format(psycopg.sql.Identifier(column))
             if column != "name"
             else "INSERT INTO series (name, origin) VALUES ('Wanted', 'new') RETURNING id",
         )

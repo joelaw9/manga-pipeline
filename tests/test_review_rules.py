@@ -12,7 +12,7 @@ import pytest
 from manga_pipeline import archive, config, db, discovery, kavita_link, retention, workflow
 from manga_pipeline.junk import candidates, review_run
 
-from tests.builders import add_chapter, add_series, adopted, one, site_cfg
+from tests.builders import WinFileNotFoundError, add_chapter, add_series, adopted, one, site_cfg
 from tests.timing import budget
 from tests.world import World
 
@@ -80,7 +80,7 @@ def test_a_dropped_smb_share_is_not_a_file_already_gone(tmp_path, monkeypatch):
     assert not workflow.exists(tmp_path / "gone.cbz")
 
     def dropped(_path, *_a, **_k):
-        error = FileNotFoundError(errno.ENOENT, "The network name cannot be found")
+        error = WinFileNotFoundError(errno.ENOENT, "The network name cannot be found")
         error.winerror = 67
         raise error
 

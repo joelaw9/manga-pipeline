@@ -593,7 +593,7 @@ def layout(height, spans, width=1000):
     return su.Layout({"height": height, "width": width, "spans": spans, "gaps": gaps})
 
 
-def band(start, end, decision=1, where="tail", why="match"):
+def band(start, end, decision: int | None = 1, where="tail", why="match"):
     return {"start": start, "end": end, "where": where, "decision": decision, "why": why}
 
 

@@ -11,11 +11,29 @@ from manga_pipeline import config, db, fleet, lock, state, workflow
 from tests import pg
 
 
+class WinOSError(OSError):
+    """An OSError carrying winerror on every platform, as Windows reports one (a dropped share's code)."""
+
+    winerror: int | None
+
+
+class WinFileNotFoundError(FileNotFoundError):
+    """A FileNotFoundError carrying winerror on every platform, as Windows reports one (a dropped share's code)."""
+
+    winerror: int | None
+
+
 def one(conn, sql, params=()):
     """The first column of the query's 1st row, asserting there is one."""
     row = conn.execute(sql, params).fetchone()
     assert row is not None, f"a row from: {sql}"
     return row[0]
+
+
+def present(value):
+    """value, asserting it is not None."""
+    assert value is not None, "a value is present"
+    return value
 
 
 def problem_text(problem):
@@ -127,11 +145,13 @@ def run_part(cfg, part_module):
 def claimed(conn, ctx, chapter_id):
     """The chapter claimed by ctx's run as workflow.claim claims it (owner, next count), for a test calling a stage."""
     with db.transaction(conn):
-        return conn.execute(
+        row = conn.execute(
             """UPDATE chapter SET status = 'claimed', claimed_by = %s, claim_count = claim_count + 1
             WHERE id = %s RETURNING *""",
             (ctx.owner, chapter_id),
         ).fetchone()
+    assert row is not None, f"chapter {chapter_id} is claimed"
+    return row
 
 
 @contextmanager

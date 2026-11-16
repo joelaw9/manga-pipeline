@@ -16,7 +16,7 @@ from manga_pipeline import comicinfo, config, db, export, intake, process
 from manga_pipeline.metadata import merge, tags
 from manga_pipeline.stages import comicinfo as stage
 
-from tests.builders import settle
+from tests.builders import present, settle
 from tests.fakes.suwayomi import cbz
 from tests.timing import budget
 from tests.world import World
@@ -89,7 +89,7 @@ def test_a_published_file_holds_the_series_fields_its_source_and_its_pages(world
     )
     assert got["Manga"] == "YesAndRightToLeft", "a page series with no left-to-right genre reads right to left"
     root = ET.fromstring(xml)
-    pages = root.find("Pages").findall("Page")
+    pages = present(root.find("Pages")).findall("Page")
     assert got["PageCount"] == str(len(pages)) == "3"
     assert got["BlackAndWhite"] in ("Yes", "No")
     assert all(p.get("ImageWidth") and p.get("ImageSize") for p in pages), "each page measured"

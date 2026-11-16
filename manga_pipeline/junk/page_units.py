@@ -15,6 +15,7 @@ Constants are the bulk converter's, frozen: the stored decisions were made with 
 
 import base64
 from collections import Counter
+from collections.abc import Mapping
 from types import MappingProxyType
 
 import numpy as np
@@ -83,7 +84,7 @@ def _sharpest_row(g, y, step):
     return y0 + int(np.abs(np.diff(rows, axis=0)).mean(axis=1).argmax())
 
 
-def find_band(im, aspect, where, cfg=BAND):
+def find_band(im, aspect, where, cfg: Mapping[str, float] = BAND):
     """A credit band stitched onto the top or bottom of a page taller than the series shape: cut at the gutter nearest
     the naive cut within band_search of the page height, else at the strongest seam (seam_score >= max_seam_score)
     nearest it; none -> None (never cut through art). The band is at least band_min_px and not uniform; one under

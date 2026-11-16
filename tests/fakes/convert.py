@@ -14,6 +14,7 @@ process run as a world (tests/world_run.py).
 """
 
 import shutil
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import ClassVar
@@ -26,7 +27,7 @@ from manga_pipeline.convert import image, tools, vship
 REAL_SCORER = vship.Scorer  # taken at import, before install replaces it
 CALLS = []
 DEFAULT_SCORE = 90.0
-SCORE = [lambda _ref, _dec: DEFAULT_SCORE]  # 1-element holder: tests replace SCORE[0]
+SCORE: list[Callable[..., float]] = [lambda _ref, _dec: DEFAULT_SCORE]  # 1-element holder: tests replace SCORE[0]
 
 
 def _tool(path):

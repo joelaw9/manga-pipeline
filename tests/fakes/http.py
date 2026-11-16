@@ -35,7 +35,7 @@ def headers(values=None):
 class Reply:
     """What urllib.request.urlopen returns: a context manager with status, headers and read()."""
 
-    def __init__(self, body=b"{}", status=200, header_values=None):
+    def __init__(self, body: object = b"{}", status=200, header_values=None):
         self.status = status
         self.headers = headers({"Content-Type": "application/json", **(header_values or {})})
         self._body = body if isinstance(body, bytes) else json.dumps(body).encode()

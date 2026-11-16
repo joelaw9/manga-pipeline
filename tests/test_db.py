@@ -19,7 +19,7 @@ import yaml
 from manga_pipeline import cli, config, db
 
 from tests import pg
-from tests.builders import one
+from tests.builders import one, present
 from tests.timing import budget
 
 SHIPPED = db.SCHEMA
@@ -64,10 +64,12 @@ def test_new_database_has_every_table_and_an_id(tmp_path):
 def test_settings_are_in_effect(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
         assert conn.autocommit, "every write goes in an explicit transaction()"
-        encoding, collate, ctype = conn.execute(
-            "SELECT pg_encoding_to_char(encoding), datcollate, datctype FROM pg_database WHERE datname = %s",
-            (conn.info.dbname,),
-        ).fetchone()
+        encoding, collate, ctype = present(
+            conn.execute(
+                "SELECT pg_encoding_to_char(encoding), datcollate, datctype FROM pg_database WHERE datname = %s",
+                (conn.info.dbname,),
+            ).fetchone()
+        )
         assert (encoding, collate, ctype) == ("UTF8", "C", "C"), "UTF-8 with bytewise text order"
         isolation = one(conn, "SHOW default_transaction_isolation")
         assert isolation == "read committed", "a write transaction sees what committed before its write lock"
@@ -351,7 +353,7 @@ def test_a_row_is_a_sequence_with_keys_as_sqlite3_row_is(rows):
 def test_rows_build_a_dict_as_sqlite3_rows_do(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
         pairs = dict(conn.execute("SELECT key, value FROM meta").fetchall())
-        row = conn.execute("SELECT key, value FROM meta").fetchone()
+        row = present(conn.execute("SELECT key, value FROM meta").fetchone())
     assert set(pairs) == {"database_id"}, "dict(rows) of 2-column rows maps the 1st column to the 2nd"
     assert dict(row) == {"key": "database_id", "value": row["value"]}, "dict(row) maps names to values"
 

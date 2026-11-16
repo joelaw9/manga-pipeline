@@ -16,6 +16,7 @@ from manga_pipeline import archive, images
 from manga_pipeline.convert import covers, image, pages, plan, tools
 
 from tests import pages as fx
+from tests.builders import present
 from tests.convert_pages import NO_EDIT, Chapter, colour, gray, jpeg, png, webp
 from tests.fakes import convert as fake
 from tests.timing import budget
@@ -29,7 +30,7 @@ def score_by_q(scores):
     """A fake score from the encode quality in the decode's name (<stem>.q<Q>.png): scores[q], else 90."""
 
     def f(_ref, dec):
-        return scores.get(int(re.search(r"\.q(\d+)\.png$", dec.name).group(1)), 90.0)
+        return scores.get(int(present(re.search(r"\.q(\d+)\.png$", dec.name)).group(1)), 90.0)
 
     return f
 

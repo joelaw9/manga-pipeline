@@ -14,6 +14,7 @@ from manga_pipeline import config
 from manga_pipeline.clients import http, suwayomi
 from manga_pipeline.errors import Unreachable
 
+from tests.builders import present
 from tests.fakes.http import CannedService, Clock, Each, Reply, Urlopen
 from tests.timing import budget
 
@@ -122,7 +123,7 @@ def test_library_manga_of_an_empty_library_is_empty():
 @budget(load="fs")
 def test_manga_by_id():
     s, service = client(recorded("manga"))
-    assert s.manga(23)["title"].startswith("I, Who Have")
+    assert present(s.manga(23))["title"].startswith("I, Who Have")
     assert sent_query(service)[1] == {"id": 23}
 
 

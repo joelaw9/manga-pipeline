@@ -10,6 +10,7 @@ from PIL import Image
 
 from manga_pipeline.junk import logo_units, marks
 
+from tests.builders import present
 from tests.timing import budget
 from tests.world import logo_page
 
@@ -57,7 +58,7 @@ def every(_logo):
 
 @budget(0.5, load="pure")
 def test_a_gray_mark_page_gives_its_logo_and_a_colour_page_none():
-    got = logo_units.measure(3, page_rgb())
+    got = present(logo_units.measure(3, page_rgb()))
     assert got["page"] == 3, "the plain-margin badge is a blankable logo"
     assert got["ring_frac"] >= marks.RING_FRAC, "the plain-margin badge is a blankable logo"
     (x0, y0, x1, y1), (tx0, ty0, tx1, ty1) = got["box"], got["tight"]

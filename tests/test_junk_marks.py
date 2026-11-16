@@ -183,7 +183,7 @@ def test_padded_box_is_clamped_to_the_page(badge, bbox, box):
 @pytest.mark.parametrize(("spread", "found"), [(41, True), (40, False)], ids=["spread-41", "spread-40"])
 def test_strong_pixels_have_a_channel_spread_over_40(spread, found):
     """A badge coloured (255, 255 - spread, 255): strongly coloured only when the spread is > 40."""
-    m = measured(badge_page(80, 90, 120, 110, (255, 255 - spread, 255)), (60, 60, 140, 140))
+    m = marks.measure(badge_page(80, 90, 120, 110, (255, 255 - spread, 255)), (60, 60, 140, 140))
     assert (m is not None) is found
 
 

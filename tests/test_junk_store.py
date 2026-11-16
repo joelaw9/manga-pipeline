@@ -12,7 +12,7 @@ from manga_pipeline import cli, db, images, names
 from manga_pipeline.convert import record_reader
 from manga_pipeline.junk import candidates, frames, importing, marks, store
 
-from tests.builders import config_file, one, site_cfg
+from tests.builders import config_file, one, present, site_cfg
 from tests.timing import budget
 from tests.world import bulk_record
 
@@ -70,9 +70,9 @@ def test_lookup_order_is_series_keep_series_junk_global_keep_global_junk(conn):
         decision("S", "block", sig((flip(T, 2),)), "junk"),
         decision("S", "block", sig((flip(T, 3),)), "keep"),
     )
-    got = store.Decisions(conn, "S").decide("block", ((T,), 1.0))
+    got = present(store.Decisions(conn, "S").decide("block", ((T,), 1.0)))
     assert (got["series_key"], got["verdict"]) == ("S", "keep"), "the series' keep decides first"
-    other = store.Decisions(conn, "Other").decide("block", ((T,), 1.0))
+    other = present(store.Decisions(conn, "Other").decide("block", ((T,), 1.0)))
     assert (other["series_key"], other["verdict"]) == ("", "keep"), "for another series, a global keep beats junk"
 
 
@@ -83,7 +83,7 @@ def test_newest_decision_wins_within_its_rank(conn):
         decision("S", "block", sig(), "junk", at="2026-11-01T00:00:00+00:00", source="old"),
         decision("S", "block", sig((flip(T, 1),)), "junk", at="2026-11-02T00:00:00+00:00", source="new"),
     )
-    assert store.Decisions(conn, "S").decide("block", ((T,), 1.0))["source"] == "new", "newest first"
+    assert present(store.Decisions(conn, "S").decide("block", ((T,), 1.0)))["source"] == "new", "newest first"
 
 
 @budget(load="db")
@@ -99,7 +99,7 @@ def test_a_newer_junk_of_one_key_does_not_beat_an_older_keep_of_another(conn, de
         decision("S", "block", sig((a,)), "junk", decider=decider, at="2026-11-02T00:00:00+00:00", source="junk a"),
     )
     assert not images.matches(((b,), 1.0), ((a,), 1.0)), "b and a are apart"
-    assert store.Decisions(conn, "S").decide("block", ((x,), 1.0))["source"] == "keep b", "x stays kept"
+    assert present(store.Decisions(conn, "S").decide("block", ((x,), 1.0)))["source"] == "keep b", "x stays kept"
 
 
 @budget(load="db")
@@ -256,6 +256,7 @@ def test_bulk_store_import_maps_verdicts_scope_and_kinds_and_reads_the_wal(conn,
     assert rows[("", "logo")]["verdict"] == "junk", "a global mark approval comes over as a global logo junk"
     assert rows[("S", "logo")]["verdict"] == "keep", "a series mark keep stays the series'"
     back = store.parse_key("logo", rows[("", "logo")]["key"])
+    assert isinstance(back, marks.Template), "a logo key is a template"
     assert back.size == (40, 20), "the key is the stored template"
     assert marks.same_variant(back, logo()), "the key is the stored template"
     assert all(r["decider"] == "import" for r in rows.values()), "decider import"
@@ -360,14 +361,18 @@ def test_a_pipeline_source_brings_its_deciders_and_a_later_store_import_leaves_t
         "the source is only read"
     )
     win.close()
-    row = lxc.execute(
-        "SELECT * FROM junk_decision WHERE series_key = 'S' AND kind = 'block' AND key = %s", (sig(),)
-    ).fetchone()
+    row = present(
+        lxc.execute(
+            "SELECT * FROM junk_decision WHERE series_key = 'S' AND kind = 'block' AND key = %s", (sig(),)
+        ).fetchone()
+    )
     assert (row["verdict"], row["decider"], row["source"]) == ("keep", "claude", "r1"), "claude's row replaces import"
     importing.run(lxc, importing.read_store(tmp_path / "junk.sqlite3"))
-    row = lxc.execute(
-        "SELECT * FROM junk_decision WHERE series_key = 'S' AND kind = 'block' AND key = %s", (sig(),)
-    ).fetchone()
+    row = present(
+        lxc.execute(
+            "SELECT * FROM junk_decision WHERE series_key = 'S' AND kind = 'block' AND key = %s", (sig(),)
+        ).fetchone()
+    )
     assert row["decider"] == "claude", "a later store import leaves the pipeline-made row"
     lxc.close()
 
@@ -546,7 +551,7 @@ def test_a_store_marks_row_that_is_no_template_is_refused(conn, tmp_path):
 def test_a_pipeline_decision_wins_for_every_signature_it_covers(conn):
     put(conn, decision("S", "block", sig(), "junk", decider="claude", at="2026-11-01T00:00:00+00:00"))
     put(conn, decision("S", "block", sig((flip(T, 2),)), "keep", at="2026-12-01T00:00:00+00:00"))
-    got = store.Decisions(conn, "S").decide("block", ((flip(T, 1),), 1.0))
+    got = present(store.Decisions(conn, "S").decide("block", ((flip(T, 1),), 1.0)))
     assert (got["decider"], got["verdict"]) == ("claude", "junk"), (
         "an imported keep on a matching key never overrides Claude's junk"
     )
