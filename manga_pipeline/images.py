@@ -62,22 +62,27 @@ def _avif_brand(data):
     return bool(brands & {b"avif", b"avis"})
 
 
+# (leading bytes, format), read in order; WebP and AVIF are told by more than their first bytes (detect)
+SIGNATURES = (
+    (b"\xff\xd8\xff", JPEG),
+    (b"\x89PNG\r\n\x1a\n", PNG),
+    (b"GIF8", GIF),
+    (b"BM", BMP),
+    (b"\xff\x0a", JXL),  # JPEG XL codestream
+    (b"\x00\x00\x00\x0cJXL \x0d\x0a\x87\x0a", JXL),  # JPEG XL in its ISO-BMFF container
+)
+
+
 def detect(data):
-    """Return the format constant for image bytes (needs the whole file for VP8X WebP)."""
-    if data[:3] == b"\xff\xd8\xff":
-        return JPEG
-    if data[:8] == b"\x89PNG\r\n\x1a\n":
-        return PNG
-    if data[:4] == b"GIF8":
-        return GIF
-    if data[:2] == b"BM":
-        return BMP
+    """Return the format constant for image bytes (needs the whole file for VP8X WebP): the first SIGNATURES entry
+    the bytes start with, else a RIFF/WEBP stream's kind, else AVIF by its brand, else UNKNOWN."""
+    fmt = next((fmt for prefix, fmt in SIGNATURES if data[: len(prefix)] == prefix), None)
+    if fmt is not None:
+        return fmt
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return _webp_kind(data)
     if _avif_brand(data):
         return AVIF
-    if data[:2] == b"\xff\x0a" or data[:12] == b"\x00\x00\x00\x0cJXL \x0d\x0a\x87\x0a":
-        return JXL
     return UNKNOWN
 
 
