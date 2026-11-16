@@ -196,7 +196,7 @@ def comicinfo_series(paths):
             name = comicinfo.read_fields(xml, ("Series",))["Series"] if xml else ""
         except (*archive.UNREADABLE, ET.ParseError, LookupError, OSError) as e:
             # A file this machine cannot read (permissions, held open, gone) says nothing; a failing share ends the run
-            if isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in workflow.SHARE_ERRNOS):
+            if isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS):
                 raise
             continue
         if name:

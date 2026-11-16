@@ -90,7 +90,7 @@ def _folder_ready(ctx, series):
         names = [p.name for p in folder.iterdir()]
         own = _own_files(ctx, series, folder)
     except OSError as e:
-        if e.errno in workflow.SHARE_ERRNOS or errors.dropped_share(e):
+        if e.errno in errors.SHARE_ERRNOS or errors.dropped_share(e):
             raise  # the share: the run's problem (share_errors)
         return _hold(ctx, series, f"folder {series['folder']} cannot be made or read: {e}")
     foreign = sorted(n for n in names if n.lower().endswith(".cbz") and n not in own)

@@ -143,8 +143,11 @@ def _worse(ours, theirs):
 
 
 def _bpp_compared(ours, theirs, test):
-    """test(our bits per pixel, theirs), False where either is not known."""
-    return ours.bpp is not None and theirs.bpp is not None and test(ours.bpp, theirs.bpp)
+    """test(our bits per pixel, theirs), False where the published file's is not known; ours is always measured."""
+    if ours.bpp is None:
+        msg = "our copy's bits per pixel is always measured"
+        raise ValueError(msg)
+    return theirs.bpp is not None and test(ours.bpp, theirs.bpp)
 
 
 @dataclass(frozen=True)
@@ -158,8 +161,8 @@ class Measures:
 
 
 def _measured(what, summary, bpp):
-    """Measures from a measures.summary of a copy's pages and its bits per pixel; ValueError for a summary of no
-    pages."""
+    """Measures from a measures.summary of a copy's pages (or a stored published row, which holds the same 3
+    measures) and its bits per pixel; ValueError for a summary of no pages."""
     pages_in, width, length = summary["pages_in"], summary["median_page_width"], summary["strip_length"]
     if pages_in is None or width is None or length is None:
         msg = f"{what}: no page measurements"

@@ -142,7 +142,7 @@ class Scorer:
     ended would leave its handle's GPU memory allocated."""
 
     def __init__(self, path, *, loader=load):
-        """loader(path): the library (load; a test passes a stub)."""
+        """loader(path): the Vship library at path (load by default)."""
         self.lib = loader(path)
         check_gpu(self.lib)
         self._local = threading.local()

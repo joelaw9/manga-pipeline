@@ -101,7 +101,7 @@ def _list(root):
                     raise
                 continue
             except OSError as e:
-                if e.errno in workflow.SHARE_ERRNOS:
+                if e.errno in errors.SHARE_ERRNOS:
                     raise
                 # ponytail: Windows may list the root from its SMB cache while the share fails, and WinError 59 maps
                 # to errno 22, not a SHARE_ERRNOS one; such a failure is listed, not ended on, until the next run

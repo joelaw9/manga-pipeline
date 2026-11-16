@@ -485,7 +485,7 @@ def _measure_decoded(data):
 def measure_pages(cbz, known=None, *, decode=_measure_decoded):
     """The one page measurement: [{PAGE_FIELDS}] of a CBZ's pages in archive.archive_pages order. known: {index: dict
     of fields measured before}; a page keeps its known fields and gets only the missing ones, and is decoded only when
-    a DECODED_FIELDS field is missing (decode(page bytes): its DECODED_FIELDS; a test passes a stand-in). A known sha1
+    a DECODED_FIELDS field is missing (decode(page bytes): its DECODED_FIELDS). A known sha1
     that is not the page's raises ValueError (stale measurements). Pure: writes nothing."""
     known = known or {}
     out = []

@@ -53,7 +53,7 @@ def run(ctx, clients):
             log.warning("series %s: metadata check not completed: %s", series_id, e)
         except Exception as e:
             if isinstance(e, db.Error) or (
-                isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in workflow.SHARE_ERRNOS)
+                isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS)
             ):
                 raise  # the database or the share: the run's problem
             # A reply of an unexpected shape, a file this machine cannot write: this series' problem, not the run's
@@ -98,7 +98,7 @@ def baseline_pass(ctx):
             why = baseline.take(ctx, series)
         except Exception as e:
             if isinstance(e, (db.Error, workflow.Unreachable, http.HttpTimeoutError)) or (
-                isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in workflow.SHARE_ERRNOS)
+                isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS)
             ):
                 raise  # the database, the share or a service down: the run's problem (the pass is tried again)
             log.exception("%s: series %s (%s): baseline not taken", ctx.part, series["id"], series["name"])
