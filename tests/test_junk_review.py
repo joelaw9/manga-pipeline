@@ -177,20 +177,32 @@ def test_review_checks_need_claude_and_its_token(tmp_path):
     assert preflight.CLAUDE_SETTINGS in cli.COMMANDS["junk review"].checks
 
 
-@budget(load="subprocess", seconds=20)
-@pytest.mark.parametrize("reply", [None, {"is_error": True, "subtype": "error_auth"}], ids=["success", "error"])
-def test_the_token_is_never_in_the_log_or_an_error(world, tmp_path, capsys, monkeypatch, reply):
+def _review_hiding_the_token(world, tmp_path, capsys, monkeypatch, reply):
+    """Run a review whose Claude replies `reply`; assert the token is in neither the log nor the output; its exit
+    code."""
     monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "DEBUG")
     token = "tok-SECRET-4711"
     cfg = {**world.cfg, "junk": {**world.cfg["junk"], "claude_token": token}}
     exe = fake_claude(tmp_path / "claude", cfg, ["list", "decide:keep"], reply=reply)
-    _, cfg = review_cmd(tmp_path, cfg, exe)
+    code, cfg = review_cmd(tmp_path, cfg, exe)
     log_text = (config.abs_path(cfg["logging"]["dir"]) / "junk-review.log").read_bytes().decode("utf-8")
     assert "junk review" in log_text, "the token is never logged"
     assert token not in log_text, "the token is never logged"
     captured = capsys.readouterr()
     assert token not in captured.err, "nor in an error message"
     assert token not in captured.out, "nor in an error message"
+    return code
+
+
+@budget(load="subprocess", seconds=20)
+def test_the_token_is_never_in_the_log_of_a_review(world, tmp_path, capsys, monkeypatch):
+    assert _review_hiding_the_token(world, tmp_path, capsys, monkeypatch, None) == 0, "the review succeeded"
+
+
+@budget(load="subprocess", seconds=20)
+def test_the_token_is_never_in_an_error(world, tmp_path, capsys, monkeypatch):
+    reply = {"is_error": True, "subtype": "error_auth"}
+    assert _review_hiding_the_token(world, tmp_path, capsys, monkeypatch, reply) == 1, "the review hit the error"
 
 
 @budget(load="subprocess", seconds=20)

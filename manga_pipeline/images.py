@@ -63,7 +63,7 @@ def _avif_brand(data):
 
 
 # (leading bytes, format), read in order; WebP and AVIF are told by more than their first bytes (detect)
-SIGNATURES = (
+_SIGNATURES = (
     (b"\xff\xd8\xff", JPEG),
     (b"\x89PNG\r\n\x1a\n", PNG),
     (b"GIF8", GIF),
@@ -74,9 +74,9 @@ SIGNATURES = (
 
 
 def detect(data):
-    """Return the format constant for image bytes (needs the whole file for VP8X WebP): the first SIGNATURES entry
+    """Return the format constant for image bytes (needs the whole file for VP8X WebP): the first _SIGNATURES entry
     the bytes start with, else a RIFF/WEBP stream's kind, else AVIF by its brand, else UNKNOWN."""
-    fmt = next((fmt for prefix, fmt in SIGNATURES if data[: len(prefix)] == prefix), None)
+    fmt = next((fmt for prefix, fmt in _SIGNATURES if data[: len(prefix)] == prefix), None)
     if fmt is not None:
         return fmt
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":

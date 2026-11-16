@@ -500,13 +500,12 @@ def _joins(keep, sizes, crops, rows):
     return [[keep[j["page"]], keep[j["sliver"]]] for j in strip.find_slices(ksizes, edges) if j["join"]]
 
 
-def _reasons(sc, sizes, banded, joined, band_pages):
-    """{page: [reason]}: the per-chapter candidate reasons of the edge pages (SPEC "Junk decisions", candidates):
-    size, else text (end_text_page; never a banded or joined page), then "band" for an edge page in band_pages (an
-    undecided band, or junk bands that would leave too little)."""
+def _reasons(sc, banded, joined):
+    """{page: [reason]}: the per-chapter candidate reasons of a scan's edge pages (SPEC "Junk decisions",
+    candidates): size, else text (end_text_page; never a banded or joined page)."""
     content = sc["content"]
     position = {i: k for k, i in enumerate(content)}
-    csizes = [sizes[i] for i in content]
+    csizes = [tuple(sc["sizes"][i]) for i in content]
     reasons = {
         content[k]: [why]
         for k, why in page_candidates(
@@ -518,10 +517,6 @@ def _reasons(sc, sizes, banded, joined, band_pages):
         last = end_text_page(csizes, texts)
         if last is not None and content[last] not in banded | joined and content[last] not in reasons:
             reasons[content[last]] = ["text"]
-    edge_pages = {u["page"] for u in sc["edges"]}
-    for i in sorted(band_pages):
-        if i in edge_pages:
-            reasons.setdefault(i, []).append("band")
     return reasons
 
 
@@ -536,7 +531,11 @@ def decide(sc, decide_unit):
     band = _band_pass(sc["bands"], sizes, drops | edge.framed, decide_unit)
     joins = _joins([i for i in content if i not in drops], sizes, band.crops, sc["rows"])
     joined = {i for pair in joins for i in pair}
-    reasons = _reasons(sc, sizes, band.banded, joined, {b["page"] for b in band.units} | band.too_much)
+    reasons = _reasons(sc, band.banded, joined)
+    # "band" for an edge page with an undecided band, or whose junk bands would leave too little
+    band_pages = {b["page"] for b in band.units} | band.too_much
+    for i in sorted(band_pages & {u["page"] for u in sc["edges"]}):
+        reasons.setdefault(i, []).append("band")
     undecided = []
     for i, u in sorted(edge.undecided.items()):
         if i in drops:
