@@ -77,8 +77,9 @@ class Chapter:
 
     def plan(self, edit=None, layout="pages", page_aspect=None, quality=QUALITY):
         p = plan.build(
-            "test chapter", self.measured, self.files, edit or NO_EDIT, layout, page_aspect=page_aspect, quality=quality
+            "test chapter", self.measured, self.files, edit or NO_EDIT, plan.SeriesLayout(layout, page_aspect)
         )
+        p.quality = dict(quality)
         plan.routes(p)
         return p
 

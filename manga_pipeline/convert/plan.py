@@ -35,13 +35,22 @@ class NeedsHuman(ValueError):  # noqa: N818  # a signal, not an error (PEP 8: th
     """The chapter cannot be planned and no attempt can change that (the stage makes it needs_human)."""
 
 
+@dataclass(frozen=True)
+class SeriesLayout:
+    """A series' conversion layout (series_conversion): its kind, "strip" or "pages", and its page aspects (a list)
+    or None."""
+
+    kind: str
+    page_aspect: list | None
+
+
 @dataclass
 class ChapterPlan:
     name: str
     pages: list  # [{"name", "index", "sha1", "format", "chroma", "jpeg_feed", "jpeg_gray", "size", "bytes", "cover"}]
     edits: dict  # {"drop": [{"page"}], "crop", "join", "split", "strip", "blank": [{"page", "box", "fill"}]}
     classes: dict  # {page name: page class}
-    quality: dict  # {encode group: AVIF q}
+    quality: dict = field(default_factory=dict)  # {encode group: AVIF q}, set once calibration chose it
     render: list = field(default_factory=list)  # rendered pages: [{"name", "parts" | "rows", "src", "class", "yuv"}]
     route: str | None = None
     outcomes: list = field(default_factory=list)  # tried in order; a measured failure moves to the next
@@ -61,6 +70,23 @@ def check_edit(text):
     except (TypeError, ValueError) as e:
         msg = f"chapter_edit is not JSON: {e}"
         raise EditError(msg) from e
+    _check_keys(edit)
+    _check_drops(edit["drop_pages"])
+    _check_strip_removed(edit["strip_removed"])
+    _check_bands(edit["bands"])
+    _check_joins(edit["join"])
+    _check_blanks(edit["blank"])
+    return edit
+
+
+def _ints(values, what):
+    if not all(type(v) is int for v in values):
+        msg = f"chapter_edit {what} must hold integers, got {values!r}"
+        raise EditError(msg)
+
+
+def _check_keys(edit):
+    """A dict of exactly EDIT_KEYS, each of its type."""
     if not isinstance(edit, dict) or set(edit) != set(EDIT_KEYS):
         msg = f"chapter_edit keys must be {sorted(EDIT_KEYS)}, got {sorted(edit) if isinstance(edit, dict) else edit!r}"
         raise EditError(msg)
@@ -69,24 +95,30 @@ def check_edit(text):
             msg = f"chapter_edit {key} must be a {kind.__name__}, got {edit[key]!r}"
             raise EditError(msg)
 
-    def ints(values, what):
-        if not all(type(v) is int for v in values):
-            msg = f"chapter_edit {what} must hold integers, got {values!r}"
-            raise EditError(msg)
 
-    ints(edit["drop_pages"], "drop_pages")
-    if len(set(edit["drop_pages"])) < len(edit["drop_pages"]):
-        msg = f"chapter_edit drop_pages names a page twice: {edit['drop_pages']!r}"
+def _check_drops(drops):
+    """drop_pages: integers, none twice."""
+    _ints(drops, "drop_pages")
+    if len(set(drops)) < len(drops):
+        msg = f"chapter_edit drop_pages names a page twice: {drops!r}"
         raise EditError(msg)
-    for r in edit["strip_removed"]:
+
+
+def _check_strip_removed(ranges):
+    """strip_removed: {start, end, why} ranges of integers, 0 <= start < end."""
+    for r in ranges:
         if not isinstance(r, dict) or set(r) != {"start", "end", "why"} or not isinstance(r["why"], str):
             msg = f"chapter_edit strip_removed entries are {{start, end, why}}, got {r!r}"
             raise EditError(msg)
-        ints([r["start"], r["end"]], "strip_removed start / end")
+        _ints([r["start"], r["end"]], "strip_removed start / end")
         if not 0 <= r["start"] < r["end"]:
             msg = f"chapter_edit strip_removed rows {r['start']}-{r['end']} are not 0 <= start < end"
             raise EditError(msg)
-    for b in edit["bands"]:
+
+
+def _check_bands(bands):
+    """bands: {page, box: [l, t, r, b]} of integers."""
+    for b in bands:
         if (
             not isinstance(b, dict)
             or set(b) != {"page", "box"}
@@ -95,13 +127,21 @@ def check_edit(text):
         ):
             msg = f"chapter_edit bands entries are {{page, box: [l, t, r, b]}}, got {b!r}"
             raise EditError(msg)
-        ints([b["page"], *b["box"]], "bands page / box")
-    for pair in edit["join"]:
+        _ints([b["page"], *b["box"]], "bands page / box")
+
+
+def _check_joins(joins):
+    """join: [page, sliver] pairs of integers."""
+    for pair in joins:
         if not isinstance(pair, list) or len(pair) != PAIR_LEN:
             msg = f"chapter_edit join entries are [page, sliver] pairs, got {pair!r}"
             raise EditError(msg)
-        ints(pair, "join")
-    for b in edit["blank"]:
+        _ints(pair, "join")
+
+
+def _check_blanks(blanks):
+    """blank: {page, box: [l, t, r, b], fill: [r, g, b]} of integers."""
+    for b in blanks:
         if (
             not isinstance(b, dict)
             or set(b) != {"page", "box", "fill"}
@@ -112,8 +152,7 @@ def check_edit(text):
         ):
             msg = f"chapter_edit blank entries are {{page, box: [l, t, r, b], fill: [r, g, b]}}, got {b!r}"
             raise EditError(msg)
-        ints([b["page"], *b["box"], *b["fill"]], "blank page / box / fill")
-    return edit
+        _ints([b["page"], *b["box"], *b["fill"]], "blank page / box / fill")
 
 
 def page_entry(page, path):
@@ -169,7 +208,7 @@ def route(fmts):
     return "untouched-flag"  # GIF / AVIF / JXL / unknown mixed with something else
 
 
-def _edits(entries, edit, layout, page_aspect, x_dir):
+def _edits(entries, edit, layout, x_dir):
     """The edit in page names (the bulk converter's planned-edit shape): drops and bands first, then join and split
     (page layout); a strip chapter's strip spec over its non-cover pages with the edit's removed rows taken out.
     Raises EditError for an edit the junk stage never writes (SPEC "The chapter edit"), NeedsHuman for removed rows
@@ -184,34 +223,51 @@ def _edits(entries, edit, layout, page_aspect, x_dir):
 
     content = [q for q in entries if not q["cover"]]
     out = {"drop": [], "crop": [], "join": [], "split": None, "strip": None, "blank": _blanks(entries, edit, name)}
-    if layout == "strip":
-        if edit["drop_pages"] or edit["bands"] or edit["join"] or edit["split"]:
-            msg = "chapter_edit of a strip chapter may hold strip_removed only"
-            raise EditError(msg)
-        if not content:
-            if edit["strip_removed"]:
-                msg = f"chapter_edit strip_removed ends past the strip's 0 rows: {edit['strip_removed']!r}"
-                raise EditError(msg)
-            return out
-        sizes = [tuple(q["size"]) for q in content]
-        rows = [strip.page_rows(images.open_flat(x_dir / q["name"])[0]) for q in content]
-        st = strip.make_strip([x_dir / q["name"] for q in content], sizes, rows)
-        past = [r for r in edit["strip_removed"] if r["end"] > st.height]
-        if past:
-            msg = f"chapter_edit strip_removed ends past the strip's {st.height} rows: {past!r}"
-            raise EditError(msg)
-        cut = strip.cut_strip(st.height, strip.find_gaps(st), edit["strip_removed"])
-        if not cut["kept"]:
-            msg = "the chapter edit drops every page"
-            raise NeedsHuman(msg)
-        pages = [{"name": q["name"], "top": p["top"], "th": p["th"]} for q, p in zip(content, st.pages, strict=True)]
-        out["strip"] = {"width": st.width, "pages": pages, "kept": cut["kept"], "cuts": cut["cuts"]}
+    if layout.kind == "strip":
+        out["strip"] = _strip_spec(content, edit, x_dir)
         return out
     if edit["strip_removed"]:
         msg = "chapter_edit of a page chapter holds strip_removed"
         raise EditError(msg)
     out["drop"] = [{"page": name(i, "drop_pages")} for i in edit["drop_pages"]]
     out["crop"] = [{"page": name(b["page"], "bands"), "box": b["box"]} for b in edit["bands"]]
+    _check_banded(entries, edit, by_index)
+    _check_joined(entries, edit)
+    out["join"] = [{"page": name(a, "join"), "sliver": name(b, "join")} for a, b in edit["join"]]
+    if edit["split"]:
+        out["split"] = _split_spec(content, edit, out["drop"], layout.page_aspect)
+    return out
+
+
+def _strip_spec(content, edit, x_dir):
+    """A strip chapter's strip spec ({"width", "pages", "kept", "cuts"}) over its non-cover pages, the edit's removed
+    rows taken out; None when it has no such pages. Raises EditError for another edit or rows past the strip,
+    NeedsHuman when nothing is kept."""
+    if edit["drop_pages"] or edit["bands"] or edit["join"] or edit["split"]:
+        msg = "chapter_edit of a strip chapter may hold strip_removed only"
+        raise EditError(msg)
+    if not content:
+        if edit["strip_removed"]:
+            msg = f"chapter_edit strip_removed ends past the strip's 0 rows: {edit['strip_removed']!r}"
+            raise EditError(msg)
+        return None
+    sizes = [tuple(q["size"]) for q in content]
+    rows = [strip.page_rows(images.open_flat(x_dir / q["name"])[0]) for q in content]
+    st = strip.make_strip([x_dir / q["name"] for q in content], sizes, rows)
+    past = [r for r in edit["strip_removed"] if r["end"] > st.height]
+    if past:
+        msg = f"chapter_edit strip_removed ends past the strip's {st.height} rows: {past!r}"
+        raise EditError(msg)
+    cut = strip.cut_strip(st.height, strip.find_gaps(st), edit["strip_removed"])
+    if not cut["kept"]:
+        msg = "the chapter edit drops every page"
+        raise NeedsHuman(msg)
+    pages = [{"name": q["name"], "top": p["top"], "th": p["th"]} for q, p in zip(content, st.pages, strict=True)]
+    return {"width": st.width, "pages": pages, "kept": cut["kept"], "cuts": cut["cuts"]}
+
+
+def _check_banded(entries, edit, by_index):
+    """Drops and bands spare cover-named pages; bands name a page once, never a dropped one, with the box inside it."""
     banded = [b["page"] for b in edit["bands"]]
     if {q["index"] for q in entries if q["cover"]} & {*edit["drop_pages"], *banded}:
         msg = "chapter_edit drops or crops a cover-named page"
@@ -224,6 +280,10 @@ def _edits(entries, edit, layout, page_aspect, x_dir):
         if not (0 <= left < right <= w and 0 <= top < bottom <= h):
             msg = f"chapter_edit band box {b['box']} is not inside page {b['page']} ({w} x {h})"
             raise EditError(msg)
+
+
+def _check_joined(entries, edit):
+    """Join pairs chain each page to 1 sliver, spare dropped and cover-named pages, and never form a cycle."""
     pages_, slivers = [a for a, _ in edit["join"]], [b for _, b in edit["join"]]
     if len(set(pages_)) < len(pages_) or len(set(slivers)) < len(slivers) or any(a == b for a, b in edit["join"]):
         msg = f"chapter_edit join pairs must chain each page to 1 sliver: {edit['join']!r}"
@@ -241,21 +301,23 @@ def _edits(entries, edit, layout, page_aspect, x_dir):
                 msg = f"chapter_edit join pairs form a cycle: {edit['join']!r}"
                 raise EditError(msg)
             seen.add(at)
-    out["join"] = [{"page": name(a, "join"), "sliver": name(b, "join")} for a, b in edit["join"]]
-    if edit["split"]:
-        if edit["drop_pages"] or edit["bands"] or edit["join"]:
-            msg = "chapter_edit of a split chapter holds another page-layout edit"
-            raise EditError(msg)
-        dropped = {d["page"] for d in out["drop"]}
-        kept = [q for q in content if q["name"] not in dropped]
-        pl = strip.plan_pages([q["name"] for q in kept], [tuple(q["size"]) for q in kept], page_aspect)
-        out["split"] = {
-            "width": pl["width"],
-            "pages": [{k: p[k] for k in ("name", "top", "th")} for p in pl["pages"]],
-            "kept": [[0, pl["height"]]],
-            "cuts": list(pl["cuts"]),
-        }
-    return out
+
+
+def _split_spec(content, edit, drops, page_aspect):
+    """A split chapter's spec ({"width", "pages", "kept", "cuts"}): its non-cover pages not dropped, cut at the
+    series' page aspect. Raises EditError when the edit holds another page-layout edit."""
+    if edit["drop_pages"] or edit["bands"] or edit["join"]:
+        msg = "chapter_edit of a split chapter holds another page-layout edit"
+        raise EditError(msg)
+    dropped = {d["page"] for d in drops}
+    kept = [q for q in content if q["name"] not in dropped]
+    pl = strip.plan_pages([q["name"] for q in kept], [tuple(q["size"]) for q in kept], page_aspect)
+    return {
+        "width": pl["width"],
+        "pages": [{k: p[k] for k in ("name", "top", "th")} for p in pl["pages"]],
+        "kept": [[0, pl["height"]]],
+        "cuts": list(pl["cuts"]),
+    }
 
 
 def _blanks(entries, edit, name):
@@ -388,20 +450,19 @@ def avif_groups(plan):
     return sorted({quality_group(y) for y in yuvs})
 
 
-def build(name, measured, files, edit, layout, *, page_aspect, quality):
+def build(name, measured, files, edit, layout):
     """The ChapterPlan of 1 chapter. measured: images.measure_pages of the download; files: its pages' extracted files
-    (pages.extract), in the same order; edit: check_edit's dict; layout: "strip" or "pages"; page_aspect: the series'
-    page aspects (a list) or None; quality: {encode group: q}. Raises NeedsHuman (an EXIF rotation, a strip edit that
-    removes every row) and EditError.
-    Route and outcomes are set after, by routes: they depend on the volume cover's AVIF encode."""
+    (pages.extract), in the same order; edit: check_edit's dict; layout: the series' SeriesLayout. Raises NeedsHuman
+    (an EXIF rotation, a strip edit that removes every row) and EditError.
+    Route and outcomes are set after, by routes: they depend on the volume cover's AVIF encode; the quality is set by
+    the caller once calibration chose it."""
     files = [Path(f) for f in files]
     entries = [page_entry(p, f) for p, f in zip(measured, files, strict=True)]
     plan = ChapterPlan(
         name=name,
         pages=entries,
-        edits=_edits(entries, edit, layout, page_aspect, files[0].parent if files else None),
+        edits=_edits(entries, edit, layout, files[0].parent if files else None),
         classes={q["name"]: p["colour_class"] for q, p in zip(entries, measured, strict=True)},
-        quality=dict(quality),
     )
     e = plan.edits
     if e["crop"] or e["join"] or e["split"] or e["strip"]:

@@ -41,7 +41,7 @@ def _edit(conn, chapter_id):
 
 
 def _layout(conn, series_id):
-    """(layout, page aspects or None) of the series (series_conversion; page_aspect is JSON text)."""
+    """The series' plan.SeriesLayout (series_conversion; page_aspect is JSON text)."""
     row = conn.execute(
         "SELECT layout, page_aspect FROM series_conversion WHERE series_id = %s", (series_id,)
     ).fetchone()
@@ -54,7 +54,7 @@ def _layout(conn, series_id):
     ):
         msg = f"series {series_id} page_aspect must be a non-empty list of numbers, got {aspect!r}"
         raise RuntimeError(msg)
-    return row["layout"], aspect
+    return plan.SeriesLayout(row["layout"], aspect)
 
 
 def _samples_wanted(row, chapter_id):
@@ -137,10 +137,10 @@ def run(ctx: workflow.Context, chapter):
         edit = _edit(ctx.conn, chapter["id"])
     except plan.EditError as e:
         return workflow.NeedsHuman(str(e))
-    layout, aspect = _layout(ctx.conn, chapter["series_id"])
+    layout = _layout(ctx.conn, chapter["series_id"])
     scratch = config.abs_path(cfg["paths"]["scratch"]) / workflow.claim_name(chapter)
     try:
-        return _convert(ctx, chapter, edit, layout, aspect, scratch=scratch)
+        return _convert(ctx, chapter, edit, layout, scratch=scratch)
     finally:
         try:
             shutil.rmtree(scratch)
@@ -150,7 +150,7 @@ def run(ctx: workflow.Context, chapter):
             log.warning("chapter %s: scratch folder %s not removed: %s", chapter["id"], scratch, e)
 
 
-def _convert(ctx: workflow.Context, chapter, edit, layout, aspect, *, scratch):
+def _convert(ctx: workflow.Context, chapter, edit, layout, *, scratch):
     cfg = ctx.cfg
     cbz = config.to_local(cfg, chapter["download_path"])
     x_dir, render_dir, out_dir, work = scratch / "x", scratch / "render", scratch / "out", scratch / "work"
@@ -158,11 +158,8 @@ def _convert(ctx: workflow.Context, chapter, edit, layout, aspect, *, scratch):
     if problems:
         return workflow.NeedsHuman("; ".join(problems))
     measured = images.measure_pages(cbz, known=page_store.load(ctx.conn, chapter["id"]))
-    stored = calibrate.quality(calibrate.rows(ctx.conn, chapter["series_id"]))
     try:
-        chapter_plan = plan.build(
-            f"chapter {chapter['id']}", measured, files, edit, layout, page_aspect=aspect, quality=stored
-        )
+        chapter_plan = plan.build(f"chapter {chapter['id']}", measured, files, edit, layout)
     except (plan.NeedsHuman, plan.EditError) as e:
         return workflow.NeedsHuman(str(e))
     if not chapter_plan.kept():
