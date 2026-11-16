@@ -369,10 +369,27 @@ def parser():
     commands.add_parser("export", help="ComicInfo.xml, publish into the library, confirm")
     commands.add_parser("status", help="what is waiting, on what, and what needs a human")
     commands.add_parser("smoke", help="check Suwayomi and Kavita with reads only")
+    _retry_command(commands)
+    _series_commands(commands)
+    _naming_commands(commands)
+    _rewrite_commands(commands)
+    _metadata_commands(commands)
+    _junk_commands(commands)
+    _chapter_commands(commands)
+    _state_commands(commands)
+    return p
+
+
+def _retry_command(commands):
+    """Add the retry command to the subparsers."""
     retry = commands.add_parser("retry", help="make a needs_human chapter or series ready again")
     target = retry.add_mutually_exclusive_group(required=True)
     target.add_argument("chapter", nargs="?", type=int, help="chapter id")
     target.add_argument("--series", type=int, metavar="ID", help="a series and its chapters")
+
+
+def _series_commands(commands):
+    """Add the series commands to the subparsers."""
     series = commands.add_parser("series", help="series identification").add_subparsers(
         dest="series_command", required=True, metavar="ACTION"
     )
@@ -392,31 +409,6 @@ def parser():
     new.add_argument("series_id", type=int, help="series id (as status shows it)")
     new.add_argument("--name", help="the name to admit it under (default: its own, SPEC 'Series identification')")
     new.set_defaults(command="series new")
-    naming = commands.add_parser("naming", help="chapter naming").add_subparsers(
-        dest="naming_command", required=True, metavar="ACTION"
-    )
-    diff = naming.add_parser("diff", help="list what retroactive updates would rewrite, and what they never apply")
-    diff.add_argument("series_id", nargs="?", type=int, help="series id (default: every series in scope)")
-    diff.set_defaults(command="naming diff")
-    rewrites = commands.add_parser("rewrite", help="retroactive rewrites of published files").add_subparsers(
-        dest="rewrite_command", required=True, metavar="ACTION"
-    )
-    drop_rewrite = rewrites.add_parser("drop", help="give up a stuck rewrite before its rename (as status names it)")
-    drop_rewrite.add_argument("file_id", type=int, help="published file id")
-    drop_rewrite.set_defaults(command="rewrite drop")
-    retry_rewrite = rewrites.add_parser("retry", help="try a failed rewrite again from its next step")
-    retry_rewrite.add_argument("file_id", type=int, help="published file id")
-    retry_rewrite.set_defaults(command="rewrite retry")
-    metadata = commands.add_parser("metadata", help="series metadata").add_subparsers(
-        dest="metadata_command", required=True, metavar="ACTION"
-    )
-    import_metadata = metadata.add_parser("import", help="import the old metadata tool's ids, covers and overrides")
-    import_metadata.add_argument("state_file", help="its .sync_state.json (only read)")
-    import_metadata.add_argument("config_file", help="its config.yaml (only read)")
-    import_metadata.set_defaults(command="metadata import")
-    audit_ = metadata.add_parser("audit", help="list every library series whose source ids disagree (read-only)")
-    audit_.add_argument("--state", metavar="PATH", help="the old metadata tool's .sync_state.json (only read)")
-    audit_.set_defaults(command="metadata audit")
     link = series.add_parser(
         "link",
         help="link a Suwayomi manga or a hand-placed download folder to a Kavita series (or refresh that link's "
@@ -429,6 +421,47 @@ def parser():
     )
     link.add_argument("kavita_series_id", type=int, help="Kavita series id")
     link.set_defaults(command="series link")
+
+
+def _naming_commands(commands):
+    """Add the naming commands to the subparsers."""
+    naming = commands.add_parser("naming", help="chapter naming").add_subparsers(
+        dest="naming_command", required=True, metavar="ACTION"
+    )
+    diff = naming.add_parser("diff", help="list what retroactive updates would rewrite, and what they never apply")
+    diff.add_argument("series_id", nargs="?", type=int, help="series id (default: every series in scope)")
+    diff.set_defaults(command="naming diff")
+
+
+def _rewrite_commands(commands):
+    """Add the rewrite commands to the subparsers."""
+    rewrites = commands.add_parser("rewrite", help="retroactive rewrites of published files").add_subparsers(
+        dest="rewrite_command", required=True, metavar="ACTION"
+    )
+    drop_rewrite = rewrites.add_parser("drop", help="give up a stuck rewrite before its rename (as status names it)")
+    drop_rewrite.add_argument("file_id", type=int, help="published file id")
+    drop_rewrite.set_defaults(command="rewrite drop")
+    retry_rewrite = rewrites.add_parser("retry", help="try a failed rewrite again from its next step")
+    retry_rewrite.add_argument("file_id", type=int, help="published file id")
+    retry_rewrite.set_defaults(command="rewrite retry")
+
+
+def _metadata_commands(commands):
+    """Add the metadata commands to the subparsers."""
+    metadata = commands.add_parser("metadata", help="series metadata").add_subparsers(
+        dest="metadata_command", required=True, metavar="ACTION"
+    )
+    import_metadata = metadata.add_parser("import", help="import the old metadata tool's ids, covers and overrides")
+    import_metadata.add_argument("state_file", help="its .sync_state.json (only read)")
+    import_metadata.add_argument("config_file", help="its config.yaml (only read)")
+    import_metadata.set_defaults(command="metadata import")
+    audit_ = metadata.add_parser("audit", help="list every library series whose source ids disagree (read-only)")
+    audit_.add_argument("--state", metavar="PATH", help="the old metadata tool's .sync_state.json (only read)")
+    audit_.set_defaults(command="metadata audit")
+
+
+def _junk_commands(commands):
+    """Add the junk commands to the subparsers."""
     junk = commands.add_parser("junk", help="junk decisions").add_subparsers(
         dest="junk_command", required=True, metavar="ACTION"
     )
@@ -450,6 +483,10 @@ def parser():
     junk.add_parser("review", help="let Claude decide the open candidates (claude -p)").set_defaults(
         command="junk review"
     )
+
+
+def _chapter_commands(commands):
+    """Add the chapter commands to the subparsers."""
     chapter = commands.add_parser("chapter", help="settle a needs_human chapter").add_subparsers(
         dest="chapter_command", required=True, metavar="ACTION"
     )
@@ -460,6 +497,10 @@ def parser():
     drop = chapter.add_parser("drop", help="give a needs_human chapter up: its download goes, it is never published")
     drop.add_argument("chapter", type=int, help="chapter id")
     drop.set_defaults(command="chapter drop")
+
+
+def _state_commands(commands):
+    """Add the state commands to the subparsers."""
     state = commands.add_parser("state", help="workflow state and share ownership").add_subparsers(
         dest="state_command", required=True, metavar="ACTION"
     )
@@ -469,7 +510,6 @@ def parser():
     for sub, name in ((reset, "state reset"), (adopt_, "state adopt"), (version, "state version")):
         sub.add_argument("--yes", action="store_true", required=True, help="confirm")
         sub.set_defaults(command=name)
-    return p
 
 
 def main(argv=None):
@@ -495,42 +535,54 @@ def main(argv=None):
                 return 4
             except config.ConfigError as e:
                 p.error(str(e))
-        names = tuple(workflow.owner(name) for name in command.locks)
+        return _under_locks(p, cfg, command, args, conn)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _under_locks(p, cfg, command, args, conn):
+    """Run the command under its locks (SPEC "Run lock"), its log set up there; its exit code (3 when another run holds
+    a lock it takes)."""
+    names = tuple(workflow.owner(name) for name in command.locks)
+    try:
         with lock.held(conn, cfg, names, command.idle) if command.locked else nullcontext():
             try:
                 logs.setup(cfg, command.log)
             except config.ConfigError as e:
                 p.error(str(e))
-            try:
-                preflight.run(cfg, command.checks)
-                if conn is not None:
-                    db.apply_steps(conn)
-                command.handler(cfg, args, conn)
-            except preflight.PreflightError as e:
-                print(f"error: {e}", file=sys.stderr)
-                return 4
-            except workflow.Refused as e:
-                print(f"error: {e}", file=sys.stderr)
-                return 2
-            except (db.SchemaError, db.CannotConnectError) as e:
-                print(f"error: {e}", file=sys.stderr)
-                return 4
-            except config.ConfigError as e:  # a database setting, checked where the database is opened
-                p.error(str(e))
-            except (smoke.SmokeError, review_run.ReviewError) as e:
-                print(f"error: {e}", file=sys.stderr)
-                return 1
-            except Exception:
-                # The only place an unexpected error is logged; inside the lock, which guards the log file.
-                log.exception("%s: failed", args.command)
-                return 1
+            return _run(p, cfg, command, args, conn)
     except lock.LockHeld as e:
         # Not logged: a refused run must not open the log file while the holder writes it.
         print(f"error: {e}", file=sys.stderr)
         return 3
-    finally:
+
+
+def _run(p, cfg, command, args, conn):
+    """The command's preflight checks, schema steps and handler; its exit code (main's docstring)."""
+    try:
+        preflight.run(cfg, command.checks)
         if conn is not None:
-            conn.close()
+            db.apply_steps(conn)
+        command.handler(cfg, args, conn)
+    except preflight.PreflightError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 4
+    except workflow.Refused as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    except (db.SchemaError, db.CannotConnectError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 4
+    except config.ConfigError as e:  # a database setting, checked where the database is opened
+        p.error(str(e))
+    except (smoke.SmokeError, review_run.ReviewError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    except Exception:
+        # The only place an unexpected error is logged; inside the lock, which guards the log file.
+        log.exception("%s: failed", args.command)
+        return 1
     return 0
 
 
