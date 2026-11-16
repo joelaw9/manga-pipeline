@@ -116,24 +116,17 @@ class Service:
             wait = 2**attempt * 2
             failed = None  # (status, body) of an HTTP failure; None for a network one
             try:
-                return _send(self.name, method, url, shown=shown, headers=headers, data=data, timeout=timeout)
+                return _send(
+                    self.name, urllib.request.Request(url, data=data, headers=headers, method=method), shown, timeout
+                )
             except urllib.error.HTTPError as e:
                 failed = (e.code, _error_body(e))
-                if e.code != HTTPStatus.TOO_MANY_REQUESTS and e.code < HTTPStatus.INTERNAL_SERVER_ERROR:
-                    raise HttpError(e.code, url, failed[1]) from None
+                asked = self._asked_wait(e, url, failed[1], shown)
                 problem = f"HTTP {e.code}"
-                asked = _retry_after(e.headers)
                 if asked is not None:
-                    if asked > MAX_RETRY_AFTER:
-                        msg = f"{problem} from {shown}, Retry-After {asked} s"
-                        raise self.mark_unreachable(msg) from None
                     wait = asked
             except (OSError, http.client.HTTPException) as e:
-                timed_out = isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError)
-                if timed_out and not retry_timeout:
-                    msg = f"{method} {shown} timed out after {timeout} s"
-                    raise HttpTimeoutError(msg) from None
-                problem = f"timed out after {timeout} s" if timed_out else f"{type(e).__name__}: {e}"
+                problem = _network_problem(e, f"{method} {shown}", timeout, retry_timeout=retry_timeout)
             if attempt < retries:
                 retry = f"retry {attempt + 1} of {retries} in {wait} s"
                 log.info("%s: %s from %s; %s", self.name, problem, shown, retry)
@@ -143,6 +136,18 @@ class Service:
         msg = f"{problem} from {shown} after {retries} retries"
         raise self.mark_unreachable(msg)
 
+    def _asked_wait(self, error, url, body, shown):
+        """The seconds a retried HTTP failure's Retry-After asks for, None when it names none. HttpError for a status
+        that is the request's failure (below 500, 429 aside); Unreachable (and the service marked) for a Retry-After
+        above MAX_RETRY_AFTER."""
+        if error.code != HTTPStatus.TOO_MANY_REQUESTS and error.code < HTTPStatus.INTERNAL_SERVER_ERROR:
+            raise HttpError(error.code, url, body) from None
+        asked = _retry_after(error.headers)
+        if asked is not None and asked > MAX_RETRY_AFTER:
+            msg = f"HTTP {error.code} from {shown}, Retry-After {asked} s"
+            raise self.mark_unreachable(msg) from None
+        return asked
+
     def _wait_for_gap(self):
         if self._last is not None:
             wait = self._last + self.min_gap - time.monotonic()
@@ -151,8 +156,18 @@ class Service:
         self._last = time.monotonic()
 
 
-def _send(service, method, url, *, shown, headers, data, timeout):
-    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+def _network_problem(error, sent, timeout, *, retry_timeout):
+    """How the log names a network failure of the request sent ("METHOD shown URL"); HttpTimeoutError for a timeout
+    when retry_timeout is false."""
+    timed_out = isinstance(error, TimeoutError) or isinstance(getattr(error, "reason", None), TimeoutError)
+    if timed_out and not retry_timeout:
+        msg = f"{sent} timed out after {timeout} s"
+        raise HttpTimeoutError(msg) from None
+    return f"timed out after {timeout} s" if timed_out else f"{type(error).__name__}: {error}"
+
+
+def _send(service, request, shown, timeout):
+    """Send request (a urllib Request) once, logged at debug under its shown (redacted) URL."""
     start = time.monotonic()
     outcome, size = None, 0
     try:
@@ -167,7 +182,7 @@ def _send(service, method, url, *, shown, headers, data, timeout):
         outcome = type(e).__name__
         raise
     finally:
-        log.debug("%s %s -> %s %d B %.3f s", method, shown, outcome, size, time.monotonic() - start)
+        log.debug("%s %s -> %s %d B %.3f s", request.get_method(), shown, outcome, size, time.monotonic() - start)
 
 
 def _error_body(error):
