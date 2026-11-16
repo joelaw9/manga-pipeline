@@ -637,7 +637,7 @@ def test_output_pages_not_as_many_as_the_outcome_writes_fail(site):
     chapter_id = site.chapter(site.series(), [("001.webp", webp(colour()))])
     row = chapter(site.conn, chapter_id)
     claim = workflow.claim_name({"id": chapter_id, "claim_count": row["claim_count"] + 1})  # the claim site.run takes
-    out_dir = config.abs_path(site.cfg["paths"]["scratch"]) / claim / "out"
+    out_dir = config.abs_path(site.cfg["paths"]["scratch"]) / claim / convert.OUTPUT
     out_dir.mkdir(parents=True)
     (out_dir / "999.webp").write_bytes(b"stray")  # an output page the outcome did not write
     with pytest.raises(RuntimeError, match="2 output pages, the outcome writes 1"):
@@ -671,7 +671,7 @@ def test_a_blanked_rendered_chapter_samples_its_unblanked_render_and_records_the
 # ---------------------------------------------------------------- volume covers
 
 
-def add_cover(site, chapter_id, data, rel="vol/1.jpg", sha256=None, *, volume="1"):
+def add_cover(site, chapter_id, data, rel="vol/1.jpg", sha256=None):
     """Hand chapter_id a volume cover as intake does: the file under paths.covers and its volume_cover row."""
 
     path = config.abs_path(site.cfg["paths"]["covers"]) / rel
@@ -680,7 +680,7 @@ def add_cover(site, chapter_id, data, rel="vol/1.jpg", sha256=None, *, volume="1
     with db.transaction(site.conn):
         site.conn.execute(
             "INSERT INTO volume_cover (chapter_id, path, sha256, volume) VALUES (%s, %s, %s, %s)",
-            (chapter_id, rel, sha256 or hashlib.sha256(data).hexdigest(), volume),
+            (chapter_id, rel, sha256 or hashlib.sha256(data).hexdigest(), "1"),
         )
 
 
@@ -776,28 +776,42 @@ def test_pages_sharing_no_cover_format_go_out_without_it(site):
     assert result["cover_skipped"] == "its untouched pages (JPEG, WEBP_LOSSY) share no cover format"
 
 
-@budget(load="pool")
-@pytest.mark.parametrize(
-    ("rel", "sha256", "write", "match"),
-    [
-        ("../outside.jpg", None, True, "not inside paths.covers"),
-        ("ABSOLUTE", None, False, "not inside paths.covers"),
-        ("vol/1.jpg", "0" * 64, True, "another sha256"),
-        ("vol/1.jpg", None, False, "is missing"),
-    ],
-)
-def test_a_cover_that_is_not_as_handed_over_fails_the_attempt_naming_its_path(
-    site, tmp_path, rel, sha256, write, *, match
-):
-    chapter_id = site.chapter(site.series(), pages(1))
-    if rel == "ABSOLUTE":
-        rel = str(tmp_path / "abs.jpg")
-    add_cover(site, chapter_id, COVER, rel=rel, sha256=sha256)
-    if not write:
-        (config.abs_path(site.cfg["paths"]["covers"]) / rel).unlink()
+def fails_the_attempt(site, chapter_id, match):
+    """The cover fails the attempt with an error matching match, and the scratch folder is gone."""
     with pytest.raises(covers.CoverError, match=match):
         site.run(chapter_id)
     assert not site.scratch(chapter_id).exists()
+
+
+@budget(load="pool")
+def test_a_cover_outside_paths_covers_fails_the_attempt_naming_its_path(site):
+    chapter_id = site.chapter(site.series(), pages(1))
+    add_cover(site, chapter_id, COVER, rel="../outside.jpg")
+    fails_the_attempt(site, chapter_id, "not inside paths.covers")
+
+
+@budget(load="pool")
+def test_an_absolute_cover_path_fails_the_attempt_naming_its_path(site, tmp_path):
+    chapter_id = site.chapter(site.series(), pages(1))
+    rel = str(tmp_path / "abs.jpg")
+    add_cover(site, chapter_id, COVER, rel=rel)
+    (config.abs_path(site.cfg["paths"]["covers"]) / rel).unlink()
+    fails_the_attempt(site, chapter_id, "not inside paths.covers")
+
+
+@budget(load="pool")
+def test_a_cover_of_another_sha256_fails_the_attempt_naming_its_path(site):
+    chapter_id = site.chapter(site.series(), pages(1))
+    add_cover(site, chapter_id, COVER, sha256="0" * 64)
+    fails_the_attempt(site, chapter_id, "another sha256")
+
+
+@budget(load="pool")
+def test_a_missing_cover_fails_the_attempt_naming_its_path(site):
+    chapter_id = site.chapter(site.series(), pages(1))
+    add_cover(site, chapter_id, COVER)
+    (config.abs_path(site.cfg["paths"]["covers"]) / "vol/1.jpg").unlink()
+    fails_the_attempt(site, chapter_id, "is missing")
 
 
 @budget(load="pool")
@@ -875,9 +889,9 @@ def test_a_blanked_rendered_chapter_rendered_twice_stages_the_blanked_render(sit
     encoded = []
     real = image.process_chapter
 
-    def spy(x_dir, rendered, *rest, **named):
-        encoded.extend(p.parent.name for p in rendered)
-        return real(x_dir, rendered, *rest, **named)
+    def spy(pages, *rest, **named):
+        encoded.extend(p.parent.name for p in pages.rendered)
+        return real(pages, *rest, **named)
 
     monkeypatch.setattr(image, "process_chapter", spy)
     renders = []

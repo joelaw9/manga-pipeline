@@ -2,7 +2,7 @@
 rewrite chapter's convert (`convert_run`: the library file's pages copied byte for byte, its cover inserted or dropped)
 and the `Page` entries that follow (`shift_pages`).
 
-A cover is encoded as a new chapter's is (convert/covers.py, image.encode_cover); no other page is re-encoded.
+A cover is encoded as a new chapter's is (convert/covers.py, image.Encoder.cover); no other page is re-encoded.
 """
 
 import json
@@ -13,7 +13,7 @@ from collections import Counter
 from pathlib import PurePosixPath
 
 from manga_pipeline import archive, config, db, images, names, workflow
-from manga_pipeline.convert import covers, image, plan, record_reader, tools, vship
+from manga_pipeline.convert import covers, plan, record_reader
 from manga_pipeline.stages import convert
 
 log = logging.getLogger(__name__)
@@ -180,12 +180,10 @@ def _encode(cfg, data, kept, scratch):
     if fmt is None:
         return None, f"its pages ({', '.join(sorted({f for f, _ in pages}))}) share no cover format"
     width = Counter(w for _, w in pages).most_common(1)[0][0]
-    tool_paths = {name: str(config.abs_path(cfg["tools"][name])) for name in tools.NAMES}
     avif = None
     if fmt == images.AVIF:
-        scorer = convert.loaded_scorer(vship.Scorer, config.abs_path(cfg["tools"]["vship"]))
-        with image.pool(cfg["convert"]["workers"]) as workers:
-            avif = image.encode_cover(workers, scorer, data, width, scratch / "cover", tool_paths=tool_paths)
+        with convert.encoder(cfg) as encoder:
+            avif = encoder.cover(data, width, scratch / "cover")
         if not avif["ok"]:
             return None, f"its AVIF cover scored {avif['score']}, below the floor"
     out_dir = scratch / "out"

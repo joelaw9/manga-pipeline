@@ -63,6 +63,17 @@ def check(rec):
     """The structural validation of a record: schema 3 or 4, every top key and series block, runs, folders, the
     naming restart flag, the calibration groups' shape, unique outputs and chapter files, and sources that name
     existing outputs. Raises RecordError."""
+    _check_top(rec)
+    _check_blocks(rec)
+    _check_naming(rec["series"]["naming"])
+    _check_calibration(rec["series"]["calibration"].get("groups", {}))
+    outputs = _check_chapters(rec["chapters"])
+    _check_sources(rec["sources"], outputs)
+    _check_chapter_sources(rec["chapters"], rec["sources"])
+
+
+def _check_top(rec):
+    """An object of schema 3 or 4 holding every top key with its type."""
     if not isinstance(rec, dict):
         msg = f"record is a {type(rec).__name__}, not an object"
         raise RecordError(msg)
@@ -73,6 +84,10 @@ def check(rec):
         if not isinstance(rec.get(k), t):
             msg = f"record: {k!r} missing or not a {t.__name__}"
             raise RecordError(msg)
+
+
+def _check_blocks(rec):
+    """Every series block an object, at least 1 run, and folders of [{name, from_run}]."""
     for k in SERIES:
         if not isinstance(rec["series"].get(k), dict):
             msg = f"record: series.{k} missing or not an object"
@@ -86,14 +101,20 @@ def check(rec):
     ):
         msg = "record: folders missing or not [{name, from_run}]"
         raise RecordError(msg)
-    naming = rec["series"]["naming"]
+
+
+def _check_naming(naming):
+    """series.naming: a restart bool and a series name."""
     if not isinstance(naming.get("restart"), bool):
         msg = "record: series.naming.restart missing or not a bool"
         raise RecordError(msg)
     if not isinstance(naming.get("series_name"), str) or not naming["series_name"]:
         msg = "record: series.naming.series_name missing or empty"
         raise RecordError(msg)
-    groups = rec["series"]["calibration"].get("groups", {})
+
+
+def _check_calibration(groups):
+    """series.calibration.groups: {group: {q: integer 0-100, probes: list}}."""
     if not isinstance(groups, dict) or any(
         not isinstance(g, dict)
         or type(g.get("q")) is not int
@@ -103,8 +124,12 @@ def check(rec):
     ):
         msg = "record: series.calibration.groups is not {group: {q: integer 0-100, probes: list}}"
         raise RecordError(msg)
+
+
+def _check_chapters(chapters):
+    """Every chapter's keys, its output and its file each listed once. Returns {output, lower case: chapter}."""
     outputs, files = {}, set()
-    for c in rec["chapters"]:
+    for c in chapters:
         absent = [k for k in CHAPTER_KEYS if k not in c]
         if absent:
             msg = f"record: chapter {c.get('output')!r} lacks {absent}"
@@ -118,20 +143,14 @@ def check(rec):
             msg = f"record: chapter file {c['file']!r} listed twice"
             raise RecordError(msg)
         files.add(c["file"])
+    return outputs
+
+
+def _check_sources(sources, outputs):
+    """Every source well formed and listed once; a chapter or merged source names an output (outputs: lower case)."""
     seen = set()
-    for s in rec["sources"]:
-        for k in ("file", "sha256", "fate"):
-            if not isinstance(s.get(k), str):
-                msg = f"record: source {s.get('file')!r}: {k!r} missing"
-                raise RecordError(msg)
-        if s["fate"] not in FATES:
-            msg = f"record: source {s['file']!r}: unknown fate {s['fate']!r}"
-            raise RecordError(msg)
-        if ("trash_run" in s) != ("trash_folder" in s) or (s.get("trash_run") is None) != (
-            s.get("trash_folder") is None
-        ):
-            msg = f"record: source {s['file']!r}: trash_run and trash_folder go together"
-            raise RecordError(msg)
+    for s in sources:
+        _check_source(s)
         if (s["file"], s["sha256"]) in seen:
             msg = f"record: source {s['file']!r} listed twice"
             raise RecordError(msg)
@@ -139,10 +158,28 @@ def check(rec):
         if s["fate"] in (CHAPTER, MERGED) and (s.get("output") or "").lower() not in outputs:
             msg = f"record: source {s['file']!r} names output {s.get('output')!r}, not a chapter"
             raise RecordError(msg)
+
+
+def _check_source(s):
+    """1 source: file, sha256 and a known fate; trash_run and trash_folder together."""
+    for k in ("file", "sha256", "fate"):
+        if not isinstance(s.get(k), str):
+            msg = f"record: source {s.get('file')!r}: {k!r} missing"
+            raise RecordError(msg)
+    if s["fate"] not in FATES:
+        msg = f"record: source {s['file']!r}: unknown fate {s['fate']!r}"
+        raise RecordError(msg)
+    if ("trash_run" in s) != ("trash_folder" in s) or (s.get("trash_run") is None) != (s.get("trash_folder") is None):
+        msg = f"record: source {s['file']!r}: trash_run and trash_folder go together"
+        raise RecordError(msg)
+
+
+def _check_chapter_sources(chapters, sources):
+    """Every source a chapter lists is a chapter or merged source of that output."""
     by_name = {}
-    for s in rec["sources"]:
+    for s in sources:
         by_name.setdefault(s["file"], []).append(s)
-    for c in rec["chapters"]:
+    for c in chapters:
         for f in c["sources"]:
             if not any(s["fate"] in (CHAPTER, MERGED) and s.get("output") == c["output"] for s in by_name.get(f, [])):
                 msg = f"record: chapter {c['output']!r}: source {f!r} not in sources"
