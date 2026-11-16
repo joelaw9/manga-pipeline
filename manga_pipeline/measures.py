@@ -21,3 +21,18 @@ def summary(pages):
         "strip_length": strip_length(pages),
         "page_phashes": [p["phash"] for p in pages if not p["blank"]],
     }
+
+
+def bits_per_pixel(pages):
+    """The download's bits per pixel: 8 × its pages' bytes over their pixels (pages: stored page rows)."""
+    pixels = sum(p["width"] * p["height"] for p in pages)
+    return 8 * sum(p["bytes"] for p in pages) / pixels if pixels else 0.0
+
+
+def junk(edit, layout, width):
+    """How much junk an edit removes (SPEC "Library copies"): pages dropped (layout pages), or strip rows removed per
+    1000 px of the page width (layout strip; the gutter rule's join rows left out)."""
+    if layout == "pages":
+        return len(edit["drop_pages"])
+    rows = sum(r["end"] - r["start"] for r in edit["strip_removed"] if r["why"] != "join")
+    return rows * 1000 / width if width else 0.0

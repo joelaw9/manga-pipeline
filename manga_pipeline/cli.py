@@ -134,6 +134,8 @@ def chapter_drop(cfg, args):
             log.info("chapter %s dropped", args.chapter)
             return
         digest = row["content_digest"]
+        if row["staged_path"]:  # a better copy held past convert: its staged file goes too
+            config.to_local(cfg, row["staged_path"]).unlink(missing_ok=True)
         if row["download_path"]:
             download = config.to_local(cfg, row["download_path"])
             if digest is None and workflow.exists(download):  # held at discover, before its digest was settled

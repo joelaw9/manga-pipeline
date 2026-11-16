@@ -22,6 +22,7 @@ from manga_pipeline import (
     comicinfo,
     config,
     db,
+    handled,
     names,
     retention,
     rewrite_covers,
@@ -31,7 +32,7 @@ from manga_pipeline import (
 from manga_pipeline.metadata import covers as cover_images
 from manga_pipeline.metadata import platforms, rewrite_plan
 from manga_pipeline.stages import comicinfo as comicinfo_stage
-from manga_pipeline.stages import convert
+from manga_pipeline.stages import convert, publish
 
 log = logging.getLogger(__name__)
 
@@ -44,10 +45,16 @@ CODE = hashlib.sha256(b"".join((Path(__file__).parent / m).read_bytes() for m in
 SERIES_LEVEL = (comicinfo_stage.OWN - {"Notes", "PageCount", "BlackAndWhite"}) | {"Series", "LocalizedSeries", "Volume"}
 # Columns of a queued rewrite on its published_file row, cleared together.
 PENDING = ("pending_path", "pending_staged", "pending_size", "pending_volume", "pending_volume_source", "pending_step",
-           "pending_cover")  # fmt: skip
+           "pending_cover", "pending_copy")  # fmt: skip
 PROGRESS = ("carry_pages_read", "carry_old_pages", "carry_new_pages", "carry_page_shift", "carry_kavita_modified")
 CARRY = (*PROGRESS, "carry_cover")
-OPEN_REWRITES = "kind = 'rewrite' AND status NOT IN ('done', 'needs_human')"
+# Open rewrite chapters and better copies (both name their file): the cap export.rewrites_open counts them.
+OPEN_REWRITES = "published_file_id IS NOT NULL AND status NOT IN ('done', 'needs_human')"
+# A published file busy with a change, {p} its alias: an open chapter names it (a rewrite or a copy), a queued
+# rewrite, a wait for Kavita, a cover refresh due, or a failed rewrite. No new rewrite or copy takes it meanwhile.
+BUSY = """({p}.pending_path IS NOT NULL OR {p}.indexed_since IS NOT NULL OR {p}.pending_error IS NOT NULL
+    OR {p}.carry_cover IS TRUE OR EXISTS (
+        SELECT 1 FROM chapter b WHERE b.published_file_id = {p}.id AND b.status <> 'done'))"""
 
 
 # --- the comparison
@@ -202,12 +209,14 @@ def _hash(ctx, series):
     ).fetchall()
     downloads = conn.execute(  # the rows chapter_names reads: claims coming and going change nothing
         """SELECT id, download_path, naming_kind, comicinfo_number, comicinfo_volume FROM chapter
-        WHERE series_id = %s AND kind = 'download' AND stage != 'discover'
+        WHERE series_id = %s AND kind = 'download' AND stage != 'discover' AND published_file_id IS NULL
             AND (status = ANY(%s) OR (status = 'needs_human' AND naming_kind IS NOT NULL)) ORDER BY id""",
         (sid, list(chapter_names.OPEN)),
     ).fetchall()
     rewrites = conn.execute(  # a file skipped for its open rewrite is compared again once that chapter ends
-        "SELECT id FROM chapter WHERE series_id = %s AND kind = 'rewrite' AND status <> 'done' ORDER BY id", (sid,)
+        "SELECT id FROM chapter WHERE series_id = %s AND published_file_id IS NOT NULL AND status <> 'done'"
+        " ORDER BY id",
+        (sid,),
     ).fetchall()
     images = conn.execute(
         "SELECT volume, sha256 FROM series_volume_cover WHERE series_id = %s ORDER BY volume", (sid,)
@@ -229,8 +238,7 @@ def _queue_chapter(ctx, series, file_id, volume, source, cover):
     made, else 0."""
     conn = ctx.conn
     row = conn.execute(
-        """SELECT * FROM published_file WHERE id = %s AND state = 'confirmed' AND pending_path IS NULL
-            AND indexed_since IS NULL AND pending_error IS NULL AND carry_cover IS NOT TRUE""",
+        f"SELECT * FROM published_file p WHERE p.id = %s AND p.state = 'confirmed' AND NOT {BUSY.format(p='p')}",
         (file_id,),
     ).fetchone()
     if row is None:
@@ -367,8 +375,10 @@ def copy_replacing(source, dest, name, data):
 
 
 def publish_run(ctx, chapter):
-    """Queue the rewrite on its file's row with the API key's user's progress (SPEC "Retroactive updates"); the
-    chapter is then done. A publish run again finds its rewrite queued or finished and is done."""
+    """Queue the rewrite, or a better copy's replacement, on its file's row with the API key's user's progress (SPEC
+    "Retroactive updates"); the chapter is then done. A copy also queues its values (publish.row_values), puts its
+    download aside the retention way and is recorded as a handled chapter `published`. A publish run again finds its
+    rewrite queued or finished and is done."""
     conn = ctx.conn
     file = conn.execute("SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],)).fetchone()
     if file["pending_path"] == chapter["library_path"] or file["indexed_since"] is not None:
@@ -387,13 +397,22 @@ def publish_run(ctx, chapter):
     ).fetchone()
     if clash or (target != old and workflow.exists(target)):
         return workflow.NeedsHuman(f"{target} is already in the library; a library file is never overwritten")
+    copy = chapter["kind"] == "download"  # a better copy (SPEC "Library copies")
+    read, old_pages = seen[0]["pages_read"], page_count(old)
+    if copy:
+        values = publish.row_values(conn, chapter)
+        cover, shift = values["cover_state"], copy_shift(read, old_pages, new_pages)
+        workflow.holds_claim(ctx, chapter)
+        retention.put(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]))
+    else:
+        cover, shift = converted["cover_state"] if converted else None, new_pages - old_pages
 
     def record(c):
         c.execute(
             """UPDATE published_file SET pending_path = %s, pending_staged = %s, pending_size = %s,
                 pending_volume = %s, pending_volume_source = %s, pending_cover = %s, pending_step = 0,
                 pending_attempts = 0, carry_pages_read = %s, carry_old_pages = %s, carry_new_pages = %s,
-                carry_page_shift = %s, carry_kavita_modified = %s, carry_cover = %s
+                carry_page_shift = %s, carry_kavita_modified = %s, carry_cover = %s, pending_copy = %s
             WHERE id = %s AND pending_path IS NULL""",
             (
                 chapter["library_path"],
@@ -401,21 +420,30 @@ def publish_run(ctx, chapter):
                 chapter["staged_size"],
                 chapter["comicinfo_volume"],
                 chapter["naming_volume_source"],
-                converted["cover_state"] if converted else None,
-                seen[0]["pages_read"],
+                cover,
+                read,
                 seen[0]["pages"],
                 new_pages,
-                new_pages - page_count(old),
+                shift,
                 seen[0]["modified"],
-                bool(converted) and converted["cover_state"] != file["cover_state"],
+                copy or (bool(converted) and converted["cover_state"] != file["cover_state"]),  # a copy's page 1 is new
+                json.dumps({"values": values, "digest": chapter["content_digest"]}) if copy else None,
                 file["id"],
             ),  # fmt: skip
         )
+        if copy:
+            handled.record(c, chapter["series_id"], chapter["identity"], "published", chapter["content_digest"])
 
     return workflow.Done(record)
 
 
 # --- finishing queued rewrites
+
+
+def copy_shift(read, old_pages, new_pages):
+    """The page shift a better copy's progress takes: the pages read scaled to its page count, as a shift from the
+    read page (the restore clamps it)."""
+    return round(read * new_pages / old_pages) - read if old_pages else 0
 
 
 def finish_all(ctx):
@@ -476,6 +504,12 @@ def finish(ctx, row):
             old.unlink()
         step = _record(conn, row["id"], 4)
     with db.transaction(conn):
+        if row["pending_copy"]:  # a better copy: the row describes it now (SPEC "Retroactive updates")
+            values = {k: v for k, v in row["pending_copy"]["values"].items() if k not in ("size", "cover_state")}
+            conn.execute(
+                f"UPDATE published_file SET {', '.join(f'{c} = %s' for c in values)} WHERE id = %s",
+                (*values.values(), row["id"]),
+            )
         conn.execute(
             f"""UPDATE published_file SET library_path = pending_path, size = pending_size,
                 comicinfo_volume = pending_volume, volume_source = pending_volume_source,
@@ -504,8 +538,23 @@ def _record(conn, file_id, step):
     return step
 
 
+def _give_up_copy(conn, row):
+    """A better copy's queued replacement given up (its staged file gone, or `rewrite drop`): the copy's handled record
+    says dropped, not published; its download stays in retention. Inside the caller's transaction."""
+    if row["pending_copy"] is None:
+        return
+    values = row["pending_copy"]["values"]
+    conn.execute(
+        """UPDATE handled_chapter SET outcome = 'dropped' WHERE id = (
+            SELECT id FROM handled_chapter WHERE series_id = %s AND identity = %s AND content_digest IS NOT DISTINCT
+                FROM %s AND outcome = 'published' ORDER BY id DESC LIMIT 1)""",
+        (values["series_id"], values["identity"], row["pending_copy"]["digest"]),
+    )
+
+
 def _clear(conn, file_id):
     with db.transaction(conn):
+        _give_up_copy(conn, conn.execute("SELECT * FROM published_file WHERE id = %s", (file_id,)).fetchone())
         conn.execute(
             f"""UPDATE published_file SET {", ".join(f"{c} = NULL" for c in (*PENDING, *CARRY))}, pending_error = NULL,
                 pending_attempts = 0 WHERE id = %s""",
@@ -530,6 +579,7 @@ def drop(conn, file_id, limit):
             f"published file {file_id}'s rewrite has renamed its file in: rewrite retry {file_id} finishes it"
         )
     with db.transaction(conn):
+        _give_up_copy(conn, row)
         conn.execute(
             f"""UPDATE published_file SET {", ".join(f"{c} = NULL" for c in (*PENDING, *CARRY))},
                 pending_error = NULL, pending_attempts = 0, indexed_since = NULL, wait_charges = 0 WHERE id = %s""",
@@ -680,9 +730,7 @@ def diff(ctx, series):
     busy = {
         r[0]
         for r in ctx.conn.execute(
-            "SELECT published_file_id FROM chapter WHERE series_id = %s AND published_file_id IS NOT NULL"
-            " AND status <> 'done'",
-            (series["id"],),
+            f"SELECT p.id FROM published_file p WHERE p.series_id = %s AND {BUSY.format(p='p')}", (series["id"],)
         )
     }
     # what the comparison would queue now: confirmed files with nothing open, queued or awaited

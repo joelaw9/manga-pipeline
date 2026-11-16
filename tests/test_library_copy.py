@@ -1,5 +1,5 @@
 """The junk stage's library-copy check (SPEC "Library copies"): a chapter the series already has published is a
-duplicate, a better copy, or doubtful."""
+duplicate, a better copy (which takes its file: test_better_copies), or doubtful."""
 
 import io
 import json
@@ -28,15 +28,27 @@ def world(tmp_path):
     return w
 
 
-def published_copy(world, number="5", source=BEST, pages_in=3, width=16, strip=4500, season=None, name=None, data=None):
+def published_copy(
+    world,
+    number="5",
+    source=BEST,
+    pages_in=3,
+    width=16,
+    strip=4500,
+    season=None,
+    name=None,
+    data=None,
+    bpp=None,
+    junk=None,
+):
     """A pipeline-published file of the series with its stored original measurements."""
     path = world.library / "Solo Leveling" / (name or f"Ch.{number}.cbz")
     path.write_bytes(data or cbz(seed=f"published {number}"))
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute(
             """INSERT INTO published_file (library_path, series_id, identity, source, state, pages_in,
-                median_page_width, strip_length, origin)
-            VALUES (%s, 1, %s, %s, 'confirmed', %s, %s, %s, 'pipeline')""",
+                median_page_width, strip_length, origin, bpp, junk, cover_state)
+            VALUES (%s, 1, %s, %s, 'confirmed', %s, %s, %s, 'pipeline', %s, %s, 'none')""",
             (
                 config.to_stored(world.cfg, path),
                 json.dumps(["grp", season, "", number, ""]),
@@ -44,6 +56,8 @@ def published_copy(world, number="5", source=BEST, pages_in=3, width=16, strip=4
                 pages_in,
                 width,
                 strip,
+                bpp,
+                junk,
             ),
         )
     return path
@@ -67,10 +81,13 @@ def outcome(world):
 
 
 @budget(load="db")
-def test_an_equal_copy_from_a_lower_ranked_source_is_a_duplicate_put_aside(world):
-    path = through_junk(world, copies=[{}])
+@pytest.mark.parametrize("source", ["Src (EN)", "Unranked (EN)"], ids=["lower-ranked", "higher-ranked"])
+def test_an_equal_copy_is_a_duplicate_put_aside_whatever_its_source(world, source):
+    path = through_junk(world, copies=[{"source": source}])
     stage, status, error = outcome(world)
-    assert (stage, status) == ("junk", "done") and error.startswith("dropped: a duplicate of the published")
+    assert (stage, status) == ("junk", "done") and error.startswith("dropped: a duplicate of the published"), (
+        "width, bits per pixel and junk decide; the source's rank does not"
+    )
     kept = config.abs_path(world.cfg["paths"]["retention"]) / "Src (EN)" / "Solo Leveling" / path.name
     assert not path.exists() and kept.exists(), "removed the retention way"
     assert world.rows("SELECT outcome FROM handled_chapter WHERE outcome = 'duplicate'") == [("duplicate",)]
@@ -80,9 +97,9 @@ def test_an_equal_copy_from_a_lower_ranked_source_is_a_duplicate_put_aside(world
 def test_a_lost_claim_puts_no_duplicate_aside(world, monkeypatch):
     from manga_pipeline import library_copy, retention, workflow
 
-    events, real_rank, real_put = [], library_copy._rank, retention.put
+    events, real_junk, real_put = [], library_copy._junk, retention.put
 
-    def rank(ctx, *args):
+    def junk(ctx, *args):
         if not events:  # another run takes the claim while this one compares the copies
             with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
                 conn.execute(
@@ -90,14 +107,14 @@ def test_a_lost_claim_puts_no_duplicate_aside(world, monkeypatch):
                     " WHERE status = 'claimed'"
                 )
             events.append("taken")
-        return real_rank(ctx, *args)
+        return real_junk(ctx, *args)
 
     def put(cfg, path):
         ((holder,),) = world.rows("SELECT claimed_by FROM chapter")
         events.append(f"put aside under {holder}'s claim")
         return real_put(cfg, path)
 
-    monkeypatch.setattr(library_copy, "_rank", rank)
+    monkeypatch.setattr(library_copy, "_junk", junk)
     monkeypatch.setattr(retention, "put", put)
     through_junk(world, copies=[{}])
     assert events == ["taken", f"put aside under {workflow.owner('process')}'s claim"], (
@@ -111,14 +128,28 @@ def test_a_lost_claim_puts_no_duplicate_aside(world, monkeypatch):
     "published, why",
     [
         ({"width": 15}, "wider"),  # 16 >= 1.05 x 15
-        ({"source": "Unranked (EN)"}, "same width, higher-ranked source"),
+        ({"bpp": 0.001}, "more bits per pixel"),
+        ({"junk": 1}, "less junk"),  # 1 page dropped from the published file's download, none from this one
     ],
 )
-def test_a_better_copy_needs_a_human_until_replacing_is_built(world, published, why):
+def test_a_better_copy_takes_its_file_and_goes_on(world, published, why):
+    through_junk(world, copies=[published])
+    ((stage, status, file_id),) = world.rows("SELECT stage, status, published_file_id FROM chapter")
+    assert (stage, status, file_id) == ("comicinfo", "ready", 2), f"{why}: it names its file and goes on"
+
+
+@budget(load="db")
+@pytest.mark.parametrize(
+    "published, why",
+    [
+        ({"width": 17}, "narrower than 0.95 x"),
+        ({"width": 15, "bpp": 1e9}, "wider, but fewer bits per pixel"),
+    ],
+)
+def test_a_copy_worse_on_any_measure_is_a_duplicate(world, published, why):
     through_junk(world, copies=[published])
     stage, status, error = outcome(world)
-    assert (stage, status) == ("junk", "needs_human") and "a better copy than the published" in error, why
-    assert "Phase 7e" in error
+    assert (stage, status) == ("junk", "done") and "a duplicate" in error, why
 
 
 @budget(load="db")
@@ -141,10 +172,12 @@ def test_another_season_with_the_same_number_is_no_copy(world):
 
 
 @budget(load="db")
-def test_a_bulk_copy_is_measured_from_the_library_file_and_ranks_last(world):
+def test_an_equal_copy_of_a_bulk_file_leaves_it(world):
     through_junk(world, "Chapter 1")  # the bulk Ch.1.cbz: 3 pages of the same width, no stored measurements
     stage, status, error = outcome(world)
-    assert status == "needs_human" and "a better copy" in error and "against bulk" in error
+    assert (stage, status) == ("junk", "done") and "a duplicate" in error, (
+        "measured from the library file; a bulk file is not ranked and its bits per pixel are not compared"
+    )
 
 
 @budget(load="db")
@@ -182,13 +215,6 @@ def test_a_library_file_whose_pages_are_bigger_than_a_header_read_is_measured(wo
     )
 
 
-@budget(load="db")
-def test_a_source_recorded_by_its_id_ranks_with_the_unranked_sources(world):
-    through_junk(world, copies=[{"source": "2327480808438768017"}])
-    stage, status, error = outcome(world)
-    assert status == "needs_human" and "a better copy" in error, "Src (EN) is ranked; a bare source id is not"
-
-
 # ---------------------------------------------------------------- volumes in a `filename` series
 
 
@@ -218,7 +244,7 @@ def test_the_same_volume_or_none_is_the_same_chapter(by_filename, name):
     by_filename.run(intake)
     by_filename.run(process)
     stage, status, error = outcome(by_filename)
-    assert status == "needs_human" and "a better copy than the published" in error, "judged against Vol.1 Ch.3"
+    assert status == "done" and "a duplicate of the published" in error, "judged against Vol.1 Ch.3"
 
 
 def pages_cbz(path, seed):
@@ -274,3 +300,14 @@ def test_a_duplicate_dropped_at_junk_is_no_chapter_status_lists(world):
     world.run(process)
     assert outcome(world)[2].startswith("dropped: a duplicate"), outcome(world)
     assert world.rows("SELECT notes FROM chapter") == [(None,)], "a dropped chapter carries no notes"
+
+
+@budget(load="db")
+def test_a_bulk_files_junk_comes_from_its_record_and_less_junk_is_better(world):
+    record = world.library / "Solo Leveling" / ".optimizer.json"
+    data = json.loads(record.read_text(encoding="utf-8"))
+    data["chapters"][0]["edits"]["drops"] = [3]  # the bulk converter dropped a credit page from Ch.1's download
+    record.write_text(json.dumps(data), encoding="utf-8")
+    through_junk(world, "Chapter 1")  # the same width; this download loses no page to junk
+    ((stage, status, file_id),) = world.rows("SELECT stage, status, published_file_id FROM chapter")
+    assert (stage, status, file_id) == ("comicinfo", "ready", 1), "less junk than the bulk file's own download"

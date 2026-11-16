@@ -25,7 +25,7 @@ def held(state):
     return state.removeprefix("volume:") if state and state.startswith("volume:") else None
 
 
-def _is_cover(name):
+def is_cover(name):
     return PurePosixPath(name).stem.lower() == archive.COVER_STEM
 
 
@@ -70,7 +70,7 @@ def _read_states(cfg, series, rows):
             v = by_output.get(PurePosixPath(r["library_path"]).name)
         else:
             with zipfile.ZipFile(config.to_local(cfg, r["library_path"])) as z:
-                has = any(_is_cover(n) for n in archive.archive_pages(z.namelist()))
+                has = any(is_cover(n) for n in archive.archive_pages(z.namelist()))
             v = (r["comicinfo_volume"] or "") if has else None
         out.append((NONE if v is None else f"volume:{v}", r["id"]))
     return out
@@ -91,9 +91,9 @@ def convert_run(ctx, chapter):
         members = [(i.filename, z.read(i), i.CRC) for i in z.infolist()]
     page_names = archive.archive_pages([n for n, _, _ in members])
     # the file itself says what it holds (a record may not list an old cover): any cover page goes
-    dropped = next((i for i, n in enumerate(page_names) if _is_cover(n)), None)
+    dropped = next((i for i, n in enumerate(page_names) if is_cover(n)), None)
     holds = dropped is not None
-    kept = [m for m in members if not _is_cover(m[0])]
+    kept = [m for m in members if not is_cover(m[0])]
     state = NONE if holds or held(file["cover_state"]) is not None else file["cover_state"]  # unfit stays
     inserted, why = None, None
     if cover_row is not None:
