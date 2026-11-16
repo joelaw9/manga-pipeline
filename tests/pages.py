@@ -66,7 +66,7 @@ def png(im):
     return encode(im, "PNG")
 
 
-def webp(im, lossless=False, extended=False):
+def webp(im, *, lossless=False, extended=False):
     """Lossy (VP8) or lossless (VP8L) WebP; extended=True adds an ICC profile, forcing the VP8X container."""
     kw = {"lossless": True} if lossless else {"quality": 80}
     if extended:
@@ -104,7 +104,7 @@ def suwayomi_comicinfo(title="Chapter 1", series="Some Series", number="1"):
 </ComicInfo>""".encode()
 
 
-def pipeline_comicinfo(title="Chapter 1", series="Some Series", number="1", volume=None, cover=False):
+def pipeline_comicinfo(title="Chapter 1", series="Some Series", number="1", volume=None, *, cover=False):
     """Schema-ordered ComicInfo of the kind the metadata stage writes."""
     vol = f"<Volume>{volume}</Volume>" if volume is not None else ""
     pages = '<Pages><Page Image="0" Type="FrontCover"/></Pages>' if cover else ""

@@ -57,7 +57,7 @@ def png(im):
     return encoded(im, "PNG")
 
 
-def webp(im, lossless=False):
+def webp(im, *, lossless=False):
     return encoded(im, "WEBP", lossless=lossless, quality=80)
 
 

@@ -52,7 +52,7 @@ def jpeg(width=64, colour=(40, 40, 200)):
     return out.getvalue()
 
 
-def bulk_file(name, number, cover=False, mixed=False):
+def bulk_file(name, number, *, cover=False, mixed=False):
     """A bulk-converted CBZ (its ComicInfo as the bulk converter wrote it, with Page entries): a 000_cover page first
     when cover, a JPEG page among its PNG pages when mixed."""
     data = io.BytesIO()
@@ -77,7 +77,7 @@ def library(world, cover=(), mixed=()):
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", "1"))
     kid = world.kavita_series(SERIES, bulk=bulk, basis="filename")
     for name, number in (("Vol.1 Ch.1.cbz", 1), ("Vol.1 Ch.2.cbz", 2)):
-        (world.library / SERIES / name).write_bytes(bulk_file(name, number, name in cover, name in mixed))
+        (world.library / SERIES / name).write_bytes(bulk_file(name, number, cover=name in cover, mixed=name in mixed))
     world.kavita.scan_library(4)
     world.kavita.run_scans()
     world.download(world.manga(SERIES), "Chapter 3", data=cbz(pages=4, seed="3"))

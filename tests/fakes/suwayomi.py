@@ -62,7 +62,7 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         self.source_rows[source_id] = {"id": source_id, "name": name, "lang": lang, "displayName": display}
         return source_id
 
-    def add_manga(self, title, source_id, in_library=True, status="ONGOING"):
+    def add_manga(self, title, source_id, *, in_library=True, status="ONGOING"):
         manga_id = self._new_id()
         self.manga_rows[manga_id] = {
             "id": manga_id,
@@ -79,7 +79,7 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         """A tracker record of a manga (Suwayomi's tracker ids: AniList 2, MangaUpdates 7)."""
         self.manga_rows[manga_id]["trackRecords"]["nodes"].append({"trackerId": tracker_id, "remoteId": remote_id})
 
-    def add_chapter(self, manga_id, name, scanlator=None, number=None, listed=True):
+    def add_chapter(self, manga_id, name, scanlator=None, number=None, *, listed=True):
         """A chapter of the manga, not downloaded. number defaults to its place in the manga. listed=False: the
         source has it, and Suwayomi lists it only after fetch_manga_and_chapters."""
         chapter_id = self._new_id()

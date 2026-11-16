@@ -17,7 +17,7 @@ def world(tmp_path):
     return World(tmp_path)
 
 
-def at_junk(world, record=True, name="Chapter 2", data=None, **series):
+def at_junk(world, *, record=True, name="Chapter 2", data=None, **series):
     """A Kavita series with 2 bulk chapters (record or not) and 1 download of it taken through intake (which takes the
     baseline at validate)."""
     bulk = (("Ch.1.cbz", "Grp_Chapter 1", "1"), ("Ch.1.5 - Extra.cbz", "Grp_Chapter 1.5 - Extra", "1.5"))

@@ -282,7 +282,7 @@ def _queue_chapter(ctx, series, file_id, volume, source, cover, title, unedited)
             None if unedited is None else json.dumps(unedited),
             now,
             now,
-        ),  # fmt: skip
+        ),
     ).fetchone()
     if made is None:
         return 0
@@ -451,7 +451,7 @@ def publish_run(ctx, chapter):
                 chapter["comicinfo_title"],
                 _json(file["unedited"] if copy else chapter["naming_unedited"]),  # a copy keeps the file's edits
                 file["id"],
-            ),  # fmt: skip
+            ),
         )
         if copy:
             handled.record(c, chapter["series_id"], chapter["identity"], "published", chapter["content_digest"])
@@ -778,7 +778,7 @@ def diff(ctx, series):
             _target(files[i], v, title),
             _cover_text(cover).removeprefix(", ") or None,
             title if title != (files[i]["comicinfo_title"] or "") else None,
-        )  # fmt: skip
+        )
         for i, (v, _, cover, title, _) in todo.items()
         if files[i]["state"] == "confirmed"
         and i not in busy

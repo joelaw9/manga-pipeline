@@ -481,12 +481,14 @@ def test_to_gray_drops_a_colour_profile():
 def test_to_gray_keeps_a_gray_profile():
     im = fx.manga_page((40, 40)).convert("L")
     im.info["icc_profile"] = (fx.PAGE_FIX / "icc_gray_azumi.icc").read_bytes()
-    assert "icc_profile" in images.to_gray(im, False).info, "a GRAY profile describes gray pixels and stays"
+    assert "icc_profile" in images.to_gray(im, alpha=False).info, "a GRAY profile describes gray pixels and stays"
 
 
 @budget(load="pure")
 def test_to_gray_keeps_alpha():
-    assert images.to_gray(Image.new("RGBA", (4, 4), (10, 20, 30, 0)), True).mode == "LA", "a page with alpha is LA"
+    assert images.to_gray(Image.new("RGBA", (4, 4), (10, 20, 30, 0)), alpha=True).mode == "LA", (
+        "a page with alpha is LA"
+    )
 
 
 @budget(load="fs")

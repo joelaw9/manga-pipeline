@@ -90,7 +90,7 @@ def _cancel(jobs):
     wait([g for g in jobs if not g.cancelled()])
 
 
-def encode_avif_pages(pool, scorer, tasks, stop_on_fail=False):
+def encode_avif_pages(pool, scorer, tasks, *, stop_on_fail=False):
     """Encode and score AVIF pages. Workers in pool encode and decode each page (encode_page); scorer threads in this
     process score each decode against its reference (scorer.score_files); a page under SCORE_FLOOR (its score rounded
     to 2 decimals) is encoded once more at task["retry_q"] (None: no retry, a calibration probe). With stop_on_fail,
@@ -337,13 +337,13 @@ class _Chapter:
     def rendered_avif(self, rec):
         ch = self.plan
         tasks = [
-            self.task(p, r["class"], r["yuv"], RENDERED_FMT, False)
+            self.task(p, r["class"], r["yuv"], RENDERED_FMT, jpeg_feed=False)
             for p, r in zip(self.rendered, ch.render, strict=True)
         ]
         results, failed = encode_avif_pages(self.pool, self.scorer, tasks, stop_on_fail=True)
         rec["avif_pages"] = results
         rec["reshape"] = {"kind": reshape_kind(ch.edits), "pages_in": len(self.kept), "pages_out": len(tasks)}
-        return self.avif(results, failed, False)
+        return self.avif(results, failed, size_gate=False)
 
     def pages_avif(self, rec, size_gate):
         ch = self.plan
@@ -352,7 +352,7 @@ class _Chapter:
             cls = ch.classes[q["name"]]
             yuv = plan.yuv_for(cls, q["chroma"])
             if q["name"] in self.blanked:  # a new image: encoded from its blanked PNG and scored against it
-                tasks.append(self.task(self.blanked[q["name"]], cls, yuv, RENDERED_FMT, False))
+                tasks.append(self.task(self.blanked[q["name"]], cls, yuv, RENDERED_FMT, jpeg_feed=False))
             else:
                 tasks.append(self.task(self.x / q["name"], cls, yuv, q["format"], plan.feeds_jpeg(q, yuv)))
         results, failed = encode_avif_pages(self.pool, self.scorer, tasks, stop_on_fail=True)

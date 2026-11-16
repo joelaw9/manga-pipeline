@@ -273,7 +273,7 @@ def _folder(cfg, row):
 def junk_list(cfg, args):
     with _junk_db(cfg) as conn:
         try:
-            rows = review.listing(conn, cfg, os.environ.get(review.REVIEW_ID_VARIABLE), args.all)
+            rows = review.listing(conn, cfg, os.environ.get(review.REVIEW_ID_VARIABLE), everything=args.all)
         except review.Refused as e:
             raise workflow.Refused(str(e)) from None
         for r in rows:
@@ -343,7 +343,7 @@ COMMANDS = {
         ("junk-review",), S, "junk-review", REVIEW_CHECKS, lambda cfg, _args, conn: review_run.run(cfg, conn)
     ),
     "state reset": Command((), X, None, RESET_CHECKS, lambda cfg, _args, conn: state.reset(cfg, conn)),
-    "state adopt": Command((), X, None, ADOPT_CHECKS, lambda cfg, _args, conn: state.adopt(cfg, conn), True),
+    "state adopt": Command((), X, None, ADOPT_CHECKS, lambda cfg, _args, conn: state.adopt(cfg, conn), builds=True),
     "state version": Command((), X, None, VERSION_CHECKS, lambda cfg, _args, conn: state.version(cfg, conn)),
 }
 

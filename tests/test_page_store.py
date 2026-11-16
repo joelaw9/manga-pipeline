@@ -21,7 +21,7 @@ def conn(tmp_path):
     c.close()
 
 
-def chapter_cbz(path, n=2, blank=True):
+def chapter_cbz(path, n=2, *, blank=True):
     """n manga pages, then a blank white page when blank (phash and junk_signature None)."""
     content = {f"{i + 1:03}.jpg": pages.jpeg(pages.manga_page(seed=i)) for i in range(n)}
     if blank:

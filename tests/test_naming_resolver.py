@@ -21,13 +21,35 @@ OVERRIDE_1_2 = {"volumes": {1: "1-2", 2: "3-"}}
 
 def settled(number, volume, source, kind=MAIN, marker="", season=None, order=None):
     return Row(
-        ("p", number, kind), True, kind, float(number), season, None, volume, source, marker, "", None, order or 0
+        key=("p", number, kind),
+        settled=True,
+        kind=kind,
+        number=float(number),
+        season=season,
+        src_volume=None,
+        volume=volume,
+        volume_source=source,
+        marker_title=marker,
+        title="",
+        date=None,
+        order=order or 0,
     )
 
 
 def new(number, kind=MAIN, src_volume=None, season=None, marker="", title="", date=None, order=0):
     return Row(
-        ("c", number, kind), False, kind, float(number), season, src_volume, None, None, marker, title, date, order
+        key=("c", number, kind),
+        settled=False,
+        kind=kind,
+        number=float(number),
+        season=season,
+        src_volume=src_volume,
+        volume=None,
+        volume_source=None,
+        marker_title=marker,
+        title=title,
+        date=date,
+        order=order,
     )
 
 
@@ -414,23 +436,38 @@ def _rows(fixture):
         season = int(item.season) if item.season else None
         if c["open"]:
             title = names.chapter_title(item, "")
-            rows.append(Row(k, False, item.kind, item.num, season, item.volume, None, None, stem, title, None, k))
+            rows.append(
+                Row(
+                    key=k,
+                    settled=False,
+                    kind=item.kind,
+                    number=item.num,
+                    season=season,
+                    src_volume=item.volume,
+                    volume=None,
+                    volume_source=None,
+                    marker_title=stem,
+                    title=title,
+                    date=None,
+                    order=k,
+                )
+            )
         else:
             volume = names.to_volume(c["volume"])
             rows.append(
                 Row(
-                    k,
-                    True,
-                    c["kind"],
-                    float(c["number"]),
-                    season,
-                    None,
-                    volume,
-                    c["volume_source"],
-                    stem,
-                    c["title"],
-                    None,
-                    k,
+                    key=k,
+                    settled=True,
+                    kind=c["kind"],
+                    number=float(c["number"]),
+                    season=season,
+                    src_volume=None,
+                    volume=volume,
+                    volume_source=c["volume_source"],
+                    marker_title=stem,
+                    title=c["title"],
+                    date=None,
+                    order=k,
                 )
             )
     return rows

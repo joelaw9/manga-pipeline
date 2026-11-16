@@ -21,7 +21,7 @@ def listable(conn, cfg):
     return rows[: cfg["junk"]["review_batch"]]
 
 
-def listing(conn, cfg, review_id=None, everything=False):
+def listing(conn, cfg, review_id=None, *, everything=False):
     """The candidates `junk list` prints: listable ones, or (everything) every open candidate. With a review id, each
     listed candidate records it (counted once when that review ends). `everything` is refused under a review id."""
     if everything and review_id:

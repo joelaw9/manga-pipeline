@@ -495,5 +495,7 @@ def _side_stories(rows, side, main_volumes, platform, past=frozenset()):
         t = t or names.clean_marker_title(special_titles.get(n) or "")
         base = SIDE_TITLE.format(n=n)
         source = SIDE_SOURCE if side_volume is not None else NONE
-        out[rows[i].key] = Naming(names.SIDE, side_volume, float(n), f"{base}: {t}" if t else base, source, False)
+        out[rows[i].key] = Naming(
+            names.SIDE, side_volume, float(n), f"{base}: {t}" if t else base, source, opens_covered_volume=False
+        )
     return out

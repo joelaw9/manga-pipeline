@@ -108,8 +108,14 @@ def _copy_name(ctx, chapter):
         return None
     f = _file(ctx, chapter)
     volume = names.to_volume(f["comicinfo_volume"])
-    return naming.Naming(f["kind"], volume, float(f["comicinfo_number"]), f["comicinfo_title"] or "",
-                         f["volume_source"], False)  # fmt: skip
+    return naming.Naming(
+        f["kind"],
+        volume,
+        float(f["comicinfo_number"]),
+        f["comicinfo_title"] or "",
+        f["volume_source"],
+        opens_covered_volume=False,
+    )
 
 
 def series_fields(ctx, series, chapter, group):

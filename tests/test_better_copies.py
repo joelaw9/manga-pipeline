@@ -29,7 +29,7 @@ def library(world, cover=()):
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", "1"))
     kid = world.kavita_series(SERIES, bulk=bulk, basis="filename")
     for name, number in (("Vol.1 Ch.1.cbz", 1), ("Vol.1 Ch.2.cbz", 2)):
-        (world.library / SERIES / name).write_bytes(bulk_file(name, number, name in cover))
+        (world.library / SERIES / name).write_bytes(bulk_file(name, number, cover=name in cover))
     world.kavita.scan_library(4)
     world.kavita.run_scans()
     world.run(intake)  # its baseline pass records the bulk files

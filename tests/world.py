@@ -34,7 +34,7 @@ def credit_page(seed=""):
     return out.getvalue()
 
 
-def cbz(pages=3, comicinfo=None, seed="", credit=False):
+def cbz(pages=3, comicinfo=None, seed="", *, credit=False):
     """A small CBZ: `pages` small page images whose colour carries seed (other seed = other content), then a credit
     page when `credit` (credit_page: the same in every chapter), and a ComicInfo.xml when given (bytes or str)."""
     data = io.BytesIO()
@@ -165,6 +165,7 @@ class World:
         self,
         name,
         folder=None,
+        *,
         record=True,
         bulk=(("Ch.1.cbz", "Grp_Chapter 1", "1"),),
         basis="none",
@@ -197,7 +198,7 @@ class World:
     def manga(self, title):
         return self.suwayomi.add_manga(title, self.source)
 
-    def download(self, manga_id, name, scanlator=None, data=None, settled=True):
+    def download(self, manga_id, name, scanlator=None, data=None, *, settled=True):
         """A chapter of the manga whose CBZ is in the downloads folder, flagged downloaded; settled (modified long
         enough ago for intake to take it) unless settled=False. Returns (Suwayomi chapter id, path)."""
         chapter_id = self.suwayomi.add_chapter(manga_id, name, scanlator)

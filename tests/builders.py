@@ -11,7 +11,7 @@ from manga_pipeline import config, db, fleet, lock, state, workflow
 from tests import pg
 
 
-def site_cfg(tmp_path, built=True, **changes):
+def site_cfg(tmp_path, *, built=True, **changes):
     """The test config with every path in tmp_path and this process's database for tmp_path (built, or with no
     schema when not built: tests/pg.py); changes replace whole sections, and a replaced database section takes none."""
     share = tmp_path / "share"

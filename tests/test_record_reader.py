@@ -190,7 +190,7 @@ def test_unusable_file_is_refused(tmp_path, rec, msg):
     [
         pytest.param(_set(("schema",), 5), record.RecordError, "record schema 5: only schema 3 and 4", id="schema-5"),
         pytest.param(_set(("schema",), 2), record.RecordError, "record schema 2: only schema 3 and 4", id="schema-2"),
-        pytest.param(_set(("schema",), True), record.RecordError, "record schema True", id="schema-bool"),
+        pytest.param(_set(("schema",), value=True), record.RecordError, "record schema True", id="schema-bool"),
         pytest.param(
             _set(("folders",), []),
             record.RecordError,

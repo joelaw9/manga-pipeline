@@ -16,7 +16,7 @@ from manga_pipeline import config
 TEST_CONFIG = Path(__file__).with_name("test_config.yaml")
 LIVE_CONFIG = (config.ROOT / "config.yaml").resolve()
 TMP = Path(tempfile.mkdtemp(prefix="manga_pipeline-tests-"))
-atexit.register(shutil.rmtree, TMP, True)
+atexit.register(shutil.rmtree, TMP, ignore_errors=True)
 real_load = config.load
 
 

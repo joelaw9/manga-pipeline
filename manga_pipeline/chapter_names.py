@@ -13,7 +13,7 @@ from manga_pipeline.metadata import naming, platforms
 OPEN = ("ready", "claimed", "waiting")  # an unnamed needs_human chapter may never be published: no number
 
 
-def resolve(ctx, series, downloads=None, edited=True):
+def resolve(ctx, series, downloads=None, *, edited=True):
     """{chapter id: naming.Naming} of the series' open download chapters, with the series' hand edits (edited=False:
     as the sources alone name them). downloads: {chapter id: stored path} read instead of the chapter's own download
     (validate's re-download candidate). VolumeError (volumes.OverrideError included) for a malformed override file, an

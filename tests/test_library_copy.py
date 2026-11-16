@@ -63,7 +63,7 @@ def published_copy(
     return path
 
 
-def through_junk(world, name="Chapter 5", copies=(), gone=False):
+def through_junk(world, name="Chapter 5", copies=(), *, gone=False):
     """A download taken through intake, then the published copies (published_copy keywords) added, then process."""
     _, path = world.download(world.manga_id, name, data=cbz(seed=f"new {name}"))
     world.run(intake)

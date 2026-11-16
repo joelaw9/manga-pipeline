@@ -26,7 +26,7 @@ SHIPPED_STEPS = sorted(p.stem for p in SHIPPED.glob("*.sql"))
 BUILD = 3.0  # budget of a test that builds a database from no schema (8 steps), in its body or its teardown
 
 
-def db_cfg(tmp_path, built=True):
+def db_cfg(tmp_path, *, built=True):
     return pg.cfg_for(pg.process.database(tmp_path.resolve(), built))
 
 

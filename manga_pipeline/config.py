@@ -103,7 +103,7 @@ def to_local(cfg, stored):
     return base.joinpath(*below.split("/")) if below else base
 
 
-def _read(path, allow_empty=False):
+def _read(path, *, allow_empty=False):
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:

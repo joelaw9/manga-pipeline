@@ -260,7 +260,7 @@ def gaps(episodes, key="number"):
     return [n for n in range(1, nums[-1] + 1) if n not in have]
 
 
-def coverage(episodes, listed_total=None, app_only=False, list_page_read=True):
+def coverage(episodes, listed_total=None, *, app_only=False, list_page_read=True):
     """{"status": complete | partial | unknown, "reason"}: partial when the site lists fewer episodes than it says it
     has, when site numbers are missing, when none is listed, or when the platform keeps episodes to its app; unknown
     when the page that tells is unread."""
