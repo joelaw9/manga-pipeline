@@ -42,7 +42,7 @@ def test_a_series_without_a_record_holds_its_chapters_until_the_record_parses(wo
 
 @budget(load="db")
 def test_a_partial_record_is_no_record(world):
-    kavita_id, _ = at_junk(world, record=False)
+    _kavita_id, _ = at_junk(world, record=False)
     folder = world.library / "Solo Leveling"
     (folder / ".optimizer.json").write_text(json.dumps({"schema": 4, "stages": ["structure"]}), encoding="utf-8")
     world.run(intake)
@@ -86,7 +86,8 @@ def test_a_record_naming_another_series_records_nothing_and_needs_a_human(world)
     world.write_record("Some Other Name", kavita_id, "Solo Leveling", [])
     world.run(intake)
     ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
-    assert status == "needs_human" and "Some Other Name" in reason
+    assert status == "needs_human"
+    assert "Some Other Name" in reason
     assert world.rows("SELECT count(*) FROM published_file") == [(0,)], "nothing of the baseline is written"
     assert world.rows("SELECT waiting_on FROM chapter") == [("bulk_conversion",)], "its chapter stays held"
 

@@ -100,7 +100,8 @@ def test_a_near_hit_folder_is_held_and_series_link_folder_settles_it(world):
     place(world, "Local/Kaiju No. 8", "Chapter 1")
     scan(world)
     ((series_id, status_, reason),) = world.rows("SELECT id, status, status_reason FROM series")
-    assert status_ == "needs_human" and 'series link --folder "Local/Kaiju No. 8" KAVITA_SERIES_ID' in reason
+    assert status_ == "needs_human"
+    assert 'series link --folder "Local/Kaiju No. 8" KAVITA_SERIES_ID' in reason
     assert link(world, kavita_id, "Local/Kaiju No. 8") == series_id, "the folder's held row is the one linked"
     with closing(db.connect(world.cfg)) as conn:
         workflow.retry_series(conn, series_id)

@@ -125,7 +125,7 @@ def test_a_lost_claim_puts_no_duplicate_aside(world, monkeypatch):
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    "published, why",
+    ("published", "why"),
     [
         ({"width": 15}, "wider"),  # 16 >= 1.05 x 15
         ({"bpp": 0.001}, "more bits per pixel"),
@@ -140,7 +140,7 @@ def test_a_better_copy_takes_its_file_and_goes_on(world, published, why):
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    "published, why",
+    ("published", "why"),
     [
         ({"width": 17}, "narrower than 0.95 x"),
         ({"width": 15, "bpp": 1e9}, "wider, but fewer bits per pixel"),
@@ -155,14 +155,17 @@ def test_a_copy_worse_on_any_measure_is_a_duplicate(world, published, why):
 @budget(load="db")
 def test_a_copy_of_another_length_is_not_the_same_chapter(world):
     through_junk(world, copies=[{"pages_in": 10}])
-    stage, status, error = outcome(world)
-    assert status == "needs_human" and "not the same chapter" in error and "pages_in 3 against 10" in error
+    _stage, status, error = outcome(world)
+    assert status == "needs_human"
+    assert "not the same chapter" in error
+    assert "pages_in 3 against 10" in error
 
 
 @budget(load="db")
 def test_2_published_files_of_the_chapter_need_a_human(world):
     through_junk(world, copies=[{}, {"name": "Ch.5 - again.cbz"}])
-    assert outcome(world)[1] == "needs_human" and "2 published files" in outcome(world)[2]
+    assert outcome(world)[1] == "needs_human"
+    assert "2 published files" in outcome(world)[2]
 
 
 @budget(load="db")
@@ -243,7 +246,7 @@ def test_the_same_volume_or_none_is_the_same_chapter(by_filename, name):
     by_filename.download(by_filename.manga_id, name)
     by_filename.run(intake)
     by_filename.run(process)
-    stage, status, error = outcome(by_filename)
+    _stage, status, error = outcome(by_filename)
     assert status == "done" and "a duplicate of the published" in error, "judged against Vol.1 Ch.3"
 
 

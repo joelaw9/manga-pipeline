@@ -15,9 +15,6 @@ import sys
 import unittest
 from datetime import UTC, datetime
 
-if sys.version_info < (3, 12):
-    msg = "timing.py needs Python 3.12+ (unittest.TestResult.addDuration)"
-    raise RuntimeError(msg)
 
 # Default budget in seconds per load: the costliest resource a test touches. "sleep" has no default.
 LOADS = {"pure": 0.1, "fs": 0.5, "db": 1.0, "network": 2.0, "subprocess": 5.0, "pool": 5.0, "sleep": None}

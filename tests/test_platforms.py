@@ -137,7 +137,9 @@ def test_the_tapas_id_needs_the_html_page_and_the_list_is_read_whole():
     series_id = client.series_id("brother-knows-best")
     assert client._service.headers["Accept"] == "text/html", "the JSON form of /info lacks the tapastic meta"
     items, total = client.episodes(series_id)
-    assert series_id == "255099" and len(items) == len({i[3] for i in items}) and total == 91
+    assert series_id == "255099"
+    assert len(items) == len({i[3] for i in items})
+    assert total == 91
 
 
 @budget(load="pure")

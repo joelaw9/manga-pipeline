@@ -46,7 +46,7 @@ def volume_of(basis, rows, number, overrides=None, mangadex=None):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "basis, row, overrides, mangadex, want",
+    ("basis", "row", "overrides", "mangadex", "want"),
     [
         ("filename", new(3, src_volume="2"), None, None, (2, "filename")),
         ("filename", new(3), None, None, (None, "none")),
@@ -83,7 +83,7 @@ def test_a_main_volume_comes_from_the_recorded_basis_only(basis, row, overrides,
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "markers, want",
+    ("markers", "want"),
     [
         ({2: "Chapter 2 (Season 1 Finale)"}, {3: 2, 4: 2}),
         ({2: "Chapter 2 [End of Season 1]", 3: "Chapter 3 S2 END"}, {3: 2, 4: 3}),
@@ -116,7 +116,7 @@ def test_a_season_end_and_the_next_chapter_resolve_together():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "new_rows, want",
+    ("new_rows", "want"),
     [
         ([new(5)], {5: 2}),
         ([new(5, season=3)], {5: 3}),
@@ -157,7 +157,7 @@ def test_a_none_series_with_an_override_file_takes_its_volumes():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "basis, rows, overrides, mangadex, number, want",
+    ("basis", "rows", "overrides", "mangadex", "number", "want"),
     [
         (
             "filename",
@@ -195,7 +195,7 @@ def test_a_gap_fill_fills_only_what_agrees_and_keeps_order(basis, rows, override
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "basis, rows, overrides, mangadex, want",
+    ("basis", "rows", "overrides", "mangadex", "want"),
     [
         (
             "filename",
@@ -234,7 +234,7 @@ def test_a_filler_out_of_order_among_its_own_fills_is_not_used():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "basis, row, mangadex",
+    ("basis", "row", "mangadex"),
     [("mangadex", new(3), {"3": "2.5"}), ("filename", new(3, src_volume="1.5"), None)],
     ids=["mangadex", "filename"],
 )
@@ -271,18 +271,18 @@ def test_side_stories_arriving_together_number_after_the_settled_ones():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "main, want",
+    ("main", "want"),
     [([settled(1, 4, "override")], 5), ([settled(1, None, "none")], 2), ([], 2)],
     ids=["after-main", "no-main-volume", "no-main"],
 )
 def test_a_first_side_story_goes_in_the_volume_after_the_main_story(main, want):
-    got = named("none", main + [new(1, kind=SIDE)])[(SIDE, 1)]
+    got = named("none", [*main, new(1, kind=SIDE)])[(SIDE, 1)]
     assert (got.volume, got.number, got.title) == (want, 1.0, "Side Story 1"), "highest main volume + 1, else 2"
 
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "title, want",
+    ("title", "want"),
     [
         ("[Side Story]", "Side Story 1"),
         ("[Side Story 3] Lunch", "Side Story 1: Lunch"),
@@ -320,7 +320,7 @@ def test_only_the_first_of_2_new_chapters_of_a_covered_volume_opens_it():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "basis, rows, overrides, mangadex, want",
+    ("basis", "rows", "overrides", "mangadex", "want"),
     [
         ("mangadex", [settled(1, 1, "mangadex"), new(2)], None, {"1": "1", "2": "2"}, True),
         ("filename", [settled(1, 1, "filename"), new(2, src_volume="2")], None, {"1": "1", "2": "2"}, True),
@@ -350,7 +350,7 @@ def test_a_covered_volume_comes_from_mangadex_or_the_override(basis, rows, overr
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "aggregate, want",
+    ("aggregate", "want"),
     [
         (
             {"volumes": {"1": {"volume": "01", "chapters": {"1": {"chapter": "01"}, "2.50": {"chapter": "2.50"}}}}},

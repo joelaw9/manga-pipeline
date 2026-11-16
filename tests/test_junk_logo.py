@@ -87,7 +87,8 @@ def test_an_undecided_variant_is_1_unit_with_its_representatives():
     units = out["undecided"]
     assert [u["page"] for u in units] == [2, 9], "grays 200, 160, 120 are 1 variant (single link), 40 another"
     assert [len(u["keys"]) for u in units] == [2, 1], "200 and 120 represent the first variant (160 matches 200)"
-    assert units[0]["key"] == units[0]["keys"][0] and units[0]["reasons"] == [logo_units.REASON]
+    assert units[0]["key"] == units[0]["keys"][0]
+    assert units[0]["reasons"] == [logo_units.REASON]
 
 
 @budget(load="pure")
@@ -112,7 +113,7 @@ def test_a_keep_on_1_representative_beats_a_junk_on_another():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "edit, kept",
+    ("edit", "kept"),
     [
         ({"drop_pages": [2], "bands": []}, False),
         ({"drop_pages": [], "bands": [{"page": 2, "box": [0, 300, 1200, 1800]}]}, False),
@@ -128,7 +129,7 @@ def test_a_logo_survives_a_page_edit_unless_dropped_or_cropped_off(edit, kept):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "removed, kept",
+    ("removed", "kept"),
     [
         ([{"start": 900, "end": 1100}], False),
         ([{"start": 900, "end": 1000}, {"start": 1000, "end": 1050}], False),

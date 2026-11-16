@@ -89,7 +89,8 @@ def test_a_published_file_holds_the_series_fields_its_source_and_its_pages(world
     assert got["Manga"] == "YesAndRightToLeft", "a page series with no left-to-right genre reads right to left"
     root = ET.fromstring(xml)
     pages = root.find("Pages").findall("Page")
-    assert got["PageCount"] == str(len(pages)) == "3" and got["BlackAndWhite"] in ("Yes", "No")
+    assert got["PageCount"] == str(len(pages)) == "3"
+    assert got["BlackAndWhite"] in ("Yes", "No")
     assert all(p.get("ImageWidth") and p.get("ImageSize") for p in pages), "each page measured"
     assert "Count" not in got, "Count is never written"
 
@@ -116,7 +117,9 @@ def test_a_series_whose_files_moved_is_held_before_anything_is_published(world):
         conn.execute("UPDATE series SET folder = 'library/Elsewhere' WHERE name = 'Solo Leveling'")
     world.run(export)
     status, reason = world.rows("SELECT status, status_reason FROM series WHERE name = 'Solo Leveling'")[0]
-    assert status == "needs_human" and "library/Elsewhere" in reason and "library/Solo Leveling" in reason
+    assert status == "needs_human"
+    assert "library/Elsewhere" in reason
+    assert "library/Solo Leveling" in reason
     assert world.rows("SELECT stage FROM chapter") == [("publish",)], "nothing published into it"
     assert not list((world.library / "Solo Leveling").glob("Ch.2*")), "no file in either folder"
 
@@ -168,8 +171,10 @@ def test_page_entries_mark_the_inserted_cover_and_spreads_in_a_page_series():
         {"index": 1, "name": "001.avif", "width": 1600, "height": 1200, "bytes": 20},
     ]
     got = stage.page_entries(pages, cover=True, spreads=True)
-    assert got[0]["Type"] == "FrontCover" and "DoublePage" not in got[0]
-    assert got[1]["DoublePage"] == "true" and "Type" not in got[1]
+    assert got[0]["Type"] == "FrontCover"
+    assert "DoublePage" not in got[0]
+    assert got[1]["DoublePage"] == "true"
+    assert "Type" not in got[1]
     assert "DoublePage" not in stage.page_entries(pages, cover=False, spreads=False)[1], "a strip has no spreads"
     assert "Type" not in stage.page_entries(pages, cover=False, spreads=False)[0], "a source cover page is not marked"
 

@@ -128,7 +128,7 @@ def find_band(im, aspect, where, cfg=BAND):
         if best is None:
             return None
         cut, how = _sharpest_row(g, best[1] * step, step), "seam"
-    cut = int(round(cut))
+    cut = round(cut)
     box = (0, 0, w, cut) if where == "top" else (0, cut, w, h)
     height = box[3] - box[1]
     if height < cfg["band_min_px"] or h - height < cfg["band_min_px"]:

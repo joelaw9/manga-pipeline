@@ -67,7 +67,7 @@ def library():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "folder, status",
+    ("folder", "status"),
     [
         ("Alone", "matched"),
         ("Twice", "shared"),
@@ -173,7 +173,7 @@ def test_archive_extensions_ignore_case():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "low, want",
+    ("low", "want"),
     [
         (f"{ROOT}/A", True),
         (ROOT, True),
@@ -206,7 +206,7 @@ def test_relevant(low, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "a, b",
+    ("a", "b"),
     [
         (
             "Gal Maid & Villainess: Only Milady's Happy End Will Win!",
@@ -226,7 +226,7 @@ def test_normalize_same_key(a, b):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "a, b",
+    ("a", "b"),
     [
         ("Master Villainess the Invincible!", "Master Villainess the Invincible"),  # sample library
         ("Heavenly Demon Reborn!", "Heavenly Demon Reborn！"),  # ASCII vs fullwidth "!"
@@ -250,7 +250,7 @@ def test_normalize_different_key(a, b):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "name, want",
+    ("name", "want"),
     [
         ("Kill Me Now 2", "killmenow2"),
         ("Trash Belongs in the Trash Can!", "trashbelongsinthetrashcan!"),
@@ -299,5 +299,5 @@ def test_series_names_of_no_series_is_empty():
 @budget(load="pure")
 def test_chapter_files_pairs_every_file_with_its_chapter():
     """Every file of every chapter of every volume, in order; a volume without chapters adds nothing."""
-    v = vols("/a/1.cbz", "/a/2.cbz") + [{"id": 2}]
+    v = [*vols("/a/1.cbz", "/a/2.cbz"), {"id": 2}]
     assert [(c["id"], p) for c, p in chapter_files(v)] == [(0, "/a/1.cbz"), (1, "/a/2.cbz")]

@@ -42,7 +42,7 @@ def is_stored_form(text):
 
 
 @pytest.mark.parametrize(
-    "path, stored",
+    ("path", "stored"),
     [
         ("{share}/downloads/mangas/Src (EN)/T/Ch 1.cbz", "downloads/mangas/Src (EN)/T/Ch 1.cbz"),
         ("{share}/library/S/Vol.1 Ch.1.cbz", "library/S/Vol.1 Ch.1.cbz"),
@@ -134,6 +134,7 @@ def test_no_stored_path_is_absolute_after_a_full_run(tmp_path, monkeypatch):
     for part in (intake, process, export):
         run_part(world.cfg, part)
     found = stored_paths(world.cfg)
-    assert any(p.startswith("downloads/") for p in found) and any(p.startswith("library/") for p in found)
+    assert any(p.startswith("downloads/") for p in found)
+    assert any(p.startswith("library/") for p in found)
     assert all(is_stored_form(p) for p in found), [p for p in found if not is_stored_form(p)]
     assert json.dumps(found)  # all text

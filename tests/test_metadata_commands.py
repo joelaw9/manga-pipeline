@@ -112,7 +112,8 @@ def test_audit_lists_disagreements_missing_ids_and_unmatched_manga(world, capsys
     with closing(db.connect(world.cfg)) as conn:
         audit.run(world.context(conn, "intake"), world.sources)
     out = capsys.readouterr().out
-    assert "series whose ids disagree: 1\n  Solo Leveling" in out and "1 (kavita), 2 (suwayomi)" in out
+    assert "series whose ids disagree: 1\n  Solo Leveling" in out
+    assert "1 (kavita), 2 (suwayomi)" in out
     assert "series with no mangadex id: 1" in out
     assert "no series matches by name: 1\n  Nobody's Manga" in out
     assert world.rows("SELECT count(*) FROM series_source_id") == [(0,)], "read-only"

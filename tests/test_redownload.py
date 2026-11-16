@@ -152,7 +152,8 @@ def test_every_remaining_source_down_fails_the_chapter_at_an_attempt(world):
     world.suwayomi.fail_download(chapter_id)
     world.run(intake)
     ((status, attempts, error),) = world.rows("SELECT status, attempts, last_error FROM chapter")
-    assert (status, attempts) == ("ready", 1) and "could not answer" in error
+    assert (status, attempts) == ("ready", 1)
+    assert "could not answer" in error
     assert state(world)["tried"] == ["Src (EN)"], "a source that could not answer is not counted as tried"
 
 
@@ -179,7 +180,7 @@ def test_suwayomi_unreachable_at_any_step_resumes_on_the_next_run(world, monkeyp
 
 @budget(load="db")
 def test_a_replacement_of_an_unknown_format_becomes_the_chapters_download_and_needs_a_human(world):
-    chapter_id, path = bad_download(world)
+    _chapter_id, path = bad_download(world)
     world.suwayomi.finish_downloads(_cbz_with(b"\x00\x01 unknown"))
     world.run(intake)
     ((status, download, redownload),) = world.rows("SELECT status, download_path, redownload FROM chapter")
@@ -207,7 +208,8 @@ def test_chapter_use_queues_the_chosen_chapter_on_the_next_intake(world):
     command(cli.chapter_use, world, chapter=1, suwayomi_chapter=chosen)
     assert world.rows("SELECT status, attempts FROM chapter") == [("ready", 0)]
     world.run(intake)
-    assert writes(world, "enqueue")[-1] == ("enqueue", [chosen]) and state(world)["expected"]["chapter_id"] == chosen
+    assert writes(world, "enqueue")[-1] == ("enqueue", [chosen])
+    assert state(world)["expected"]["chapter_id"] == chosen
     world.suwayomi.finish_downloads(cbz(seed="fixed"))
     world.run(intake)
     assert chapter(world)[:2] == ("junk", "ready"), "the chosen replacement is validated like any other"
@@ -245,7 +247,8 @@ def test_chapter_drop_removes_the_download_and_records_it_dropped(world):
     _, path = world.download(world.manga_id, "Chapter 12", data=_cbz_with(b"\x00 unknown format"))
     world.run(intake)
     command(cli.chapter_drop, world, chapter=1)
-    assert not path.exists() and retained(world, path).exists()
+    assert not path.exists()
+    assert retained(world, path).exists()
     assert world.rows("SELECT status, last_error FROM chapter") == [("done", "dropped by a person")]
     assert world.rows("SELECT outcome FROM handled_chapter WHERE outcome = 'dropped'") == [("dropped",)]
     world.run(intake)
@@ -277,12 +280,13 @@ def test_an_interrupted_chapter_use_keeps_the_choice(world, monkeypatch):
     world.run(intake)
     world.run(intake)
     assert writes(world, "enqueue")[-1] == ("enqueue", [chosen]), "the chosen chapter is queued on the next run"
-    assert state(world)["expected"]["chapter_id"] == chosen and state(world)["chosen"] is None
+    assert state(world)["expected"]["chapter_id"] == chosen
+    assert state(world)["chosen"] is None
 
 
 @budget(load="db")
 def test_a_download_finished_after_the_timeout_is_still_taken(world):
-    chapter_id, path = bad_download(world)
+    _chapter_id, _path = bad_download(world)
     world.suwayomi.finish_downloads(cbz(seed="late"))
     with world_conn(world) as conn:
         old = "2000-01-01T00:00:00+00:00"
@@ -300,17 +304,19 @@ def test_a_download_neither_queued_nor_downloaded_is_queued_again(world):
     chapter_id, _ = bad_download(world)
     world.suwayomi.queue.clear()  # Suwayomi dropped it
     world.run(intake)
-    assert writes(world, "enqueue")[-1] == ("enqueue", [chapter_id]) and chapter(world)[1] == "waiting"
+    assert writes(world, "enqueue")[-1] == ("enqueue", [chapter_id])
+    assert chapter(world)[1] == "waiting"
     assert state(world)["tried"] == [], "no source is given up for it"
 
 
 @budget(load="db")
 def test_a_download_flagged_without_its_file_fails_its_source(world):
-    chapter_id, path = bad_download(world)
+    _chapter_id, path = bad_download(world)
     world.suwayomi.finish_downloads(cbz(seed="good"))
     path.unlink()
     world.run(intake)
-    assert state(world)["tried"] == ["Src (EN)"] and state(world)["expected"]["source"] == OTHER
+    assert state(world)["tried"] == ["Src (EN)"]
+    assert state(world)["expected"]["source"] == OTHER
 
 
 @budget(load="db")
@@ -361,7 +367,8 @@ def test_a_refused_choice_stays_recorded_until_retry(world):
     exhausted(world)
     command(cli.chapter_use, world, chapter=1, suwayomi_chapter=999999)
     world.run(intake)
-    assert world.rows("SELECT status FROM chapter") == [("needs_human",)] and state(world)["chosen"] == 999999
+    assert world.rows("SELECT status FROM chapter") == [("needs_human",)]
+    assert state(world)["chosen"] == 999999
     command(cli.retry, world, chapter=1, series=None)
     assert state(world)["chosen"] is None and state(world)["tried"] == [], "retry forgets it and searches again"
 
@@ -443,7 +450,8 @@ def test_a_replacement_repeating_another_published_chapter_is_mislabelled(world)
     world.suwayomi.finish_downloads(copy)
     world.run(intake)
     ((status, error),) = world.rows("SELECT status, last_error FROM chapter")
-    assert status == "needs_human" and "mislabelled" in error
+    assert status == "needs_human"
+    assert "mislabelled" in error
 
 
 @budget(load="db")
@@ -461,7 +469,8 @@ def test_status_lists_re_downloads_notes_and_the_commands_that_settle_a_chapter(
         text = "\n".join(status.report(conn))
     assert "waiting on Src (EN) chapter" in text and "tried: none" in text, text
     assert "-> retry 2, chapter use 2 SUWAYOMI_CHAPTER_ID, chapter drop 2" in text
-    assert "chapter 3 (Solo Leveling" in text and "duplicate pages: 001.png, 002.png" in text
+    assert "chapter 3 (Solo Leveling" in text
+    assert "duplicate pages: 001.png, 002.png" in text
 
 
 def _cbz_with_pages(*cbzs):
@@ -486,7 +495,8 @@ def test_the_path_rebuilt_for_a_download_is_where_suwayomi_wrote_it(world):
     found = _target(world, chapter_id)
     # Observed on the real Suwayomi 2026-11-13: a non-library download landed exactly here.
     real = "Manga Ball (EN)/A Martial Master Wakes Up as a Concubine/Articuno_Chapter 141.cbz"
-    assert found["path"] == config.to_stored(world.cfg, world.mangas / real) and found["source"] == "Manga Ball (EN)"
+    assert found["path"] == config.to_stored(world.cfg, world.mangas / real)
+    assert found["source"] == "Manga Ball (EN)"
 
 
 def _target(world, chapter_id):

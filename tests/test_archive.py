@@ -17,7 +17,7 @@ from tests.timing import budget
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "name, want",
+    ("name", "want"),
     [
         ("cover.jpg", True),
         ("000_cover.avif", True),
@@ -35,7 +35,7 @@ from tests.timing import budget
         ("coverage.jpg", False),
         ("cover/001.jpg", False),
     ],
-    ids=lambda v: str(v),
+    ids=str,
 )
 def test_kavita_cover_rule(name, want):
     assert archive.is_cover_name(name) is want, (
@@ -127,7 +127,7 @@ def test_archive_pages_keep_backslash_names_as_stored():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "names, want",
+    ("names", "want"),
     [
         (["sub/ComicInfo.xml", "comicinfo.XML"], "comicinfo.XML"),
         (["sub/ComicInfo.xml"], "sub/ComicInfo.xml"),

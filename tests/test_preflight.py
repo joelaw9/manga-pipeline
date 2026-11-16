@@ -183,7 +183,7 @@ def layout(tmp_path, **paths):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "case, paths, problem",
+    ("case", "paths", "problem"),
     [
         ("staging = share root", {"staging": "share"}, "paths.staging {share} contains paths.downloads"),
         ("scratch = project root", {"scratch": config.ROOT}, "contains the project root"),
@@ -224,7 +224,7 @@ def test_staging_linked_into_the_library_is_a_problem(tmp_path):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "paths, problem",
+    ("paths", "problem"),
     [
         ({"staging": "x/../scratch"}, "contains paths.scratch"),
         ({"scratch": "state/.."}, "contains the project root"),
@@ -329,7 +329,9 @@ def test_share_folders_missing_is_a_problem(tmp_path):
     cfg = site(tmp_path)
     (tmp_path / "share" / "library").mkdir(parents=True)
     text = preflight.share_folders(cfg)
-    assert "paths.downloads" in text and "is not an existing folder" in text and "paths.library" not in text
+    assert "paths.downloads" in text
+    assert "is not an existing folder" in text
+    assert "paths.library" not in text
 
 
 @budget(load="pure")
@@ -366,7 +368,7 @@ def test_share_ownership_applies_no_schema_step(tmp_path, monkeypatch):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "section, key, value, want",
+    ("section", "key", "value", "want"),
     [
         ("kavita", "rescan_after_minutes", 0, "kavita.rescan_after_minutes must be at least 1, got 0"),
         ("export", "retention_days", -1, "export.retention_days must be at least 0, got -1"),
@@ -440,7 +442,8 @@ def test_scorer_reports_a_library_that_does_not_load(tmp_path, monkeypatch):
     monkeypatch.setattr(vship, "Scorer", fake_convert.REAL_SCORER)
     (tmp_path / "vship").write_bytes(b"not a library")
     problem = preflight.scorer(with_tools(tmp_path))
-    assert problem is not None and "cannot load the Vship library" in problem
+    assert problem is not None
+    assert "cannot load the Vship library" in problem
 
 
 @budget(load="fs")
@@ -461,7 +464,7 @@ def test_scratch_space_measures_the_scratch_drive(tmp_path):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "value, problem",
+    ("value", "problem"),
     [(1, None), (0, "LongPathsEnabled under HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem is 0: set it to 1")],
 )
 def test_long_paths_on_windows_need_the_registry_value_1(monkeypatch, value, problem):

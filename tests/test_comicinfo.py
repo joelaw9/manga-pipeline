@@ -67,7 +67,7 @@ def test_side_story_volume_must_be_integer():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "xml, want",
+    ("xml", "want"),
     [
         (b"", "parse-error: "),
         (b"<?xml version='1.0' encoding='bogus'?><ComicInfo/>", "parse-error: "),
@@ -84,7 +84,7 @@ def test_unreadable_documents_report_one_error(xml, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "body, want",
+    ("body", "want"),
     [
         ("<Title>a</Title><Title>b</Title>", ["duplicate element Title"]),
         ("<Pages><Pg Image='0'/></Pages>", ["unknown element Pages/Pg"]),
@@ -143,7 +143,7 @@ def test_rating_outside_0_to_5_is_invalid(value):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "name, value, want",
+    ("name", "value", "want"),
     [
         ("Series", "Anything at all", True),
         ("Volume", "2", True),

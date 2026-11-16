@@ -156,7 +156,8 @@ def test_out_of_scope_series_is_untouched_by_every_part(tmp_path, monkeypatch):
     assert published(site.cfg) == ["Alpha/Ch.2.cbz"]
     assert rows(site.cfg, "SELECT * FROM chapter WHERE series_id = %s", beta) == before, "no Beta row is written"
     assert rows(site.cfg, "SELECT count(*) FROM series") == [(2,)], "Beta's manga is never identified"
-    assert len(before) == len(seeded) and outside.exists()
+    assert len(before) == len(seeded)
+    assert outside.exists()
 
 
 @budget(load="db", seconds=2)
@@ -214,7 +215,8 @@ def test_unreadable_downloads_folder_is_an_unreachable_share(site, monkeypatch):
     failing_scan(monkeypatch, site.cfg, (errno.EIO, "Input/output error"))
     run_part(site.cfg, intake)
     got = meta(site.cfg, "intake")
-    assert got["intake.last_result"] == "unreachable: share" and "intake.last_success" not in got
+    assert got["intake.last_result"] == "unreachable: share"
+    assert "intake.last_success" not in got
     assert rows(site.cfg, "SELECT count(*) FROM chapter") == [(0,)]
 
 

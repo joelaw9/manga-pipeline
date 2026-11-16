@@ -160,7 +160,7 @@ def test_an_edit_stored_again_prints_unchanged(world):
 
 @budget(load="pure", seconds=1)
 @pytest.mark.parametrize(
-    "token, key",
+    ("token", "key"),
     [("10", (names.MAIN, None, 10.0)), ("S2 4.5", (names.MAIN, 2, 4.5)), ("side 3", (names.SIDE, None, 3.0))],
 )
 def test_a_chapter_token_reads_back_as_written(token, key):
@@ -204,7 +204,7 @@ def test_an_open_chapter_edited_to_its_sources_volume_keeps_their_source():
 
 
 @budget(load="fs", seconds=2)
-@pytest.mark.parametrize("held, want", [("Old", False), ("New", True)])
+@pytest.mark.parametrize(("held", "want"), [("Old", False), ("New", True)])
 def test_a_same_name_file_is_the_rewritten_one_only_with_the_new_title(tmp_path, held, want):
     path = tmp_path / "Vol.1 Ch.1.cbz"
     path.write_bytes(cbz(pages=2, comicinfo=comicinfo(Number=1, Volume=1, Title=held)))

@@ -122,7 +122,7 @@ def test_sig_text_round_trip():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "size, tiles",
+    ("size", "tiles"),
     [((300, 100), 1), ((300, 449), 1), ((300, 451), 2), ((300, 1200), 4)],
     ids=["wide", "1.5-", "1.5+", "4"],
 )
@@ -133,7 +133,7 @@ def test_one_tile_per_roughly_square_slice(size, tiles):
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("bits, want", [(6, True), (7, False)], ids=["d6", "d7"])
+@pytest.mark.parametrize(("bits", "want"), [(6, True), (7, False)], ids=["d6", "d7"])
 def test_the_live_rule_matches_up_to_6_bits_per_tile(bits, want):
     """matches' default rule: every tile within PHASH_THRESHOLD 6 bits."""
     sig = images.signature(fx.credit((300, 600)))
@@ -141,7 +141,7 @@ def test_the_live_rule_matches_up_to_6_bits_per_tile(bits, want):
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("aspect, want", [(1.0309, True), (1.031, False)], ids=["within-3%", "over-3%"])
+@pytest.mark.parametrize(("aspect", "want"), [(1.0309, True), (1.031, False)], ids=["within-3%", "over-3%"])
 def test_the_live_rule_allows_3_percent_aspect_of_the_larger(aspect, want):
     """matches' default rule: aspect difference within ASPECT_TOLERANCE 3 % of the larger aspect (1 / 0.97 =
     1.03093 is the limit above 1.0)."""
@@ -173,7 +173,7 @@ def test_an_aspect_drift_over_the_near_tolerance_is_not_near():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("bits, want", [(8, True), (9, False), (12, False)], ids=["d8-near", "d9", "d12-story"])
+@pytest.mark.parametrize(("bits", "want"), [(8, True), (9, False), (12, False)], ids=["d8-near", "d9", "d12-story"])
 def test_near_stops_at_the_threshold(bits, want):
     """The measurement's d12 blocks were story panels, d0-8 all junk: NEAR_THRESHOLD is 8."""
     sig = images.signature(fx.credit((300, 600)))
@@ -200,7 +200,7 @@ def jpeg_440():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "data, fmt, want",
+    ("data", "fmt", "want"),
     [
         (fx.jpeg(fx.webtoon_page((64, 64)), subsampling=0), images.JPEG, "444"),
         (fx.jpeg(fx.webtoon_page((64, 64)), subsampling=1), images.JPEG, "422"),

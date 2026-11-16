@@ -67,8 +67,8 @@ def test_a_ready_new_series_lands_whole_under_1_scan_and_is_attached_by_its_fold
 
 @budget(load="db", seconds=30)
 def test_2_new_series_ready_together_land_under_1_scan(world):
-    a, _ = ready(world, "Brand New Thing", al_id=7)
-    b, _ = ready(world, "Other New Thing", al_id=8)
+    _a, _ = ready(world, "Brand New Thing", al_id=7)
+    _b, _ = ready(world, "Other New Thing", al_id=8)
     world.run(export)
     assert scans(world) == [("scan_library", LIBRARY_ID)], "1 scan for both"
     assert len(files(world, "Brand New Thing")) == len(files(world, "Other New Thing")) == 3
@@ -88,7 +88,7 @@ def test_a_new_series_waits_while_a_scan_is_awaited_and_publishes_in_the_run_aft
 
 @budget(load="db", seconds=20)
 def test_a_chapter_on_its_way_holds_the_series_and_a_waiting_one_does_not(world):
-    sid, _ = ready(world)
+    _sid, _ = ready(world)
     world.rows("UPDATE chapter SET stage = 'convert' WHERE id = (SELECT min(id) FROM chapter) RETURNING id")
     world.run(export)
     assert not (world.library / "Brand New Thing").exists(), "a chapter still at convert holds the whole series"
@@ -101,7 +101,7 @@ def test_a_chapter_on_its_way_holds_the_series_and_a_waiting_one_does_not(world)
 
 @budget(load="db", seconds=30)
 def test_a_chapter_finished_after_the_scan_request_publishes_once_the_id_is_found(world):
-    sid, manga = ready(world)
+    _sid, manga = ready(world)
     world.run(export)
     world.download(manga, "Chapter 4", data=cbz(seed="4", pages=4))
     world.run(intake)

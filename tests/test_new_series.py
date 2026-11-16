@@ -116,7 +116,9 @@ def test_a_name_clash_holds_the_series_and_series_new_name_admits_it(world):
     world.download(world.manga("Brand New Thing"), "Chapter 1")
     world.run(intake)
     ((sid, status, reason),) = world.rows("SELECT id, status, status_reason FROM series")
-    assert status == "needs_human" and "already has a folder" in reason and f"series new {sid} --name" in reason
+    assert status == "needs_human"
+    assert "already has a folder" in reason
+    assert f"series new {sid} --name" in reason
     with closing(db.connect(world.cfg)) as conn, pytest.raises(workflow.Refused, match="series new"):
         workflow.retry_series(conn, sid)
     with closing(db.connect(world.cfg)) as conn:

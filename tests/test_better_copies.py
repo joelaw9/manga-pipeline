@@ -84,7 +84,8 @@ def test_a_wider_copy_replaces_its_bulk_file_under_its_name_keeping_its_naming_a
         "1",
         "2",
     ), "the row describes the copy; its naming is the file's"
-    assert r["pending_copy"] is None and r["source_name"] == "Chapter 2"
+    assert r["pending_copy"] is None
+    assert r["source_name"] == "Chapter 2"
     with zipfile.ZipFile(world.library / SERIES / "Vol.1 Ch.2.cbz") as z:
         fields = comicinfo_xml.read_all(z.read("ComicInfo.xml"))
     assert (fields["Volume"], fields["Number"]) == ("1", "2")
@@ -152,13 +153,13 @@ def test_a_busy_file_holds_the_copy_and_chapter_drop_lets_it_go(world):
     download = copy(world, width=20)
     through(world)
     ((chapter_id, status, error),) = world.rows("SELECT id, status, last_error FROM chapter WHERE kind = 'download'")
-    assert status == "needs_human" and "busy" in error
+    assert status == "needs_human"
+    assert "busy" in error
     from manga_pipeline import cli
 
     cli.chapter_drop(world.cfg, argparse.Namespace(chapter=chapter_id))
-    assert not download.exists() and world.rows("SELECT count(*) FROM handled_chapter WHERE outcome = 'dropped'") == [
-        (1,)
-    ]
+    assert not download.exists()
+    assert world.rows("SELECT count(*) FROM handled_chapter WHERE outcome = 'dropped'") == [(1,)]
 
 
 @budget(load="db", seconds=10)

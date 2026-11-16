@@ -118,7 +118,7 @@ def test_a_retained_original_past_its_period_is_deleted_by_the_next_export(world
 @budget(load="db", seconds=2)
 def test_a_second_download_of_a_handled_chapter_is_put_aside_not_published_twice(world, solo):
     _, manga = solo
-    chapter_id, path = world.download(manga, "Chapter 2")
+    _chapter_id, path = world.download(manga, "Chapter 2")
     data = path.read_bytes()
     through(world)
     world.kavita.run_scans()
@@ -349,9 +349,8 @@ def test_a_failed_scan_request_is_logged_left_due_and_charges_nothing(world, sol
     assert world.rows("SELECT stage, status, attempts FROM chapter") == [("confirm", "waiting", 0)]
     monkeypatch.undo()
     world.run(export)
-    assert world.kavita.pending == [world.cfg["kavita"]["library_id"]] and world.rows(
-        "SELECT scan_due FROM series"
-    ) == [(0,)]
+    assert world.kavita.pending == [world.cfg["kavita"]["library_id"]]
+    assert world.rows("SELECT scan_due FROM series") == [(0,)]
 
 
 @budget(load="db", seconds=2)

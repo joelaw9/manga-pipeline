@@ -130,7 +130,7 @@ def ring_stats(rgb, box):
         return (0, 0, 0), 0.0
     med = np.median(ring, axis=0)
     frac = float((np.abs(ring - med).max(axis=1) <= RING_TOL).mean())
-    return tuple(int(round(v)) for v in med), frac
+    return tuple(round(v) for v in med), frac
 
 
 @dataclass(frozen=True)

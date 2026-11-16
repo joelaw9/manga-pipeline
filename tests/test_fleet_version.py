@@ -28,7 +28,7 @@ def test_the_machine_that_set_the_version_passes(cfg):
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    "section, key, value",
+    ("section", "key", "value"),
     [
         ("junk", "claude_path", "/elsewhere/claude"),
         ("convert", "workers", 3),
@@ -55,7 +55,7 @@ def test_a_secret_in_a_shared_section_is_left_out(tmp_path, monkeypatch):
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    "section, key, value",
+    ("section", "key", "value"),
     [
         ("workflow", "attempt_limit", 9),
         ("series", "only", ["X"]),
@@ -93,7 +93,8 @@ def test_a_database_with_no_version_stops_every_machine(cfg):
 
 @budget(load="pure")
 def test_jpegtran_s_build_date_is_left_out_and_package_names_are_read_from_requirements():
-    assert fleet._name("psycopg[binary]==3.3.9") == "psycopg" and fleet._name("pillow==13.0.0") == "pillow"
+    assert fleet._name("psycopg[binary]==3.3.9") == "psycopg"
+    assert fleet._name("pillow==13.0.0") == "pillow"
 
 
 @budget(load="db")

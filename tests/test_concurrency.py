@@ -140,7 +140,7 @@ def outcome_lines(text, outcome):
     """(chapter id, stage) of each per-outcome log line "<part>: chapter N (series S, identity, at STAGE) <outcome>"."""
     found = []
     for line in text.splitlines():
-        head, sep, tail = line.partition(": chapter ")
+        _head, sep, tail = line.partition(": chapter ")
         if not sep or not tail.endswith(f") {outcome}"):
             continue
         chapter_id, _, rest = tail.partition(" (")
@@ -169,5 +169,6 @@ def test_2_unlocked_runs_of_a_part_never_work_a_chapter_twice(world, tmp_path):
     text = "".join((tmp_path / f"process-{n}.out").read_text(encoding="utf-8") for n in range(2))
     done = outcome_lines(text, "done")
     assert sorted(done) == sorted({(i, s) for i, s in done}), "every (chapter, stage) is worked at most once"
-    assert len(done) == 80 and "outcome is dropped" not in text
+    assert len(done) == 80
+    assert "outcome is dropped" not in text
     assert rows(cfg, "SELECT DISTINCT stage, status FROM chapter") == [("comicinfo", "ready")]

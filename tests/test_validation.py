@@ -27,7 +27,8 @@ def measured(tmp_path, members, name="m.cbz"):
 @budget(load="fs")
 def test_a_sound_download_passes_with_its_measurements(tmp_path):
     verdict = validation.check(cbz(tmp_path / "c.cbz", pages()), KEY, [])
-    assert verdict.kind == "ok" and verdict.notes == []
+    assert verdict.kind == "ok"
+    assert verdict.notes == []
     assert [p["name"] for p in verdict.pages] == ["001.jpg", "002.jpg", "003.jpg"], "every page measured, in order"
     assert all(p["width"] == 300 and p["format"] == images.JPEG for p in verdict.pages)
 
@@ -93,7 +94,8 @@ def test_a_page_with_an_exif_rotation_needs_a_human(tmp_path):
     exif[0x0112] = 6
     rotated = jpeg(manga_page(seed=1), exif=exif.tobytes())
     verdict = validation.check(cbz(tmp_path / "r.cbz", {"001.jpg": rotated}), KEY, [])
-    assert verdict.kind == "human" and "orientation 6" in verdict.reason
+    assert verdict.kind == "human"
+    assert "orientation 6" in verdict.reason
 
 
 @budget(load="fs")
@@ -117,7 +119,8 @@ def test_a_download_repeating_another_published_chapter_is_mislabelled(tmp_path)
     series = _series(tmp_path)
     copy = cbz(tmp_path / "copy.cbz", pages(seed=200))  # the pages of the 2nd published file
     verdict = validation.check(copy, KEY, series)
-    assert verdict.kind == "human" and verdict.reason.startswith("mislabelled")
+    assert verdict.kind == "human"
+    assert verdict.reason.startswith("mislabelled")
 
 
 @budget(load="fs")
@@ -141,7 +144,8 @@ def test_a_short_chapter_is_noted_and_passes(tmp_path):
     short = cbz(tmp_path / "short.cbz", strip(90, 150))
     verdict = validation.check(short, KEY, series)
     assert verdict.kind == "ok", "a short chapter is published"
-    assert len(verdict.notes) == 1 and verdict.notes[0].startswith("short: strip length 4500 is 30%")
+    assert len(verdict.notes) == 1
+    assert verdict.notes[0].startswith("short: strip length 4500 is 30%")
 
 
 @budget(load="pure")

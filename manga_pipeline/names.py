@@ -368,7 +368,7 @@ def to_volume(v):
         f = float(str(v).strip())
     except (TypeError, ValueError):
         return None
-    if f != f or f < 0 or f in (float("inf"),):
+    if f != f or f < 0 or f == float("inf"):
         return None
     return int(f) if f == int(f) else f
 

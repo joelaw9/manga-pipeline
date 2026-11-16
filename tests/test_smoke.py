@@ -40,10 +40,13 @@ def test_smoke_prints_what_both_services_answer_and_writes_nothing(services, cap
     smoke.run(config.cached())
     out = capsys.readouterr().out
     assert "suwayomi: 1 manga in the library, 1 sources" in out
-    assert '"Re:Zero" (MangaDex (EN)): 2 chapters, 1 downloaded' in out and "  Group_Ch.1_ Start.cbz" in out
-    assert 'kavita: 2 libraries: 4 "Library 4", 5 "Library 5"' in out and "kavita: library 4 holds 1 series" in out
+    assert '"Re:Zero" (MangaDex (EN)): 2 chapters, 1 downloaded' in out
+    assert "  Group_Ch.1_ Start.cbz" in out
+    assert 'kavita: 2 libraries: 4 "Library 4", 5 "Library 5"' in out
+    assert "kavita: library 4 holds 1 series" in out
     assert f'"Alpha": 1 files, folder {tmp_path / "library" / "Alpha"}' in out
-    assert f"{tmp_path / 'library' / 'Alpha' / 'Ch.1.cbz'}" in out and "exists" in out
+    assert f"{tmp_path / 'library' / 'Alpha' / 'Ch.1.cbz'}" in out
+    assert "exists" in out
     assert suw.writes == [] and kav.writes == [], "SPEC 'Services': smoke only reads"
 
 
@@ -54,7 +57,8 @@ def test_empty_libraries_are_reported_not_a_failure(services, capsys):
     kav.series_rows.clear()
     smoke.run(config.cached())
     out = capsys.readouterr().out
-    assert "suwayomi: the library is empty" in out and "kavita: library 4 holds 0 series" in out
+    assert "suwayomi: the library is empty" in out
+    assert "kavita: library 4 holds 0 series" in out
 
 
 @budget(load="fs")

@@ -181,7 +181,7 @@ def test_2_runs_opening_a_new_database_at_once_apply_each_step_once(tmp_path):
 
 
 @budget(BUILD, load="db")
-@pytest.mark.parametrize("first, second", [("0098_a", "0099_b"), ("0099_b", "0098_a")])
+@pytest.mark.parametrize(("first", "second"), [("0098_a", "0099_b"), ("0099_b", "0098_a")])
 def test_steps_from_2_branches_both_apply_whatever_merges_first(tmp_path, monkeypatch, first, second):
     cfg = db_cfg(tmp_path)
     sql = {"0098_a": "CREATE TABLE a (x BIGINT);", "0099_b": "CREATE TABLE b (x BIGINT);"}
@@ -267,7 +267,7 @@ def test_built_is_false_for_an_empty_database_and_true_once_connected(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "change, error",
+    ("change", "error"),
     [
         ({"host": ""}, "database.host must be a non-empty string"),
         ({"name": None}, "database.name must be a non-empty string"),
@@ -290,7 +290,8 @@ def test_a_refused_login_cannot_connect_and_never_shows_the_password():
     cfg = {**config.cached(), "database": {**config.cached()["database"], **login}}
     with pytest.raises(db.CannotConnect) as e:
         db.connect(cfg)
-    assert "localhost:5432" in str(e.value) and "mp_test_no_such_role" in str(e.value)
+    assert "localhost:5432" in str(e.value)
+    assert "mp_test_no_such_role" in str(e.value)
     assert "wrong-secret" not in str(e.value), "the message never holds the password"
 
 
@@ -329,7 +330,9 @@ def test_a_row_reads_by_position_and_name_as_sqlite3_row_does(rows):
 @budget(load="db")
 def test_a_row_is_a_sequence_with_keys_as_sqlite3_row_is(rows):
     row, lite = rows
-    assert tuple(row) == tuple(lite) and list(row) == list(lite) and len(row) == len(lite)
+    assert tuple(row) == tuple(lite)
+    assert list(row) == list(lite)
+    assert len(row) == len(lite)
     assert row.keys() == lite.keys()
     a, b, c = row
     assert (a, b, c) == (1, "x", 3), "a row unpacks to its values"
@@ -400,7 +403,8 @@ def test_a_database_left_with_a_fake_step_or_table_is_rebuilt(tmp_path, monkeypa
     pg.process.end_test()
     cfg = db_cfg(tmp_path)
     with closing(db.connect(cfg)) as conn:
-        assert step_names(conn) == SHIPPED_STEPS and "fake" not in tables(conn)
+        assert step_names(conn) == SHIPPED_STEPS
+        assert "fake" not in tables(conn)
         conn.execute("CREATE TABLE stray (x BIGINT)")
     pg.process.end_test()
     with closing(db.connect(db_cfg(tmp_path))) as conn:
@@ -610,7 +614,8 @@ def test_a_bad_database_setting_exits_2_and_a_refused_login_exits_4(tmp_path, ca
     assert "database.port" in capsys.readouterr().err
     assert status({"user": "mp_test_no_such_role", "password": "wrong-secret"}) == 4, "a refused login exits 4"
     err = capsys.readouterr().err
-    assert "cannot use the database server localhost:5432" in err and "wrong-secret" not in err
+    assert "cannot use the database server localhost:5432" in err
+    assert "wrong-secret" not in err
 
 
 @budget(load="db")

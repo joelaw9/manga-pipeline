@@ -99,7 +99,8 @@ def test_the_child_config_holds_no_secret_and_absolute_paths(world):
     child = review_run.child_config(world.cfg)
     assert child["kavita"]["api_key"] is None and child["junk"]["claude_token"] is None, "secrets are null"
     assert child["database"]["password"] is None, "the database password is a secret too"
-    assert Path(child["logging"]["dir"]).is_absolute() and Path(child["paths"]["candidates"]).is_absolute()
+    assert Path(child["logging"]["dir"]).is_absolute()
+    assert Path(child["paths"]["candidates"]).is_absolute()
 
 
 @budget(load="subprocess", seconds=20)
@@ -140,7 +141,8 @@ def test_an_error_result_exits_1_and_records_no_success(world, tmp_path):
     assert code == 1
     with closing(db.connect(cfg)) as conn:
         meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
-    assert meta["junk-review.last_result"].startswith("error") and "junk-review.last_success" not in meta
+    assert meta["junk-review.last_result"].startswith("error")
+    assert "junk-review.last_success" not in meta
 
 
 @budget(load="subprocess", seconds=20)
@@ -154,7 +156,8 @@ def test_claude_may_read_only_the_candidates_folder_and_run_3_junk_commands(worl
     assert [a.split(" junk ")[1] for a in allowed[1:]] == ["list)", "show *)", "decide *)"], (
         "the 3 junk commands; list exactly, so never list --all"
     )
-    assert argv[argv.index("--tools") + 1] == "Read,Bash" and "--permission-prompts" in argv
+    assert argv[argv.index("--tools") + 1] == "Read,Bash"
+    assert "--permission-prompts" in argv
 
 
 @budget(load="pure")
@@ -174,7 +177,7 @@ def test_review_checks_need_claude_and_its_token(tmp_path):
 
 @budget(load="subprocess", seconds=20)
 @pytest.mark.parametrize(
-    "reply, want", [(None, 0), ({"is_error": True, "subtype": "error_auth"}, 1)], ids=["success", "error"]
+    ("reply", "want"), [(None, 0), ({"is_error": True, "subtype": "error_auth"}, 1)], ids=["success", "error"]
 )
 def test_the_token_is_never_in_the_log_or_an_error(world, tmp_path, capsys, monkeypatch, reply, want):
     monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "DEBUG")
@@ -205,7 +208,7 @@ def test_the_review_child_sees_the_reviews_set_values(world, tmp_path):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "path, want",
+    ("path", "want"),
     [(r"F:\data\candidates", "//f/data/candidates"), ("/srv/manga/candidates", "//srv/manga/candidates")],
 )
 def test_an_absolute_rule_path_starts_with_two_slashes(path, want):

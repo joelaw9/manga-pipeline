@@ -212,7 +212,7 @@ def _scan_strip(ctx, key, paths, sizes, content):
         if logo is not None:
             logos.append(logo)
     st = strip.make_strip(cpaths, [sizes[i] for i in content], rows)
-    placed = {i: p for i, p in zip(content, st.pages, strict=True)}
+    placed = dict(zip(content, st.pages, strict=True))
     for logo in logos:  # its tight box's rows in the strip, end exclusive
         p, (_, y0, _, y1) = placed[logo["page"]], logo["tight"]
         logo["rows"] = [p["top"] + y0 * p["th"] // p["h"], p["top"] + -(-y1 * p["th"] // p["h"])]
@@ -372,7 +372,7 @@ def write_images(ctx, chapter, key, sc, picks):
     again to the scratch folder, which is removed afterwards."""
     work = _scratch(ctx, chapter)
     try:
-        paths, names, sizes, _ = extract(ctx, chapter, work)
+        paths, _names, sizes, _ = extract(ctx, chapter, work)
         for p in picks:
             if p["kind"] == "logo":
                 page = images.open_flat(paths[p["unit"]["page"]])[0].convert("RGB")

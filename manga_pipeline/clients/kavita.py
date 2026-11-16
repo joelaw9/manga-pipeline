@@ -237,6 +237,7 @@ class Kavita:
                 if attempt == 2:
                     msg = "HTTP 401 after re-authentication"
                     raise self._refused(msg) from None
+        return None
 
     def _get_token(self):
         if self._token is None:

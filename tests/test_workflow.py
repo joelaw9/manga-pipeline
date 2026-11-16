@@ -135,7 +135,8 @@ def test_the_sql_scope_agrees_with_in_scope_on_every_case(ctx):
 
 @budget(load="db")
 def test_a_run_has_1_client_of_each_service(ctx):
-    assert ctx.suwayomi.base == ctx.cfg["suwayomi"]["url"] and ctx.kavita.base == ctx.cfg["kavita"]["url"]
+    assert ctx.suwayomi.base == ctx.cfg["suwayomi"]["url"]
+    assert ctx.kavita.base == ctx.cfg["kavita"]["url"]
     given = workflow.Context(ctx.cfg, ctx.conn, "intake", suwayomi="a suwayomi", kavita="a kavita")
     assert (given.suwayomi, given.kavita) == ("a suwayomi", "a kavita"), "a test's fakes are used as given"
 
@@ -237,7 +238,8 @@ def test_unreachable_share_leaves_attempts_unchanged_and_skips_the_stage(ctx, er
     row = claimed(ctx)
     other = add_chapter(ctx.conn, add_series(ctx.conn, "T"), "c2", "convert")
     outcome = workflow.work(ctx, row, raises(error))
-    assert isinstance(outcome, workflow.Unreachable) and outcome.service == "share"
+    assert isinstance(outcome, workflow.Unreachable)
+    assert outcome.service == "share"
     after = chapter(ctx.conn, row["id"])
     assert (after["stage"], after["status"], after["attempts"], after["claimed_by"]) == ("junk", "ready", 0, None)
     assert workflow.claim(ctx, ("junk",)) is None, "the stage is not claimed again in this run"
@@ -347,7 +349,8 @@ def test_run_records_start_end_result_and_success(ctx):
     workflow.run_part(ctx, lambda ctx: None)
     got = meta(ctx)
     assert set(got) == {"process.last_start", "process.last_end", "process.last_result", "process.last_success"}
-    assert got["process.last_result"] == "ok" and got["process.last_success"] == got["process.last_end"]
+    assert got["process.last_result"] == "ok"
+    assert got["process.last_success"] == got["process.last_end"]
 
 
 @budget(load="db")
@@ -389,7 +392,8 @@ def test_failing_wait_check_is_logged_and_the_others_go_on(ctx, caplog):
     workflow.end_waits(ctx, "junk_decision", holds)
     assert chapter(ctx.conn, first["id"])["status"] == "waiting"
     assert chapter(ctx.conn, second["id"])["status"] == "ready"
-    assert f"chapter {first['id']}" in caplog.text and "candidate image unreadable" in caplog.text
+    assert f"chapter {first['id']}" in caplog.text
+    assert "candidate image unreadable" in caplog.text
 
 
 @budget(load="db")
@@ -403,7 +407,8 @@ def test_dropped_outcome_is_neither_logged_nor_counted(ctx, caplog):
 
     workflow.work(ctx, row, stage)
     assert (ctx.counts, ctx.failed) == ({}, set())
-    assert "outcome is dropped" in caplog.text and "failed: bad page" not in caplog.text
+    assert "outcome is dropped" in caplog.text
+    assert "failed: bad page" not in caplog.text
 
 
 @budget(load="db")

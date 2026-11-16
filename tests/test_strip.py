@@ -19,6 +19,7 @@ from manga_pipeline import db, images, strip
 from tests import pages as fx
 from tests.builders import add_series, site_cfg
 from tests.timing import budget
+import itertools
 
 RC, SC = strip.RESTITCH, strip.SLICE_REPAIR
 MAX_SEAM = SC["max_seam_score"]
@@ -102,9 +103,7 @@ def strip_plan(st):
 
 def render_cuts(width, pages, kept, cuts, x_dir, out_dir):
     """Execution of a strip / split plan: strip.render over the planned cuts. pages: [{"name", "top", "th"}]."""
-    outputs = [
-        {"name": strip.output_name(n), "rows": [a, b]} for n, (a, b) in enumerate(zip(cuts, cuts[1:], strict=False), 1)
-    ]
+    outputs = [{"name": strip.output_name(n), "rows": [a, b]} for n, (a, b) in enumerate(itertools.pairwise(cuts), 1)]
     return strip.render(outputs, x_dir, out_dir, {"width": width, "pages": pages, "kept": kept})
 
 
@@ -222,7 +221,7 @@ def test_override_pages_beats_strip_geometry(tmp_path):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "override, want",
+    ("override", "want"),
     [({}, None), ({"layout": None}, None), ({"layout": " Pages "}, "pages"), ({"layout": "STRIP"}, "strip")],
     ids=["absent", "null", "padded-pages", "upper-strip"],
 )
@@ -318,7 +317,7 @@ def test_rows_map_to_strip_px_within_their_own_page():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "run, want", [(range(500, 512), [(500, 512)]), (range(500, 511), [])], ids=["12-rows", "11-rows"]
+    ("run", "want"), [(range(500, 512), [(500, 512)]), (range(500, 511), [])], ids=["12-rows", "11-rows"]
 )
 def test_a_gap_needs_gap_min_rows_uniform_rows(run, want):
     """1000 px wide, 1 px per analysis row: gap_min_rows 12 is the shortest gap."""
@@ -327,7 +326,7 @@ def test_a_gap_needs_gap_min_rows_uniform_rows(run, want):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "run, want", [(range(100, 103), [(200, 206)]), (range(100, 102), [])], ids=["3-rows", "2-rows"]
+    ("run", "want"), [(range(100, 103), [(200, 206)]), (range(100, 102), [])], ids=["3-rows", "2-rows"]
 )
 def test_gap_min_rows_is_measured_at_1000_px_width(run, want):
     """At 500 px wide, 12 rows at 1000 w are 6 px: 3 analysis rows of 2 px."""
@@ -351,7 +350,7 @@ def test_a_gap_at_the_strip_end_is_found():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "gaps, want",
+    ("gaps", "want"),
     [
         ([], [(0, 1000)]),
         ([(200, 300)], [(0, 200), (300, 1000)]),
@@ -421,7 +420,7 @@ def test_every_page_within_limits_and_on_gaps():
     """Gaps every 1,300 px over 30,000 px: no forced cut, every cut on a gap, every page in [min_page, max_page]."""
     gaps = [(c, 80) for c in range(1200, 30000, 1300)]
     cuts, forced = strip.plan_cuts(30000, gaps)
-    lens = [b - a for a, b in zip(cuts, cuts[1:], strict=False)]
+    lens = [b - a for a, b in itertools.pairwise(cuts)]
     assert [n for n in lens if not RC["min_page"] <= n <= RC["max_page"]] == [], f"pages within limits: {lens}"
     assert forced == [], "no forced cut where gaps fit"
     assert set(cuts[1:-1]) <= {c for c, _ in gaps}, "every cut on a gap"
@@ -433,9 +432,7 @@ def test_prefers_lengths_near_the_middle():
     gaps = [(c, 80) for c in range(500, 20000, 500)]
     cuts, _ = strip.plan_cuts(20000, gaps)
     mid = (RC["min_page"] + RC["max_page"]) / 2
-    assert [b - a for a, b in zip(cuts, cuts[1:], strict=False) if abs(b - a - mid) > 1000] == [], (
-        "lengths near the middle"
-    )
+    assert [b - a for a, b in itertools.pairwise(cuts) if abs(b - a - mid) > 1000] == [], "lengths near the middle"
 
 
 @budget(load="pure")
@@ -452,7 +449,7 @@ def test_no_gap_cuts_through_art_at_exactly_max():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "length, want",
+    ("length", "want"),
     [
         (5200, ([0, 2600, 5200], [2600])),
         (6400, ([0, 3200, 6400], [3200])),
@@ -469,7 +466,9 @@ def test_gapless_run_split_evenly_when_max_cut_strands_a_short_page(length, want
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "length, gaps", [(2600, [(1300, 80)]), (5000, []), (900, [])], ids=["short-with-gap", "exactly-max", "under-min"]
+    ("length", "gaps"),
+    [(2600, [(1300, 80)]), (5000, []), (900, [])],
+    ids=["short-with-gap", "exactly-max", "under-min"],
 )
 def test_a_chapter_up_to_max_page_is_one_page(length, gaps):
     """Nothing to cut at or under max_page, gaps or not."""
@@ -480,7 +479,7 @@ def test_a_chapter_up_to_max_page_is_one_page(length, gaps):
 def test_a_gap_that_would_strand_a_short_last_page_is_not_the_cut():
     """Every page within [min_page, max_page]; a gap at 5,000 of 6,200 px leaves a 1,200 px page."""
     cuts, _ = strip.plan_cuts(6200, [(5000, 80)])
-    lens = [b - a for a, b in zip(cuts, cuts[1:], strict=False)]
+    lens = [b - a for a, b in itertools.pairwise(cuts)]
     assert [n for n in lens if not RC["min_page"] <= n <= RC["max_page"]] == [], (
         f"pages {lens}: only a chapter shorter than min_page may be one short page"
     )
@@ -528,7 +527,7 @@ def test_removed_ranges_in_any_order_at_both_strip_ends():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "a, b, want",
+    ("a", "b", "want"),
     [(50, 250, [(50, 100), (300, 450)]), (100, 200, [(300, 400)])],
     ids=["across-a-removed-block", "after-the-first-range"],
 )
@@ -548,7 +547,7 @@ def test_cut_strip_takes_overrides_of_the_frozen_limits():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("n, want", [(1, "001"), (12, "012"), (1000, "1000")], ids=["1", "12", "1000"])
+@pytest.mark.parametrize(("n", "want"), [(1, "001"), (12, "012"), (1000, "1000")], ids=["1", "12", "1000"])
 def test_output_name(n, want):
     """Rendered pages are numbered from 001, STEM_WIDTH 3 digits."""
     assert strip.output_name(n) == want, "3-digit stems"
@@ -566,7 +565,7 @@ def test_a_single_uncropped_part_keeps_its_mode(tmp_path):
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("height, want", [(80, [40]), (79, [])], ids=["seam-40-from-both-ends", "39-from-the-end"])
+@pytest.mark.parametrize(("height", "want"), [(80, [40]), (79, [])], ids=["seam-40-from-both-ends", "39-from-the-end"])
 def test_hard_joins_keep_min_edge_block_px_from_either_end(height, want):
     """A black/white seam at row 40 is a hard join only when 40 rows (MIN_EDGE_BLOCK_PX) remain on both sides."""
     a = np.full((height, 100), 255, np.uint8)
@@ -684,7 +683,7 @@ def test_height_pattern_joins_a_cut_on_blank_margin(tmp_path, cached):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "sizes, want",
+    ("sizes", "want"),
     [
         ([(1125, 1600), (1125, 800)], [1]),
         ([(1125, 1600), (1125, 801)], []),
@@ -717,7 +716,7 @@ def test_a_continuous_textured_cut_joins_by_seam():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("jump, want", [(3.5, True), (3.6, False)], ids=["at-max", "over-max"])
+@pytest.mark.parametrize(("jump", "want"), [(3.5, True), (3.6, False)], ids=["at-max", "over-max"])
 def test_seam_score_up_to_max_seam_score_joins(jump, want):
     """Smooth rows on both sides (inside change 0, floored to 1): a jump of max_seam_score 3.5 still joins."""
     (j,) = strip.find_slices([(1125, 1500), (1125, 100)], {0: (TEX, TEX), 1: (TEX + jump, TEX)})
@@ -725,7 +724,7 @@ def test_seam_score_up_to_max_seam_score_joins(jump, want):
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("hi, want", [(16, True), (15, False)], ids=["std-8", "std-7.5"])
+@pytest.mark.parametrize(("hi", "want"), [(16, True), (15, False)], ids=["std-8", "std-7.5"])
 def test_edge_rows_need_min_edge_texture(hi, want):
     """Art on both sides: the rows at the cut need std >= min_edge_texture 8."""
     rows = alternating(hi)
@@ -752,7 +751,7 @@ def pairs_with_blank_last(seam_pairs, extra=((1500, 100),)):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "seam_pairs, want", [(3, (True, "pattern")), (2, (False, None))], ids=["confirmed-3-times", "confirmed-twice"]
+    ("seam_pairs", "want"), [(3, (True, "pattern")), (2, (False, None))], ids=["confirmed-3-times", "confirmed-twice"]
 )
 def test_height_pattern_needs_pattern_min_joins_confirmations(seam_pairs, want):
     """A height pair confirmed by seam pattern_min_joins 3 times joins elsewhere even on blank margin."""
@@ -768,7 +767,7 @@ def test_height_pattern_needs_exactly_the_confirmed_heights():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("top_jump, want", [(6, 3.0), (0, 0.0)], ids=["jump-6-over-change-2", "no-jump"])
+@pytest.mark.parametrize(("top_jump", "want"), [(6, 3.0), (0, 0.0)], ids=["jump-6-over-change-2", "no-jump"])
 def test_seam_score_is_the_jump_over_the_in_page_row_change(top_jump, want):
     """Rows rising 2 per row on both sides: a jump of 6 across the join scores 3."""
     bottom = np.array([[0, 0], [2, 2], [4, 4]], np.float32)
@@ -865,7 +864,7 @@ def test_plan_pages_cuts_each_image_into_equal_pages():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "h, want",
+    ("h", "want"),
     [(3060, []), (3061, [{"page": "001", "height": 3061, "pages": 3.061}])],
     ids=["at-snap-window", "past-snap-window"],
 )
@@ -889,7 +888,7 @@ def test_no_page_like_height_falls_back_to_fallback_page_aspect():
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "sizes, aspects, want",
+    ("sizes", "aspects", "want"),
     [
         ([(1000, 2700)] * 3, [1.0, 1.5], True),
         ([(1000, 2699)] * 3, [1.0, 1.5], False),
@@ -907,7 +906,7 @@ def test_stitched_when_the_median_shape_reaches_stitched_ratio_times_the_series_
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "pages, want",
+    ("pages", "want"),
     [
         ([(1000, 900)] * 3, [0.9]),
         ([(1000, 899)] * 3, None),
@@ -939,7 +938,7 @@ def art(h=852, seed=1):
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("aspects, want", [([1.5, 1.795], 1.5), (None, 1.42)], ids=["most-common", "fallback"])
+@pytest.mark.parametrize(("aspects", "want"), [([1.5, 1.795], 1.5), (None, 1.42)], ids=["most-common", "fallback"])
 def test_series_shape_is_the_most_common_candidate(aspects, want):
     """My Noble Family ch7-10: banded pages are a candidate too, so not max(); none -> fallback_page_aspect."""
     assert strip.series_shape(aspects) == want, "the most common candidate, else the fallback"
@@ -953,7 +952,7 @@ def test_band_pages_are_pages_taller_than_the_shape_by_band_tolerance():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("h, want", [(1350, []), (1351, [0])], ids=["at-the-limit", "one-px-over"])
+@pytest.mark.parametrize(("h", "want"), [(1350, []), (1351, [0])], ids=["at-the-limit", "one-px-over"])
 def test_a_band_page_is_strictly_taller_than_the_limit(h, want):
     """band_tolerance 0.5 (an exact limit: 600 x 1.5 x 1.5 = 1,350 px): a page of exactly the limit is no band page."""
     assert strip.band_pages(["001.jpg"], [(600, h)], 1.5, dict(SC, band_tolerance=0.5)) == want, "strictly taller"
@@ -979,7 +978,7 @@ def test_cover_named_page_is_never_band_checked(tmp_path):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "n, want",
+    ("n", "want"),
     [(0, []), (1, [0]), (4, [0, 1, 2, 3]), (5, [0, 1, 2, 3, 4]), (6, [0, 1, 3, 4, 5])],
     ids=["0", "1", "4", "5", "6"],
 )
@@ -1044,7 +1043,7 @@ def test_notice_lines_with_blank_runs_between_are_separate_spans():
     assert [s for s in got if 111600 <= s[0] < 111700] == [(111612, 111630), (111639, 111657), (111666, 111684)], (
         "each notice line is a span"
     )
-    breaks = [(a[1], b[0]) for a, b in zip(got, got[1:], strict=False)]
+    breaks = [(a[1], b[0]) for a, b in itertools.pairwise(got)]
     assert all(e - s >= strip.SPAN_BREAK_PX for s, e in breaks), f"spans are SPAN_BREAK_PX apart: {breaks}"
 
 
@@ -1057,7 +1056,7 @@ def one_page_strip(uniform):
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "run, want",
+    ("run", "want"),
     [
         (strip.SPAN_BREAK_PX - 1, [(0, 30)]),
         (strip.SPAN_BREAK_PX, [(0, 14), (14 + strip.SPAN_BREAK_PX, 30)]),
@@ -1082,7 +1081,7 @@ def test_spans_leave_out_blank_rows_at_their_ends_and_an_all_blank_strip_has_non
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    "start, end, height, want",
+    ("start", "end", "height", "want"),
     [
         (3330, 3480, 3570, "tail"),  # the Bato card at the end of a 3,570 px chapter: bottom half
         (0, 150, 3570, "head"),  # the same card at its head

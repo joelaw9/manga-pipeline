@@ -228,7 +228,7 @@ def test_a_lost_claim_neither_notes_a_kept_notice_nor_puts_a_dropped_one_aside(f
 
 @budget(load="db")
 def test_a_failed_chapter_waits_5_minutes_on_every_machine_and_its_series_goes_on(fleet):
-    _, (c1, c2) = fleet.series("S", chapters=2)
+    _, (_c1, _c2) = fleet.series("S", chapters=2)
     a, b = fleet.machine("a"), fleet.machine("b")
     first = workflow.claim(a, ("junk",))
     workflow.work(a, first, returns(Failed("bad page")))

@@ -152,8 +152,10 @@ def test_a_cover_stored_after_publish_is_inserted_with_its_volume_in_1_rewrite_a
     assert files(world) == ["Vol.1 Ch.1.cbz", "Vol.1 Ch.2.cbz", "Vol.2 Ch.3.cbz"]
     names_, fields, pages = members(world, "Vol.2 Ch.3.cbz")
     assert names_[0] == "000_cover" + names_[1][3:], "the cover goes in first, in the format of the chapter's pages"
-    assert pages[0]["Type"] == "FrontCover" and [p["Image"] for p in pages] == [str(i) for i in range(len(pages))]
-    assert fields["PageCount"] == str(len(pages)) and fields["Volume"] == "2"
+    assert pages[0]["Type"] == "FrontCover"
+    assert [p["Image"] for p in pages] == [str(i) for i in range(len(pages))]
+    assert fields["PageCount"] == str(len(pages))
+    assert fields["Volume"] == "2"
     assert states(world)[f"library/{SERIES}/Vol.2 Ch.3.cbz"] == "volume:2"
     scan(world)
     world.run(export)
@@ -171,7 +173,8 @@ def test_a_moved_boundary_drops_the_old_volumes_cover(world):
     kid = library(world, cover=("Vol.1 Ch.2.cbz",))
     recorded_covers(world, kid, {1: "Vol.1 Ch.2.cbz"})
     world.run(export)  # the covers read again: Ch.2 holds volume 1's, in volume 1: kept
-    assert rewrites(world) == [] and states(world)[f"library/{SERIES}/Vol.1 Ch.2.cbz"] == "volume:1"
+    assert rewrites(world) == []
+    assert states(world)[f"library/{SERIES}/Vol.1 Ch.2.cbz"] == "volume:1"
     read(world, kid, "Vol.1 Ch.2.cbz", 3)
     override(world, {1: "1", 2: "2-"})
     world.run(export)
@@ -179,8 +182,11 @@ def test_a_moved_boundary_drops_the_old_volumes_cover(world):
     world.run(process)
     world.run(export)
     names_, fields, pages = members(world, "Vol.1 Ch.2.cbz")
-    assert "000_cover.png" not in names_ and fields["Volume"] == "2"
-    assert len(pages) == 4 and "Type" not in pages[0] and [p["Image"] for p in pages] == ["0", "1", "2", "3"]
+    assert "000_cover.png" not in names_
+    assert fields["Volume"] == "2"
+    assert len(pages) == 4
+    assert "Type" not in pages[0]
+    assert [p["Image"] for p in pages] == ["0", "1", "2", "3"]
     assert states(world)[f"library/{SERIES}/Vol.1 Ch.2.cbz"] == "none"
     scan(world)
     world.run(export)
@@ -356,7 +362,8 @@ def test_shift_pages_adds_a_front_cover_or_takes_the_dropped_page_out():
     cover = {"bytes": 10, "width": 5, "height": 7}
     added = rewrite_covers.shift_pages(dropped, {"dropped_index": None, "cover": cover, "inserted_index": 0})
     assert added[0] == {"Image": "0", "Type": "FrontCover", "ImageSize": "10", "ImageWidth": "5", "ImageHeight": "7"}
-    assert [e["Image"] for e in added] == ["0", "1", "2"] and added[2]["DoublePage"] == "true"
+    assert [e["Image"] for e in added] == ["0", "1", "2"]
+    assert added[2]["DoublePage"] == "true"
     assert rewrite_covers.shift_pages([], {"dropped_index": None, "cover": cover, "inserted_index": 0}) == []
     later = rewrite_covers.shift_pages(dropped, {"dropped_index": None, "cover": cover, "inserted_index": 1})
     assert [(e["Image"], e.get("Type")) for e in later] == [("0", None), ("1", "FrontCover"), ("2", None)], (

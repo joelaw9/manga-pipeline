@@ -155,7 +155,8 @@ def test_a_crash_after_each_act_of_a_rewrite_recovers_on_the_next_export(world, 
     assert os.stat(kept / name).st_mtime > started, "the old file kept, with its retention period from now"
     scan(world)
     world.run(export)
-    assert progress(world, kid)["Vol.1 Ch.2.cbz"][0] == 2 and progress(world, kid)["Vol.2 Ch.3.cbz"][0] == 2
+    assert progress(world, kid)["Vol.1 Ch.2.cbz"][0] == 2
+    assert progress(world, kid)["Vol.2 Ch.3.cbz"][0] == 2
 
 
 @budget(load="db", seconds=30)
@@ -186,7 +187,8 @@ def test_a_target_already_in_the_library_is_never_overwritten(world):
     ((status, error),) = world.rows(
         "SELECT status, last_error FROM chapter WHERE kind = 'rewrite' AND status <> 'done'"
     )
-    assert status == "needs_human" and "Vol.2 Ch.3.cbz" in error
+    assert status == "needs_human"
+    assert "Vol.2 Ch.3.cbz" in error
     assert (world.library / SERIES / "Vol.2 Ch.3.cbz").read_bytes() == b"someone else's"
 
 

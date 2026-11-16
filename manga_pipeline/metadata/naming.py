@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from manga_pipeline import names, volumes
 from manga_pipeline.metadata import episodes, platforms
+import itertools
 
 FILENAME, SEASON_TAGS, OVERRIDE, SIDE_DEFAULT = (
     volumes.FILENAME,
@@ -342,7 +343,7 @@ def _gap_fill(main, known, primary, targets, fillers):
                 if not ((before[k] is not None and w < before[k]) or (after[k + 1] is not None and w > after[k + 1])):
                     added[i] = w
         seq = [added[i] for i in main if i in added]
-        if any(a > b for a, b in zip(seq, seq[1:], strict=False)):
+        if any(a > b for a, b in itertools.pairwise(seq)):
             continue
         known.update(added)
         fills.update({i: (v, name) for i, v in added.items()})

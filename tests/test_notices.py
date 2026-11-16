@@ -105,7 +105,7 @@ def test_a_numbered_notice_in_a_strip_series_of_bulk_files_only_is_kept(tmp_path
     world.download(world.manga("Solo Leveling"), "Chapter 12 - Hiatus", data=cbz(pages=1))
     world.run(intake)
     world.run(process)
-    stage, status_, error, notes = chapter(world)
+    _stage, status_, error, notes = chapter(world)
     assert not error.startswith("dropped") and "no median" in kept(notes)[0], (
         "a bulk strip file's page count is of re-cut pages: no like-with-like median, so kept"
     )
@@ -132,4 +132,5 @@ def test_an_unnumbered_notice_is_dropped_at_discover(world):
     world.download(world.manga_id, "Hiatus")
     world.run(intake)
     stage, status_, error, _ = chapter(world)
-    assert (stage, status_) == ("discover", "done") and "a notice" in error
+    assert (stage, status_) == ("discover", "done")
+    assert "a notice" in error

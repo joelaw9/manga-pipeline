@@ -21,6 +21,7 @@ from collections import Counter
 import numpy as np
 
 from manga_pipeline import images, strip
+import itertools
 
 EDGE_PX = 6000  # edge region: the first and last rows of a strip whose blocks are junk units (old junk_edge_px)
 MAX_SEAM = strip.SLICE_REPAIR["max_seam_score"]  # hard-join threshold (slice_repair.max_seam_score)
@@ -312,7 +313,7 @@ def join_rule(layout, removed, gutter):
         hard = [x for m in g for x in m[3]]
         c = _merge(
             ([before] if before else [])
-            + [(x[1], y[0]) for x, y in zip(g, g[1:], strict=False) if y[0] > x[1]]
+            + [(x[1], y[0]) for x, y in itertools.pairwise(g) if y[0] > x[1]]
             + [x for m in g for x in uncovered(m[0], m[1], hard)]
             + ([after] if after else [])
         )

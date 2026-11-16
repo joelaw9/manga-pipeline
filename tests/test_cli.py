@@ -188,7 +188,7 @@ def test_module_run_writes_the_log(site, tmp_path):
 
 @budget(load="fs")
 @pytest.mark.parametrize(
-    "command, holder",
+    ("command", "holder"),
     [
         (["intake"], "intake"),
         (["export"], "export"),
@@ -244,14 +244,16 @@ def test_adopt_without_the_staging_folder_exits_4_and_creates_it_not(site, tmp_p
 def test_state_commands_refuse_without_yes(command, capsys):
     with pytest.raises(SystemExit) as exit_:
         cli.main(ARGV[command][:2])
-    assert exit_.value.code == 2 and "--yes" in capsys.readouterr().err
+    assert exit_.value.code == 2
+    assert "--yes" in capsys.readouterr().err
 
 
 @budget(load="fs")
 def test_bad_logging_value_is_a_usage_error(site, capsys):
     with pytest.raises(SystemExit) as exit_:
         run(site, "status", "--set", "logging.level=LOUD")
-    assert exit_.value.code == 2 and "logging.level" in capsys.readouterr().err
+    assert exit_.value.code == 2
+    assert "logging.level" in capsys.readouterr().err
 
 
 @budget(load="fs")
@@ -265,7 +267,8 @@ def test_set_and_env_reach_the_run(site, monkeypatch):
 def test_bad_set_is_a_usage_error(capsys):
     with pytest.raises(SystemExit) as exit_:
         cli.main(["--set", "logging.keep_days=14days", "status"])
-    assert exit_.value.code == 2 and "--set logging.keep_days: must be int" in capsys.readouterr().err
+    assert exit_.value.code == 2
+    assert "--set logging.keep_days: must be int" in capsys.readouterr().err
 
 
 @budget(load="fs")
@@ -302,7 +305,9 @@ def test_unexpected_error_of_a_command_without_a_log_file_exits_1_with_its_trace
     monkeypatch.setattr(status, "report", broken)
     assert run(site, "status") == 1
     err = capsys.readouterr().err
-    assert "status: failed" in err and "Traceback" in err and "an unexpected fault" in err
+    assert "status: failed" in err
+    assert "Traceback" in err
+    assert "an unexpected fault" in err
     assert log_files(site) == []
 
 
@@ -318,7 +323,8 @@ def test_help_exits_cleanly(argv):
 def test_missing_command_is_a_usage_error(capsys):
     with pytest.raises(SystemExit) as exit_:
         cli.main([])
-    assert exit_.value.code == 2 and "COMMAND" in capsys.readouterr().err
+    assert exit_.value.code == 2
+    assert "COMMAND" in capsys.readouterr().err
 
 
 @budget(load="fs")

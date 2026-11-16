@@ -79,7 +79,8 @@ def test_a_new_image_at_mangadex_replaces_the_stored_one_and_the_files_cover(wor
     world.run(process)
     world.run(export)
     names_, _, pages = members(world, "Vol.2 Ch.3.cbz")
-    assert names_[0].startswith("000_cover.") and sum(n.startswith("000_cover.") for n in names_) == 1
+    assert names_[0].startswith("000_cover.")
+    assert sum(n.startswith("000_cover.") for n in names_) == 1
     assert pages[0]["Type"] == "FrontCover"
     assert states(world)["library/Solo Leveling/Vol.2 Ch.3.cbz"] == "volume:2", "the new image in place of the old"
     ((sha,),) = world.rows(
@@ -129,7 +130,7 @@ B = [{"volume": "2", "locale": "en", "fileName": "b.png"}]
 
 @budget(load="db", seconds=30)
 @pytest.mark.parametrize(
-    "case, tried, due",
+    ("case", "tried", "due"),
     [
         ("no-choice", False, False),
         ("tie", False, False),
@@ -169,7 +170,8 @@ def test_an_english_cover_replaces_a_stored_one_of_another_language(world):
     world.sources.mangadex.images[(MD, "b.png")] = png(900, colour=(20, 160, 60))
     world.sources.mangadex.records[("covers", MD)] = [{"volume": "2", "locale": "ja", "fileName": "a.png"}, *B]
     check_now(world)
-    assert stored(world)[0][1].endswith("/b.png") and stored(world) != before
+    assert stored(world)[0][1].endswith("/b.png")
+    assert stored(world) != before
 
 
 @budget(load="db", seconds=30)
@@ -215,7 +217,7 @@ def test_a_chapter_published_with_a_replaced_image_holds_a_stale_cover(world):
 
 @budget(load="pure", seconds=1)
 @pytest.mark.parametrize(
-    "state, volume", [("volume:2", "2"), ("stale:2", "2"), ("volume:", ""), ("none", None), ("unfit:ab", None)]
+    ("state", "volume"), [("volume:2", "2"), ("stale:2", "2"), ("volume:", ""), ("none", None), ("unfit:ab", None)]
 )
 def test_a_cover_page_is_held_for_a_current_or_an_old_image(state, volume):
     assert rewrite_covers.cover_volume(state) == volume

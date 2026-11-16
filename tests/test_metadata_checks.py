@@ -93,7 +93,8 @@ def test_ids_that_disagree_hold_the_series_and_store_both(world):
     world.run(intake)
     sid = series_id(world, kavita_id)
     reason = world.rows("SELECT status, status_reason FROM series WHERE id = %s", sid)[0]
-    assert reason[0] == "needs_human" and "anilist ids disagree: 1 (kavita), 2 (suwayomi)" in reason[1]
+    assert reason[0] == "needs_human"
+    assert "anilist ids disagree: 1 (kavita), 2 (suwayomi)" in reason[1]
     assert checks(world) == [], "a held check does not complete"
     assert world.sources.calls == [], "no source is asked"
 
@@ -163,7 +164,8 @@ def test_a_source_that_cannot_be_reached_leaves_the_check_due_with_nothing_store
 
     monkeypatch.setattr(world.sources.mangabaka, "search", down)
     world.run(intake)
-    assert checks(world) == [] and world.rows("SELECT count(*) FROM fetched") == [(0,)]
+    assert checks(world) == []
+    assert world.rows("SELECT count(*) FROM fetched") == [(0,)]
 
 
 @budget(load="db")

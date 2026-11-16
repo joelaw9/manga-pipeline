@@ -47,7 +47,7 @@ def test_a_series_folder_outside_the_library_needs_a_human(tmp_path):
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    "folder, download, windows_takes",
+    ("folder", "download", "windows_takes"),
     [
         ("library/Plain", "downloads/mangas/Src (EN)/Plain/Chapter 1.cbz", True),
         ("library/Re:Zero", "downloads/mangas/Src (EN)/Re_Zero/Chapter 1.cbz", False),
@@ -75,7 +75,8 @@ def test_a_windows_machine_skips_names_windows_cannot_use(tmp_path, monkeypatch,
 def test_a_dropped_smb_share_is_not_a_file_already_gone(tmp_path, monkeypatch):
     present = tmp_path / "a.cbz"
     present.write_bytes(b"x")
-    assert workflow.exists(present) and not workflow.exists(tmp_path / "gone.cbz")
+    assert workflow.exists(present)
+    assert not workflow.exists(tmp_path / "gone.cbz")
 
     def dropped(path, *a, **k):
         error = FileNotFoundError(errno.ENOENT, "The network name cannot be found")
@@ -88,7 +89,7 @@ def test_a_dropped_smb_share_is_not_a_file_already_gone(tmp_path, monkeypatch):
         workflow.exists(present)
     with pytest.raises(workflow.Unreachable), workflow.share_errors():  # put aside, never "already gone"
         retention.put(cfg, present)
-    monkeypatch.setattr(archive, "pages_digest", lambda cbz: dropped(cbz))
+    monkeypatch.setattr(archive, "pages_digest", dropped)
     with pytest.raises(workflow.Unreachable), workflow.share_errors():  # a digest, never "unreadable"
         archive.digest_or_none(present)
 

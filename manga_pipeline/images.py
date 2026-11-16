@@ -62,7 +62,7 @@ def detect(data):
         return JPEG
     if data[:8] == b"\x89PNG\r\n\x1a\n":
         return PNG
-    if data[:4] in (b"GIF8",):
+    if data[:4] == b"GIF8":
         return GIF
     if data[:2] == b"BM":
         return BMP

@@ -27,9 +27,15 @@ def flip(t, bits):
 
 
 def decision(series_key, kind, key, verdict, decider="import", at="2026-11-01T00:00:00+00:00", source=None):
-    return dict(
-        series_key=series_key, kind=kind, key=key, verdict=verdict, decider=decider, decided_at=at, source=source
-    )
+    return {
+        "series_key": series_key,
+        "kind": kind,
+        "key": key,
+        "verdict": verdict,
+        "decider": decider,
+        "decided_at": at,
+        "source": source,
+    }
 
 
 @pytest.fixture

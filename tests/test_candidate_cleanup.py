@@ -80,7 +80,8 @@ def test_a_candidate_a_running_review_listed_is_never_stamped_or_deleted(site):
     cfg, conn = site
     cid = candidate(conn, cfg, "a-1-1", closed_at=HOUR_AGO_2, review_open=1)
     assert candidates.cleanup(cfg, conn) == 0
-    assert row(conn, cid)["closed_at"] == HOUR_AGO_2 and folder(cfg, "a-1-1").exists()
+    assert row(conn, cid)["closed_at"] == HOUR_AGO_2
+    assert folder(cfg, "a-1-1").exists()
 
 
 @budget(load="db")
@@ -103,7 +104,7 @@ def test_a_folder_no_row_names_stays_a_day_and_a_new_rows_folder_survives_its_ol
 
 @budget(load="db")
 def test_joining_a_candidate_cleaned_up_meanwhile_fails_and_writes_nothing(site):
-    cfg, conn = site
+    _cfg, conn = site
     with db.transaction(conn), pytest.raises(candidates.Gone, match="cleaned up meanwhile"):
         pick = {"kind": "page", "key": "123456789abcdef0|0.7", "reason": "r"}  # its images were never written
         candidates.join(conn, "S", [pick], "2026-01-01T00:00:00+00:00")

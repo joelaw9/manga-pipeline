@@ -68,7 +68,8 @@ def test_a_timed_out_query_is_sent_again(monkeypatch):
     urlopen = Urlopen(TimeoutError("timed out"), Reply({"data": {"mangas": {"totalCount": 758}}}))
     monkeypatch.setattr(http.urllib.request, "urlopen", urlopen)
     assert suwayomi.Suwayomi("http://suwayomi.invalid").library_size() == 758, "SPEC 'Services': a timeout is retried"
-    assert len(urlopen.requests) == 2 and clock.sleeps == [2]
+    assert len(urlopen.requests) == 2
+    assert clock.sleeps == [2]
     assert urlopen.requests[0].full_url == "http://suwayomi.invalid/api/graphql"
 
 
@@ -96,10 +97,13 @@ def test_library_manga_follows_pages_until_the_last(monkeypatch):
     s, service = client(recorded("library_page_1"), last)
     got = list(s.library_manga())
     assert [m["id"] for m in got] == [23, 31093, 31094, 31148, 31149, 31151], "SPEC 'Services': read page by page"
-    assert got[0]["source"]["displayName"] == "MangaDex (EN)" and got[0]["title"].startswith("I, Who Have")
+    assert got[0]["source"]["displayName"] == "MangaDex (EN)"
+    assert got[0]["title"].startswith("I, Who Have")
     assert [sent_query(service, i)[1] for i in (0, 1)] == [{"first": 3, "after": 0}, {"first": 3, "after": 31094}]
     query = sent_query(service)[0]
-    assert "inLibrary: true" in query and "order: [{by: ID}]" in query and "id: {greaterThan: $after}" in query
+    assert "inLibrary: true" in query
+    assert "order: [{by: ID}]" in query
+    assert "id: {greaterThan: $after}" in query
 
 
 @budget(load="fs")
@@ -138,7 +142,8 @@ def test_chapters_of_a_manga():
     ]
     assert set(got[0]) == set(suwayomi.CHAPTER.split()), "every field asked for is in the reply"
     query, variables = sent_query(service)
-    assert variables == {"id": 23} and "mangaId: $id" in query
+    assert variables == {"id": 23}
+    assert "mangaId: $id" in query
 
 
 @budget(load="fs")
@@ -174,7 +179,8 @@ def test_enqueue_sends_the_chapter_ids():
     s, service = client({"data": {"enqueueChapterDownloads": {"downloadStatus": {"state": "STOPPED"}}}})
     s.enqueue((5, 6))
     query, variables = sent_query(service)
-    assert variables == {"ids": [5, 6]} and "enqueueChapterDownloads(input: {ids: $ids})" in query
+    assert variables == {"ids": [5, 6]}
+    assert "enqueueChapterDownloads(input: {ids: $ids})" in query
 
 
 @budget(load="pure")
@@ -182,7 +188,8 @@ def test_delete_downloaded_sends_the_chapter_ids():
     s, service = client({"data": {"deleteDownloadedChapters": {"chapters": [{"id": 5}]}}})
     s.delete_downloaded([5])
     query, variables = sent_query(service)
-    assert variables == {"ids": [5]} and "deleteDownloadedChapters(input: {ids: $ids})" in query
+    assert variables == {"ids": [5]}
+    assert "deleteDownloadedChapters(input: {ids: $ids})" in query
 
 
 @budget(load="pure")
@@ -197,7 +204,8 @@ def test_dequeue_sends_the_chapter_ids():
     s, service = client({"data": {"dequeueChapterDownloads": {"downloadStatus": {"state": "STOPPED"}}}})
     s.dequeue([5])
     query, variables = sent_query(service)
-    assert variables == {"ids": [5]} and "dequeueChapterDownloads(input: {ids: $ids})" in query
+    assert variables == {"ids": [5]}
+    assert "dequeueChapterDownloads(input: {ids: $ids})" in query
 
 
 @budget(load="pure")
@@ -223,7 +231,8 @@ def test_search_source_returns_its_hits_without_retrying_a_timeout():
     s, service = client({"data": {"fetchSourceManga": {"mangas": [MANGA]}}})
     assert s.search_source(7, "T") == [MANGA]
     query, variables = sent_query(service)
-    assert variables == {"source": "7", "query": "T"} and "type: SEARCH, page: 1" in query
+    assert variables == {"source": "7", "query": "T"}
+    assert "type: SEARCH, page: 1" in query
     assert service.options == [(suwayomi.SOURCE_TIMEOUT, False)], "SPEC 'Services': its timeout is not retried"
 
 
@@ -232,7 +241,8 @@ def test_fetch_manga_and_chapters_returns_both():
     s, service = client({"data": {"fetchMangaAndChapters": {"manga": MANGA, "chapters": [CHAPTER]}}})
     assert s.fetch_manga_and_chapters(9) == {"manga": MANGA, "chapters": [CHAPTER]}
     query, variables = sent_query(service)
-    assert variables == {"id": 9} and "fetchManga: false, fetchChapters: true" in query
+    assert variables == {"id": 9}
+    assert "fetchManga: false, fetchChapters: true" in query
     assert service.options == [(suwayomi.SOURCE_TIMEOUT, False)]
 
 

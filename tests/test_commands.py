@@ -106,7 +106,7 @@ def test_retry_series_clears_it_and_its_needs_human_chapters(tmp_path, seeded):
 
 @budget(load="db")
 @pytest.mark.parametrize(
-    "target, message",
+    ("target", "message"),
     [
         ("missing-chapter", "no chapter 999"),
         ("ready", "is ready, not needs_human"),
@@ -170,7 +170,8 @@ def test_state_reset_clears_workflow_state_and_keeps_the_rest(tmp_path, monkeypa
     library = sorted(p.name for p in config.abs_path(cfg["paths"]["library"]).rglob("*.cbz"))
 
     assert main(tmp_path, cfg, "state", "reset", "--yes") == 0
-    assert rows(cfg, "SELECT count(*) FROM chapter") == [(0,)] and rows(cfg, "SELECT count(*) FROM page") == [(0,)]
+    assert rows(cfg, "SELECT count(*) FROM chapter") == [(0,)]
+    assert rows(cfg, "SELECT count(*) FROM page") == [(0,)]
     assert rows(cfg, "SELECT status, status_reason FROM series") == [("ok", None)]
     assert rows(cfg, "SELECT count(*) FROM handled_chapter") == [(2,)], "knowledge is kept (bulk + published)"
     assert rows(cfg, "SELECT count(*) FROM published_file") == [(2,)], "sync records are kept"
