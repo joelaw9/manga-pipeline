@@ -17,16 +17,46 @@ def apply(ctx: workflow.Context, data, series_id=None):
     """Check data (the edit file's JSON) whole and store its edits in 1 transaction; returns the lines to print.
     Refused naming every problem found."""
     problems = []
+    chapters = _chapters_of(data, problems)
+    series = _series(ctx, data.get("series"), series_id, problems)
+    wanted = _wanted(chapters, problems)
+    if series is None:
+        raise workflow.Refused("\n".join(problems))
+    # 1 transaction (the write lock): 2 edits of 1 series at once never merge against stale stored edits.
+    with db.transaction(ctx.conn):
+        stored = chapter_names.edits(ctx.conn, series["id"])
+        merged = _merged(stored, wanted)
+        try:
+            after = _chapters(ctx, series, merged)
+        except volumes.VolumeError as e:
+            raise workflow.Refused("\n".join([*problems, f"the series' chapters cannot be named: {e}"])) from None
+        problems += _unmatched(after, wanted)
+        problems += _new_clashes(ctx, series, stored, after)
+        if problems:
+            raise workflow.Refused("\n".join(problems))
+        lines = _store(ctx.conn, series["id"], stored, merged, wanted)
+    return [f"series {series['id']} ({series['name']}): {line}" for line in lines]
+
+
+def _chapters_of(data, problems):
+    """The edit file's 'chapters' object ({} when it is not a non-empty object); its problems added to problems.
+    Refused when the file is not a JSON object."""
     if not isinstance(data, dict):
         msg = "the edit file must be a JSON object with 'series' and 'chapters'"
         raise workflow.Refused(msg)
-    problems += [f"unknown key {k!r} (series, chapters)" for k in data if k not in ("series", "chapters")]
+    problems.extend(f"unknown key {k!r} (series, chapters)" for k in data if k not in ("series", "chapters"))
     chapters = data.get("chapters")
     if not isinstance(chapters, dict) or not chapters:
         problems.append("'chapters' must be an object of chapter: {title, volume}")
-        chapters = {}
-    series = _series(ctx, data.get("series"), series_id, problems)
-    wanted = {}  # edit_key: (token, {field: value})
+        return {}
+    return chapters
+
+
+def _wanted(chapters, problems):
+    """{edit_key: (token, {field: value}, whether the change is valid)} of the edit file's chapters; their problems
+    added to problems (a token that is no chapter, or names one already given, or whose change is not an object, is
+    left out)."""
+    wanted = {}
     for token, change in chapters.items():
         try:
             key = naming.parse_token(token)
@@ -39,71 +69,87 @@ def apply(ctx: workflow.Context, data, series_id=None):
         if not isinstance(change, dict) or not change:
             problems.append(f"chapter {token!r}: give an object of title and/or volume")
             continue
-        before = len(problems)
-        problems += [f"chapter {token!r}: unknown field {f!r} (title, volume)" for f in change if f not in FIELDS]
-        title, volume = change.get("title"), change.get("volume")
-        if "title" in change and title is not None and not (isinstance(title, str) and title.strip()):
-            problems.append(f"chapter {token!r}: title must be a non-empty text or null, not {title!r}")
-        if (
-            "volume" in change
-            and volume is not None
-            and (isinstance(volume, bool) or not isinstance(volume, int) or volume < 0)
-        ):
-            problems.append(f"chapter {token!r}: volume must be a whole number from 0 or null, not {volume!r}")
-        ok = len(problems) == before
-        wanted[key] = (token, {f: v.strip() if isinstance(v, str) else v for f, v in change.items() if f in FIELDS}, ok)
-    if series is None:
-        raise workflow.Refused("\n".join(problems))
+        found = _change_problems(token, change)
+        problems += found
+        fields = {f: v.strip() if isinstance(v, str) else v for f, v in change.items() if f in FIELDS}
+        wanted[key] = (token, fields, not found)
+    return wanted
+
+
+def _change_problems(token, change):
+    """The problems of 1 chapter's change: an unknown field, a title that is not a non-empty text or null, a volume
+    that is not a whole number from 0 or null."""
+    problems = [f"chapter {token!r}: unknown field {f!r} (title, volume)" for f in change if f not in FIELDS]
+    title, volume = change.get("title"), change.get("volume")
+    if "title" in change and title is not None and not (isinstance(title, str) and title.strip()):
+        problems.append(f"chapter {token!r}: title must be a non-empty text or null, not {title!r}")
+    if (
+        "volume" in change
+        and volume is not None
+        and (isinstance(volume, bool) or not isinstance(volume, int) or volume < 0)
+    ):
+        problems.append(f"chapter {token!r}: volume must be a whole number from 0 or null, not {volume!r}")
+    return problems
+
+
+def _merged(stored, wanted):
+    """The series' edits once the valid wanted changes are applied over the stored ones ({edit_key: Edit}); an edit
+    left with no field is gone."""
+    merged = dict(stored)
+    for key, (_, change, ok) in wanted.items():
+        old = stored.get(key, naming.Edit(None, None))
+        if ok:
+            merged[key] = naming.Edit(change.get("title", old.title), change.get("volume", old.volume))
+    return {k: e for k, e in merged.items() if (e.title, e.volume) != (None, None)}
+
+
+def _unmatched(after, wanted):
+    """A problem for each wanted chapter that does not match exactly 1 of the series' chapters (after: _chapters)."""
+    problems = []
+    for key, (token, _, _) in wanted.items():
+        found = [c for c in after if c["key"] == key]
+        if len(found) != 1:
+            problems.append(f"chapter {token!r}: {len(found) or 'no'} chapters of the series match")
+    return problems
+
+
+def _new_clashes(ctx: workflow.Context, series, stored, after):
+    """The clashes of the series' chapters as the edits leave them (after) that the stored edits do not have: only
+    what these edits make, wherever it lands."""
+    try:
+        existing = _clashes(_chapters(ctx, series, stored))
+    except volumes.VolumeError:  # unnamable as it stands (a volume that is not whole): these edits may fix it
+        existing = {}
+    return [m for k, m in _clashes(after).items() if k not in existing]
+
+
+def _store(conn, series_id, stored, merged, wanted):
+    """Store each wanted chapter's edit as merged leaves it (removed when it has no field left); a line per chapter."""
     lines = []
-    # 1 transaction (the write lock): 2 edits of 1 series at once never merge against stale stored edits.
-    with db.transaction(ctx.conn):
-        stored = chapter_names.edits(ctx.conn, series["id"])
-        merged = dict(stored)
-        for key, (_, change, ok) in wanted.items():
-            old = stored.get(key, naming.Edit(None, None))
-            if ok:
-                merged[key] = naming.Edit(change.get("title", old.title), change.get("volume", old.volume))
-        merged = {k: e for k, e in merged.items() if (e.title, e.volume) != (None, None)}
-        try:
-            after = _chapters(ctx, series, merged)
-        except volumes.VolumeError as e:
-            raise workflow.Refused("\n".join([*problems, f"the series' chapters cannot be named: {e}"])) from None
-        try:
-            existing = _clashes(_chapters(ctx, series, stored))
-        except volumes.VolumeError:  # unnamable as it stands (a volume that is not whole): these edits may fix it
-            existing = {}
-        for key, (token, _, _) in wanted.items():
-            found = [c for c in after if c["key"] == key]
-            if len(found) != 1:
-                problems.append(f"chapter {token!r}: {len(found) or 'no'} chapters of the series match")
-        # only what these edits make, wherever it lands: a clash the series already has is not theirs
-        problems += [m for k, m in _clashes(after).items() if k not in existing]
-        if problems:
-            raise workflow.Refused("\n".join(problems))
-        now = workflow.now(ctx.conn)
-        for key, (token, _, _) in wanted.items():
-            kind, season, number = key
-            e = merged.get(key)
-            if stored.get(key) == e:
-                lines.append(f"{token}: unchanged")
-                continue
-            where = (series["id"], season, kind == names.SIDE, names.fmt_num(number))
-            if e is None:
-                ctx.conn.execute(
-                    """DELETE FROM naming_edit WHERE series_id = %s AND season IS NOT DISTINCT FROM %s AND side = %s
-                    AND number = %s""",
-                    where,
-                )
-            else:
-                ctx.conn.execute(
-                    """INSERT INTO naming_edit (series_id, season, side, number, title, volume, edited_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (series_id, season, side, number) DO UPDATE SET title = excluded.title,
-                        volume = excluded.volume, edited_at = excluded.edited_at""",
-                    (*where, e.title, e.volume, now),
-                )
-            lines.append(f"{token}: {describe(e)}")
-    return [f"series {series['id']} ({series['name']}): {line}" for line in lines]
+    now = workflow.now(conn)
+    for key, (token, _, _) in wanted.items():
+        kind, season, number = key
+        e = merged.get(key)
+        if stored.get(key) == e:
+            lines.append(f"{token}: unchanged")
+            continue
+        where = (series_id, season, kind == names.SIDE, names.fmt_num(number))
+        if e is None:
+            conn.execute(
+                """DELETE FROM naming_edit WHERE series_id = %s AND season IS NOT DISTINCT FROM %s AND side = %s
+                AND number = %s""",
+                where,
+            )
+        else:
+            conn.execute(
+                """INSERT INTO naming_edit (series_id, season, side, number, title, volume, edited_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (series_id, season, side, number) DO UPDATE SET title = excluded.title,
+                    volume = excluded.volume, edited_at = excluded.edited_at""",
+                (*where, e.title, e.volume, now),
+            )
+        lines.append(f"{token}: {describe(e)}")
+    return lines
 
 
 def load(path):
