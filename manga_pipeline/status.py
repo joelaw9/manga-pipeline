@@ -46,55 +46,92 @@ def _redownload(row):
 
 
 def _report(conn):
+    return [
+        *_chapters(conn),
+        *_runs(conn),
+        *_claims(conn),
+        *_waits(conn),
+        *_bulk_waits(conn),
+        *_unattached(conn),
+        *_rewrites(conn),
+        *_needs_human(conn),
+        *_redownloads(conn),
+        *_notes(conn),
+        *_not_taken(conn),
+        *_unconfirmed(conn),
+    ]
+
+
+def _chapters(conn):
     lines = ["Chapters by stage and status:"]
     rows = conn.execute("SELECT stage, status, count(*) AS n FROM chapter GROUP BY stage, status").fetchall()
     rows.sort(key=lambda r: (workflow.STAGES.index(r["stage"]), r["status"]))
-    lines += [f"  {r['stage']:<10} {r['status']:<12} {r['n']}" for r in rows] or ["  none"]
+    return lines + ([f"  {r['stage']:<10} {r['status']:<12} {r['n']}" for r in rows] or ["  none"])
 
-    lines.append("Runs (per part and machine; last start, end, result):")
+
+def _runs(conn):
+    lines = ["Runs (per part and machine; last start, end, result):"]
     runs = {}
     for key, value in conn.execute("SELECT key, value FROM meta WHERE key LIKE '%%.last_%%' ORDER BY key"):
         who, what = key.rsplit(".", 1)
         runs.setdefault(who, {})[what] = value
-    lines += [
-        f"  {who:<24} {r.get('last_start', '-')}  {r.get('last_end', '-')}  {r.get('last_result', '-')}"
-        for who, r in sorted(runs.items())
-    ] or ["  none"]
+    return lines + (
+        [
+            f"  {who:<24} {r.get('last_start', '-')}  {r.get('last_end', '-')}  {r.get('last_result', '-')}"
+            for who, r in sorted(runs.items())
+        ]
+        or ["  none"]
+    )
 
-    lines.append("Claims (by owner, oldest first, with their age):")
+
+def _claims(conn):
+    lines = ["Claims (by owner, oldest first, with their age):"]
     now = datetime.fromisoformat(db.now(conn))
     rows = conn.execute(
         """SELECT c.id, c.claimed_by, c.stage, c.updated_at, s.name FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status = 'claimed' ORDER BY c.claimed_by, c.updated_at"""
     ).fetchall()
-    lines += [
-        f"  {r['claimed_by']}: chapter {r['id']} ({r['name']}, at {r['stage']}) for "
-        f"{(now - datetime.fromisoformat(r['updated_at'])).total_seconds() // 60:.0f} min"
-        for r in rows
-    ] or ["  none"]
+    return lines + (
+        [
+            f"  {r['claimed_by']}: chapter {r['id']} ({r['name']}, at {r['stage']}) for "
+            f"{(now - datetime.fromisoformat(r['updated_at'])).total_seconds() // 60:.0f} min"
+            for r in rows
+        ]
+        or ["  none"]
+    )
 
-    lines.append("Waits:")
+
+def _waits(conn):
+    lines = ["Waits:"]
     rows = conn.execute(
         "SELECT waiting_on, count(*) AS n FROM chapter WHERE status = 'waiting' GROUP BY waiting_on ORDER BY waiting_on"
     ).fetchall()
-    lines += [f"  {r['waiting_on']:<18} {r['n']}" for r in rows] or ["  none"]
+    return lines + ([f"  {r['waiting_on']:<18} {r['n']}" for r in rows] or ["  none"])
 
-    lines.append("Series waiting on bulk_conversion:")
+
+def _bulk_waits(conn):
+    lines = ["Series waiting on bulk_conversion:"]
     rows = conn.execute(
         """SELECT s.id, s.name, count(*) AS n FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status = 'waiting' AND c.waiting_on = 'bulk_conversion' GROUP BY s.id ORDER BY s.name"""
     ).fetchall()
-    lines += [f"  {r['name']} (series {r['id']}): {r['n']} chapter(s)" for r in rows] or ["  none"]
+    return lines + ([f"  {r['name']} (series {r['id']}): {r['n']} chapter(s)" for r in rows] or ["  none"])
 
-    lines.append("New series published, waiting for Kavita to list them:")
+
+def _unattached(conn):
+    lines = ["New series published, waiting for Kavita to list them:"]
     rows = conn.execute(
         sql.SQL("""SELECT s.id, s.comicinfo_series, MIN(h.handled_at) AS since FROM series s
         JOIN handled_chapter h ON h.series_id = s.id AND h.outcome = 'published'
         WHERE {} GROUP BY s.id ORDER BY s.id""").format(kavita_link.UNATTACHED)
     ).fetchall()
-    lines += [f"  {r['comicinfo_series']} (series {r['id']}): published {r['since']}" for r in rows] or ["  none"]
+    return lines + (
+        [f"  {r['comicinfo_series']} (series {r['id']}): published {r['since']}" for r in rows] or ["  none"]
+    )
 
-    lines.append("Rewrites (queued, waiting for Kavita, failed):")
+
+def _rewrites(conn):
+    lines = ["Rewrites (queued, waiting for Kavita, failed):"]
     rows = conn.execute(
         """SELECT id, library_path, pending_path, pending_step, pending_error, pending_attempts, indexed_since
         FROM published_file
@@ -112,27 +149,32 @@ def _report(conn):
         JOIN series s ON s.id = w.series_id WHERE w.attempts >= %s ORDER BY w.series_id, w.volume""",
         (limit,),
     ).fetchall()
-    for r in given_up:
-        lines.append(
-            f"  series {r['series_id']} ({r['name']}) volume {r['volume']} cover not fetched: {r['last_error']}"
-        )
+    lines += [
+        f"  series {r['series_id']} ({r['name']}) volume {r['volume']} cover not fetched: {r['last_error']}"
+        for r in given_up
+    ]
     if not (rows or open_rewrites or unknown or given_up):
         lines.append("  none")
-    for r in rows:
-        stuck = r["pending_path"] is None or r["pending_attempts"] >= limit
-        if r["pending_error"] and not stuck:
-            lines.append(f"  file {r['id']} ({r['library_path']}): {r['pending_error']} (tried again by export)")
-        elif r["pending_error"]:
-            fix = f"rewrite retry {r['id']}"
-            if r["pending_path"] is None or r["pending_step"] < rewrite.STEP_RENAMED:
-                fix += f", or rewrite drop {r['id']}"
-            lines.append(f"  file {r['id']} ({r['library_path']}): {r['pending_error']} -> {fix}")
-        elif r["pending_path"]:
-            lines.append(f"  file {r['id']} ({r['library_path']}): queued as {r['pending_path']}")
-        else:
-            lines.append(f"  file {r['id']} ({r['library_path']}): waiting for Kavita since {r['indexed_since']}")
+    return lines + [_rewrite_file(r, limit) for r in rows]
 
-    lines.append("Needs human:")
+
+def _rewrite_file(r, limit):
+    """1 published file's rewrite line: failed (with its fix once given up: limit attempts), queued or waiting."""
+    stuck = r["pending_path"] is None or r["pending_attempts"] >= limit
+    if r["pending_error"] and not stuck:
+        return f"  file {r['id']} ({r['library_path']}): {r['pending_error']} (tried again by export)"
+    if r["pending_error"]:
+        fix = f"rewrite retry {r['id']}"
+        if r["pending_path"] is None or r["pending_step"] < rewrite.STEP_RENAMED:
+            fix += f", or rewrite drop {r['id']}"
+        return f"  file {r['id']} ({r['library_path']}): {r['pending_error']} -> {fix}"
+    if r["pending_path"]:
+        return f"  file {r['id']} ({r['library_path']}): queued as {r['pending_path']}"
+    return f"  file {r['id']} ({r['library_path']}): waiting for Kavita since {r['indexed_since']}"
+
+
+def _needs_human(conn):
+    lines = ["Needs human:"]
     series = conn.execute(
         "SELECT id, name, status_reason, origin, admitted_at FROM series WHERE status = 'needs_human' ORDER BY id"
     ).fetchall()
@@ -154,16 +196,20 @@ def _report(conn):
         + _settle(r)
         for r in chapters
     ]
-    lines += human or ["  none"]
+    return lines + (human or ["  none"])
 
-    lines.append("Re-downloads:")
+
+def _redownloads(conn):
+    lines = ["Re-downloads:"]
     rows = conn.execute(
         """SELECT c.id, c.identity, c.redownload, s.name FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status != 'done' AND c.redownload IS NOT NULL ORDER BY c.id"""
     ).fetchall()
-    lines += [_redownload(r) for r in rows] or ["  none"]
+    return lines + ([_redownload(r) for r in rows] or ["  none"])
 
-    lines.append("Chapter notes:")
+
+def _notes(conn):
+    lines = ["Chapter notes:"]
     rows = conn.execute(
         """SELECT c.id, c.identity, c.notes, s.name FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.notes IS NOT NULL ORDER BY c.id"""
@@ -171,12 +217,17 @@ def _report(conn):
     lines += [f"  chapter {r['id']} ({r['name']} / {r['identity']}): {'; '.join(json.loads(r['notes']))}" for r in rows]
     if not rows:
         lines.append("  none")
+    return lines
 
-    lines.append("Downloads not taken:")
+
+def _not_taken(conn):
+    lines = ["Downloads not taken:"]
     rows = conn.execute("SELECT path, reason, first_seen FROM unmatched_download ORDER BY first_seen, path").fetchall()
-    lines += [f"  {r['path']}: {r['reason']} (since {r['first_seen']})" for r in rows] or ["  none"]
+    return lines + ([f"  {r['path']}: {r['reason']} (since {r['first_seen']})" for r in rows] or ["  none"])
 
-    lines.append("Published files never confirmed:")
+
+def _unconfirmed(conn):
+    lines = ["Published files never confirmed:"]
     rows = conn.execute(
         """SELECT p.library_path FROM published_file p WHERE p.state = 'unconfirmed'
             AND NOT EXISTS (SELECT 1 FROM chapter c WHERE c.library_path = p.library_path AND c.status != 'done')
