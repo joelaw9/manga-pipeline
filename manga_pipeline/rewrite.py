@@ -517,29 +517,29 @@ def finish(ctx, row):
     step = row["pending_step"]
     if step < 3 and not workflow.exists(staged):
         if workflow.exists(target) and target.stat().st_size == row["pending_size"] and target != old:
-            step = _record(conn, row["id"], 3)  # renamed in before a crash recorded it
-        elif target == old and _is_new(target, row):
-            step = _record(conn, row["id"], 3)
+            step = record_step(conn, row["id"], 3)  # renamed in before a crash recorded it
+        elif target == old and is_new(target, row):
+            step = record_step(conn, row["id"], 3)
         else:
             _clear(conn, row["id"])
             log.warning("%s: rewrite of %s dropped: its staged file is gone", ctx.part, row["library_path"])
             return
     if step < 1:
         os.utime(staged)  # the rename keeps it: Kavita skips a file it judges unchanged by its date
-        step = _record(conn, row["id"], 1)
+        step = record_step(conn, row["id"], 1)
     if step < 2:
         retention.put_library(cfg, old)
-        step = _record(conn, row["id"], 2)
+        step = record_step(conn, row["id"], 2)
     if step < 3:
         if target != old and workflow.exists(target):
             msg = f"{target} is already in the library; a library file is never overwritten"
             raise FileExistsError(msg)
         staged.replace(target)
-        step = _record(conn, row["id"], 3)
+        step = record_step(conn, row["id"], 3)
     if step < 4:
         if target != old and workflow.exists(old):
             old.unlink()
-        step = _record(conn, row["id"], 4)
+        step = record_step(conn, row["id"], 4)
     with db.transaction(conn):
         if row["pending_copy"]:  # a better copy: the row describes it now (SPEC "Retroactive updates")
             values = {k: v for k, v in row["pending_copy"]["values"].items() if k not in ("size", "cover_state")}
@@ -563,7 +563,7 @@ def finish(ctx, row):
     log.info("%s: rewrote %s as %s", ctx.part, row["library_path"], row["pending_path"])
 
 
-def _is_new(path, row):
+def is_new(path, row):
     """Whether a same-name target already holds the rewritten file (a crash after the rename): its size and its
     ComicInfo Volume are the queued ones, and its Title too when the rewrite changes it."""
     if not workflow.exists(path) or path.stat().st_size != row["pending_size"]:
@@ -579,7 +579,8 @@ def _is_new(path, row):
     return (fields.get("Volume") or None) == row["pending_volume"]
 
 
-def _record(conn, file_id, step):
+def record_step(conn, file_id, step):
+    """Record finish's act `step` done on the file (`pending_step`) and return it."""
     with db.transaction(conn):
         conn.execute("UPDATE published_file SET pending_step = %s WHERE id = %s", (step, file_id))
     return step

@@ -47,7 +47,7 @@ class FakeKavita(kavita.Kavita):
         self.stale_sizes = False
         self.writes = []  # every write call (scan requests, metadata, series, cover), in order
         self.pending = []  # scan requests Kavita has not run yet
-        self._next_id = 1000
+        self.next_id = 1000  # the last series id handed out; the next series gets 1 more
         self._clock = 0  # Kavita's own clock: lastModifiedUtc values
 
     # --- building state
@@ -242,8 +242,8 @@ class FakeKavita(kavita.Kavita):
         return f"2026-01-01T{c // 3600:02d}:{c // 60 % 60:02d}:{c % 60:02d}.0000000"
 
     def _new_id(self):
-        self._next_id += 1
-        return self._next_id
+        self.next_id += 1
+        return self.next_id
 
 
 def _volume_in(local):

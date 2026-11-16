@@ -103,7 +103,7 @@ def stored_a(world, locale="en"):
 
 
 def lists_read(world):
-    return sum(1 for c in world.sources.mangadex._calls if c[1] == "covers")
+    return sum(1 for c in world.sources.calls if c[1] == "covers")
 
 
 def answer(world, status):

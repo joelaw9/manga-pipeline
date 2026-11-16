@@ -107,7 +107,7 @@ class TimedResult(unittest.TextTestResult):
     def addDuration(self, test, elapsed):
         super().addDuration(test, elapsed)
         if isinstance(test, unittest.TestCase):
-            func = getattr(test, test._testMethodName, None)
+            func = getattr(test, test.id().rsplit(".", 1)[-1], None)
             self.timing_rows.append(row(test.id(), elapsed, budget_for(func, type(test))))
 
 

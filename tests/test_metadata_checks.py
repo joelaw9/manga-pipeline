@@ -318,7 +318,7 @@ def test_the_next_check_follows_the_last_published_update(tmp_path, last_days, c
     cfg = World(tmp_path).cfg
     now = datetime(2026, 11, 1, tzinfo=UTC)
     last = None if last_days is None else now - timedelta(days=last_days)
-    got = check._next_check(cfg, now.isoformat(), last, complete)
+    got = check.next_check(cfg, now.isoformat(), last, complete)
     assert got == (now + timedelta(days=days)).isoformat(timespec="seconds")
 
 

@@ -136,7 +136,7 @@ def _sample(ctx, chapter, series):
         work = _scratch(ctx, chapter).parent / "sample" / str(r["id"])
         work.mkdir(parents=True, exist_ok=True)
         pages = archive.pages(config.to_local(ctx.cfg, r["download_path"]))
-        content = strip._content_indexes([name for name, _ in pages])
+        content = strip.content_indexes([name for name, _ in pages])
         paths = []
         for i in content:
             name, data = pages[i]
@@ -169,7 +169,7 @@ def scan(ctx, chapter, series, key):
     work = _scratch(ctx, chapter)
     try:
         paths, names, sizes, measured = extract(ctx, chapter, work)
-        content = strip._content_indexes(names)
+        content = strip.content_indexes(names)
         try:
             layout = _layout(ctx, chapter, series, [paths[i] for i in content])
         except volumes.VolumeError as e:
@@ -207,7 +207,7 @@ def _scan_strip(ctx, key, paths, sizes, content):
     cpaths = [paths[i] for i in content]
     rows, logos = [], []
     for i, path in zip(content, cpaths, strict=True):
-        im = strip._open(path)
+        im = strip.open_page(path)
         rows.append(strip.page_rows(im))
         logo = logo_units.measure(i, im)
         if logo is not None:

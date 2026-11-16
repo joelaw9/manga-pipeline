@@ -529,9 +529,7 @@ def test_two_badges_are_colour():
 @budget(load="fs")
 def test_large_colour_area_is_colour():
     rgb = badge_page((100, 300, 400, 140))
-    assert present(images._colour_mask(rgb, 22, 8)).mean() >= 0.026, (
-        "precondition: patch as large as a real colour page"
-    )
+    assert present(images.colour_mask(rgb, 22, 8)).mean() >= 0.026, "precondition: patch as large as a real colour page"
     assert images.classify(rgb, 22, 6, LIMITS) == (images.COLOUR, None), "a large colour area is colour"
 
 

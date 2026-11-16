@@ -111,7 +111,7 @@ def _login(cfg):
     return settings  # whether a login needs the password is the server's to say (SPEC "Config")
 
 
-def _open(cfg, dbname=None):
+def open_connection(cfg, dbname=None):
     """A connection whose host, port, database, user and password are the database settings; no password file is read
     (a PG* variable can set only what these do not, SPEC "Config")."""
     login = _login(cfg)
@@ -144,7 +144,7 @@ def _open(cfg, dbname=None):
 
 def _exists(cfg, dbname):
     """Whether the server lists dbname; raises CannotConnectError when the server cannot be used at all."""
-    with closing(_open(cfg, MAINTENANCE_DATABASE)) as conn:
+    with closing(open_connection(cfg, MAINTENANCE_DATABASE)) as conn:
         return conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,)).fetchone() is not None
 
 
@@ -165,12 +165,12 @@ def open_database(cfg, builds):
     """Open database.name and apply nothing (SPEC "State"). A caller that builds gets the database created when the
     server has none; for any other caller, a database that is missing or holds no schema record is NoDatabaseError."""
     try:
-        conn = _open(cfg)
+        conn = open_connection(cfg)
     except NoDatabaseError:
         if not builds:
             raise
         _create(cfg)
-        return _open(cfg)
+        return open_connection(cfg)
     if not builds and not _has_record(conn):
         conn.close()
         login = cfg["database"]
@@ -186,7 +186,7 @@ def read_only(cfg):
     """Open the existing database for reading only: every transaction is read-only and repeatable-read, so 1
     transaction reads 1 snapshot. Raises NoDatabaseError when there is none, and SchemaError unless it holds exactly
     this program's steps."""
-    conn = _open(cfg)
+    conn = open_connection(cfg)
     try:
         conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         _check_exact_steps(conn)
@@ -216,7 +216,7 @@ def _check_exact_steps(conn):
 def built(cfg):
     """Whether the database exists and holds a schema record; builds nothing (SPEC "State")."""
     try:
-        conn = _open(cfg)
+        conn = open_connection(cfg)
     except NoDatabaseError:
         return False
     with closing(conn):
@@ -226,7 +226,7 @@ def built(cfg):
 def peek_id(cfg):
     """The id of the existing database, read without creating, applying or checking anything. Raises NoDatabaseError
     when there is none, Error when the id cannot be read."""
-    with closing(_open(cfg)) as conn:
+    with closing(open_connection(cfg)) as conn:
         return database_id(conn)
 
 
@@ -261,7 +261,7 @@ def _create(cfg):
     CannotConnectError naming the database when the server refuses (a role that may not create one, for one)."""
     login = cfg["database"]
     name = login["name"]
-    with closing(_open(cfg, MAINTENANCE_DATABASE)) as conn:
+    with closing(open_connection(cfg, MAINTENANCE_DATABASE)) as conn:
         try:
             conn.execute(
                 sql.SQL("CREATE DATABASE {} TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'").format(

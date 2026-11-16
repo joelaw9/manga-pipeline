@@ -45,8 +45,8 @@ def test_saved_pages_load_back_and_are_not_decoded_again(conn, tmp_path, monkeyp
     known = page_store.load(conn, chapter_id)
     assert [known[i] for i in sorted(known)] == measured, "load gives back what save stored, None and bools included"
     decoded = []
-    real = images._measure_decoded
-    monkeypatch.setattr(images, "_measure_decoded", lambda data: decoded.append(data) or real(data))
+    real = images.measure_decoded
+    monkeypatch.setattr(images, "measure_decoded", lambda data: decoded.append(data) or real(data))
     assert images.measure_pages(cbz, known=known) == measured
     assert decoded == [], "a page whose rows are stored is not decoded again, a blank page included"
 

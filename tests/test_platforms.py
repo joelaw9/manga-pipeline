@@ -32,7 +32,7 @@ def tapas_client(slug):
         page = path.stem.rsplit("-", 1)[1]
         answers[f"/series/{series_id}/episodes?page={page}&"] = json.loads(path.read_text(encoding="utf-8"))
     client = sources.Tapas()
-    client._service = CannedService("tapas", answers)
+    client.service = CannedService("tapas", answers)
     return client
 
 
@@ -44,7 +44,7 @@ def webtoons_client(kind, number):
         "/episodeList": reply((PLATFORMS / f"webtoons-{kind}-{number}-list.html").read_bytes()),
     }
     client = sources.Webtoons()
-    client._service = CannedService("webtoons", answers)
+    client.service = CannedService("webtoons", answers)
     return client
 
 
@@ -136,8 +136,8 @@ def test_the_platform_page_follows_the_links_and_the_recorded_basis(kavita, anil
 def test_the_tapas_id_needs_the_html_page_and_the_list_is_read_whole():
     client = tapas_client("brother-knows-best")
     series_id = client.series_id("brother-knows-best")
-    assert isinstance(client._service, CannedService), "the recorded replies"
-    assert present(client._service.headers)["Accept"] == "text/html", "the JSON form of /info lacks the tapastic meta"
+    assert isinstance(client.service, CannedService), "the recorded replies"
+    assert present(client.service.headers)["Accept"] == "text/html", "the JSON form of /info lacks the tapastic meta"
     items, total = present(client.episodes(series_id))
     assert series_id == "255099"
     assert len(items) == len({i[3] for i in items})
@@ -148,7 +148,7 @@ def test_the_tapas_id_needs_the_html_page_and_the_list_is_read_whole():
 @pytest.mark.parametrize("status", [400, 404])
 def test_a_gone_tapas_page_is_no_list(status):
     client = sources.Tapas()
-    client._service = CannedService(
+    client.service = CannedService(
         "tapas", {"/series/gone/info": http.HttpError(status, "https://tapas.io/series/gone/info", b"")}
     )
     assert client.series_id("gone") is None
@@ -157,7 +157,7 @@ def test_a_gone_tapas_page_is_no_list(status):
 @budget(load="pure")
 def test_tapas_blocking_is_unreachable_for_the_run():
     client = sources.Tapas()
-    client._service = CannedService("tapas", {"/series/a/info": http.HttpError(403, "https://tapas.io/series/a", b"")})
+    client.service = CannedService("tapas", {"/series/a/info": http.HttpError(403, "https://tapas.io/series/a", b"")})
     with pytest.raises(http.Unreachable):
         client.series_id("a")
     with pytest.raises(http.Unreachable):
@@ -167,18 +167,18 @@ def test_tapas_blocking_is_unreachable_for_the_run():
 @budget(load="pure")
 def test_an_unknown_webtoons_number_is_no_list():
     client = sources.Webtoons()
-    client._service = CannedService("webtoons", {"/api/v1/": {"result": None, "message": None, "success": False}})
+    client.service = CannedService("webtoons", {"/api/v1/": {"result": None, "message": None, "success": False}})
     assert client.episodes("webtoon:1") is None
 
 
 @budget(load="pure")
 def test_the_webtoons_list_reads_its_coverage_from_the_web_page():
     client = sources.Webtoons()
-    client._service = CannedService(
+    client.service = CannedService(
         "webtoons", {"/episodeList": reply(b'<div class="detail_install_app">Read more on the app!</div>')}
     )
     assert client.app_only("webtoon:1") is True
-    client._service = CannedService(
+    client.service = CannedService(
         "webtoons", {"/episodeList": http.HttpError(500, "https://www.webtoons.com/episodeList", b"")}
     )
     assert client.app_only("webtoon:1") is None, "an unread page is unknown coverage, not a failed check"
@@ -311,7 +311,7 @@ def test_a_list_that_does_not_move_on_ends_instead_of_looping():
         "result": {"episodeList": [{"episodeNo": 1, "episodeTitle": "Episode 1"}], "nextCursor": 5},
     }
     client = sources.Webtoons()
-    client._service = CannedService("webtoons", {"/api/v1/": page})  # every page answers cursor 5 again
+    client.service = CannedService("webtoons", {"/api/v1/": page})  # every page answers cursor 5 again
     assert len(present(client.episodes("webtoon:1"))) == 1, "a page that does not move on ends the list, adding nothing"
 
 
@@ -325,9 +325,7 @@ def test_a_page_gone_after_the_first_is_an_error_not_no_list():
         }
     }
     gone = http.HttpError(404, "https://tapas.io/series/11/episodes", b"")
-    client._service = CannedService(
-        "tapas", {"/series/11/episodes?page=1&": first, "/series/11/episodes?page=2&": gone}
-    )
+    client.service = CannedService("tapas", {"/series/11/episodes?page=1&": first, "/series/11/episodes?page=2&": gone})
     with pytest.raises(http.HttpError):
         client.episodes("11")  # the check ends and the stored list is kept
 

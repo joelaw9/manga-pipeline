@@ -238,7 +238,7 @@ def fakes_from(path):
     suwayomi.chapter_rows = {c["id"]: c for c in world["suwayomi"]["chapters"]}
     kavita = FakeKavita({LIBRARY_ID: "/kavita/library"}, world["path_map"])
     for series_id, name, folder, names in world["kavita"]:
-        kavita._next_id = series_id - 1  # the same series id as in the test's process
+        kavita.next_id = series_id - 1  # the same series id as in the test's process
         kavita.add_series(name, folder, LIBRARY_ID, **names)
     return suwayomi, kavita
 

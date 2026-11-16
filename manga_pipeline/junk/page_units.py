@@ -244,7 +244,7 @@ def scan(paths, names, sizes, uniform, aspects):
     """The scan of a page-format chapter. paths, names, sizes: every page of the download in archive order;
     uniform: per page, True when it has no junk signature (images.measure_pages); aspects: the series' page aspect
     candidates (strip.page_aspect). Returns a JSON-able dict; page indexes are download indexes."""
-    content = strip._content_indexes(names)
+    content = strip.content_indexes(names)
     csizes = [sizes[i] for i in content]
     if strip.is_stitched(csizes, aspects):
         return {"layout": "pages", "split": True, "marks": []}

@@ -634,13 +634,13 @@ def test_a_staged_file_that_vanishes_during_the_clean_up(site, monkeypatch, wine
 
 @budget(load="pool")
 def test_output_pages_not_as_many_as_the_outcome_writes_fail(site, monkeypatch):
-    real = image._Chapter.untouched
+    real = image.ChapterRun.untouched
 
     def extra(self):
         real(self)
         (self.out / "999.webp").write_bytes(b"stray")
 
-    monkeypatch.setattr(image._Chapter, "untouched", extra)
+    monkeypatch.setattr(image.ChapterRun, "untouched", extra)
 
     chapter_id = site.chapter(site.series(), [("001.webp", webp(colour()))])
     with pytest.raises(RuntimeError, match="2 output pages, the outcome writes 1"):

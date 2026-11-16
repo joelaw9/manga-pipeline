@@ -120,7 +120,7 @@ def test_a_rewrite_keeps_the_old_files_own_fields_and_pages_and_carries_the_seri
 
 def crash_after(monkeypatch, step, name):
     """A crash (the process killed) right after finish's act `step` on the file named `name`, before it is recorded."""
-    real = rewrite._record
+    real = rewrite.record_step
 
     def record(conn, file_id, done):
         path = one(conn, "SELECT library_path FROM published_file WHERE id = %s", (file_id,))
@@ -129,7 +129,7 @@ def crash_after(monkeypatch, step, name):
             raise KeyboardInterrupt(msg)
         return real(conn, file_id, done)
 
-    monkeypatch.setattr(rewrite, "_record", record)
+    monkeypatch.setattr(rewrite, "record_step", record)
 
 
 @budget(load="db", seconds=60)

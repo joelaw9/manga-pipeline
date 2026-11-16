@@ -76,7 +76,7 @@ def after_junk(ctx, chapter, edit):
         return _duplicate(ctx, chapter, published)
     layout = _layout(ctx, chapter["series_id"])
     junk = measures.junk(edit, layout, ours["median_page_width"])
-    their_junk = _junk(ctx, published, layout, theirs["median_page_width"])
+    their_junk = published_junk(ctx, published, layout, theirs["median_page_width"])
     more = less = False
     if their_junk is not None:
         margin = 0 if layout == "pages" else JUNK_ROWS
@@ -148,7 +148,7 @@ def _layout(ctx, series_id):
     return row["layout"]
 
 
-def _junk(ctx, published, layout, width):
+def published_junk(ctx, published, layout, width):
     """The junk removed from the published file's download (measures.junk): stored when the pipeline published it,
     else from the bulk converter's record of its edits; None when unknown (a pipeline file published before it was
     stored, or a record that no longer lists the file)."""

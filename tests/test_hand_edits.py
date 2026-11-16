@@ -213,7 +213,7 @@ def test_a_same_name_file_is_the_rewritten_one_only_with_the_new_title(tmp_path,
     path.write_bytes(cbz(pages=2, comicinfo=comicinfo(Number=1, Volume=1, Title=held)))
     row = {"pending_size": path.stat().st_size, "pending_volume": "1", "pending_title": "New",
            "comicinfo_title": "Old", "comicinfo_number": "1"}  # fmt: skip
-    assert rewrite._is_new(path, row) is want, "a crash left the old file: same size and volume, its old title"
+    assert rewrite.is_new(path, row) is want, "a crash left the old file: same size and volume, its old title"
 
 
 @budget(load="pure", seconds=1)

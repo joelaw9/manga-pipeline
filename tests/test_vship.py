@@ -153,7 +153,7 @@ def test_a_handle_vship_fails_to_free_raises_with_vships_message():
             "Vship_GetDetailedLastError": staticmethod(lambda _buf, _n: 0),
         },
     )()
-    h = object.__new__(vship._Handle)
+    h = object.__new__(vship.Handle)
     h.lib, h.size, h.ptr = lib, (300, 500), ctypes.c_void_p()
     with pytest.raises(vship.VshipError, match=r"free handle 300x500: Vship error 5"):
         h.free()

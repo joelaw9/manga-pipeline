@@ -152,7 +152,7 @@ def run(ctx, clients, series_id):
                     + CASE WHEN %(changed)s OR series_check.data_version = 0 THEN 1 ELSE 0 END,
                 checked_at = %(now)s, next_check_at = %(next)s, urgent = false
             RETURNING data_version""",
-            {"id": series_id, "now": now, "next": _next_check(ctx.cfg, now, last, complete), "changed": changed},
+            {"id": series_id, "now": now, "next": next_check(ctx.cfg, now, last, complete), "changed": changed},
         ).fetchone()[0]
     covers.refresh_volumes(ctx, series_id)  # the cover list just stored may choose another file for a volume
     fetched = ", ".join(
@@ -366,7 +366,9 @@ def _last_update(ctx, clients, manga_rows, records):
     return None
 
 
-def _next_check(cfg, now, last, complete):
+def next_check(cfg, now, last, complete):
+    """When a series checked at `now` (ISO) is next due: recent_days while its last chapter (`last`) is recent,
+    complete_days for a complete series quiet long enough, else quiet_days."""
     m = cfg["metadata"]
     now = datetime.fromisoformat(now)
     age = now - last if last is not None else timedelta.max

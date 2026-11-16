@@ -293,8 +293,8 @@ def test_known_fields_are_kept_and_a_fully_known_page_is_not_decoded(tmp_path, m
     cbz = chapter(tmp_path / "c.cbz")
     first = images.measure_pages(cbz)
     decoded = []
-    real = images._measure_decoded
-    monkeypatch.setattr(images, "_measure_decoded", lambda data: decoded.append(data) or real(data))
+    real = images.measure_decoded
+    monkeypatch.setattr(images, "measure_decoded", lambda data: decoded.append(data) or real(data))
     partial = {k: v for k, v in first[2].items() if k != "phash"}
     known = {0: first[0], 1: dict(first[1], colour_class="kept as known"), 2: partial}
     got = images.measure_pages(cbz, known)

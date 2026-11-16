@@ -263,7 +263,7 @@ def _components(mask):
     return boxes
 
 
-def _colour_mask(rgb, colour_block, block):
+def colour_mask(rgb, colour_block, block):
     """Boolean grid of coloured tiles (tile spread above colour_block); None for a page smaller than a tile."""
     tiles, _ = _tile_spread(_spread(rgb), block)
     return None if tiles is None else tiles > colour_block
@@ -289,11 +289,11 @@ def gray_mark_box(rgb, colour_block, limits, block=MARK_BLOCK):
     mark_max_w x mark_max_h of the page and at least mark_min_area px2 (a lone faint speck is not a badge; it keeps the
     page colour). The one mark finder: Part C (optimizer.marks.measure) measures the logo inside this box. limits: the
     config's integrity section, the caller's own (never config.cached())."""
-    return _mark_box(_colour_mask(rgb, colour_block, block), np.asarray(rgb).shape[:2], limits, block)
+    return _mark_box(colour_mask(rgb, colour_block, block), np.asarray(rgb).shape[:2], limits, block)
 
 
 def _mark_box(mask, shape, limits, block):
-    """gray_mark_box from the page's coloured-tile mask (_colour_mask) and its (height, width)."""
+    """gray_mark_box from the page's coloured-tile mask (colour_mask) and its (height, width)."""
     cfg = limits
     if mask is None or not mask.any() or mask.mean() >= cfg["mark_max_frac"]:
         return None
@@ -457,7 +457,7 @@ PAGE_FIELDS = (
 DECODED_FIELDS = ("width", "height", "blank", "phash", "junk_signature", "colour_class")  # need the page decoded
 
 
-def _measure_decoded(data):
+def measure_decoded(data):
     """The DECODED_FIELDS of a page from one decode: width, height, blank and phash from the stored pixels' 64x64 luma
     thumbnail (as the bulk converter's integrity check; phash None for a blank page), junk_signature and colour_class
     from the page composited onto white (open_flat, as the bulk converter's page scan; junk_signature None for a
@@ -496,7 +496,7 @@ def measure_pages(cbz, known=None):
             if "chroma" not in page:
                 page["chroma"] = chroma(data, page["format"])
             if any(f not in page for f in DECODED_FIELDS):
-                page.update({f: v for f, v in _measure_decoded(data).items() if f not in page})
+                page.update({f: v for f, v in measure_decoded(data).items() if f not in page})
         except Exception as e:  # Pillow raises many types on a page it cannot read
             msg = f"{cbz}: page {index} ({name}) cannot be measured: {e}"
             raise ValueError(msg) from e
