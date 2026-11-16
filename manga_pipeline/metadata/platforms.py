@@ -79,11 +79,9 @@ def candidates(kavita_links, anilist_links_, basis):
     return out
 
 
-def record(platform, ref, items, listed_total=None, *, app_only=False, list_page_read=True, **extra):
+def record(platform, ref, eps, cover, **extra):
     """A stored platform list: {"name", "ref", "episodes", "coverage", "seasons"} (and extra, e.g. Tapas' series id)
-    from the site's items [(site number, title, date, id)]."""
-    eps = episodes.build(items)
-    cover = episodes.coverage(eps, listed_total, app_only=app_only, list_page_read=list_page_read)
+    from the site's episode records (episodes.build) and their coverage (episodes.coverage)."""
     return {
         "name": platform,
         "ref": ref,

@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 from manga_pipeline import db, workflow
 from manga_pipeline.db import sql
-from manga_pipeline.metadata import covers, ids, platforms, refresh, search
+from manga_pipeline.metadata import covers, episodes, ids, platforms, refresh, search
 
 log = logging.getLogger(__name__)
 FETCHED_ORIGINS = ("suwayomi", "kavita", "anilist", "mangabaka", "mangadex")  # replaced by every completed check
@@ -196,12 +196,15 @@ def _platform(clients, series, kavita_meta, records, stored):
             series_id = known or clients.tapas.series_id(ref)  # the /info page only when the id is not known
             listed = clients.tapas.episodes(series_id) if series_id is not None else None
             if listed is not None:
-                return platforms.record(name, ref, listed[0], listed_total=listed[1], series_id=series_id)
+                eps = episodes.build(listed[0])
+                return platforms.record(name, ref, eps, episodes.coverage(eps, listed[1]), series_id=series_id)
         else:
             items = clients.webtoons.episodes(ref)
             if items is not None:
                 app_only = clients.webtoons.app_only(ref)
-                return platforms.record(name, ref, items, app_only=bool(app_only), list_page_read=app_only is not None)
+                eps = episodes.build(items)
+                cover = episodes.coverage(eps, app_only=bool(app_only), list_page_read=app_only is not None)
+                return platforms.record(name, ref, eps, cover)
     return None
 
 

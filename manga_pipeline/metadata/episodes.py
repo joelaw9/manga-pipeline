@@ -151,59 +151,82 @@ def build(items):
     kinds = [classify(raw) for _, raw, _, _ in parsed]
     numbered = sum(1 for k, stated, _ in kinds if k == MAIN and stated is not None)
     unnumbered_are_chapters = numbered < len(parsed) / 2
-    out, prev_main, last_end, started = [], None, 0, None
+    out, prev_main, line = [], None, _SeasonLine()
     for (number, raw, date, eid), (classified, stated, rest) in zip(parsed, kinds, strict=True):
         chapter, title = None, raw
         kind = NON_CHAPTER if classified == MAIN and stated is None and not unnumbered_are_chapters else classified
         if kind == MAIN:
-            expected = int(prev_main) + 1 if prev_main is not None else None
-            # the label is the episode's own number when it repeats the site index or the running chapter count; in a
-            # numbered series also on the first chapter and on small forward jumps (a chapter the site skipped);
-            # otherwise ("Episode 7 Begins" as chapter 2) it is part of the title
-            own = stated is not None and (
-                _same(stated, number)
-                or _same(stated, expected)
-                or (not unnumbered_are_chapters and (prev_main is None or prev_main < float(stated) <= prev_main + 3))
-                or (prev_main is None and float(stated) in (0, 1))
-            )
-            if own:
-                chapter, title = norm_number(stated), rest
-            else:
-                chapter = str(expected if expected is not None else 1)
+            chapter, own = _main_chapter(stated, number, prev_main, numbered_series=not unnumbered_are_chapters)
             if chapter is None:  # a main label states digits: its number normalizes
                 msg = f"episode {raw!r}: no chapter number"
                 raise ValueError(msg)
+            title = rest if own else raw
             prev_main = float(chapter)
         elif kind == SPECIAL:
             chapter = norm_number(stated)
             title = rest  # "SE 1. X" / "Bonus: X" -> "X"; a bare "Epilogue" kept
-        marker = read_marker(raw)
-        if marker and marker["type"] in ("end", "start") and marker["season"] is None:
-            # "(Season Finale)" / "(Season Premiere)" without a number: the season in line
-            marker["season"] = (started or last_end + 1) if marker["type"] == "end" else last_end + 1
-        if marker and marker["type"] == "end":
-            last_end, started = max(last_end, marker["season"]), None
-        elif marker and marker["type"] == "start":
-            started = marker["season"]
-        title = BRACKETED_MARKER.sub("", title)
-        if BARE_MARKER.match(title):
-            title = ""
-        title = _tidy(title)
-        if title and kind == MAIN and names.BARE_LABEL.fullmatch(title):
-            title = None  # a bare label left over carries no title
         out.append(
             {
                 "number": number,
                 "chapter": chapter,
                 "raw_title": raw,
-                "title": title,
+                "title": _episode_title(title, kind),
                 "kind": kind,
-                "season_marker": marker,
+                "season_marker": line.marker(raw),
                 "date": date,
                 "id": eid,
             }
         )
     return out
+
+
+def _main_chapter(stated, number, prev_main, *, numbered_series):
+    """(chapter number text, whether it is the label's own) of a main post: stated, its label's number (None: none);
+    number, its site index; prev_main, the chapter before it (None: none yet). The label is the episode's own number
+    when it repeats the site index or the running chapter count; in a numbered series also on the first chapter and
+    on small forward jumps (a chapter the site skipped); otherwise ("Episode 7 Begins" as chapter 2) it is part of
+    the title and the post takes the next chapter number."""
+    expected = int(prev_main) + 1 if prev_main is not None else None
+    own = stated is not None and (
+        _same(stated, number)
+        or _same(stated, expected)
+        or (numbered_series and (prev_main is None or prev_main < float(stated) <= prev_main + 3))
+        or (prev_main is None and float(stated) in (0, 1))
+    )
+    if own:
+        return norm_number(stated), True
+    return str(expected if expected is not None else 1), False
+
+
+class _SeasonLine:
+    """The seasons a list's posts have marked so far, in site order: the last ended season and the season started
+    since (None: none)."""
+
+    def __init__(self):
+        self.last_end, self.started = 0, None
+
+    def marker(self, raw):
+        """The next post's season marker (read_marker): "(Season Finale)" / "(Season Premiere)" without a number
+        takes the season in line. The line moves on past it."""
+        marker = read_marker(raw)
+        if marker and marker["type"] in ("end", "start") and marker["season"] is None:
+            marker["season"] = (self.started or self.last_end + 1) if marker["type"] == "end" else self.last_end + 1
+        if marker and marker["type"] == "end":
+            self.last_end, self.started = max(self.last_end, marker["season"]), None
+        elif marker and marker["type"] == "start":
+            self.started = marker["season"]
+        return marker
+
+
+def _episode_title(title, kind):
+    """A post's title cleaned: season markers read off, None when nothing is left (or a main post's bare label)."""
+    title = BRACKETED_MARKER.sub("", title)
+    if BARE_MARKER.match(title):
+        title = ""
+    title = _tidy(title)
+    if title and kind == MAIN and names.BARE_LABEL.fullmatch(title):
+        return None  # a bare label left over carries no title
+    return title
 
 
 def season_breaks(episodes):
@@ -212,6 +235,20 @@ def season_breaks(episodes):
     non-chapter post: at the last chapter before it); a start marker for season N closes N-1 one chapter earlier,
     unless an end marker already did. "Main Story Finale" closes the running season, and the chapters after it form 1
     more range with side true. [] when no episode carries a season marker."""
+    ends, starts, main_end = _season_points(episodes)
+    close_seasons(ends, starts)
+    if not ends and not starts and main_end is None:
+        return []
+    if main_end is not None and not any(end >= main_end for end in ends.values()):
+        ends[max(ends, default=0) + 1] = main_end
+    mains = sorted({float(e["chapter"]) for e in episodes if e["kind"] == MAIN and e.get("chapter") is not None})
+    return _season_ranges(ends, mains, main_end)
+
+
+def _season_points(episodes):
+    """(ends, starts, main end) the episodes' markers give: ends {season: last chapter} (an end marker on a
+    non-chapter post: the last chapter before it), starts [(season, the last chapter before its start marker)] in site
+    order, and the chapter of "Main Story Finale" (None: none)."""
     ends, starts, main_end, last_main = {}, [], None, None
     for e in episodes:
         m = e.get("season_marker")
@@ -225,12 +262,13 @@ def season_breaks(episodes):
             main_end = at
         if here is not None:
             last_main = here
-    close_seasons(ends, starts)
-    if not ends and not starts and main_end is None:
-        return []
-    if main_end is not None and not any(end >= main_end for end in ends.values()):
-        ends[max(ends, default=0) + 1] = main_end
-    mains = sorted({float(e["chapter"]) for e in episodes if e["kind"] == MAIN and e.get("chapter") is not None})
+    return ends, starts, main_end
+
+
+def _season_ranges(ends, mains, main_end):
+    """season_breaks' ranges from the closed seasons (ends: {season: last chapter}) over the main chapter numbers
+    (mains, ascending): a season whose end does not pass the one before, or that holds no chapter, is left out; the
+    chapters after the last end form 1 more open range, a side one past the main-story finale (main_end)."""
     out, prev, last_season = [], None, 0
     for season, end in sorted(ends.items()):
         if prev is not None and end <= prev:
