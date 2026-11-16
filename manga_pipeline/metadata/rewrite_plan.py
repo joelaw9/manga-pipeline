@@ -23,8 +23,7 @@ def changes(basis, rows, overrides, mangadex, platform=None):
         if v != rows[i].volume:
             out[rows[i].key[1]] = (v, naming.OVERRIDE)
     empty = [i for i in published if rows[i].volume is None and rows[i].key[1] not in out]
-    opened, keys = _reopened(rows, empty)
-    got = _of(naming.resolve(basis, opened, overrides, mangadex, platform, fill=keys), keys) if keys else {}
+    got = _reopened(basis, rows, overrides, mangadex, platform, ids=empty)
     for key, named in got.items():
         v = named.volume
         if named.kind == names.MAIN and v is not None and v == int(v):
@@ -109,8 +108,7 @@ def differences(basis, rows, overrides, mangadex, platform=None):
     held = [
         i for i in published if rows[i].volume is not None and i not in ranged and rows[i].volume_source in rereadable
     ]
-    opened, keys = _reopened(rows, held)
-    got = _of(naming.resolve(basis, opened, overrides, mangadex, platform, fill=keys), keys) if keys else {}
+    got = _reopened(basis, rows, overrides, mangadex, platform, ids=held)
     out = {}
     for key, named in got.items():
         stored = next(r.volume for r in rows if r.key == key)
@@ -191,18 +189,18 @@ def _fmt(volume):
     return "" if volume is None else names.fmt_num(volume)
 
 
-def _reopened(rows, ids):
-    """(rows, keys): the rows with ids opened (no volume) beside the others as they are, and the keys of ids."""
+def _reopened(basis, rows, overrides, mangadex, platform, *, ids):
+    """{key: naming.Naming} of the rows with ids as the resolver names them reopened (no volume), beside the others as
+    they are: changes and differences read them the same way. Its inputs are the resolver's own (naming.resolve)."""
+    if not ids:
+        return {}
     chosen = set(ids)
     opened = [
         dataclasses.replace(r, settled=False, volume=None, volume_source=None) if i in chosen else r
         for i, r in enumerate(rows)
     ]
-    return opened, frozenset(rows[i].key for i in ids)
-
-
-def _of(named, keys):
-    """{key: naming.Naming} of the keys among a resolve result (it names every open row)."""
+    keys = frozenset(rows[i].key for i in ids)
+    named = naming.resolve(basis, opened, overrides, mangadex, platform, fill=keys)
     return {key: n for key, n in named.items() if key in keys}
 
 

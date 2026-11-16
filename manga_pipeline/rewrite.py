@@ -290,7 +290,6 @@ def _queue_chapter(ctx: workflow.Context, series, file_id, change):
     when its cover changes (an insert's cover handed over as a volume_cover row), else at comicinfo; it carries the
     file's title and unedited values afterwards (title "" = untitled). Returns 1 when made, else 0."""
     conn = ctx.conn
-    volume, source, cover, title, unedited = change
     row = conn.execute(
         sql.SQL("SELECT * FROM published_file p WHERE p.id = %s AND p.state = 'confirmed' AND NOT {}").format(
             BUSY.format(p=sql.Identifier("p"))
@@ -299,7 +298,7 @@ def _queue_chapter(ctx: workflow.Context, series, file_id, change):
     ).fetchone()
     if row is None:
         return 0
-    target = _target(row, volume, title)
+    target = _target(row, change.volume, change.title)
     now = workflow.now(conn)
     made = conn.execute(
         """INSERT INTO chapter (series_id, kind, identity, source, stage, status, published_file_id, library_path,
@@ -312,34 +311,34 @@ def _queue_chapter(ctx: workflow.Context, series, file_id, change):
             series["id"],
             row["identity"],
             row["source"],
-            "comicinfo" if cover is None else "convert",
+            "comicinfo" if change.cover is None else "convert",
             file_id,
             target,
             series["comicinfo_series"],
-            None if volume is None else names.fmt_num(volume),
+            None if change.volume is None else names.fmt_num(change.volume),
             row["comicinfo_number"],
-            title or None,
+            change.title or None,
             row["comicinfo_date"],
             row["kind"],
-            source,
-            cover == ("drop",),
-            None if unedited is None else json.dumps(unedited),
+            change.source,
+            change.cover == ("drop",),
+            None if change.unedited is None else json.dumps(change.unedited),
             now,
             now,
         ),
     ).fetchone()
     if made is None:
         return 0
-    if cover is not None and cover[0] == "insert":
+    if change.cover is not None and change.cover[0] == "insert":
         conn.execute(
             "INSERT INTO volume_cover (chapter_id, path, sha256, volume) VALUES (%s, %s, %s, %s)",
-            (made["id"], cover[2]["path"], cover[2]["sha256"], cover[1]),
+            (made["id"], change.cover[2]["path"], change.cover[2]["sha256"], change.cover[1]),
         )
     log.info(
         "%s: %s: volume %s -> %s (%s)%s%s%s", ctx.part, row["library_path"], row["comicinfo_volume"],
-        None if volume is None else names.fmt_num(volume), source,
-        f", title {title!r}" if title != (row["comicinfo_title"] or "") else "",
-        f", renamed {target}" if target != row["library_path"] else "", _cover_text(cover),
+        None if change.volume is None else names.fmt_num(change.volume), change.source,
+        f", title {change.title!r}" if change.title != (row["comicinfo_title"] or "") else "",
+        f", renamed {target}" if target != row["library_path"] else "", _cover_text(change.cover),
     )  # fmt: skip
     return 1
 
