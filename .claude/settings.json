@@ -5,6 +5,7 @@
       "Bash(git diff:*)",
       "Bash(python -m pytest:*)",
       "Bash(python -m ruff:*)",
+      "Bash(python -m basedpyright:*)",
       "Bash(python -m manga_pipeline.cli:*)"
     ]
   }
