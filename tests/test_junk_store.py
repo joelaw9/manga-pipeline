@@ -186,22 +186,23 @@ def bulk_store(path):
     for ddl in BULK_SCHEMA:
         c.execute(ddl)
 
-    def junk(series, decision_, origin, tiles, added, *, chain=None, superseded=None):
+    junk = [  # (series, decision, origin, tiles, added, chain, superseded)
+        ("S", "approve", "block", T, "2026-11-06 10:00:00", None, None),
+        (None, "approve", "probe", flip(T, 20), "2026-11-06 10:00:01", None, None),
+        ("S", "keep", "piece", flip(T, 30), "2026-11-06 10:00:02", None, None),
+        ("S", "approve", "cut", flip(T, 40), "2026-11-06 10:00:03", None, None),
+        ("S", "approve", "block", flip(T, 50), "2026-11-06 10:00:04", "{}", None),
+        ("S", "approve", "page", flip(T, 60), "2026-11-06 10:00:05", None, 99),
+        # 2 active rows on 1 key: the old lookup obeys the keep, though it is older
+        ("S", "keep", "band", flip(T, 10), "2026-11-06 09:00:00", None, None),
+        ("S", "approve", "band", flip(T, 10), "2026-11-06 11:00:00", None, None),
+    ]
+    for series, decision_, origin, tiles, added, chain, superseded in junk:
         c.execute(
             "INSERT INTO junk (series, decision, origin, tiles, aspect, chain, credit, added, superseded)"
             " VALUES (?, ?, ?, ?, 1.0, ?, 0, ?, ?)",
             (series, decision_, origin, f"{tiles:016x}", chain, added, superseded),
         )
-
-    junk("S", "approve", "block", T, "2026-11-06 10:00:00")
-    junk(None, "approve", "probe", flip(T, 20), "2026-11-06 10:00:01")
-    junk("S", "keep", "piece", flip(T, 30), "2026-11-06 10:00:02")
-    junk("S", "approve", "cut", flip(T, 40), "2026-11-06 10:00:03")
-    junk("S", "approve", "block", flip(T, 50), "2026-11-06 10:00:04", chain="{}")
-    junk("S", "approve", "page", flip(T, 60), "2026-11-06 10:00:05", superseded=99)
-    # 2 active rows on 1 key: the old lookup obeys the keep, though it is older
-    junk("S", "keep", "band", flip(T, 10), "2026-11-06 09:00:00")
-    junk("S", "approve", "band", flip(T, 10), "2026-11-06 11:00:00")
     vec = np.full(frames.CELLS * 3, 7, np.uint8).tobytes()
     c.execute(
         "INSERT INTO frames (series, vec, aspect, decision, added) VALUES (NULL, ?, 1.42, 'approve',"

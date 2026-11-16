@@ -100,15 +100,17 @@ def strip_plan(st):
     return strip.cut_strip(st.height, strip.find_gaps(st), [])
 
 
-def render_cuts(width, pages, kept, cuts, x_dir, *, out_dir):
-    """Execution of a strip / split plan: strip.render over the planned cuts. pages: [{"name", "top", "th"}]."""
+def render_cuts(layout, cuts, x_dir, out_dir):
+    """Execution of a strip / split plan: strip.render of `layout` ({"width", "pages": [{"name", "top", "th"}],
+    "kept"}) over the planned cuts."""
     outputs = [{"name": strip.output_name(n), "rows": [a, b]} for n, (a, b) in enumerate(itertools.pairwise(cuts), 1)]
-    return strip.render(outputs, x_dir, out_dir, {"width": width, "pages": pages, "kept": kept})
+    return strip.render(outputs, x_dir, out_dir, layout)
 
 
 def render_strip(pl, st, out_dir):
     pages = [{"name": Path(p["path"]).name, "top": p["top"], "th": p["th"]} for p in st.pages]
-    return render_cuts(st.width, pages, pl["kept"], pl["cuts"], Path(st.pages[0]["path"]).parent, out_dir=out_dir)
+    layout = {"width": st.width, "pages": pages, "kept": pl["kept"]}
+    return render_cuts(layout, pl["cuts"], Path(st.pages[0]["path"]).parent, out_dir)
 
 
 def stacked(paths):
@@ -819,9 +821,8 @@ def test_split_into_whole_pages(tmp_path, cached):
     pages = stitched(cached, tmp_path)
     assert strip.is_stitched([images.file_dimensions(p) for p in pages], [1.422]) is True, "tall images: stitched"
     pl = plan_of(pages, [1.422])
-    out = render_cuts(
-        pl["width"], pl["pages"], [[0, pl["height"]]], pl["cuts"], pages[0].parent, out_dir=tmp_path / "out"
-    )
+    layout = {"width": pl["width"], "pages": pl["pages"], "kept": [[0, pl["height"]]]}
+    out = render_cuts(layout, pl["cuts"], pages[0].parent, tmp_path / "out")
     assert [Image.open(p).size for p in out] == [(1000, 1422)] * 8, "split into whole pages"
     assert pl["irregular"] == [], "every image is whole pages"
 

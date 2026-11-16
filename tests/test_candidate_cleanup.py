@@ -23,28 +23,28 @@ def site(tmp_path):
         yield cfg, conn
 
 
-def candidate(conn, cfg, folder, key="123456789abcdef0|0.7", closed_at=None, *, review_open=0, waited_on_by=None):
-    """A candidate row and its folder (with an image); waited_on_by: a junk chapter waiting on it (open)."""
+def candidate(conn, cfg, folder, key="123456789abcdef0|0.7", closed_at=None):
+    """A candidate row and its folder (with an image)."""
     (config.abs_path(cfg["paths"]["candidates"]) / folder).mkdir(parents=True)
     (config.abs_path(cfg["paths"]["candidates"]) / folder / "unit.png").write_bytes(b"png")
     with db.transaction(conn):
-        cid = one(
+        return one(
             conn,
-            """INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at, closed_at, review_open)
-            VALUES ('S', 'page', %s, 'r', %s, '2026-01-01T00:00:00+00:00', %s, %s) RETURNING id""",
-            (key, folder, closed_at, review_open),
+            """INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at, closed_at)
+            VALUES ('S', 'page', %s, 'r', %s, '2026-01-01T00:00:00+00:00', %s) RETURNING id""",
+            (key, folder, closed_at),
         )
-    if waited_on_by is not None:
-        with db.transaction(conn):
-            conn.execute(
-                "UPDATE chapter SET status = 'waiting', waiting_on = 'junk_decision' WHERE id = %s", (waited_on_by,)
-            )
-            conn.execute(
-                """INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at, candidates)
-                SELECT id, series_id, 'd', '{}', '2026-01-01T00:00:00+00:00', %s FROM chapter WHERE id = %s""",
-                (f"[{cid}]", waited_on_by),
-            )
-    return cid
+
+
+def wait_on(conn, chapter_id, cid):
+    """The junk chapter chapter_id waits on candidate cid (which is then open)."""
+    with db.transaction(conn):
+        conn.execute("UPDATE chapter SET status = 'waiting', waiting_on = 'junk_decision' WHERE id = %s", (chapter_id,))
+        conn.execute(
+            """INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at, candidates)
+            SELECT id, series_id, 'd', '{}', '2026-01-01T00:00:00+00:00', %s FROM chapter WHERE id = %s""",
+            (f"[{cid}]", chapter_id),
+        )
 
 
 def folder(cfg, name):
@@ -73,7 +73,8 @@ def test_a_closed_candidate_is_stamped_then_deleted_with_its_folder_an_hour_late
 def test_a_reopened_candidate_loses_its_stamp(site):
     cfg, conn = site
     chapter_id = add_chapter(conn, add_series(conn, "S"), "c1", "junk")
-    cid = candidate(conn, cfg, "a-1-1", closed_at=HOUR_AGO_2, waited_on_by=chapter_id)
+    cid = candidate(conn, cfg, "a-1-1", closed_at=HOUR_AGO_2)
+    wait_on(conn, chapter_id, cid)
     assert candidates.cleanup(cfg, conn) == 0
     assert row(conn, cid)["closed_at"] is None, "a chapter waits on it again: open, unstamped, kept"
 
@@ -81,7 +82,9 @@ def test_a_reopened_candidate_loses_its_stamp(site):
 @budget(load="db")
 def test_a_candidate_a_running_review_listed_is_never_stamped_or_deleted(site):
     cfg, conn = site
-    cid = candidate(conn, cfg, "a-1-1", closed_at=HOUR_AGO_2, review_open=1)
+    cid = candidate(conn, cfg, "a-1-1", closed_at=HOUR_AGO_2)
+    with db.transaction(conn):
+        conn.execute("UPDATE junk_candidate SET review_open = 1 WHERE id = %s", (cid,))
     assert candidates.cleanup(cfg, conn) == 0
     assert row(conn, cid)["closed_at"] == HOUR_AGO_2
     assert folder(cfg, "a-1-1").exists()

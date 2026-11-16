@@ -103,6 +103,47 @@ def strip_reasons(conn, series_key, unit, words):
     return out
 
 
+def _key(unit):
+    """An undecided unit's key: its "key", or a strip unit's signature."""
+    return unit.get("key") or unit.get("sig")
+
+
+def _recurrence(conn, series_key, kind, key):
+    """["seen in N chapters"] when N >= RECUR_CHAPTERS chapters of the series show a unit matching (kind, key)."""
+    n = chapters_showing(conn, series_key, kind, key)
+    return [f"seen in {n} chapters"] if n >= RECUR_CHAPTERS else []
+
+
+def _flagged_probe(conn, series_key, block, words):
+    """The candidate of a strip edge block's first signable probe from the chapter edge that is near or has a
+    keyword (strip_reasons), or None."""
+    probes = [p for p in block["probes"] if not store.unsignable("probe", p["sig"])]
+    flagged = next(((p, why) for p in probes for why in [strip_reasons(conn, series_key, p, words)] if why), None)
+    if flagged is None:
+        return None
+    probe, why = flagged
+    return {"kind": "probe", "key": probe["sig"], "unit": {**probe, "where": block["where"]}, "reason": "; ".join(why)}
+
+
+def _block_candidate(conn, series_key, block, words, *, first_chapter):
+    """A strip edge block's candidate: its flagged probe, else the block when its key is signable and it is near,
+    has a keyword, is the rest of a block whose edge piece is junk, is in a first chapter of the series
+    (first_chapter), or recurs; else None."""
+    probe = _flagged_probe(conn, series_key, block, words)
+    if probe is not None:
+        return probe
+    key = _key(block)
+    if store.unsignable("block", key):
+        return None
+    reasons = strip_reasons(conn, series_key, block, words)
+    if block.get("rest"):
+        reasons.append("the rest of a block whose edge piece is junk")
+    if first_chapter:
+        reasons.append("a first chapter of the series")
+    reasons += _recurrence(conn, series_key, "block", key)
+    return {"kind": "block", "key": key, "unit": block, "reason": "; ".join(reasons)} if reasons else None
+
+
 def select(conn, series_key, identity, undecided, words):
     """The candidates among a chapter's undecided units: [{"kind", "key", "reason", "unit"}]. Strip edge blocks: the
     first probe from the chapter edge that is near or has a keyword is offered instead of its block; else the block
@@ -111,46 +152,27 @@ def select(conn, series_key, identity, undecided, words):
     pieces always. Pages, frames and bands: their per-chapter reasons, or recurrence. Logos always; a logo variant
     offers the first of its representatives' keys that an existing candidate matches, else its first. Never a unit
     with an unsignable key (no decision could be written on it), a block's probe included."""
-    first = first_identities(conn, series_key)
+    first_chapter = identity in first_identities(conn, series_key)
     decisions = store.Decisions(conn, series_key)
     out = []
     for u in undecided:
-        kind = u["kind"]
-        key = u.get("key") or u.get("sig")
-        reasons = []
-        if kind != "block" and store.unsignable(kind, key):
+        kind, key = u["kind"], _key(u)
+        if kind == "block":
+            found = _block_candidate(conn, series_key, u, words, first_chapter=first_chapter)
+        elif store.unsignable(kind, key):
             continue
-        if kind == "piece":
-            reasons = ["tail piece after a credit band"]
-        elif kind == "block":
-            probes = [p for p in u["probes"] if not store.unsignable("probe", p["sig"])]
-            flagged = next(
-                ((p, why) for p in probes for why in [strip_reasons(conn, series_key, p, words)] if why), None
-            )
-            if flagged is not None:
-                probe, why = flagged
-                unit = {**probe, "where": u["where"]}
-                out.append({"kind": "probe", "key": probe["sig"], "unit": unit, "reason": "; ".join(why)})
-                continue
-            if store.unsignable(kind, key):
-                continue
-            reasons = strip_reasons(conn, series_key, u, words)
-            if u.get("rest"):
-                reasons.append("the rest of a block whose edge piece is junk")
-            if identity in first:
-                reasons.append("a first chapter of the series")
         elif kind == "logo":
             key = next((k for k in u["keys"] if find(conn, decisions, kind, k) is not None), u["keys"][0])
-            out.append({"kind": kind, "key": key, "unit": u, "reason": "; ".join(u["reasons"])})
-            continue
+            found = {"kind": kind, "key": key, "unit": u, "reason": "; ".join(u["reasons"])}
         else:
-            reasons = list(u.get("reasons", []))
-        if kind != "piece":
-            n = chapters_showing(conn, series_key, "block" if kind == "block" else kind, key)
-            if n >= RECUR_CHAPTERS:
-                reasons.append(f"seen in {n} chapters")
-        if reasons:
-            out.append({"kind": kind, "key": key, "unit": u, "reason": "; ".join(reasons)})
+            reasons = (
+                ["tail piece after a credit band"]
+                if kind == "piece"
+                else [*u.get("reasons", []), *_recurrence(conn, series_key, kind, key)]
+            )
+            found = {"kind": kind, "key": key, "unit": u, "reason": "; ".join(reasons)} if reasons else None
+        if found is not None:
+            out.append(found)
     return out
 
 
@@ -247,12 +269,18 @@ def cleanup(cfg, conn):
     root = config.abs_path(cfg["paths"]["candidates"])
     for row in gone:
         shutil.rmtree(root / row["folder"], ignore_errors=True)
+    _remove_orphans(root, named)
+    return len(gone)
+
+
+def _remove_orphans(root, named):
+    """Remove each folder in the candidates folder `root` that no row names (`named`) once it is ORPHAN_KEEP_S old
+    (a machine may have written it and not yet recorded its row)."""
     if root.is_dir():
         old = time.time() - ORPHAN_KEEP_S
         for entry in root.iterdir():
             if entry.is_dir() and entry.name not in named and entry.stat().st_mtime < old:
                 shutil.rmtree(entry)
-    return len(gone)
 
 
 # ---------------------------------------------------------------- images
