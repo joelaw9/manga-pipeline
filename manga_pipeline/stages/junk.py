@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 from pathlib import Path
+from typing import NamedTuple
 
 from PIL import Image
 
@@ -253,20 +254,27 @@ def _page_units(sc):
 # ---------------------------------------------------------------- decide
 
 
-def decide(ctx: workflow.Context, chapter, key, row):
-    sc = json.loads(row["scan"])
-    decisions = store.Decisions(ctx.conn, key)
+class _Applied(NamedTuple):
+    """What decisions make of a chapter's scan: its chapter edit, the watermark rows [(series key, key)] to remember,
+    the units left undecided (the layout's, then the logos'), and why the edit is refused (strip_units'
+    kept_problem; None when it is not)."""
 
-    def decide_unit(kind, text):
-        return decisions.decide(kind, store.parse_key(kind, text))
+    edit: dict
+    watermarks: list[tuple[str, str]]
+    undecided: list[dict]
+    problem: str | None
 
+
+def _apply(conn, sc, key, decide_unit):
+    """The decisions on a scan: its layout's (a strip's with the series' known watermarks), then the logos' on what
+    that leaves (a refused strip edit stops before the logos)."""
     edit = {"drop_pages": [], "bands": [], "join": [], "split": False, "strip_removed": [], "blank": []}
     watermarks = []
     if sc["layout"] == "strip":
-        known = ctx.conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
+        known = conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
         got = strip_units.decide(sc, decide_unit, [images.sig_from_str(r["key"]) for r in known])
         if got["kept_problem"]:
-            return workflow.NeedsHuman(got["kept_problem"])
+            return _Applied(edit, [], [], got["kept_problem"])
         edit["strip_removed"] = got["removed"]
         watermarks = [(key, k) for k in got["watermarks"]]
         survives = logo_units.strip_survives(edit["strip_removed"])
@@ -276,46 +284,65 @@ def decide(ctx: workflow.Context, chapter, key, row):
         survives = logo_units.page_survives(edit)
     logos = logo_units.decide(sc["marks"], survives, decide_unit)
     edit["blank"] = logos["blank"]
-    words = {w: ctx.cfg["junk"][w] for w in WORDS}
-    undecided = got["undecided"] + logos["undecided"]
-    picks = candidates.select(ctx.conn, key, chapter["identity"], undecided, words)
+    return _Applied(edit, watermarks, got["undecided"] + logos["undecided"], None)
 
-    def remember(conn):  # with the outcome: the series' later chapters know these bands as watermarks
-        db.executemany(
-            conn, "INSERT INTO junk_watermark (series_key, key) VALUES (%s, %s) ON CONFLICT DO NOTHING", watermarks
+
+def _remember(conn, watermarks):
+    """With the outcome: the series' later chapters know these bands as watermarks."""
+    db.executemany(
+        conn, "INSERT INTO junk_watermark (series_key, key) VALUES (%s, %s) ON CONFLICT DO NOTHING", watermarks
+    )
+
+
+def _finished(ctx: workflow.Context, chapter, edit, watermarks):
+    """The outcome of a chapter that offers no candidate: the library copy check's (a duplicate dropped, or a better
+    copy of a busy file held: no edit kept), else Done with its chapter edit."""
+    copy = library_copy.after_junk(ctx, chapter, edit)
+    if copy is not None:
+
+        def closed(conn):
+            _remember(conn, watermarks)
+            if isinstance(copy, workflow.Dropped):  # a held copy keeps its scan for its retry
+                conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
+            if copy.record:
+                copy.record(conn)
+
+        return dataclasses.replace(copy, record=closed)
+
+    def done(conn):
+        _remember(conn, watermarks)
+        values = (chapter["id"], json.dumps(edit))
+        conn.execute(
+            "INSERT INTO chapter_edit (chapter_id, edit) VALUES (%s, %s) ON CONFLICT"
+            " (chapter_id) DO UPDATE SET edit = excluded.edit",
+            values,
         )
+        conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
 
+    return workflow.Done(record=done)
+
+
+def decide(ctx: workflow.Context, chapter, key, row):
+    sc = json.loads(row["scan"])
+    decisions = store.Decisions(ctx.conn, key)
+
+    def decide_unit(kind, text):
+        return decisions.decide(kind, store.parse_key(kind, text))
+
+    applied = _apply(ctx.conn, sc, key, decide_unit)
+    if applied.problem:
+        return workflow.NeedsHuman(applied.problem)
+    words = {w: ctx.cfg["junk"][w] for w in WORDS}
+    picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, words)
     if not picks:
-        copy = library_copy.after_junk(ctx, chapter, edit)
-        if copy is not None:  # a duplicate (dropped) or a better copy of a busy file (held): no edit kept
-
-            def closed(conn):
-                remember(conn)
-                if isinstance(copy, workflow.Dropped):  # a held copy keeps its scan for its retry
-                    conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
-                if copy.record:
-                    copy.record(conn)
-
-            return dataclasses.replace(copy, record=closed)
-
-        def done(conn):
-            remember(conn)
-            values = (chapter["id"], json.dumps(edit))
-            conn.execute(
-                "INSERT INTO chapter_edit (chapter_id, edit) VALUES (%s, %s) ON CONFLICT"
-                " (chapter_id) DO UPDATE SET edit = excluded.edit",
-                values,
-            )
-            conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
-
-        return workflow.Done(record=done)
+        return _finished(ctx, chapter, applied.edit, applied.watermarks)
     limit = ctx.cfg["junk"]["review_limit"]
     rows = [candidates.find(ctx.conn, decisions, p["kind"], p["key"]) for p in picks]
     held = [r for r in rows if r is not None and (r["verdict"] == "unsure" or candidates.stuck(r, limit))]
     if held:
 
         def hold(conn):  # the chapter keeps the candidates it waits on open, so junk decide can name them
-            remember(conn)
+            _remember(conn, applied.watermarks)
             ids = sorted(r["id"] for r in rows if r is not None)
             conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
 
@@ -326,7 +353,7 @@ def decide(ctx: workflow.Context, chapter, key, row):
     at = workflow.now(ctx.conn)
 
     def wait(conn):
-        remember(conn)
+        _remember(conn, applied.watermarks)
         ids = candidates.join(conn, key, picks, at)
         conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
 

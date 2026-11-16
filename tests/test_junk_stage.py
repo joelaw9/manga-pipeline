@@ -281,6 +281,20 @@ def test_a_strip_chapter_waits_on_its_candidates_and_finishes_once_they_are_kept
     assert open_candidates(site) == [], "no candidate is offered again"
 
 
+@budget(load="db", seconds=5)
+def test_a_strip_chapter_whose_junk_would_leave_too_little_needs_a_human(site, monkeypatch):
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")  # the real engine reads noise for seconds per block
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    site.download("Long", 2, strip_cbz("w2"))
+    site.parts()
+    assert decide_junk(site.cfg, "junk") > 0, "a first chapter offers its blocks"
+    run_part(site.cfg, process)
+    ((status, reason),) = site.rows("SELECT status, last_error FROM chapter")
+    assert status == "needs_human", "a removal that would leave too little: a person decides"
+    assert "junk removal would leave" in reason, reason
+
+
 @budget(load="db", seconds=10)
 def test_a_lost_claim_writes_no_candidate_folder(site, monkeypatch):
     site.download("Alpha", 2, cbz(credit=True))
