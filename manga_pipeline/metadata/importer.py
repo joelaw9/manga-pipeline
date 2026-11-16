@@ -136,7 +136,8 @@ def _link_overrides(ctx: workflow.Context, listing, overrides):
             continue
         try:
             # series link's own path: a held row of the manga is merged, the series' folder is filled
-            identify.link(ctx.cfg, ctx.conn, ctx.suwayomi, ctx.kavita, kseries["id"], manga_id=found["id"])
+            subject = identify.link_subject(ctx.cfg, ctx.suwayomi, manga_id=found["id"])
+            identify.link(ctx.cfg, ctx.conn, ctx.kavita, kseries["id"], subject)
         except workflow.Refused as e:
             unknown.append(f"{name!r} ({e})")
             continue
