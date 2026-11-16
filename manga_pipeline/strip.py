@@ -623,4 +623,4 @@ def ensure_series_layout(conn, series_id, chapter_pages):
             ON CONFLICT (series_id) DO NOTHING""",
             (series_id, layout),
         )
-        return conn.execute("SELECT layout FROM series_conversion WHERE series_id = %s", (series_id,)).fetchone()[0]
+        return db.one_row(conn, "SELECT layout FROM series_conversion WHERE series_id = %s", (series_id,))[0]

@@ -67,7 +67,7 @@ def _samples_wanted(row, chapter_id):
     )
 
 
-def _calibrate(ctx, chapter, chapter_plan, x_dir, rendered, *, work, pool, scorer, tool_paths):
+def _calibrate(ctx: workflow.Context, chapter, chapter_plan, x_dir, rendered, *, work, pool, scorer, tool_paths):
     """Add this chapter's samples to the series' open groups its AVIF outcome encodes; returns {group: q} after."""
     stored = calibrate.rows(ctx.conn, chapter["series_id"])
     if not any(_samples_wanted(stored.get(g), chapter["id"]) for g in plan.avif_groups(chapter_plan)):
@@ -131,7 +131,7 @@ def _post_check(staged, rec, x_dir, chapter_plan):
         raise RuntimeError(msg)
 
 
-def run(ctx, chapter):
+def run(ctx: workflow.Context, chapter):
     cfg = ctx.cfg
     try:
         edit = _edit(ctx.conn, chapter["id"])
@@ -150,7 +150,7 @@ def run(ctx, chapter):
             log.warning("chapter %s: scratch folder %s not removed: %s", chapter["id"], scratch, e)
 
 
-def _convert(ctx, chapter, edit, layout, aspect, *, scratch):
+def _convert(ctx: workflow.Context, chapter, edit, layout, aspect, *, scratch):
     cfg = ctx.cfg
     cbz = config.to_local(cfg, chapter["download_path"])
     x_dir, render_dir, out_dir, work = scratch / "x", scratch / "render", scratch / "out", scratch / "work"

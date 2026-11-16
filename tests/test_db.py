@@ -148,6 +148,14 @@ def test_a_transaction_inside_a_transaction_is_refused(tmp_path):
             pass
 
 
+@budget(load="db")
+def test_a_row_that_must_exist_and_does_not_is_an_error_naming_the_query(tmp_path):
+    with closing(db.connect(db_cfg(tmp_path))) as conn:
+        assert db.one_row(conn, "SELECT count(*) FROM series")[0] == 0, "an aggregate always has its row"
+        with pytest.raises(db.MissingRowError, match="FROM series WHERE id"):
+            db.one_row(conn, "SELECT * FROM series WHERE id = %s", (1,))
+
+
 @budget(1.5, load="db")
 def test_2_write_transactions_never_overlap(tmp_path):
     cfg = db_cfg(tmp_path)

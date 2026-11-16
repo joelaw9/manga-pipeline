@@ -31,7 +31,7 @@ class Disagree(Exception):  # noqa: N818  # a signal, not an error (PEP 8: the E
     pass
 
 
-def completed(ctx, chapter):
+def completed(ctx: workflow.Context, chapter):
     """Whether the chapter's series has completed a metadata check (found or not): the end of a metadata_check
     wait. A series on a platform basis also needs the check its new chapter made due to complete, so the chapter is
     never named from a list older than its arrival (SPEC "Metadata", platform lists)."""
@@ -45,7 +45,7 @@ def completed(ctx, chapter):
     return not (row["naming_basis"] in platforms.BASES and row["urgent"])
 
 
-def due(ctx):
+def due(ctx: workflow.Context):
     """Ids of the in-scope, not needs_human series whose check runs this run: every urgent or never completed one,
     then at most metadata.checks_per_run others, the longest due first. A series is checked when Kavita holds it, or
     when it is a new series Kavita does not hold yet (admitted or not)."""
@@ -71,11 +71,11 @@ def make_urgent(conn, series_id):
     )
 
 
-def run(ctx, clients, series_id):
+def run(ctx: workflow.Context, clients, series_id):
     """Check 1 series. Returns True when it completed. Unreachable, HttpError and SourceError from a service end the
     check (nothing stored) and propagate. A new series Kavita does not hold yet has no Kavita record or ids."""
     conn = ctx.conn
-    series = conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone()
+    series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series_id,))
     mangas = conn.execute(
         "SELECT manga_id, title FROM suwayomi_manga WHERE series_id = %s ORDER BY manga_id", (series_id,)
     ).fetchall()
@@ -120,7 +120,8 @@ def run(ctx, clients, series_id):
         _store_platform(conn, series_id, platform, now)
         if cover is not None:
             covers.store(conn, series_id, cover)
-        version = conn.execute(
+        version = db.one_row(
+            conn,
             """INSERT INTO series_check (series_id, data_version, checked_at, next_check_at, urgent)
             VALUES (%(id)s, 1, %(now)s, %(next)s, false)
             ON CONFLICT (series_id) DO UPDATE SET
@@ -129,7 +130,7 @@ def run(ctx, clients, series_id):
                 checked_at = %(now)s, next_check_at = %(next)s, urgent = false
             RETURNING data_version""",
             {"id": series_id, "now": now, "next": next_check(ctx.cfg, now, last, complete), "changed": changed},
-        ).fetchone()[0]
+        )[0]
     covers.refresh_volumes(ctx, series_id)  # the cover list just stored may choose another file for a volume
     fetched = ", ".join(
         f"{source} {'found' if records[(source, KINDS[source][0])] is not None else 'not found'}" for source in KINDS
@@ -328,7 +329,7 @@ def _hash(payload):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def _last_update(ctx, clients, manga_rows, records):
+def _last_update(ctx: workflow.Context, clients, manga_rows, records):
     """The series' last published update (SPEC "Metadata checks") as an aware datetime, or None."""
     dates = []
     for manga in manga_rows:

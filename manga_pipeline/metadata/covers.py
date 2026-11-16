@@ -36,7 +36,7 @@ class Cover:
     sha256: str
 
 
-def pick(ctx, clients, manga_rows, records):
+def pick(ctx: workflow.Context, clients, manga_rows, records):
     """The series' cover, written under paths.covers, or None when no source has one."""
     thumbnails = []  # (source url, bytes, (width, extension))
     for manga in manga_rows:
@@ -136,7 +136,7 @@ def store(conn, series_id, cover):
     )
 
 
-def volume_cover(ctx, series_id, volume):
+def volume_cover(ctx: workflow.Context, series_id, volume):
     """(path relative to paths.covers, sha256) of the series' cover of `volume`, fetched and stored the first time,
     again when its file is missing or holds other bytes, and again when MangaDex's choice for the volume is another
     file than the stored one's (SPEC "Retroactive updates": a new image replaces the stored one, and the published
@@ -196,7 +196,7 @@ def volume_cover(ctx, series_id, volume):
     return rel, sha256
 
 
-def refresh_volumes(ctx, series_id):
+def refresh_volumes(ctx: workflow.Context, series_id):
     """Each stored volume cover image of the series again, where MangaDex's best choice for the volume no longer
     includes the stored file (volume_cover), after the series' check stored its cover list. A file MangaDex refuses
     (4xx) or serves as no image is logged and asked for again by the next check; MangaDex unreachable, timing out or
@@ -219,7 +219,7 @@ def refresh_volumes(ctx, series_id):
             return
 
 
-def fetch_wanted(ctx):
+def fetch_wanted(ctx: workflow.Context):
     """Fetch the volume cover images the retroactive comparison wants (SPEC "Retroactive updates"): each row below
     workflow.attempt_limit attempts, of an in-scope ok series, goes once it is fetched or MangaDex has none; a fetch
     whose answer is wrong counts 1 attempt and records its error. A share or database error, or MangaDex down,
@@ -307,7 +307,7 @@ def _put(path, data, sha256=None):
         part.replace(path)
 
 
-def clean(ctx):
+def clean(ctx: workflow.Context):
     """Delete a cover file under paths.covers/series that no series names, and under paths.covers/volume that no
     series volume cover nor chapter names, once it is a day old (a check or validate that did not complete, a dropped
     chapter or a state reset may have left one)."""
@@ -321,7 +321,7 @@ def clean(ctx):
         _clean(ctx, covers / folder, named)
 
 
-def _clean(ctx, root, named):
+def _clean(ctx: workflow.Context, root, named):
     if not root.is_dir():
         return
     cutoff = time.time() - UNNAMED_KEEP_S

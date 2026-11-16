@@ -6,7 +6,7 @@ outcome. The scan itself is `export`'s 1 library scan, after all its publishes.
 import json
 from pathlib import PurePosixPath
 
-from manga_pipeline import config, errors, measures, page_store, rewrite_covers, workflow
+from manga_pipeline import config, db, errors, measures, page_store, rewrite_covers, workflow
 from manga_pipeline.db import sql
 
 
@@ -53,10 +53,10 @@ def row_values(conn, chapter):
     }
 
 
-def run(ctx, chapter):
+def run(ctx: workflow.Context, chapter):
     # The series' folder as it is now (a person may have linked it again since comicinfo named the file): the name
     # comicinfo settled, in that folder.
-    folder = ctx.conn.execute("SELECT folder FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()[0]
+    folder = db.one_row(ctx.conn, "SELECT folder FROM series WHERE id = %s", (chapter["series_id"],))[0]
     staged = config.to_local(ctx.cfg, chapter["staged_path"])
     target = config.to_local(ctx.cfg, folder) / PurePosixPath(chapter["library_path"]).name
     library_path = config.to_stored(ctx.cfg, target)

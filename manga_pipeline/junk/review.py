@@ -41,9 +41,9 @@ def listing(conn, cfg, review_id=None, *, everything=False):
 
 def chapters(conn, candidate_id):
     """How many chapters wait on a candidate."""
-    return conn.execute(
-        "SELECT count(*) FROM junk_scan WHERE candidates::jsonb @> to_jsonb(%s::bigint)", (candidate_id,)
-    ).fetchone()[0]
+    return db.one_row(
+        conn, "SELECT count(*) FROM junk_scan WHERE candidates::jsonb @> to_jsonb(%s::bigint)", (candidate_id,)
+    )[0]
 
 
 def get_open(conn, candidate_id):

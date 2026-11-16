@@ -15,7 +15,7 @@ from manga_pipeline.stages import convert, junk
 log = logging.getLogger(__name__)
 
 
-def _convert(ctx, chapter):
+def _convert(ctx: workflow.Context, chapter):
     """A rewrite chapter's convert changes its file's cover (SPEC "Retroactive updates")."""
     return (rewrite_covers.convert_run if chapter["kind"] == "rewrite" else convert.run)(ctx, chapter)
 
@@ -29,7 +29,7 @@ def run(cfg, conn):
     workflow.run_part(workflow.context(cfg, conn, "process"), work)
 
 
-def work(ctx):
+def work(ctx: workflow.Context):
     with workflow.share_errors():
         clean_scratch(ctx.cfg)
         clean_staging(ctx)
@@ -50,7 +50,7 @@ def clean_scratch(cfg):
             shutil.rmtree(entry)
 
 
-def clean_staging(ctx):
+def clean_staging(ctx: workflow.Context):
     """Delete a staged .cbz no chapter names, or a .cbz.part (a killed archive write's), once it is a day old (a run
     whose claim was freed may have left one); the owner file and anything else in the staging folder are kept. A file
     another machine's process start deleted first is skipped."""

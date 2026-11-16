@@ -29,7 +29,7 @@ CHECK_FAILURES = (
 BASELINE_PASS_AT = "intake.baseline_pass_at"  # meta: when the last baseline pass completed
 
 
-def run(ctx, clients):
+def run(ctx: workflow.Context, clients):
     kavita_series = identify.KavitaSeries(ctx)
     try:
         library.sync(ctx, kavita_series.rows())
@@ -61,7 +61,7 @@ def run(ctx, clients):
     admit.run(ctx, kavita_series.rows())
 
 
-def baseline_pass(ctx):
+def baseline_pass(ctx: workflow.Context):
     """Once a day: take the baseline of every in-scope ok series Kavita holds that has none (or lacks its naming
     fields) and whose folder holds a bulk-converter record, so a series no download reaches has published files to
     compare. A series whose folder Kavita gives no usable form, or that holds no record, is left as it is; a record
@@ -91,7 +91,7 @@ def baseline_pass(ctx):
                 continue
             with db.transaction(conn):
                 conn.execute("UPDATE series SET folder = %s WHERE id = %s AND folder IS NULL", (folder, series["id"]))
-            series = conn.execute("SELECT * FROM series WHERE id = %s", (series["id"],)).fetchone()
+            series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series["id"],))
         if not errors.exists(config.to_local(ctx.cfg, series["folder"]) / record_reader.RECORD_NAME):
             continue
         try:

@@ -8,7 +8,7 @@ cannot read gets no digest and goes on to validate, which judges it. Finding the
 from manga_pipeline import archive, comicinfo, config, errors, handled, names, notices, workflow
 
 
-def run(ctx, chapter):
+def run(ctx: workflow.Context, chapter):
     download = config.to_local(ctx.cfg, chapter["download_path"])
     if not errors.exists(download):
         # Moved away after discovery listed it, or put aside by a run that crashed before its outcome.

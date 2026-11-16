@@ -10,7 +10,7 @@ Number, Title, Volume and the file name are the bulk converter's, resolved with 
 
 import json
 
-from manga_pipeline import archive, baseline, chapter_names, comicinfo, config, names, volumes, workflow
+from manga_pipeline import archive, baseline, chapter_names, comicinfo, config, db, names, volumes, workflow
 from manga_pipeline.metadata import merge, naming, tags
 
 # Elements this stage writes itself: the download's own are never kept (Count is never written: SPEC "Metadata").
@@ -33,8 +33,8 @@ OWN = {
 LEFT_TO_RIGHT = {"manhwa", "manhua", "korean", "chinese", "webtoon", "long strip", "web comic"}  # genres and tags
 
 
-def run(ctx, chapter):
-    series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
+def run(ctx: workflow.Context, chapter):
+    series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     if not series["comicinfo_series"]:
         msg = f"series {series['id']} has no ComicInfo Series name (no baseline)"
         raise ValueError(msg)
@@ -98,11 +98,11 @@ def run(ctx, chapter):
     return workflow.Done(record)
 
 
-def _file(ctx, chapter):
-    return ctx.conn.execute("SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],)).fetchone()
+def _file(ctx: workflow.Context, chapter):
+    return db.one_row(ctx.conn, "SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],))
 
 
-def _copy_name(ctx, chapter):
+def _copy_name(ctx: workflow.Context, chapter):
     """A better copy's naming: its file's as it is now (SPEC "Retroactive updates"); None for any other chapter."""
     if chapter["published_file_id"] is None:
         return None
@@ -118,7 +118,7 @@ def _copy_name(ctx, chapter):
     )
 
 
-def series_fields(ctx, series, chapter, group):
+def series_fields(ctx: workflow.Context, series, chapter, group):
     """The elements the series' stored fields and the chapter's source give."""
     got = merge.stored(ctx.conn, series["id"], tags.load())
     web = [*got.links, *([chapter["source_url"]] if chapter["source_url"] else [])]

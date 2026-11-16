@@ -56,7 +56,7 @@ def is_cover(name):
 # --- what a published file holds
 
 
-def fill_states(ctx, series):
+def fill_states(ctx: workflow.Context, series):
     """Fill the cover_state of the series' published files that have none: a bulk file's from its series' record (the
     output covers.volumes names for each volume), a pipeline file's from its member list (a page 000_cover is the cover
     of its volume). Returns whether every state is known; a record or file that cannot be read leaves them unknown and
@@ -103,12 +103,12 @@ def _read_states(cfg, series, rows):
 # --- the rewrite chapter's convert
 
 
-def convert_run(ctx, chapter):
+def convert_run(ctx: workflow.Context, chapter):
     """The library file's members copied in order byte for byte to staging, the cover it holds left out, a new cover
     put in first (encoded as a new chapter's is). An insert that cannot be made into a file that holds no cover and
     keeps its volume drops the chapter and records the image unfit."""
     cfg, conn = ctx.cfg, ctx.conn
-    file = conn.execute("SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],)).fetchone()
+    file = db.one_row(conn, "SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],))
     source = config.to_local(cfg, file["library_path"])
     cover_row = conn.execute("SELECT * FROM volume_cover WHERE chapter_id = %s", (chapter["id"],)).fetchone()
     with zipfile.ZipFile(source) as z:

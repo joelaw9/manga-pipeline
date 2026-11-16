@@ -24,7 +24,7 @@ def run(cfg, conn):
     workflow.run_part(workflow.context(cfg, conn, "export"), work)
 
 
-def work(ctx):
+def work(ctx: workflow.Context):
     with workflow.share_errors():
         retention.purge(ctx.cfg)
     # The comparison (SPEC "Retroactive updates"): rewrite chapters for comicinfo and publish below
@@ -56,20 +56,21 @@ def work(ctx):
 BEFORE_PUBLISH = workflow.STAGES[: workflow.STAGES.index("publish")]
 
 
-def new_series(ctx):
+def new_series(ctx: workflow.Context):
     """Publish each new series Kavita does not hold that is ready, in a run where no scan is awaited: none of its
     chapters ready or claimed before publish, and its batch open (nothing published, or not yet followed by a scan
     request). Every one ready lands under the run's 1 library scan."""
     if scan_awaited(ctx) is not None:
         return
     for series_id in workflow.series_with_ready(ctx, ("publish",)):
-        series = ctx.conn.execute(
+        series = db.one_row(
+            ctx.conn,
             """SELECT s.*, EXISTS (SELECT 1 FROM chapter c WHERE c.series_id = s.id
                     AND c.status IN ('ready', 'claimed') AND c.stage = ANY(%s::text[])) AS on_its_way,
                 EXISTS (SELECT 1 FROM published_file p WHERE p.series_id = s.id) AS published
             FROM series s WHERE s.id = %s""",
             (list(BEFORE_PUBLISH), series_id),
-        ).fetchone()
+        )
         if series["kavita_series_id"] is not None or series["on_its_way"]:
             continue
         if series["published"] and not series["scan_due"]:
@@ -78,7 +79,7 @@ def new_series(ctx):
             workflow.drain(ctx, {"publish": publish.run}, series_id)
 
 
-def _folder_ready(ctx, series):
+def _folder_ready(ctx: workflow.Context, series):
     """Create the series' folder, or check the one there holds only its own files: those it published and those a crash
     left renamed in but unrecorded (a chapter at publish whose staged file is gone and whose file has its staged size);
     anything else, or a folder that cannot be made or read, makes the series needs_human."""
@@ -100,7 +101,7 @@ def _folder_ready(ctx, series):
     return _hold(ctx, series, f"folder {series['folder']} holds files the pipeline did not publish: {listed}")
 
 
-def _own_files(ctx, series, folder):
+def _own_files(ctx: workflow.Context, series, folder):
     """Names of the files the series published, and of those a crash left renamed in but unrecorded."""
     own = {
         PurePosixPath(r[0]).name
@@ -121,32 +122,32 @@ def _own_files(ctx, series, folder):
     return own
 
 
-def _hold(ctx, series, reason):
+def _hold(ctx: workflow.Context, series, reason):
     with db.transaction(ctx.conn):
         workflow.needs_human(ctx.conn, "series", series["id"], reason)
     log.warning("%s: series %s (%s): %s", ctx.part, series["id"], series["name"], reason)
     return False
 
 
-def _comicinfo(ctx, chapter):
+def _comicinfo(ctx: workflow.Context, chapter):
     return (rewrite.comicinfo_run if chapter["kind"] == "rewrite" else comicinfo.run)(ctx, chapter)
 
 
-def _publish(ctx, chapter):
+def _publish(ctx: workflow.Context, chapter):
     # a rewrite, or a better copy, queues on its file's row (SPEC "Retroactive updates")
     return (rewrite.publish_run if chapter["published_file_id"] is not None else publish.run)(ctx, chapter)
 
 
-def _in_kavita(ctx, series_id):
-    row = ctx.conn.execute("SELECT kavita_series_id FROM series WHERE id = %s", (series_id,)).fetchone()
+def _in_kavita(ctx: workflow.Context, series_id):
+    row = db.one_row(ctx.conn, "SELECT kavita_series_id FROM series WHERE id = %s", (series_id,))
     return row["kavita_series_id"] is not None
 
 
-def folder_moved(ctx, series_id):
+def folder_moved(ctx: workflow.Context, series_id):
     """Whether a Kavita series' files lie elsewhere than its recorded folder (or in no single folder): then the series
     is needs_human, naming both, and nothing is published into it. A new series (no Kavita id) is not checked, nor one
     Kavita no longer holds (confirm reports that, with its fix)."""
-    series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone()
+    series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (series_id,))
     kid = series["kavita_series_id"]
     if kid is None or ctx.kavita.series(kid) is None:
         return False
@@ -165,7 +166,7 @@ def folder_moved(ctx, series_id):
     return True
 
 
-def scan_awaited(ctx):
+def scan_awaited(ctx: workflow.Context):
     """The time of the last library scan request while it is still awaited (less than kavita.rescan_after_minutes ago,
     with chapters still waiting on kavita_scan), else None."""
     previous = workflow.get_meta(ctx.conn, REQUESTED_AT)
@@ -175,21 +176,22 @@ def scan_awaited(ctx):
     return previous if previous > cutoff else None
 
 
-def _waiting(ctx):
+def _waiting(ctx: workflow.Context):
     """Chapters waiting on kavita_scan, and rewritten files waiting for Kavita to re-read them."""
     return (
         rewrite.waiting(ctx.conn)
-        + ctx.conn.execute(
+        + db.one_row(
+            ctx.conn,
             sql.SQL("""SELECT COUNT(*) FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status = 'waiting' AND c.waiting_on = 'kavita_scan' AND s.status = 'ok' AND {scope}""").format(
                 scope=workflow.SCOPE
             ),
             workflow.scope_params(ctx.cfg),
-        ).fetchone()[0]
+        )[0]
     )
 
 
-def request_scan(ctx):
+def request_scan(ctx: workflow.Context):
     """At most 1 library scan per run, never while one is awaited (requested less than kavita.rescan_after_minutes
     ago with chapters still waiting on kavita_scan): requested when a publish made a scan due or chapters still wait.
     A repeat request charges 1 attempt to each chapter already waiting at the previous one. A failed request writes
@@ -200,7 +202,7 @@ def request_scan(ctx):
     if scan_awaited(ctx) is not None:
         log.info("%s: library scan requested at %s still awaited (%d chapter(s) wait)", ctx.part, previous, waiting)
         return  # ponytail: scan_awaited reads the same 2 values again; 2 cheap queries
-    due = ctx.conn.execute("SELECT EXISTS (SELECT 1 FROM series WHERE scan_due = 1)").fetchone()[0]
+    due = db.one_row(ctx.conn, "SELECT EXISTS (SELECT 1 FROM series WHERE scan_due = 1)")[0]
     if not (due or waiting):
         return
     try:

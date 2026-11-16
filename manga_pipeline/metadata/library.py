@@ -11,7 +11,7 @@ from manga_pipeline.clients.kavita_match import normalize, series_names
 log = logging.getLogger(__name__)
 
 
-def sync(ctx, listing):
+def sync(ctx: workflow.Context, listing):
     """Store each listed series (the library's listing, `Kavita.series_in_library`) the database does not hold. A
     listed series no row holds the id of takes the row of a series Kavita no longer lists whose names match and whose
     folder is the listed one's (Kavita recreated the series); else it is a new row, its folder fetched when first
@@ -60,7 +60,7 @@ def sync(ctx, listing):
             )
 
 
-def _recreated(ctx, kseries, gone):
+def _recreated(ctx: workflow.Context, kseries, gone):
     """A row of gone matching the listed series: by names, and by folder when the row has one; a row with no folder
     (nothing published or downloaded) matches by names alone, when exactly 1 does."""
     keys = {normalize(n) for n in series_names(kseries)}

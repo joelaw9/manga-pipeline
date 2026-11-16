@@ -26,19 +26,19 @@ def library_folder(cfg, folder):
     return stored
 
 
-def listing(ctx):
+def listing(ctx: workflow.Context):
     """The library's series (`series_in_library`, unfiltered), read once per run."""
     if "listing" not in ctx.kavita_cache:
         ctx.kavita_cache["listing"] = ctx.kavita.series_in_library(ctx.cfg["kavita"]["library_id"])
     return ctx.kavita_cache["listing"]
 
 
-def attach(ctx, series_id, rows):
+def attach(ctx: workflow.Context, series_id, rows):
     """The series' Kavita id: the stored one, else the one found among rows (the library's listing) and stored, else
     None (not an unattached series, or Kavita does not list it yet)."""
     conn = ctx.conn
     query = sql.SQL("SELECT s.*, {} AS unattached FROM series s WHERE s.id = %s").format(UNATTACHED)
-    series = conn.execute(query, (series_id,)).fetchone()
+    series = db.one_row(conn, query, (series_id,))
     if series["kavita_series_id"] is not None or not series["unattached"]:
         return series["kavita_series_id"]
     tried = ctx.kavita_cache.setdefault("attach", {})
@@ -54,11 +54,11 @@ def attach(ctx, series_id, rows):
             ).rowcount
         if stored:
             log.info("series %s (%s): Kavita lists it as series %s", series_id, series["name"], found["id"])
-    tried[series_id] = conn.execute("SELECT kavita_series_id FROM series WHERE id = %s", (series_id,)).fetchone()[0]
+    tried[series_id] = db.one_row(conn, "SELECT kavita_series_id FROM series WHERE id = %s", (series_id,))[0]
     return tried[series_id]
 
 
-def attach_all(ctx, rows):
+def attach_all(ctx: workflow.Context, rows):
     """attach every unattached series in scope; returns the normalised names of those still unattached: a listed
     series so named may be one of them, and is not a series of its own."""
     ids = ctx.conn.execute(
@@ -78,7 +78,7 @@ def attach_all(ctx, rows):
     return {normalize(r[0]) for r in left if normalize(r[0])}
 
 
-def _find(ctx, series, rows):
+def _find(ctx: workflow.Context, series, rows):
     conn, key = ctx.conn, normalize(series["comicinfo_series"])
     held = {r[0] for r in conn.execute("SELECT kavita_series_id FROM series WHERE kavita_series_id IS NOT NULL")}
     for kseries in rows:
