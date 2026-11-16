@@ -10,6 +10,7 @@ chapter gets the volume the converter would give it (flat text heuristics, not a
 
 import dataclasses
 import itertools
+from collections.abc import Hashable
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 
@@ -39,7 +40,7 @@ class Row:
     """One chapter of the series. settled: a published file or a chapter whose name is already recorded (its kind,
     number, volume, volume_source and title are fixed); open: a chapter to name (volume and volume_source None)."""
 
-    key: object
+    key: Hashable  # the caller's name for the row, opaque here: the key of resolve's result
     settled: bool
     kind: str
     number: float

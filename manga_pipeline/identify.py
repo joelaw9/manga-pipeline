@@ -60,7 +60,7 @@ class _Subject:
     held_name: str  # a held row's series name
     command: str  # `series link` naming it, before KAVITA_SERIES_ID
     find: sql.SQL  # SQL of its linked series' row: 1 parameter, the key; {columns} picks the series columns
-    key: object
+    key: int | str  # the SQL parameter of find: a manga id or a download folder
     write_link: Callable  # (conn, series_id): store its link, inside the caller's transaction
 
     def linked(self, conn, columns=ALL_COLUMNS):
