@@ -42,8 +42,8 @@ def run(ctx, chapter):
         why = baseline.take(ctx, series)
         if why:
             return workflow.Waiting("bulk_conversion", {"why": why})
-    fields, _ = comicinfo.read_download(config.to_local(ctx.cfg, chapter["download_path"]))
-    fields = {k: v for k, v in fields.items() if k not in OWN}
+    read, _ = comicinfo.read_download(config.to_local(ctx.cfg, chapter["download_path"]))
+    fields: dict[str, str | int] = {k: v for k, v in read.items() if k not in OWN}
     overrides = config.abs_path(ctx.cfg["paths"]["naming_overrides"])
     try:
         named = _copy_name(ctx, chapter) or chapter_names.resolve(ctx, series)[chapter["id"]]

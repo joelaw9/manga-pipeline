@@ -10,6 +10,7 @@ chapter gets the volume the converter would give it (flat text heuristics, not a
 
 import dataclasses
 import itertools
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 
 from manga_pipeline import names, volumes
@@ -359,10 +360,11 @@ def _bounds(order, vols):
         before.append(top)
         v = vols.get(i)
         top = top if v is None else v if top is None else max(top, v)
-    after = [None] * (len(order) + 1)
+    after: list[float | None] = [None] * (len(order) + 1)
     for k in range(len(order) - 1, -1, -1):
         v = vols.get(order[k])
-        after[k] = after[k + 1] if v is None else v if after[k + 1] is None else min(v, after[k + 1])
+        later = after[k + 1]
+        after[k] = later if v is None else v if later is None else min(v, later)
     return before, after
 
 
@@ -471,7 +473,7 @@ def _cover_confirmed(basis, rows, main, vol, override, mangadex):
     return confirmed
 
 
-def _side_stories(rows, side, main_volumes, platform, past=frozenset()):
+def _side_stories(rows, side, main_volumes, platform, past: AbstractSet = frozenset()):
     """{row key: Naming} of the open side stories: the settled side stories' volume, else the highest main volume + 1,
     else 2; numbered after the highest settled side number, in (source volume, number, date, order) order; titled
     "Side Story <n>: <title>", or "Side Story <n>" when the side marker and a bare chapter label leave no title. An

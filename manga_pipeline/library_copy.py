@@ -7,6 +7,7 @@ the library holds.
 import functools
 import zipfile
 from pathlib import PurePosixPath
+from typing import Any
 
 from manga_pipeline import (
     archive,
@@ -181,7 +182,7 @@ def _duplicate(ctx, chapter, published):
     return workflow.Dropped(f"a duplicate of the published {published['library_path']}", record)
 
 
-def _original(ctx, published):
+def _original(ctx, published) -> dict[str, Any]:
     """The published copy's original measurements: as stored when the pipeline published it, else measured from the
     library file (the bulk converter's, or published before they were stored). Each page is read whole and not
     decoded: an AVIF page gives no size from its first bytes. bpp: the original's bits per pixel, None when not stored
@@ -191,10 +192,11 @@ def _original(ctx, published):
     with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
         names = archive.archive_pages(z.namelist())
         sizes = [images.dimensions(z.read(n)) for n in names]
-    if not sizes or None in sizes:
+    known = [s for s in sizes if s is not None]
+    if not sizes or len(known) < len(sizes):
         msg = f"{published['library_path']}: page sizes cannot be read"
         raise ValueError(msg)
-    return measures.summary([{"width": w, "height": h, "phash": None, "blank": True} for w, h in sizes]) | {"bpp": None}
+    return measures.summary([{"width": w, "height": h, "phash": None, "blank": True} for w, h in known]) | {"bpp": None}
 
 
 def _take(ctx, chapter, published):

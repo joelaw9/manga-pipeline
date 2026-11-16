@@ -41,7 +41,9 @@ def _known(ctx, clients, kseries, mangas, state):
     if state is not None:
         for key, value in (state["ids"].get(str(kseries["id"])) or {}).items():
             source = importer.OLD_SOURCES.get(key)
-            found = ids.form(source, value) if source and value is not None else None
+            if source is None or value is None:
+                continue
+            found = ids.form(source, value)
             if found:
                 known.append((source, "import", found))
     agreed, _ = ids.resolve(known)

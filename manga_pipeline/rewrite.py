@@ -604,11 +604,10 @@ def drop(conn, file_id, limit):
     the next comparison of its series starts again. workflow.Refused otherwise: a rewrite export is still working on,
     or one past its rename (`rewrite retry` finishes it)."""
     row = conn.execute("SELECT * FROM published_file WHERE id = %s", (file_id,)).fetchone()
-    stuck = row is not None and (
+    if row is None or not (
         (row["pending_path"] is not None and row["pending_attempts"] >= limit)
         or (row["indexed_since"] is not None and row["pending_error"] is not None)
-    )
-    if not stuck:
+    ):
         msg = f"published file {file_id} has no stuck rewrite"
         raise workflow.Refused(msg)
     if row["pending_path"] is not None and row["pending_step"] >= 3:

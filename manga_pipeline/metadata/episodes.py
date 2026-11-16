@@ -170,6 +170,9 @@ def build(items):
                 chapter, title = norm_number(stated), rest
             else:
                 chapter = str(expected if expected is not None else 1)
+            if chapter is None:  # a main label states digits: its number normalizes
+                msg = f"episode {raw!r}: no chapter number"
+                raise ValueError(msg)
             prev_main = float(chapter)
         elif kind == SPECIAL:
             chapter = norm_number(stated)

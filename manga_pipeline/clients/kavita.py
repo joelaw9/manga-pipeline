@@ -155,12 +155,16 @@ class Kavita:
     def save_progress(self, series_id, volume_id, chapter_id, page):
         """The API key's user has read `page` pages of the chapter (POST /api/reader/progress; Kavita caps it at the
         chapter's page count)."""
+        series = self.series(series_id)
+        if series is None:
+            msg = f"Kavita series {series_id} is gone: progress not saved"
+            raise ValueError(msg)
         body = {
             "volumeId": volume_id,
             "chapterId": chapter_id,
             "pageNum": page,
             "seriesId": series_id,
-            "libraryId": self.series(series_id)["libraryId"],
+            "libraryId": series["libraryId"],
             "bookScrollId": None,
         }
         self._call("POST", "/api/reader/progress", json=body)

@@ -17,6 +17,7 @@ disagreement.
 import itertools
 import statistics
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -162,7 +163,7 @@ def strip_layout(sizes, width=None):
     return width, pages, top
 
 
-def blank_rows(a, cfg=RESTITCH):
+def blank_rows(a, cfg: Mapping[str, float] = RESTITCH):
     """The one gap-row classifier: per row of a grayscale array at analysis width, True for a blank row (std <
     gap_row_std and range < gap_row_range, any background colour). page_rows."""
     return (a.std(axis=1) < cfg["gap_row_std"]) & (np.ptp(a, axis=1) < cfg["gap_row_range"])
@@ -427,6 +428,9 @@ def render(outputs, x_dir, out_dir, strip=None):
     written, cache = [], {}
     for o in outputs:
         if "rows" in o:
+            if strip is None or pages is None:
+                msg = f"output {o['name']}: strip rows need the strip"
+                raise ValueError(msg)
             a, b = o["rows"]
             im, y = Image.new("RGB", (strip["width"], b - a), "white"), 0
             for s, e in kept_ranges(strip["kept"], a, b):

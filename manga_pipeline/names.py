@@ -12,6 +12,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import overload
 
 MAIN, SIDE, NON_CHAPTER, UNNUMBERED = "main", "side", "non-chapter", "unnumbered"
 
@@ -108,6 +109,11 @@ def number_key(number):
     """Chapter number as parts, so 3.1 and 3.10 stay apart: "3.10" -> (3, "10"), "3" / "3.0" -> (3, "")."""
     if number is None:
         return None
+    return _number_parts(number)
+
+
+def _number_parts(number):
+    """number_key of a number that is not None."""
     base, _, frac = str(number).strip().partition(".")
     return int(base), frac if frac.strip("0") else ""
 
@@ -118,7 +124,7 @@ def two_readings(number):
     decimal, so a download numbered so is held for a person (SPEC "Bad downloads")."""
     if number is None:
         return None
-    whole, part = number_key(number)
+    whole, part = _number_parts(number)
     if not part.endswith("0"):
         return None
     return (
@@ -127,6 +133,10 @@ def two_readings(number):
     )
 
 
+@overload
+def fmt_num(n: None) -> None: ...
+@overload
+def fmt_num(n: float | str | Decimal) -> str: ...
 def fmt_num(n):
     """Chapter / volume number as text, every digit kept: 1.0 / "01" -> "1", 17.5 -> "17.5"; None -> None."""
     if n is None:
@@ -232,7 +242,9 @@ def parse_name(stem, ci=None, non_chapter_names=()):
         if item.label == "prologue" and item.number is None:
             item.number, item.notes = "0", ["prologue without number -> chapter 0"]
         if m.groupdict().get("num") and "-" in m.group("num"):
-            if not CI_NUMBER.fullmatch(item.number):  # "045.5-1": a decimal with a hyphen part
+            if item.number is not None and not CI_NUMBER.fullmatch(
+                item.number
+            ):  # the num group set it  # "045.5-1": a decimal with a hyphen part
                 item.bad_number, item.number = m.group("num"), None
             else:
                 item.notes.append(f"hyphen part {m.group('num')} -> {item.number}")
@@ -343,7 +355,7 @@ def identity(item):
     key]; numbers as fmt_num gives them, so "01" and "1" agree. A number with 2 readings (two_readings) stays as
     written ("26.10"), so it is never the identity of the chapter fmt_num would make of it (26.1)."""
     season = fmt_num(item.season) if item.season is not None else None
-    number = "{}.{}".format(*number_key(item.number)) if two_readings(item.number) else fmt_num(item.number)
+    number = "{}.{}".format(*_number_parts(item.number)) if two_readings(item.number) else fmt_num(item.number)
     return json.dumps([key(item.group), season, side_label(item), number, key(item.title)])
 
 

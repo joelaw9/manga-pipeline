@@ -64,12 +64,23 @@ def provider_problem(device):
 
 @functools.cache
 def _engine(device):
+    """A reader of 1 tile: its text lines (RapidOCR on the device's onnxruntime provider)."""
     import onnxruntime
     from rapidocr import RapidOCR
+    from rapidocr.utils.output import RapidOCROutput
 
     if device == "cuda":
         onnxruntime.preload_dlls()
-    return RapidOCR(params=PARAMS[device])
+    engine = RapidOCR(params=PARAMS[device])
+
+    def read(array):
+        result = engine(array)
+        if not isinstance(result, RapidOCROutput):  # detection, classification and recognition all run
+            msg = f"RapidOCR returned {type(result).__name__}, not its full result"
+            raise TypeError(msg)
+        return list(result.txts or ())
+
+    return read
 
 
 def tiles(im):
@@ -97,11 +108,11 @@ def text(im, device):
         raise ValueError(msg)
     im = scale(im)
     with _serial:
-        engine = _engine(device)
+        read = _engine(device)
         t0 = time.perf_counter()
         lines = []
         for t in tiles(im):
-            lines += list(engine(np.asarray(t)).txts or ())
+            lines += read(np.asarray(t))
     log.debug("ocr %s %dx%d -> %d line(s) %.3fs", device, im.width, im.height, len(lines), time.perf_counter() - t0)
     return "\n".join(lines)
 

@@ -115,7 +115,7 @@ def find_band(im, aspect, where, cfg=BAND):
             if cut is None or abs(c - naive) < abs(cut - naive):
                 cut, how, run = c, "gap", (round(ys), round(ye))
         y = e
-    if how == "gap" and cut != naive:  # on the gutter's edge: exact row at full resolution
+    if how == "gap" and run is not None and cut != naive:  # on the gutter's edge (run is set with "gap")
         at_end = cut < naive
         cut = _sharpest_row(g, cut, step)
         run = (run[0], cut) if at_end else (cut, run[1])
