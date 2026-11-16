@@ -149,7 +149,7 @@ def test_a_target_of_another_size_with_the_staged_file_gone_needs_a_human_at_onc
     with closing(db.connect(world.cfg)) as conn:
         workflow.drain(world.context(conn, "export"), {"comicinfo": comicinfo_stage.run})
         row = conn.execute("SELECT * FROM chapter").fetchone()
-    os.unlink(config.to_local(world.cfg, row["staged_path"]))
+    config.to_local(world.cfg, row["staged_path"]).unlink()
     config.to_local(world.cfg, row["library_path"]).write_bytes(b"another file")
     world.run(export)
     assert world.rows("SELECT stage, status, attempts FROM chapter") == [("publish", "needs_human", 0)]
@@ -167,8 +167,8 @@ def test_a_rename_done_before_a_crash_is_carried_on(world, solo):
         ctx = world.context(conn, "export")
         workflow.drain(ctx, {"comicinfo": comicinfo_stage.run})
         row = conn.execute("SELECT * FROM chapter").fetchone()
-    os.replace(
-        config.to_local(world.cfg, row["staged_path"]), config.to_local(world.cfg, row["library_path"])
+    config.to_local(world.cfg, row["staged_path"]).replace(
+        config.to_local(world.cfg, row["library_path"])
     )  # the crash: renamed, outcome never recorded
     world.run(export)
     assert world.rows("SELECT stage, status FROM chapter") == [("confirm", "waiting")]

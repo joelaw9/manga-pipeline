@@ -5,6 +5,7 @@ page classes. Copied from the bulk converter's optimizer/formats.py (its archive
 import functools
 import io
 import struct
+from pathlib import Path
 
 import imagehash
 import numpy as np
@@ -99,7 +100,7 @@ def file_dimensions(src):
     """dimensions() from a file path or an open binary file, reading only its first HEADER_BYTES."""
     if hasattr(src, "read"):
         return dimensions(src.read(HEADER_BYTES))
-    with open(src, "rb") as f:
+    with Path(src).open("rb") as f:
         return dimensions(f.read(HEADER_BYTES))
 
 

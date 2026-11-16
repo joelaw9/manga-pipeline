@@ -8,7 +8,6 @@ taken until it is admitted (metadata/admit.py). `link` is `series link`.
 """
 
 import logging
-import os
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -355,6 +354,11 @@ def _store_held_series(conn, subject, reason, alt_name=None):
     return conn.execute("SELECT * FROM series WHERE id = %s", (series_id,)).fetchone()
 
 
+def _names(folder):
+    """The entry names of a folder, spelt as listed."""
+    return {p.name for p in folder.iterdir()}
+
+
 def folder_key(cfg, suwayomi, text):
     """A hand-placed folder named on the command line ("SOURCE_FOLDER/TITLE_FOLDER") as stored; workflow.Refused unless
     it is 2 folder names that exist under <downloads>/mangas, spelt as listed (a case-insensitive share would find
@@ -365,7 +369,7 @@ def folder_key(cfg, suwayomi, text):
         msg = f"--folder takes SOURCE_FOLDER/TITLE_FOLDER under the downloads' mangas folder: {text}"
         raise workflow.Refused(msg)
     root = config.abs_path(cfg["paths"]["downloads"]) / suwayomi_client.MANGAS_FOLDER
-    if not ((root / parts[0]).is_dir() and parts[0] in os.listdir(root) and parts[1] in os.listdir(root / parts[0])):
+    if not ((root / parts[0]).is_dir() and parts[0] in _names(root) and parts[1] in _names(root / parts[0])):
         msg = f"no download folder {parts[1]!r} in {root / parts[0]} (names are exact)"
         raise workflow.Refused(msg)
     if any(suwayomi_client.download_folders(m) == tuple(parts) for m in suwayomi.library_manga()):

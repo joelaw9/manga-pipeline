@@ -2,10 +2,10 @@
 "CLI", "Needs human", "State", "Preflight")."""
 
 import logging
-import os
 import shutil
 import sys
 from contextlib import closing
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -224,7 +224,7 @@ def dir_link(link, target):
     if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:
-        os.symlink(target, link, target_is_directory=True)
+        Path(link).symlink_to(target, target_is_directory=True)
 
 
 @budget(load="db")

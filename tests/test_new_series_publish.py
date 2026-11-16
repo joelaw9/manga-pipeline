@@ -2,7 +2,6 @@
 under the run's 1 library scan, never while a scan is awaited; once Kavita lists it, its id is found by its name and
 folder, once per run, and it is an ordinary series."""
 
-import os
 from types import SimpleNamespace
 
 import pytest
@@ -44,7 +43,7 @@ def scans(world):
 
 
 def files(world, folder):
-    return sorted(os.listdir(world.library / folder))
+    return sorted(p.name for p in (world.library / folder).iterdir())
 
 
 def kavita_id(world, series_id):
@@ -126,7 +125,7 @@ def test_a_crash_leftover_folder_is_used_and_a_foreign_file_holds_the_series(wor
     )
     world.run(only_comicinfo)
     (staged, target), *_ = world.rows("SELECT staged_path, library_path FROM chapter ORDER BY id")
-    os.replace(config.to_local(world.cfg, staged), folder / target.rpartition("/")[2])  # renamed, then a crash
+    config.to_local(world.cfg, staged).replace(folder / target.rpartition("/")[2])  # renamed, then a crash
     world.run(export)
     assert files(world, "Brand New Thing") == ["Ch.1.cbz", "Ch.2.cbz", "Ch.3.cbz", "Thumbs.db"], "used; finished"
     assert world.rows("SELECT status FROM series WHERE id = %s", sid) == [("ok",)]

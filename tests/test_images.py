@@ -215,7 +215,7 @@ def test_file_dimensions_reads_a_path(tmp_path):
 def test_file_dimensions_reads_an_open_file(tmp_path):
     p = tmp_path / "p.webp"
     p.write_bytes(fx.webp(fx.webtoon_page((200, 300))))
-    with open(p, "rb") as f:
+    with Path(p).open("rb") as f:
         assert images.file_dimensions(f) == (200, 300), "file_dimensions takes an open binary file"
 
 

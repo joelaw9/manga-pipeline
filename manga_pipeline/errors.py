@@ -1,7 +1,7 @@
 """Errors raised below the workflow layer and handled by it (SPEC "Parts", "Services")."""
 
 import errno
-import os
+from pathlib import Path
 
 # A share path failing with these is the share being unreachable, not the chapter failing.
 SHARE_ERRNOS = {errno.EIO, errno.ESTALE, errno.ETIMEDOUT}
@@ -30,7 +30,7 @@ def exists(path):
     """Whether a file exists on the share. Path.exists answers False for an SMB share that dropped (WinError 53, 67
     come back as ENOENT); this raises it, so share_errors makes it Unreachable("share")."""
     try:
-        os.stat(path)
+        Path(path).stat()
     except FileNotFoundError as e:
         if dropped_share(e):
             raise

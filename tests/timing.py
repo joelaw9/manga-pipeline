@@ -14,6 +14,7 @@ import math
 import sys
 import unittest
 from datetime import UTC, datetime
+from pathlib import Path
 
 # Default budget in seconds per load: the costliest resource a test touches. "sleep" has no default.
 LOADS = {"pure": 0.1, "fs": 0.5, "db": 1.0, "network": 2.0, "subprocess": 5.0, "pool": 5.0, "sleep": None}
@@ -77,7 +78,7 @@ def report(rows, out, path, *, check_budgets=True):
         out.write(f"  {r['seconds']:8.3f}s  {r['id']}\n")
     if len(untagged) > SLOWEST:
         out.write(f"  ... {len(untagged) - SLOWEST} more in {path}\n")
-    with open(path, "w", encoding="utf-8") as f:
+    with Path(path).open("w", encoding="utf-8") as f:
         json.dump(
             {
                 "run_at": datetime.now(UTC).isoformat(timespec="seconds"),

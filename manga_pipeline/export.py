@@ -4,7 +4,6 @@ kavita_scan waits, confirms, publishes the new series that are ready, writes ser
 and requests at most 1 library scan."""
 
 import logging
-import os
 from datetime import timedelta
 from pathlib import PurePosixPath
 
@@ -87,7 +86,7 @@ def _folder_ready(ctx, series):
         if not workflow.exists(folder):
             folder.mkdir()
             return True
-        names = os.listdir(folder)
+        names = [p.name for p in folder.iterdir()]
         own = _own_files(ctx, series, folder)
     except OSError as e:
         if e.errno in workflow.SHARE_ERRNOS or workflow.dropped_share(e):

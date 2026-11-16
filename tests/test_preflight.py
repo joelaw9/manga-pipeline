@@ -6,6 +6,7 @@ import secrets
 import shutil
 import sys
 from contextlib import closing
+from pathlib import Path
 
 import pytest
 
@@ -211,7 +212,7 @@ def dir_link(link, target):
     if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:
-        os.symlink(target, link, target_is_directory=True)
+        Path(link).symlink_to(target, target_is_directory=True)
 
 
 @budget(load="fs")
@@ -407,7 +408,7 @@ def test_share_folders_need_retention_on_the_downloads_filesystem(tmp_path, monk
         st = real_stat(path, *args, **kwargs)
         return os.stat_result((*st[:2], st.st_dev + 1, *st[3:])) if str(path) == retention else st
 
-    monkeypatch.setattr(preflight.os, "stat", other_device)
+    monkeypatch.setattr(os, "stat", other_device)  # Path.stat calls os.stat
     assert "same filesystem" in preflight.share_folders(cfg), "a download moves to retention by rename"
 
 

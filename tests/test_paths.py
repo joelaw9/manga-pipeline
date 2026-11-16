@@ -3,7 +3,6 @@ separators, and each machine maps it by its own configured roots, so a database 
 another that mounts the share elsewhere and writes its roots otherwise."""
 
 import json
-import os
 import sys
 from contextlib import closing
 from pathlib import Path
@@ -76,7 +75,7 @@ def mount(target, link):
     if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:
-        os.symlink(target, link, target_is_directory=True)
+        Path(link).symlink_to(target, target_is_directory=True)
 
 
 @budget(load="db", seconds=6)

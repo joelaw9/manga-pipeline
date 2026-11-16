@@ -524,7 +524,7 @@ def finish(ctx, row):
         if target != old and workflow.exists(target):
             msg = f"{target} is already in the library; a library file is never overwritten"
             raise FileExistsError(msg)
-        os.replace(staged, target)
+        staged.replace(target)
         step = _record(conn, row["id"], 3)
     if step < 4:
         if target != old and workflow.exists(old):

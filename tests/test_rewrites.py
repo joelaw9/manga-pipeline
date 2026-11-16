@@ -45,7 +45,7 @@ def library(world):
 
 
 def files(world):
-    return sorted(n for n in os.listdir(world.library / SERIES) if n.endswith(".cbz"))
+    return sorted(p.name for p in (world.library / SERIES).iterdir() if p.name.endswith(".cbz"))
 
 
 def override(world, volumes):
@@ -153,7 +153,7 @@ def test_a_crash_after_each_act_of_a_rewrite_recovers_on_the_next_export(world, 
     with zipfile.ZipFile(world.library / SERIES / "Vol.1 Ch.2.cbz") as z:
         assert comicinfo_xml.read_fields(z.read("ComicInfo.xml"))["Volume"] == "2", "the new file is in place"
     kept = config.abs_path(world.cfg["paths"]["retention"]) / "library-files" / SERIES
-    assert os.stat(kept / name).st_mtime > started, "the old file kept, with its retention period from now"
+    assert (kept / name).stat().st_mtime > started, "the old file kept, with its retention period from now"
     scan(world)
     world.run(export)
     assert progress(world, kid)["Vol.1 Ch.2.cbz"][0] == 2

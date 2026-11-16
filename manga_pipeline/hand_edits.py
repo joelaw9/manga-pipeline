@@ -4,7 +4,7 @@ the series' naming inputs, so the next `export` compares it (rewrite.py) and ope
 (metadata/naming.py)."""
 
 import json
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from manga_pipeline import chapter_names, db, names, volumes, workflow
 from manga_pipeline.metadata import naming
@@ -108,7 +108,7 @@ def apply(ctx, data, series_id=None):
 def load(path):
     """The edit file's JSON; Refused when it cannot be read or is not JSON."""
     try:
-        with open(path, encoding="utf-8") as f:
+        with Path(path).open(encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError) as e:
         msg = f"{path}: {e}"

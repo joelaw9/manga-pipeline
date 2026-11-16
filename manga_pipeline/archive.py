@@ -7,7 +7,6 @@ never sees half a file.
 """
 
 import hashlib
-import os
 import re
 import struct
 import zipfile
@@ -123,7 +122,7 @@ def write(dest, members):
                 info.external_attr = 0
                 z.writestr(info, data)
         size = part.stat().st_size
-        os.replace(part, dest)
+        part.replace(dest)
     except BaseException:
         part.unlink(missing_ok=True)
         raise

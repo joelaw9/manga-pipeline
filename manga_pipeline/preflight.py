@@ -6,7 +6,6 @@ lists (cli.py).
 """
 
 import logging
-import os
 import shutil
 import sys
 import urllib.parse
@@ -156,7 +155,7 @@ def share_folders(cfg):
     retention = config.abs_path(cfg["paths"]["retention"])
     for key in ("downloads", "library"):
         try:
-            if os.stat(config.abs_path(cfg["paths"][key])).st_dev != os.stat(retention).st_dev:
+            if config.abs_path(cfg["paths"][key]).stat().st_dev != retention.stat().st_dev:
                 return f"paths.retention is not on the same filesystem as paths.{key}"
         except OSError as e:
             return f"cannot read the filesystem of paths.{key} or paths.retention: {e}"

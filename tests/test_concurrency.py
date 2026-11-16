@@ -88,7 +88,7 @@ def test_parts_at_once_publish_every_chapter_exactly_once(world, tmp_path):
     for round_ in range(ROUNDS):
         runs = []
         for part in PARTS:
-            out = open(tmp_path / f"{part}-{round_}.out", "wb")
+            out = (tmp_path / f"{part}-{round_}.out").open("wb")
             runs.append((part, out, start(part_argv(world_file, config_path, part), out)))
         for part, out, run in runs:
             code = run.wait(timeout=STEP_TIMEOUT_S)
@@ -113,7 +113,7 @@ def test_killed_process_run_is_finished_by_the_next_run(world, tmp_path, monkeyp
     downloads(world, 1, 1)
     run_part(cfg, intake)
     step = tmp_path / "in-convert"
-    out = open(tmp_path / "killed.out", "wb")
+    out = (tmp_path / "killed.out").open("wb")
     run = start(["-c", BLOCKING_PROCESS, str(step), str(config_file(tmp_path, cfg))], out)
     try:
         deadline = time.monotonic() + STEP_TIMEOUT_S
@@ -160,7 +160,7 @@ def test_2_unlocked_runs_of_a_part_never_work_a_chapter_twice(world, tmp_path):
     world_file = world.dump(tmp_path / "world.json")
     runs = []
     for n in range(2):
-        out = open(tmp_path / f"process-{n}.out", "wb")
+        out = (tmp_path / f"process-{n}.out").open("wb")
         argv = part_argv(world_file, path, "process")
         runs.append((out, start(argv, out)))
     for out, run in runs:
