@@ -98,20 +98,36 @@ def write(ctx: workflow.Context, series_id, rules):
         return
     fields = merge.stored(conn, series_id, rules)
     version = db.one_row(conn, "SELECT data_version FROM series_check WHERE series_id = %s", (series_id,))[0]
-    before = conn.execute("SELECT * FROM series_written WHERE series_id = %s", (series_id,)).fetchone()
-    if before is not None and before["kavita_series_id"] != kid:
-        before = None  # written to a Kavita series that is gone: this one holds none of it
     imported = conn.execute("SELECT * FROM series_import WHERE series_id = %s", (series_id,)).fetchone()
-    state = {
-        "written": dict(before["written"]) if before else {},
-        "kept": set(before["kept"]) if before else set(),
-        "cover": before["cover_sha256"] if before else None,
-    }
+    state = _state(conn, series_id, kid)
 
     def record(*, final=False):
         _record(conn, series_id, kid, inputs(version, rules) if final else INCOMPLETE, state)
 
     guard = _Guard(series, state, imported)
+    _write_scalars(kv, kid, fields, guard)
+    record()
+    _write_lists(kv, kid, fields, guard, record)
+    for name, (key, lock) in PEOPLE.items():
+        _add_people(kv, kid, key, lock, getattr(fields, name))
+    _links_and_ids(kv, kid, fields)
+    state["cover"] = _cover(ctx, kid, guard, record)
+    record(final=True)
+    log.info("series %s (%s): fields written to Kavita", series_id, series["name"])
+
+
+def _state(conn, series_id, kid):
+    """What the pipeline wrote to Kavita series kid before: {"written": {field: value}, "kept": {field a person's
+    locked edit keeps}, "cover": sha256 or None}; nothing when it wrote to a Kavita series that is gone."""
+    before = conn.execute("SELECT * FROM series_written WHERE series_id = %s", (series_id,)).fetchone()
+    if before is None or before["kavita_series_id"] != kid:
+        return {"written": {}, "kept": set(), "cover": None}
+    return {"written": dict(before["written"]), "kept": set(before["kept"]), "cover": before["cover_sha256"]}
+
+
+def _write_scalars(kv, kid, fields, guard):
+    """Write the scalar fields that differ from Kavita's or are unlocked, in 1 update, where the guard lets them;
+    each one written goes in the guard's state."""
     meta = kv.metadata(kid)
     changed = False
     for name, (key, lock) in SCALARS.items():
@@ -121,31 +137,30 @@ def write(ctx: workflow.Context, series_id, rules):
         if meta.get(key) != value or not meta.get(lock):
             meta[key], meta[lock] = value, True
             changed = True
-        state["written"][name] = value
+        guard.state["written"][name] = value
     if changed:
         kv.update_metadata(meta)
-    record()
+
+
+def _write_lists(kv, kid, fields, guard, record):
+    """Write each list field the sources give, where the guard lets it (_set_list); recorded after its add step and
+    once it is whole. A source that gives nothing never clears a list."""
+    written = guard.state["written"]
     for name, (key, lock, label) in LISTS.items():
         values = getattr(fields, name)
         if not values:
-            continue  # a source that gives nothing never clears a list
+            continue
         meta = kv.metadata(kid)
         if not guard.may(name, meta.get(lock), _list_key(meta.get(key), label), _key(values)):
             continue
 
         def added(key_now, name=name):
-            state["written"][name] = key_now  # what Kavita holds once the add step went through
+            written[name] = key_now  # what Kavita holds once the add step went through
             record()
 
-        _set_list(kv, kid, key, lock=lock, label=label, values=values, added_step=added)
-        state["written"][name] = _key(values)
+        _set_list(kv, kid, name, values, added_step=added)
+        written[name] = _key(values)
         record()
-    for name, (key, lock) in PEOPLE.items():
-        _add_people(kv, kid, key, lock, getattr(fields, name))
-    _links_and_ids(kv, kid, fields)
-    state["cover"] = _cover(ctx, series, kid, state, imported, guard=guard, record=record)
-    record(final=True)
-    log.info("series %s (%s): fields written to Kavita", series_id, series["name"])
 
 
 class _Guard:
@@ -176,6 +191,11 @@ class _Guard:
             return self.imported["status"] is not None and self.imported["status"] == current
         return IMPORTED.get(name) in (self.imported["fields"] or [])
 
+    def held_cover(self):
+        """The sha256 of the cover Kavita holds from the pipeline, or before its first upload from the old tool (None:
+        neither)."""
+        return self.state["cover"] or (self.imported["cover_sha256"] if self.imported else None)
+
 
 def _scalar(value):
     return value if value not in ("", None) else None
@@ -190,9 +210,11 @@ def _list_key(entries, label):
     return _key(v[label] for v in entries or []) or None
 
 
-def _set_list(kv, kid, key, *, lock, label, values, added_step):
-    """Add the missing entries (in the sources' spelling), then drop the others, in 2 updates of this list alone;
-    lock it. added_step(key) is told what Kavita holds after the add step, before the prune can fail."""
+def _set_list(kv, kid, name, values, *, added_step):
+    """Add the missing entries of list field name (LISTS) in the sources' spelling, then drop the others, in 2
+    updates of this list alone; lock it. added_step(key) is told what Kavita holds after the add step, before the
+    prune can fail."""
+    key, lock, label = LISTS[name]
     wanted = {normalize(v) for v in values}
     meta = kv.metadata(kid)
     have = {normalize(v[label]) for v in meta.get(key) or []}
@@ -235,14 +257,15 @@ def _links_and_ids(kv, kid, fields):
         kv.update_series(series, **changes)
 
 
-def _cover(ctx: workflow.Context, series, kid, state, imported, *, guard, record):
+def _cover(ctx: workflow.Context, kid, guard, record):
     """Upload the series' cover when Kavita does not hold it from the pipeline; the sha256 Kavita now holds from it.
     A cover uploaded to Kavita before the pipeline's first upload, and not by the old tool, is a person's: kept.
     (Kavita names every upload alike, so a person's upload after the pipeline's is not told apart.)"""
+    series, state = guard.series, guard.state
     row = ctx.conn.execute("SELECT path, sha256 FROM series_cover WHERE series_id = %s", (series["id"],)).fetchone()
     if row is None:
         return state["cover"]
-    held = state["cover"] or (imported["cover_sha256"] if imported else None)
+    held = guard.held_cover()
     uploaded = ctx.kavita.has_uploaded_cover(kid)
     if uploaded and (held is None or COVER in state["kept"]):
         guard.may(COVER, locked=True, current="a cover uploaded by hand", ours=row["sha256"])
