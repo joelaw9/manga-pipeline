@@ -43,7 +43,7 @@ def mark_page(name, at=MARK_AT, size=(1200, 1723)):
 
 
 def mark_box(rgb):
-    return images.gray_mark_box(rgb, images.COLOUR_BLOCK, images.MARK_LIMITS)
+    return images.classify(rgb, images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)[1]
 
 
 def found_box(rgb):
