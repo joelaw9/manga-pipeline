@@ -1,6 +1,9 @@
-"""CBZ archives (archive; contracts section 1, SPEC "Bad downloads", "Publishing"): Kavita's cover rule, natural
-page order, page and ComicInfo members, sha1, the pages digest, and the store-mode writer with its member replace and
-test. Ported from the bulk converter's tests/test_formats.py and tests/test_record.py (pages digest)."""
+"""CBZ archives (archive; contracts section 1, SPEC "Bad downloads", "Publishing").
+
+Kavita's cover rule, natural page order, page and ComicInfo members, sha1, the pages digest, and the store-mode writer
+with its member replace and test. Ported from the bulk converter's tests/test_formats.py and tests/test_record.py
+(pages digest).
+"""
 
 import errno
 import hashlib

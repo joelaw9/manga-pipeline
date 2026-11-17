@@ -1,8 +1,11 @@
-"""Page signatures and the one page measurement (images: signature, matches, sig_to_str / sig_from_str, phash,
-chroma, measure_pages; contracts section 1). The signature texts and pHashes pinned here were computed by the bulk
-converter's own optimizer.junk.signature and optimizer.integrity.phash on the real pages in tests/fixtures_pages/: the
-stored junk decisions compare only while these stay equal. Ported from the bulk converter's tests/test_restitch.py
-(text round trip), tests/test_junk_single.py (near rule) and tests/test_image.py (chroma)."""
+"""Page signatures and the one page measurement.
+
+images: signature, matches, sig_to_str / sig_from_str, phash, chroma, measure_pages; contracts section 1. The signature
+texts and pHashes pinned here were computed by the bulk converter's own optimizer.junk.signature and
+optimizer.integrity.phash on the real pages in tests/fixtures_pages/: the stored junk decisions compare only while these
+stay equal. Ported from the bulk converter's tests/test_restitch.py (text round trip), tests/test_junk_single.py (near
+rule) and tests/test_image.py (chroma).
+"""
 
 import io
 import zipfile
@@ -64,12 +67,12 @@ FILE_PHASHES = {
 
 
 def stretched(im, drift):
-    """im with its height grown by `drift` (a re-upload of the same credit at another aspect)."""
+    """Return im with its height grown by `drift` (a re-upload of the same credit at another aspect)."""
     return im.resize((im.width, round(im.height * (1 + drift))))
 
 
 def flipped(sig, bits):
-    """sig with the low `bits` bits of every tile flipped: a tile Hamming distance of exactly `bits`."""
+    """Return sig with the low `bits` bits of every tile flipped: a tile Hamming distance of exactly `bits`."""
     tiles, aspect = sig
     return tuple(t ^ ((1 << bits) - 1) for t in tiles), aspect
 
@@ -104,7 +107,7 @@ def test_the_shrunk_real_edge_page_signatures_are_the_bulk_converters():
 @budget(load="fs")
 @pytest.mark.parametrize("name", sorted(FILE_PHASHES))
 def test_a_real_page_phash_is_the_bulk_converters(name):
-    """phash of a real page's 64x64 luma thumbnail is the bulk converter's integrity.phash of it."""
+    """The phash of a real page's 64x64 luma thumbnail is the bulk converter's integrity.phash of it."""
     with Image.open(fx.PAGE_FIX / name) as im:
         thumb = np.asarray(im.convert("L").resize(images.THUMB))
     assert f"{images.phash(thumb):016x}" == FILE_PHASHES[name], "phash must stay equal to the bulk converter's"
@@ -135,7 +138,7 @@ def test_one_tile_per_roughly_square_slice(size, tiles):
 @budget(load="pure")
 @pytest.mark.parametrize(("bits", "want"), [(6, True), (7, False)], ids=["d6", "d7"])
 def test_the_live_rule_matches_up_to_6_bits_per_tile(bits, want):
-    """matches' default rule: every tile within PHASH_THRESHOLD 6 bits."""
+    """The default rule of matches: every tile within PHASH_THRESHOLD 6 bits."""
     sig = images.signature(fx.credit((300, 600)))
     assert images.matches(sig, flipped(sig, bits)) is want, "PHASH_THRESHOLD 6"
 
@@ -143,8 +146,10 @@ def test_the_live_rule_matches_up_to_6_bits_per_tile(bits, want):
 @budget(load="pure")
 @pytest.mark.parametrize(("aspect", "want"), [(1.0309, True), (1.031, False)], ids=["within-3%", "over-3%"])
 def test_the_live_rule_allows_3_percent_aspect_of_the_larger(aspect, want):
-    """matches' default rule: aspect difference within ASPECT_TOLERANCE 3 % of the larger aspect (1 / 0.97 =
-    1.03093 is the limit above 1.0)."""
+    """The default rule of matches: aspect difference within ASPECT_TOLERANCE 3 % of the larger aspect.
+
+    1 / 0.97 = 1.03093 is the limit above 1.0.
+    """
     assert images.matches(((1,), 1.0), ((1,), aspect)) is want, "ASPECT_TOLERANCE 3 % of the larger aspect"
 
 
@@ -157,8 +162,10 @@ def test_signatures_of_other_tile_counts_never_match():
 @budget(load="pure")
 @pytest.mark.parametrize("drift", [0.04, 0.06, 0.09])
 def test_a_credit_variant_at_another_aspect_is_near_but_not_live(drift):
-    """Bring The Love: the Daeva credit re-uploaded 4-9 % taller matches no row at the live 3 % aspect gate, but is
-    near (d <= NEAR_THRESHOLD 8, aspect <= NEAR_ASPECT_TOLERANCE 10 %)."""
+    """Bring The Love: the Daeva credit re-uploaded 4-9 % taller matches no row at the live 3 % aspect gate.
+
+    But it is near (d <= NEAR_THRESHOLD 8, aspect <= NEAR_ASPECT_TOLERANCE 10 %).
+    """
     credit = fx.credit((300, 600))
     sig, variant = images.signature(credit), images.signature(stretched(credit, drift))
     assert not images.matches(sig, variant), "the live rule misses the variant"
@@ -184,14 +191,14 @@ def test_near_stops_at_the_threshold(bits, want):
 
 
 def gray_jpeg():
-    """A single-component (mode L) JPEG ("Akuyaku Kizoku to shite Hitsuyou na Sore" Vol.1 Ch.4.cbz 001.jpg)."""
+    """Return a single-component (mode L) JPEG ("Akuyaku Kizoku to shite Hitsuyou na Sore" Vol.1 Ch.4.cbz 001.jpg)."""
     buf = io.BytesIO()
     Image.new("L", (64, 64), 128).save(buf, "JPEG")
     return buf.getvalue()
 
 
 def jpeg_440():
-    """A 4:4:0 JPEG (first component sampled 1x2): no avifenc --yuv name here."""
+    """Return a 4:4:0 JPEG (first component sampled 1x2): no avifenc --yuv name here."""
     jpeg = bytearray(fx.jpeg(fx.webtoon_page((64, 64)), subsampling=0))
     sof = jpeg.find(bytes([0xFF, 0xC0]))  # SOF0 marker
     jpeg[sof + 11] = 0x12
@@ -237,8 +244,10 @@ def test_chroma_follows_the_source(data, fmt, want):
 
 
 def chapter(path):
-    """A CBZ stored out of reading order with a ComicInfo.xml and a junk member: 10.png (gray art), 2.jpg (a real
-    page), 1.png (white), __MACOSX/._1.png."""
+    """Write a CBZ stored out of reading order with a ComicInfo.xml and a junk member.
+
+    Members: 10.png (gray art), 2.jpg (a real page), 1.png (white), __MACOSX/._1.png.
+    """
     pages = {
         "10.png": fx.png(fx.manga_page((200, 300))),
         "2.jpg": (fx.PAGE_FIX / "endpage_akuyaku_ch17_p39.jpg").read_bytes(),
@@ -288,8 +297,10 @@ def test_a_colour_page_is_classed_colour(tmp_path):
 
 @budget(load="fs")
 def test_known_fields_are_kept_and_a_fully_known_page_is_not_decoded(tmp_path):
-    """A page whose fields are all known is not decoded; a page missing one decoded field is decoded and gets only
-    the missing ones."""
+    """A page whose fields are all known is not decoded.
+
+    A page missing one decoded field is decoded and gets only the missing ones.
+    """
     cbz = chapter(tmp_path / "c.cbz")
     first = images.measure_pages(cbz)
     decoded, by_sha1 = [], {p["sha1"]: p for p in first}

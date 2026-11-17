@@ -1,7 +1,9 @@
-"""Stage convert (SPEC "Chapter stages", "Conversion", "Calibration"): re-encode the download's pages as the bulk
-converter does and write the store-mode CBZ of pages at <paths.staging>/<database id, first 8 characters>-<chapter
-id>-<claim count>.cbz. The database id in the name keeps a file left in staging by another database from passing as
-this chapter's output; the claim count keeps 2 claims of 1 chapter from writing 1 file.
+"""Stage convert (SPEC "Chapter stages", "Conversion", "Calibration"): re-encode the pages into a staged CBZ.
+
+Re-encode the download's pages as the bulk converter does and write the store-mode CBZ of pages at
+<paths.staging>/<database id, first 8 characters>-<chapter id>-<claim count>.cbz. The database id in the name keeps a
+file left in staging by another database from passing as this chapter's output; the claim count keeps 2 claims of 1
+chapter from writing 1 file.
 
 Every work file is in <paths.scratch>/<chapter id>-<claim count>/, removed when the stage ends, whatever the outcome;
 the folders a killed run left are removed by process at its start (process.clean_scratch), not here. Nothing is written
@@ -25,15 +27,19 @@ EXTRACTED, OUTPUT = "x", "out"
 
 @functools.cache
 def loaded_scorer(kind, path):
-    """1 loaded, GPU-checked scorer per library path for the process: the library and its CUDA context are made once,
-    not per chapter. kind: the scorer class (vship.Scorer)."""
+    """Return 1 loaded, GPU-checked scorer per library path for the process.
+
+    The library and its CUDA context are made once, not per chapter. kind: the scorer class (vship.Scorer).
+    """
     return kind(path)
 
 
 @contextlib.contextmanager
 def encoder(cfg):
-    """The image.Encoder of 1 chapter's (or 1 cover's) encodes: the configured image tools, the process's loaded
-    scorer and fresh page workers, stopped on leaving."""
+    """Provide the image.Encoder of 1 chapter's (or 1 cover's) encodes.
+
+    It holds the configured image tools, the process's loaded scorer and fresh page workers, stopped on leaving.
+    """
     tool_paths = {name: str(config.abs_path(cfg["tools"][name])) for name in tools.NAMES}
     scorer = loaded_scorer(vship.Scorer, config.abs_path(cfg["tools"]["vship"]))
     with image.pool(cfg["convert"]["workers"]) as workers:
@@ -46,7 +52,10 @@ def staged_name(conn, chapter):
 
 
 def _edit(conn, chapter_id):
-    """The chapter's checked edit; raises plan.EditError when the row is missing or malformed (a program error)."""
+    """Return the chapter's checked edit.
+
+    Raises plan.EditError when the row is missing or malformed (a program error).
+    """
     row = conn.execute("SELECT edit FROM chapter_edit WHERE chapter_id = %s", (chapter_id,)).fetchone()
     if row is None:
         msg = "no chapter_edit row: the junk stage wrote none (a program error)"
@@ -55,7 +64,7 @@ def _edit(conn, chapter_id):
 
 
 def _layout(conn, series_id):
-    """The series' plan.SeriesLayout (series_conversion; page_aspect is JSON text)."""
+    """Return the series' plan.SeriesLayout (series_conversion; page_aspect is JSON text)."""
     row = conn.execute(
         "SELECT layout, page_aspect FROM series_conversion WHERE series_id = %s", (series_id,)
     ).fetchone()
@@ -72,8 +81,10 @@ def _layout(conn, series_id):
 
 
 def _samples_wanted(row, chapter_id):
-    """Does this group take samples from this chapter: no row yet, or open, short of calibrate.MAX_SAMPLES and none
-    from this chapter yet?"""
+    """Return whether this group takes samples from this chapter.
+
+    It does with no row yet, or open, short of calibrate.MAX_SAMPLES and none from this chapter yet.
+    """
     return row is None or not (
         row["fixed"]
         or len(row["samples"]) >= calibrate.MAX_SAMPLES
@@ -82,13 +93,18 @@ def _samples_wanted(row, chapter_id):
 
 
 def _sampling(stored, chapter_plan, chapter_id):
-    """Does a group the plan's AVIF outcome encodes take samples from this chapter (stored: calibrate.rows)?"""
+    """Return whether a group the plan's AVIF outcome encodes takes samples from this chapter.
+
+    stored: calibrate.rows.
+    """
     return any(_samples_wanted(stored.get(g), chapter_id) for g in plan.avif_groups(chapter_plan))
 
 
 def _calibrate(ctx: workflow.Context, chapter, groups, *, encoder, work):
-    """Add this chapter's samples to the series' open groups: groups is calibrate.units of the pages it samples ({}
-    when no group wants samples); returns {group: q} after."""
+    """Add this chapter's samples to the series' open groups; return {group: q} after.
+
+    groups is calibrate.units of the pages it samples ({} when no group wants samples).
+    """
     stored = calibrate.rows(ctx.conn, chapter["series_id"])
     for group, group_units in groups.items():
         row = stored.get(group)
@@ -106,7 +122,7 @@ def _calibrate(ctx: workflow.Context, chapter, groups, *, encoder, work):
 
 
 def _samples(encoder, picked, work_dir):
-    """The picked units (calibrate.pick) probed, as the samples calibrate.add stores."""
+    """Probe the picked units (calibrate.pick); return them as the samples calibrate.add stores."""
     scores = calibrate.probe(encoder, picked, work_dir)
     return [
         {
@@ -149,6 +165,10 @@ def _post_check(staged, rec, x_dir, chapter_plan):
 
 
 def run(ctx: workflow.Context, chapter):
+    """Convert the chapter's download into its staged CBZ in its own scratch folder, removed whatever the outcome.
+
+    A missing or malformed edit, a page that cannot be taken or an edit that drops every page is needs_human.
+    """
     cfg = ctx.cfg
     try:
         edit = _edit(ctx.conn, chapter["id"])
@@ -208,8 +228,11 @@ def _convert(ctx: workflow.Context, chapter, edit, layout, *, scratch):
 
 
 def _plan(ctx: workflow.Context, chapter, edit, layout, x_dir):
-    """The chapter's plan: its download extracted into x_dir and measured (the stored page rows where they exist).
-    Raises plan.NeedsHuman (a page that cannot be taken, an edit that drops every page) or plan.EditError."""
+    """Return the chapter's plan: its download extracted into x_dir and measured.
+
+    The stored page rows are used where they exist. Raises plan.NeedsHuman (a page that cannot be taken, an edit that
+    drops every page) or plan.EditError.
+    """
     cbz = config.to_local(ctx.cfg, chapter["download_path"])
     files, problems = pages.extract(cbz, x_dir)
     if problems:
@@ -224,8 +247,10 @@ def _plan(ctx: workflow.Context, chapter, edit, layout, x_dir):
 
 
 def _volume_cover(ctx: workflow.Context, chapter, chapter_plan):
-    """The chapter's volume cover ({"volume", "data", "width"}: read and checked, at the width it goes in at), or None
-    when it takes none."""
+    """Return the chapter's volume cover, or None when it takes none.
+
+    The cover is {"volume", "data", "width"}: read and checked, at the width it goes in at.
+    """
     row = ctx.conn.execute("SELECT * FROM volume_cover WHERE chapter_id = %s", (chapter["id"],)).fetchone()
     if row is None:
         return None
@@ -233,8 +258,11 @@ def _volume_cover(ctx: workflow.Context, chapter, chapter_plan):
 
 
 def _encode(ctx: workflow.Context, chapter, chapter_plan, cover, scratch):
-    """The plan executed (image.process_chapter's record) with the run's encoder: the volume cover's AVIF first (its
-    result in cover["avif"]), then the route, the pages, the calibration samples and the encode."""
+    """Execute the plan with the run's encoder; return image.process_chapter's record.
+
+    The volume cover's AVIF first (its result in cover["avif"]), then the route, the pages, the calibration samples and
+    the encode.
+    """
     work = scratch / "work"
     with encoder(ctx.cfg) as enc:
         if cover is not None:  # before the route: an AVIF cover that passed can make the chapter AVIF
@@ -254,8 +282,10 @@ def _encode(ctx: workflow.Context, chapter, chapter_plan, cover, scratch):
 
 
 def _route(chapter, chapter_plan, cover):
-    """Set the plan's route and outcomes (cover: whether its AVIF passed, when it takes one); a mix of formats that
-    stays untouched is logged."""
+    """Set the plan's route and outcomes (cover: whether its AVIF passed, when it takes one).
+
+    A mix of formats that stays untouched is logged.
+    """
     plan.routes(chapter_plan, None if cover is None else cover["avif"]["ok"])
     if chapter_plan.route == "untouched-flag":
         log.warning(
@@ -267,8 +297,11 @@ def _route(chapter, chapter_plan, cover):
 
 @dataclass
 class _Pages:
-    """The page step's outputs: the blanked pages ({page name: PNG}), the rendered PNGs the encode reads ([] when the
-    plan renders nothing) and the calibration units of the pages the chapter samples ({} when it samples none)."""
+    """The page step's outputs: the blanked pages, the rendered PNGs and the calibration units.
+
+    The blanked pages ({page name: PNG}), the rendered PNGs the encode reads ([] when the plan renders nothing) and the
+    calibration units of the pages the chapter samples ({} when it samples none).
+    """
 
     blanked: dict
     encoded: list
@@ -276,9 +309,11 @@ class _Pages:
 
 
 def _pages(chapter_plan, scratch, *, sampling):
-    """The pages the encode and the calibration read. Logo blanks apply to the AVIF outcomes only; calibration samples
-    take the unblanked pages (as the bulk converter), so a rendered chapter with blanks is rendered unblanked too when
-    a group wants its samples (sampling)."""
+    """Make the pages the encode and the calibration read.
+
+    Logo blanks apply to the AVIF outcomes only; calibration samples take the unblanked pages (as the bulk converter),
+    so a rendered chapter with blanks is rendered unblanked too when a group wants its samples (sampling).
+    """
     x_dir = scratch / EXTRACTED
     avif_first = chapter_plan.outcomes[0]["outcome"] == "avif"
     blanked = image.blank_pages(chapter_plan, x_dir, scratch / "blank") if avif_first else {}
@@ -293,8 +328,10 @@ def _pages(chapter_plan, scratch, *, sampling):
 
 
 def _write_staged(staged, rec, out_dir, x_dir, chapter_plan):
-    """The output pages written as the staged CBZ and post-checked; returns its size. A staged file that fails is
-    deleted: none is left behind without its chapter's record."""
+    """Write the output pages as the staged CBZ and post-check it; return its size.
+
+    A staged file that fails is deleted: none is left behind without its chapter's record.
+    """
     try:
         size = archive.write(staged, [(p["name"], (out_dir / p["name"]).read_bytes()) for p in rec["output"]])
         _post_check(staged, rec, x_dir, chapter_plan)
@@ -305,7 +342,7 @@ def _write_staged(staged, rec, out_dir, x_dir, chapter_plan):
 
 
 def _result(chapter_plan, rec, cover):
-    """The chapter's convert_result from the encode's record."""
+    """Return the chapter's convert_result from the encode's record."""
     return {
         "route": rec["route"],
         "outcome": rec["outcome"],

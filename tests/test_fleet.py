@@ -1,5 +1,7 @@
-"""process on several machines against 1 database (SPEC "Parts", "State", "Chapter stages", "Run lock"): each
-machine here is its own connection holding its own run lock, with its own claim owner."""
+"""process on several machines against 1 database (SPEC "Parts", "State", "Chapter stages", "Run lock").
+
+Each machine here is its own connection holding its own run lock, with its own claim owner.
+"""
 
 import ast
 import dataclasses
@@ -24,11 +26,13 @@ class Fleet:
     """Machines (name -> Context) sharing 1 database, each on its own connection holding its run lock."""
 
     def __init__(self, cfg, stack):
+        """Open the test's own connection on `stack`; no machine yet."""
         self.cfg, self.stack = cfg, stack
         self.conn = stack.enter_context(closing(db.connect(cfg)))  # the test's own view
         self.machines = {}
 
     def machine(self, name, cfg=None):
+        """Start machine `name`: its own connection holding its run lock, owner process@<name>; return its Context."""
         cfg = cfg or self.cfg
         conn = db.connect(cfg)
         owner = f"process@{name}"
@@ -40,7 +44,7 @@ class Fleet:
         return ctx
 
     def vanish(self, name):
-        """The machine's session ends (it died, or slept until the server ended it)."""
+        """End the machine's session (it died, or slept until the server ended it)."""
         self.machines[name][0].conn.close()
         for _ in range(50):  # until the server has seen the session end
             if not one(self.conn, sql.SQL("SELECT {}").format(lock.held_sql(sql.Placeholder())), (f"process@{name}",)):
@@ -55,6 +59,7 @@ class Fleet:
             ctx.conn.close()
 
     def series(self, name, chapters=2, folder=None):
+        """Add a Kavita series with `chapters` chapters at the junk stage; return (series id, [chapter ids])."""
         series_id = add_series(self.conn, name, origin="kavita")
         if folder:
             with db.transaction(self.conn):
@@ -62,6 +67,7 @@ class Fleet:
         return series_id, [add_chapter(self.conn, series_id, f"c{i}", "junk") for i in range(chapters)]
 
     def row(self, chapter_id):
+        """Return the chapter's row, read on the test's own connection."""
         return chapter(self.conn, chapter_id)
 
 
@@ -269,9 +275,11 @@ def test_every_stored_time_comes_from_the_servers_clock(fleet):
 
 
 def machine_clock_reads(source):
-    """The lines of source that read the machine's clock as a datetime: datetime.now / utcnow / today or date.today,
-    whether the class is imported (from datetime import datetime [as x]) or reached through the module (import
-    datetime [as x])."""
+    """Return the lines of source that read the machine's clock as a datetime.
+
+    datetime.now / utcnow / today or date.today, whether the class is imported (from datetime import datetime [as x])
+    or reached through the module (import datetime [as x]).
+    """
     tree = ast.parse(source)
     classes, modules = set(), set()
     for node in ast.walk(tree):

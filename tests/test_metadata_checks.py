@@ -1,5 +1,7 @@
-"""Metadata checks (SPEC "Metadata checks", "Source ids", "Series identification", "Suwayomi"): run by intake for
-every library series, storing ids, records and covers, holding a series whose ids disagree."""
+"""Metadata checks (SPEC "Metadata checks", "Source ids", "Series identification", "Suwayomi").
+
+Run by intake for every library series, storing ids, records and covers, holding a series whose ids disagree.
+"""
 
 import io
 import json

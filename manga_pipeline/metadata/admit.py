@@ -1,5 +1,6 @@
-"""Admission of new series (SPEC "Series identification"): a new series whose first metadata check completed gets its
-name and folder, once, before any of its chapters is taken.
+"""Admission of new series (SPEC "Series identification").
+
+A new series whose first metadata check completed gets its name and folder, once, before any of its chapters is taken.
 
 The name is the one a person gave (`series new --name`), else the stored AniList English title, else the names the
 series arrived under (a folder's ComicInfo Series before its title folder; a manga's title). It must be unique under
@@ -18,9 +19,11 @@ ANILIST_SUFFIX = " @COMIC"  # AniList's mark on a title also used by an anime, d
 
 
 def run(ctx: workflow.Context, listing):
-    """Admit every in-scope pending new series whose check completed and is not due again at once (`series new`
-    makes it so: the check runs first). listing: the library's series (Kavita's
-    `series_in_library`, unfiltered)."""
+    """Admit every in-scope pending new series whose check completed and is not due again at once.
+
+    `series new` makes it due at once: the check runs first. listing: the library's series (Kavita's
+    `series_in_library`, unfiltered).
+    """
     conn, cfg = ctx.conn, ctx.cfg
     pending = conn.execute(
         sql.SQL("""SELECT s.* FROM series s JOIN series_check k ON k.series_id = s.id
@@ -37,8 +40,10 @@ def run(ctx: workflow.Context, listing):
 
 
 class _Library:
-    """The names in the library a new series' name must not clash with: its series' names as Kavita normalises them,
-    and the folders under its root (read once per admission run)."""
+    """The names in the library a new series' name must not clash with.
+
+    Its series' names as Kavita normalises them, and the folders under its root (read once per admission run).
+    """
 
     def __init__(self, listing, root):
         self.root = root
@@ -61,7 +66,7 @@ class _Library:
 
 
 def name_for(conn, series):
-    """The series' name by SPEC "Series identification"."""
+    """Return the series' name by SPEC "Series identification"."""
     if series["admit_name"]:
         return series["admit_name"]
     row = conn.execute(
@@ -95,8 +100,10 @@ def _admit(ctx: workflow.Context, series, library):
 
 
 def _clash(conn, series, name, safe, library):
-    """Why the name cannot be the series', or None (inside the admission's transaction, so 2 admissions never both
-    take a name)."""
+    """Return why the name cannot be the series', or None.
+
+    Runs inside the admission's transaction, so 2 admissions never both take a name.
+    """
     if not safe:
         return "its name leaves no folder name once made safe"
     key = normalize(name)

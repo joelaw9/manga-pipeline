@@ -1,5 +1,6 @@
-"""Map share folders to Kavita series by the files Kavita holds, not by folder name or lowestFolderPath, and
-Kavita's own name normalising (SPEC "Services"). Copied from the bulk converter (optimizer/kavita_match.py).
+"""Map share folders to Kavita series by the files Kavita holds, and Kavita's own name normalising (SPEC "Services").
+
+Not by folder name or lowestFolderPath. Copied from the bulk converter (optimizer/kavita_match.py).
 
 A Kavita series can span folders (same series downloaded from several sources): its lowestFolderPath is
 then the common parent (the library root), and a folder name says nothing about the series name
@@ -26,43 +27,52 @@ BMP_LAST = 0xFFFF  # the last code point of the Basic Multilingual Plane (1 C# c
 
 
 def series_names(series):
-    """A Kavita series DTO's non-empty names (SERIES_NAME_KEYS order)."""
+    """Return a Kavita series DTO's non-empty names (SERIES_NAME_KEYS order)."""
     return [series[k] for k in SERIES_NAME_KEYS if (series or {}).get(k)]
 
 
 def normalize(name):
-    """Kavita's series key, exactly (Kavita v0.9.1.4 Kavita.Common/Extensions/StringExtensions.cs `ToNormalized`, which
-    Parser.Normalize calls): keep Unicode letters (category L*), ASCII digits, + ! and full-width * ! +, drop everything
-    else (spaces, punctuation, combining marks, other digits), then lower-case. No Unicode folding (NFKC, casefold). As
-    .NET does: a letter above U+FFFF is a UTF-16 surrogate pair, not \\p{L}, so it is dropped; each character is lowered
-    on its own (never the whole string: Python lowers a final capital sigma to "ς" by context), and what lowering adds
-    is filtered again ("İ" lowers to "i" + a combining dot: "i")."""
+    r"""Return Kavita's series key of a name, exactly.
+
+    Kavita v0.9.1.4 Kavita.Common/Extensions/StringExtensions.cs `ToNormalized`, which Parser.Normalize calls: keep
+    Unicode letters (category L*), ASCII digits, + ! and full-width * ! +, drop everything else (spaces, punctuation,
+    combining marks, other digits), then lower-case. No Unicode folding (NFKC, casefold). As .NET does: a letter above
+    U+FFFF is a UTF-16 surrogate pair, not \p{L}, so it is dropped; each character is lowered on its own (never the
+    whole string: Python lowers a final capital sigma to "ς" by context), and what lowering adds is filtered again ("İ"
+    lowers to "i" + a combining dot: "i").
+    """
     return "".join(low for c in name or "" if _kept(c) for low in c.lower() if _kept(low))
 
 
 def _kept(c):
-    """A character Kavita's normalize keeps (a BMP letter, an ASCII digit, ASCII + ! and full-width * ! +)."""
+    """Return whether Kavita's normalize keeps c: a BMP letter, an ASCII digit, ASCII + ! and full-width * ! +."""
     return c in NORMALIZE_KEEP or (ord(c) <= BMP_LAST and unicodedata.category(c).startswith("L"))
 
 
 def off_names(series_values, kavita_names):
-    """The name guard: ComicInfo Series values (sorted, None as "") that normalize to none of Kavita's names."""
+    """Return the name guard: ComicInfo Series values (sorted, None as "") that normalize to none of Kavita's names."""
     allowed = {normalize(n) for n in kavita_names if n}
     return sorted({v or "" for v in series_values if normalize(v) not in allowed})
 
 
 def series_values(comicinfos):
-    """The values the name guard (off_names) checks in these ComicInfo field dicts: every Series (a missing one as
-    None, so it is caught) and every LocalizedSeries written (Kavita's scanner matches on both)."""
+    """Return the values the name guard (off_names) checks in these ComicInfo field dicts.
+
+    Every Series (a missing one as None, so it is caught) and every LocalizedSeries written (Kavita's scanner matches on
+    both).
+    """
     return [ci.get("Series") for ci in comicinfos] + [
         ci["LocalizedSeries"] for ci in comicinfos if ci.get("LocalizedSeries")
     ]
 
 
 def series_titles(kseries):
-    """(ComicInfo Series, LocalizedSeries) of a series: Kavita's Name, and its LocalizedName when that normalizes
-    (normalize) to another name, else None. Kavita is the master: the files' own Series is never kept.
-    A series without a Kavita Name (unmatched: the plan skips it at S0 before naming) raises."""
+    """Return (ComicInfo Series, LocalizedSeries) of a series.
+
+    Kavita's Name, and its LocalizedName when that normalizes (normalize) to another name, else None. Kavita is the
+    master: the files' own Series is never kept.
+    A series without a Kavita Name (unmatched: the plan skips it at S0 before naming) raises.
+    """
     name = (kseries or {}).get("name")
     if not name:
         msg = "naming: no Kavita series Name: ComicInfo Series follows Kavita's Name"
@@ -74,12 +84,16 @@ def series_titles(kseries):
 
 
 def is_archive(name):
+    """Return whether a file name has an archive extension (ARCHIVE_EXT, any case)."""
     return name.lower().endswith(ARCHIVE_EXT)
 
 
 def relevant(series, root):
-    """Series that can hold files under `root`: lowestFolderPath inside it, or an ancestor of it
-    (a series spanning folders has the common parent, up to the library root)."""
+    """Return the series that can hold files under `root`.
+
+    Their lowestFolderPath is inside it, or an ancestor of it (a series spanning folders has the common parent, up to
+    the library root).
+    """
     low = (series.get("lowestFolderPath") or "").rstrip("/")
     return bool(low) and (low == root or low.startswith(root + "/") or root.startswith(low + "/"))
 
@@ -90,12 +104,15 @@ def chapter_files(volumes):
 
 
 def match_folders(root, folder_files, series, volumes_by_series, comicinfo_series=None):
-    """root: Kavita path of the share folder holding the series folders (e.g. /shared/manga/mangas/Local).
+    """Match each share folder under root to the Kavita series that hold its files.
+
+    root: Kavita path of the share folder holding the series folders (e.g. /shared/manga/mangas/Local).
     folder_files: {folder name: [file names directly in it]}.
     series: every Kavita series of the library (names for candidates);
     volumes_by_series: {series id: /api/Series/volumes result}, needed for the `relevant` ones only.
     comicinfo_series: {folder name: set of ComicInfo Series values}, used for unmatched candidates.
-    Returns {folder name: record}; folder paths in it are Kavita paths."""
+    Returns {folder name: record}; folder paths in it are Kavita paths.
+    """
     root = root.rstrip("/")
     by_id = {s["id"]: s for s in series}
     owner = {}  # Kavita file path -> series id

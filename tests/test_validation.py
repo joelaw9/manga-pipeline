@@ -109,7 +109,7 @@ def test_duplicate_pages_are_kept_and_noted(tmp_path):
 
 
 def _series(tmp_path, n=3):
-    """n published files of other chapters, each of 3 distinct pages."""
+    """Write n published files of other chapters, each of 3 distinct pages."""
     return [
         {"key": (None, "", str(10 + i)), **measured(tmp_path, pages(seed=100 * (i + 1)), f"p{i}.cbz")} for i in range(n)
     ]

@@ -1,6 +1,8 @@
-"""Retroactive volume cover rewrites (SPEC "Retroactive updates"): a published file whose volume cover should change is
-rewritten in place through convert (process), comicinfo and publish, its other pages copied byte for byte, its Page
-entries shifted and the reader's progress shifted with them."""
+"""Retroactive volume cover rewrites (SPEC "Retroactive updates").
+
+A published file whose volume cover should change is rewritten in place through convert (process), comicinfo and
+publish, its other pages copied byte for byte, its Page entries shifted and the reader's progress shifted with them.
+"""
 
 import hashlib
 import io
@@ -53,8 +55,10 @@ def jpeg(width=64, colour=(40, 40, 200)):
 
 
 def bulk_file(name, number, *, cover=False, mixed=False):
-    """A bulk-converted CBZ (its ComicInfo as the bulk converter wrote it, with Page entries): a 000_cover page first
-    when cover, a JPEG page among its PNG pages when mixed."""
+    """Return a bulk-converted CBZ (its ComicInfo as the bulk converter wrote it, with Page entries).
+
+    A 000_cover page first when cover, a JPEG page among its PNG pages when mixed.
+    """
     data = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(cbz(pages=4, seed=name))) as src, zipfile.ZipFile(data, "w") as z:
         pages = [(n, src.read(n)) for n in src.namelist() if n.endswith(".png")]
@@ -71,9 +75,11 @@ def bulk_file(name, number, *, cover=False, mixed=False):
 
 
 def library(world, cover=(), mixed=()):
-    """As test_rewrites.library: bulk Vol.1 Ch.1 and Vol.1 Ch.2 (the outputs in cover hold a 000_cover page, which the
-    record does not list yet; those in mixed hold a JPEG page), pipeline Ch.3 with no volume; all confirmed, their
-    covers read by export's comparison. Returns the Kavita id."""
+    """Build the library as test_rewrites.library does: bulk Vol.1 Ch.1 and Vol.1 Ch.2, pipeline Ch.3 with no volume.
+
+    The outputs in cover hold a 000_cover page, which the record does not list yet; those in mixed hold a JPEG page. All
+    confirmed, their covers read by export's comparison. Returns the Kavita id.
+    """
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", "1"))
     kid = world.kavita_series(SERIES, bulk=bulk, basis="filename")
     for name, number in (("Vol.1 Ch.1.cbz", 1), ("Vol.1 Ch.2.cbz", 2)):
@@ -91,7 +97,7 @@ def library(world, cover=(), mixed=()):
 
 
 def recorded_covers(world, kid, covers):
-    """The series' record now lists covers {volume: output}; the files' covers are read again."""
+    """Make the series' record list covers {volume: output}; the files' covers are read again."""
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", "1"))
     chapters = [(o, f"{s}.cbz", n, (world.library / SERIES / o).read_bytes(), v) for o, s, n, v in bulk]
     record = bulk_record(SERIES, kid, chapters, basis="filename", covers=covers)
@@ -100,7 +106,7 @@ def recorded_covers(world, kid, covers):
 
 
 def store_image(world, volume, data):
-    """The series' volume cover image, stored as intake stores one."""
+    """Store the series' volume cover image as intake stores one."""
     sha = hashlib.sha256(data).hexdigest()
     rel = f"volume/{sha}.png"
     path = config.abs_path(world.cfg["paths"]["covers"]) / rel
@@ -328,8 +334,10 @@ def row(fid, number, volume, source="override"):
 
 
 def cover_changes(rows, moved, **kw):
-    """rewrite_plan.cover_changes of an override-basis series without an override file, its files moved as _plan
-    moves them."""
+    """Return rewrite_plan.cover_changes of an override-basis series without an override file.
+
+    Its files moved as _plan moves them.
+    """
     now = rewrite_plan.moved_rows(rows, moved)
     return rewrite_plan.cover_changes(now, naming.covered_volumes("override", now, {}, {}), **kw)
 

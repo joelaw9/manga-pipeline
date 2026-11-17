@@ -1,7 +1,8 @@
-"""`intake`'s metadata step (SPEC "Metadata checks"): bring the series rows in step with the library, link library
-manga that have no downloads, take once a day the baseline of the library's record series (SPEC "Retroactive updates"),
-then run the due checks, each series alone, then admit the new series whose check completed (metadata/admit.py).
-The step never stops intake's chapter work:
+"""`intake`'s metadata step (SPEC "Metadata checks"): sync, link, baseline, check, admit.
+
+Bring the series rows in step with the library, link library manga that have no downloads, take once a day the baseline
+of the library's record series (SPEC "Retroactive updates"), then run the due checks, each series alone, then admit the
+new series whose check completed (metadata/admit.py). The step never stops intake's chapter work:
 a service that cannot be reached skips the step, and a check that fails is logged and stays due. Only a failing share or
 database ends the run.
 """
@@ -30,6 +31,12 @@ BASELINE_PASS_AT = "intake.baseline_pass_at"  # meta: when the last baseline pas
 
 
 def run(ctx: workflow.Context, clients):
+    """Run the metadata step: sync and link the library, the baseline pass, wanted covers, the due checks, admission.
+
+    A service failure while syncing or linking skips the rest; a baseline pass, a cover fetch or a check that does not
+    complete is logged and tried again next run. A database or share failure in a check raises; any other check
+    failure is that series' (logged).
+    """
     kavita_series = identify.KavitaSeries(ctx)
     try:
         library.sync(ctx, kavita_series.rows())
@@ -62,10 +69,13 @@ def run(ctx: workflow.Context, clients):
 
 
 def baseline_pass(ctx: workflow.Context):
-    """Once a day: take the baseline of every in-scope ok series Kavita holds that has none (or lacks its naming
-    fields) and whose folder holds a bulk-converter record, so a series no download reaches has published files to
-    compare. A series whose folder Kavita gives no usable form, or that holds no record, is left as it is; a record
-    that does not parse is logged (validate holds the series' downloads, as before)."""
+    """Take, once a day, the baseline of the library's record series that have none.
+
+    Those are every in-scope ok series Kavita holds that has none (or lacks its naming fields) and whose folder holds a
+    bulk-converter record, so a series no download reaches has published files to compare. A series whose folder
+    Kavita gives no usable form, or that holds no record, is left as it is; a record that does not parse is logged
+    (validate holds the series' downloads, as before).
+    """
     conn = ctx.conn
     last = workflow.get_meta(conn, BASELINE_PASS_AT)
     now = workflow.now(conn)
@@ -93,7 +103,10 @@ def baseline_pass(ctx: workflow.Context):
 
 
 def _with_folder(ctx: workflow.Context, series):
-    """The series row once its folder, as Kavita gives it, is stored; None when Kavita gives no usable one (logged)."""
+    """Return the series row once its folder, as Kavita gives it, is stored.
+
+    None when Kavita gives no usable one (logged).
+    """
     conn = ctx.conn
     try:
         folder = kavita_link.library_folder(ctx.cfg, ctx.kavita.series_folder(series["kavita_series_id"]))
@@ -107,8 +120,11 @@ def _with_folder(ctx: workflow.Context, series):
 
 
 def _take(ctx: workflow.Context, series):
-    """Take the series' baseline; whether it was taken (why not logged). The database, the share or a service down
-    raises: the run's problem (the pass is tried again); any other failure is this series' (logged)."""
+    """Take the series' baseline; return whether it was taken (why not logged).
+
+    The database, the share or a service down raises: the run's problem (the pass is tried again); any other failure
+    is this series' (logged).
+    """
     try:
         why = baseline.take(ctx, series)
     except Exception as e:

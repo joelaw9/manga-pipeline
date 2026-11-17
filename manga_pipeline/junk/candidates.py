@@ -1,5 +1,7 @@
-"""Junk candidates (SPEC "Junk decisions", candidates): which undecided units are candidates, 1 candidate row per key,
-the candidates' images, which candidates are open, and the cleanup of closed ones.
+"""Junk candidates (SPEC "Junk decisions", candidates): their selection, rows, images, open state and cleanup.
+
+Which undecided units are candidates, 1 candidate row per key, the candidates' images, which candidates are open, and
+the cleanup of closed ones.
 
 A candidate is open while a chapter at the junk stage that is not done waits on it (its id is in the chapter's
 junk_scan.candidates) and no decision covers it. Its folder in paths.candidates (on the share) is named by its series
@@ -29,17 +31,23 @@ ORPHAN_KEEP_S = 24 * 3600  # a folder no row names is removed once this old (ano
 
 
 class Gone(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
-    """A candidate the chapter meant to join was deleted meanwhile: the chapter fails, and its retry writes the
-    images anew."""
+    """A candidate the chapter meant to join was deleted meanwhile.
+
+    The chapter fails, and its retry writes the images anew.
+    """
 
 
 def folder_name(series_key, kind, key, chapter):
-    """The folder of a new candidate: its unit (hashed) and the chapter claim that writes it (workflow.claim_name)."""
+    """Return the folder name of a new candidate: its unit (hashed) and the chapter claim that writes it.
+
+    The claim's name is workflow.claim_name.
+    """
     unit = hashlib.sha1(f"{series_key}|{kind}|{key}".encode(), usedforsecurity=False).hexdigest()[:16]
     return f"{unit}-{workflow.claim_name(chapter)}"
 
 
 def folder(cfg, name):
+    """Return the path of the candidate folder `name` under paths.candidates."""
     return config.abs_path(cfg["paths"]["candidates"]) / name
 
 
@@ -74,8 +82,10 @@ def chapter_order(identity):
 
 
 def first_identities(conn, series_key, n=FIRST_CHAPTERS):
-    """The first n distinct chapter identities of a series by first sighting, chapter order on a tie (every sighting
-    imported from the bulk converter has the same time)."""
+    """Return the first n distinct chapter identities of a series by first sighting.
+
+    Chapter order on a tie (every sighting imported from the bulk converter has the same time).
+    """
     rows = conn.execute(
         "SELECT identity, min(first_seen) FROM junk_seen WHERE series_key = %s GROUP BY identity", (series_key,)
     ).fetchall()
@@ -104,7 +114,7 @@ def strip_reasons(conn, series_key, unit, words):
 
 
 def _key(unit):
-    """An undecided unit's key: its "key", or a strip unit's signature."""
+    """Return an undecided unit's key: its "key", or a strip unit's signature."""
     return unit.get("key") or unit.get("sig")
 
 
@@ -115,8 +125,10 @@ def _recurrence(conn, series_key, kind, key):
 
 
 def _flagged_probe(conn, series_key, block, words):
-    """The candidate of a strip edge block's first signable probe from the chapter edge that is near or has a
-    keyword (strip_reasons), or None."""
+    """Return the candidate of a strip edge block's first signable probe that is near or has a keyword, or None.
+
+    The probe is the first from the chapter edge; near and keyword are strip_reasons'.
+    """
     probes = [p for p in block["probes"] if not store.unsignable("probe", p["sig"])]
     flagged = next(((p, why) for p in probes for why in [strip_reasons(conn, series_key, p, words)] if why), None)
     if flagged is None:
@@ -126,9 +138,11 @@ def _flagged_probe(conn, series_key, block, words):
 
 
 def _block_candidate(conn, series_key, block, words, *, first_chapter):
-    """A strip edge block's candidate: its flagged probe, else the block when its key is signable and it is near,
-    has a keyword, is the rest of a block whose edge piece is junk, is in a first chapter of the series
-    (first_chapter), or recurs; else None."""
+    """Return a strip edge block's candidate, or None.
+
+    Its flagged probe, else the block when its key is signable and it is near, has a keyword, is the rest of a block
+    whose edge piece is junk, is in a first chapter of the series (first_chapter), or recurs; else None.
+    """
     probe = _flagged_probe(conn, series_key, block, words)
     if probe is not None:
         return probe
@@ -145,13 +159,15 @@ def _block_candidate(conn, series_key, block, words, *, first_chapter):
 
 
 def select(conn, series_key, identity, undecided, words):
-    """The candidates among a chapter's undecided units: [{"kind", "key", "reason", "unit"}]. Strip edge blocks: the
-    first probe from the chapter edge that is near or has a keyword is offered instead of its block; else the block
-    when it is near, has a keyword, recurs, is the rest of a block whose edge piece is junk, or its chapter is among the
-    first of the series. Tail
-    pieces always. Pages, frames and bands: their per-chapter reasons, or recurrence. Logos always; a logo variant
-    offers the first of its representatives' keys that an existing candidate matches, else its first. Never a unit
-    with an unsignable key (no decision could be written on it), a block's probe included."""
+    """Return the candidates among a chapter's undecided units: [{"kind", "key", "reason", "unit"}].
+
+    Strip edge blocks: the first probe from the chapter edge that is near or has a keyword is offered instead of its
+    block; else the block when it is near, has a keyword, recurs, is the rest of a block whose edge piece is junk, or
+    its chapter is among the first of the series. Tail pieces always. Pages, frames and bands: their per-chapter
+    reasons, or recurrence. Logos always; a logo variant offers the first of its representatives' keys that an existing
+    candidate matches, else its first. Never a unit with an unsignable key (no decision could be written on it), a
+    block's probe included.
+    """
     first_chapter = identity in first_identities(conn, series_key)
     decisions = store.Decisions(conn, series_key)
     out = []
@@ -180,9 +196,11 @@ def select(conn, series_key, identity, undecided, words):
 
 
 def find(conn, decisions, kind, key):
-    """The candidate row of the series (decisions: its store.Decisions) and kind whose key matches `key` and that no
-    decision covers, or None. A covered candidate is closed: matching is not transitive, so a unit it matches may
-    still be undecided, and that unit gets a candidate of its own."""
+    """Return the candidate row of the series and kind whose key matches `key` and that no decision covers, or None.
+
+    decisions: the series' store.Decisions. A covered candidate is closed: matching is not transitive, so a unit it
+    matches may still be undecided, and that unit gets a candidate of its own.
+    """
     parsed = store.parse_key(kind, key)
     for row in conn.execute(
         "SELECT * FROM junk_candidate WHERE series_key = %s AND kind = %s ORDER BY id", (decisions.series_key, kind)
@@ -194,9 +212,11 @@ def find(conn, decisions, kind, key):
 
 
 def join(conn, series_key, picks, at):
-    """Inside the caller's transaction: each pick joins its matching candidate or opens one in the folder its images
-    were written to (p["folder"]). Gone for a pick that found a candidate when its images were not written and now
-    finds none. Returns the ids."""
+    """Join each pick to its matching candidate, or open one, inside the caller's transaction.
+
+    A new candidate opens in the folder its images were written to (p["folder"]). Gone for a pick that found a candidate
+    when its images were not written and now finds none. Returns the ids.
+    """
     ids = []
     decisions = store.Decisions(conn, series_key)
     for p in picks:
@@ -218,12 +238,15 @@ def join(conn, series_key, picks, at):
 
 
 def stuck(row, limit):
+    """Return whether a candidate row is stuck: no verdict after `limit` reviews or more."""
     return row["verdict"] is None and row["reviews"] >= limit
 
 
 def is_open(conn, row, decisions=None):
-    """Whether a candidate row is open: a not-done junk-stage chapter waits on it, no decision covers it.
-    decisions: a store.by_series lookup to share across calls."""
+    """Return whether a candidate row is open: a not-done junk-stage chapter waits on it, no decision covers it.
+
+    decisions: a store.by_series lookup to share across calls.
+    """
     waiting = conn.execute(
         """SELECT 1 FROM junk_scan js JOIN chapter c ON c.id = js.chapter_id
         WHERE c.stage = 'junk' AND c.status != 'done' AND js.candidates::jsonb @> to_jsonb(%s::bigint) LIMIT 1""",
@@ -236,17 +259,20 @@ def is_open(conn, row, decisions=None):
 
 
 def open_rows(conn):
+    """Return the open candidate rows, fewest reviews first."""
     decisions = store.by_series(conn)
     rows = conn.execute("SELECT * FROM junk_candidate ORDER BY reviews, id").fetchall()
     return [r for r in rows if is_open(conn, r, decisions)]
 
 
 def cleanup(cfg, conn):
-    """junk review's clean-up (SPEC "Junk decisions"), in 1 transaction: a candidate found not open is stamped closed
-    (closed_at, when not stamped yet), one found open again loses its stamp, and one stamped CLOSED_KEEP ago or more
-    is deleted; a candidate listed by a review not yet ended is left alone. Then the deleted rows' folders are
-    removed, and a folder no row names once it is ORPHAN_KEEP_S old (a machine may have written it and not yet
-    recorded its row). Returns how many candidates were deleted."""
+    """Clean up the candidates for junk review (SPEC "Junk decisions").
+
+    In 1 transaction: a candidate found not open is stamped closed (closed_at, when not stamped yet), one found open
+    again loses its stamp, and one stamped CLOSED_KEEP ago or more is deleted; a candidate listed by a review not yet
+    ended is left alone. Then the deleted rows' folders are removed, and a folder no row names once it is ORPHAN_KEEP_S
+    old (a machine may have written it and not yet recorded its row). Returns how many candidates were deleted.
+    """
     with db.transaction(conn):
         now = db.now(conn)
         cutoff = (datetime.fromisoformat(now) - CLOSED_KEEP).isoformat(timespec="seconds")
@@ -274,8 +300,10 @@ def cleanup(cfg, conn):
 
 
 def _remove_orphans(root, named):
-    """Remove each folder in the candidates folder `root` that no row names (`named`) once it is ORPHAN_KEEP_S old
-    (a machine may have written it and not yet recorded its row)."""
+    """Remove each folder in the candidates folder `root` that no row names (`named`) once it is ORPHAN_KEEP_S old.
+
+    A machine may have written it and not yet recorded its row.
+    """
     if root.is_dir():
         old = time.time() - ORPHAN_KEEP_S
         for entry in root.iterdir():
@@ -293,8 +321,10 @@ def _fit(im, width=UNIT_WIDTH):
 
 
 def write_images(cfg, name, unit_im, context_im, info):
-    """Write a candidate's folder: unit.png, context.png, info.json (reason, OCR text, chapters). Replaces an older
-    folder of the same name whole."""
+    """Write a candidate's folder: unit.png, context.png, info.json (reason, OCR text, chapters).
+
+    Replaces an older folder of the same name whole.
+    """
     dest = folder(cfg, name)
     if dest.exists():
         shutil.rmtree(dest)

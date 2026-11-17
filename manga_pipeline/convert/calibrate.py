@@ -1,7 +1,8 @@
-"""AVIF quality per series and encode group (SPEC "Calibration"). The bulk converter's rule (optimizer/calibrate.py:
-the ladder, the pass rule, the choice), applied to samples gathered a few chapters at a time: every sample page is
-encoded and scored at q80 and at each ladder step, the scores are stored, and the quality is chosen from them once
-enough are stored.
+"""AVIF quality per series and encode group (SPEC "Calibration").
+
+The bulk converter's rule (optimizer/calibrate.py: the ladder, the pass rule, the choice), applied to samples gathered a
+few chapters at a time: every sample page is encoded and scored at q80 and at each ladder step, the scores are stored,
+and the quality is chosen from them once enough are stored.
 
 Rows: series_calibration (schema 0030). A group with no row is open, with no samples.
 """
@@ -43,9 +44,12 @@ def _spaced(units, n):
 
 
 def units(chapter_plan, x_dir, rendered):
-    """{group: [unit]} of the pages a plan's AVIF outcome encodes (its page files in x_dir, or its rendered PNGs when it
-    renders), minus cover-named pages and rendered pages made from them (as the bulk converter's calib_units): {"path",
-    "sha1", "class", "yuv", "fmt", "jpeg_feed", "rendered"}. Empty when its first outcome is not AVIF."""
+    """Return {group: [unit]} of the pages a plan's AVIF outcome encodes.
+
+    Its page files in x_dir, or its rendered PNGs when it renders, minus cover-named pages and rendered pages made from
+    them (as the bulk converter's calib_units): {"path", "sha1", "class", "yuv", "fmt", "jpeg_feed", "rendered"}. Empty
+    when its first outcome is not AVIF.
+    """
     if chapter_plan.outcomes[0]["outcome"] != "avif":
         return {}
     covers = {q["name"] for q in chapter_plan.pages if q["cover"]}
@@ -72,8 +76,11 @@ def units(chapter_plan, x_dir, rendered):
 
 
 def pick(group_units, sampled):
-    """Up to PER_CHAPTER units (fewer when the group nears MAX_SAMPLES), evenly spaced over those whose sha1 is not
-    among the sampled ones; of pages with 1 sha1 (a repeated page) only the first counts."""
+    """Pick up to PER_CHAPTER units (fewer when the group nears MAX_SAMPLES), evenly spaced over the unsampled ones.
+
+    Unsampled: those whose sha1 is not among the sampled ones; of pages with 1 sha1 (a repeated page) only the first
+    counts.
+    """
     room = min(PER_CHAPTER, MAX_SAMPLES - len(sampled))
     fresh, seen = [], set(sampled)
     for u in group_units:
@@ -84,8 +91,10 @@ def pick(group_units, sampled):
 
 
 def probe(encoder, picked, work_dir):
-    """Each picked unit encoded at CEILING and at every LADDER step, no retry, and scored: {sha1: {"<q>": [score,
-    bytes_out]}}. Work files in work_dir/q<q>/. encoder: the run's image.Encoder."""
+    """Encode each picked unit at CEILING and at every LADDER step, no retry, and score it.
+
+    Returns {sha1: {"<q>": [score, bytes_out]}}. Work files in work_dir/q<q>/. encoder: the run's image.Encoder.
+    """
     scores = {u["sha1"]: {} for u in picked}
     for q in (CEILING, *LADDER):
         tmp = Path(work_dir) / f"q{q}"
@@ -111,10 +120,13 @@ def probe(encoder, picked, work_dir):
 
 
 def choose(samples):
-    """(q, why) once the samples can fix the group, else None: MIN_COUNTED samples scoring at least the floor at
-    CEILING (the others are left out of every probe), and samples, counted or not, from MIN_CHAPTERS chapters. Down
-    the LADDER, a probe fails with fewer than MIN_COUNTED counted samples, a mean below MEAN_MIN or a minimum below
-    the floor; the quality is the last step before the first failure, else CEILING."""
+    """Return (q, why) once the samples can fix the group, else None.
+
+    They can with MIN_COUNTED samples scoring at least the floor at CEILING (the others are left out of every probe),
+    and samples, counted or not, from MIN_CHAPTERS chapters. Down the LADDER, a probe fails with fewer than MIN_COUNTED
+    counted samples, a mean below MEAN_MIN or a minimum below the floor; the quality is the last step before the first
+    failure, else CEILING.
+    """
     floor = image.SCORE_FLOOR
     counted = [s for s in samples if s["scores"][str(CEILING)][0] >= floor]
     if len(counted) < MIN_COUNTED or len({s["chapter_id"] for s in samples}) < MIN_CHAPTERS:
@@ -133,10 +145,12 @@ def choose(samples):
 
 
 def add(conn, chapter, group, new, *, guard):
-    """Store a chapter's samples of its series' open group ([{"sha1", "rendered", "bytes_in", "scores"}]) and fix the
-    group when choose allows, in 1 transaction that reads the row again: nothing is added when the group is fixed by
-    now or the chapter has added samples before (a retried chapter, a second run). guard(conn) runs first in it and
-    raises to add nothing (the stage's claim check). Returns the group's row as stored."""
+    """Store a chapter's samples of its series' open group and fix the group when choose allows.
+
+    new: [{"sha1", "rendered", "bytes_in", "scores"}]. In 1 transaction that reads the row again: nothing is added when
+    the group is fixed by now or the chapter has added samples before (a retried chapter, a second run). guard(conn)
+    runs first in it and raises to add nothing (the stage's claim check). Returns the group's row as stored.
+    """
     series_id, chapter_id = chapter["series_id"], chapter["id"]
     with db.transaction(conn):
         guard(conn)
@@ -162,8 +176,10 @@ def add(conn, chapter, group, new, *, guard):
 
 
 def from_record(record):
-    """The fixed groups of a bulk-converter record ({group: (q, why)}): those it probed (non-empty probes), whatever
-    scorer it was made with. Unprobed and absent groups are left open."""
+    """Return the fixed groups of a bulk-converter record ({group: (q, why)}): those it probed (non-empty probes).
+
+    Whatever scorer it was made with. Unprobed and absent groups are left open.
+    """
     groups = ((record.get("series") or {}).get("calibration") or {}).get("groups") or {}
     return {
         g: (v["q"], f"record: {v.get('why', '')}".rstrip(": "))

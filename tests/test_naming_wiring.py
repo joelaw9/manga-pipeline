@@ -1,6 +1,9 @@
-"""The naming resolver's wiring (SPEC "Publishing", "State", "Metadata" Volume covers, "Library copies", "Bad
-downloads"): which chapters count when naming, the baseline's naming fields on an older baseline, the volume-cover
-supply and the copy check's volume rule (D7.21)."""
+"""The naming resolver's wiring.
+
+SPEC "Publishing", "State", "Metadata" Volume covers, "Library copies", "Bad downloads": which chapters count when
+naming, the baseline's naming fields on an older baseline, the volume-cover supply and the copy check's volume rule
+(D7.21).
+"""
 
 import hashlib
 import io
@@ -35,8 +38,10 @@ def png(width, height=1400):
 
 
 def mangadex_series(world):
-    """A `mangadex`-basis series holding Vol.1 Ch.1-2, whose MangaDex aggregate puts chapters 3 and 4 in volume 2 and
-    has volume 2's cover. Returns the Suwayomi manga id."""
+    """Add a `mangadex`-basis series holding Vol.1 Ch.1-2.
+
+    Its MangaDex aggregate puts chapters 3 and 4 in volume 2 and has volume 2's cover. Returns the Suwayomi manga id.
+    """
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", 1), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", 1))
     kavita_id = world.kavita_series("Solo Leveling", bulk=bulk, basis="mangadex")
     world.kavita.metadata_rows[kavita_id] = {"seriesId": kavita_id, "webLinks": f"https://mangadex.org/title/{MD}"}
@@ -56,7 +61,7 @@ def bulk_naming(world):
 
 
 def forget_bulk_naming(world):
-    """The bulk rows as a baseline taken before schema step 0054 left them."""
+    """Leave the bulk rows as a baseline taken before schema step 0054 left them."""
     with closing(db.connect(world.cfg)) as conn:
         conn.execute("UPDATE published_file SET source_name = NULL, kind = NULL, volume_source = NULL")
 
@@ -222,9 +227,12 @@ def test_a_passing_replacement_whose_naming_fails_becomes_the_chapters_download(
     ],
 )
 def test_a_fractional_volume_is_only_read_against_a_file_name_volume(world, basis, want):
-    """D7.21: a published chapter whose volume a source assigned is the same chapter whatever the download's volume,
-    so the download's fractional volume is never read and the copies are compared; against a file-name basis it is
-    read, and a person must act before the copy check."""
+    """D7.21: a fractional volume is only read against a file-name volume.
+
+    A published chapter whose volume a source assigned is the same chapter whatever the download's volume, so the
+    download's fractional volume is never read and the copies are compared; against a file-name basis it is read, and a
+    person must act before the copy check.
+    """
     world.kavita_series("Solo Leveling", bulk=(("Vol.1 Ch.12.cbz", "Grp_Vol.1 Chapter 12", "12", 1),), basis=basis)
     world.download(world.manga("Solo Leveling"), "Vol.2.5 Ch.12")
     world.run(intake)

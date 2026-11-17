@@ -1,6 +1,7 @@
-"""Volume covers (SPEC "Conversion"): a cover handed over in `volume_cover` goes into the chapter as the page
-000_cover, encoded like the chapter. Copied from the bulk converter's optimizer/covers.py (the insertion half; picking
-the chapter and fetching the image are intake's).
+"""Volume covers (SPEC "Conversion").
+
+A cover handed over in `volume_cover` goes into the chapter as the page 000_cover, encoded like the chapter. Copied from
+the bulk converter's optimizer/covers.py (the insertion half; picking the chapter and fetching the image are intake's).
 
 The cover is scaled down to the chapter's page width (most common width of its non-cover pages). Its AVIF is encoded
 and scored before the route is chosen (image.Encoder.cover): an AVIF cover that passed lets a chapter whose pages share
@@ -28,9 +29,11 @@ class CoverError(RuntimeError):
 
 
 def load(cfg, row):
-    """The cover file's bytes of a volume_cover row, checked: its path relative to paths.covers and inside it, the file
-    there, its sha256 the row's. Raises CoverError naming the path; a dropped share's FileNotFoundError
-    (errors.dropped_share) is raised as it is."""
+    """Return the cover file's bytes of a volume_cover row, checked.
+
+    Checked: its path relative to paths.covers and inside it, the file there, its sha256 the row's. Raises CoverError
+    naming the path; a dropped share's FileNotFoundError (errors.dropped_share) is raised as it is.
+    """
     rel = Path(row["path"])
     root = config.abs_path(cfg["paths"]["covers"]).resolve()
     path = (root / rel).resolve()
@@ -51,8 +54,10 @@ def load(cfg, row):
 
 
 def width(chapter_plan):
-    """The chapter's page width: the most common width of its non-cover pages (of all its pages when it has none),
-    the first seen winning a tie."""
+    """Return the chapter's page width: the most common width of its non-cover pages.
+
+    Of all its pages when it has none; the first seen wins a tie.
+    """
     pages = [q for q in chapter_plan.pages if not q["cover"]] or chapter_plan.pages
     return Counter(q["size"][0] for q in pages).most_common(1)[0][0]
 
@@ -65,7 +70,7 @@ def cover_class(data):
 
 
 def scaled(data, page_width):
-    """The cover decoded, no wider than page_width (aspect kept; never upscaled)."""
+    """Return the cover decoded, no wider than page_width (aspect kept; never upscaled)."""
     im, alpha = images.open_image(data)
     im = im.convert("RGBA" if alpha else "RGB")
     if im.width > page_width:
@@ -74,9 +79,11 @@ def scaled(data, page_width):
 
 
 def insert(out_dir, data, fmt, page_width, avif):
-    """Write 000_cover.<ext> in format fmt into out_dir, in place of any page of that stem there. AVIF: the encoded
-    cover (avif: image.Encoder.cover's result), copied; JPEG (q92), PNG, lossy WebP (q90): encoded here from the cover
-    scaled to page_width. Returns {"name", "format", "score" (AVIF only), "bytes"}."""
+    """Write 000_cover.<ext> in format fmt into out_dir, in place of any page of that stem there.
+
+    AVIF: the encoded cover (avif: image.Encoder.cover's result), copied; JPEG (q92), PNG, lossy WebP (q90): encoded
+    here from the cover scaled to page_width. Returns {"name", "format", "score" (AVIF only), "bytes"}.
+    """
     if fmt not in plan.COVER_FORMATS:
         msg = f"no volume cover encoding for {fmt}"
         raise ValueError(msg)

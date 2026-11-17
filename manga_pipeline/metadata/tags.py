@@ -1,5 +1,6 @@
-"""A series' genres and tags from its stored source records (SPEC "Tag rules"). Pure: the same records and rule files
-always give the same lists, with no source request.
+"""A series' genres and tags from its stored source records (SPEC "Tag rules").
+
+Pure: the same records and rule files always give the same lists, with no source request.
 
 Ported from the old metadata tool (`kavita_enrich.py` build_metadata, consolidate, derive_tags, top_up). One change
 (decision D7.6): a top-up adds only consolidation targets and allowlist entries, never a name because other library
@@ -35,6 +36,8 @@ SHORT_KEY_MAX = 4  # a key this short keeps its final "s"
 
 @dataclass(frozen=True)
 class Rules:
+    """The loaded tag rules: consolidation table, derived and promoted tags, allowlists, exclusions, fingerprint."""
+
     table: dict  # {(kind, term key): (to kind, to name)}; to kind "remove" drops it
     derived: list  # derived and promoted tags: [{"tag", "kind", "rules": [{"all", "none", "min_weight"?}]}]
     allow_genres: dict  # {term key: name} a top-up may add
@@ -45,8 +48,10 @@ class Rules:
 
 
 def load(folder=RULES):
-    """The rules of the rule files in folder. A file that is not valid raises ValueError naming it and the line or
-    entry."""
+    """Load the rules of the rule files in folder.
+
+    A file that is not valid raises ValueError naming it and the line or entry.
+    """
     data = {name: (folder / name).read_bytes() for name in FILES}
     code = [Path(__file__).read_bytes(), Path(names.__file__).read_bytes()]  # this module and the name key it uses
     parts = [name.encode() + b"\0" + data[name] + b"\0" for name in FILES] + code
@@ -98,12 +103,15 @@ def compute(records, rules):
 
 
 def display_name(name):
-    """A source's name without MangaUpdates' plural marker ("Concubine/s" -> "Concubine")."""
+    """Return a source's name without MangaUpdates' plural marker ("Concubine/s" -> "Concubine")."""
     return PLURAL_MARKER.sub("", name or "").strip()
 
 
 def term_key(term):
-    """The key a tag or genre name matches by: plural markers and a final "s" dropped, case and punctuation ignored."""
+    """Return the key a tag or genre name matches by.
+
+    Plural markers and a final "s" dropped, case and punctuation ignored.
+    """
     key = names.key(display_name(term))
     return key[:-1] if len(key) > SHORT_KEY_MAX and key.endswith("s") else key
 
@@ -120,7 +128,7 @@ def _unique(values):
 
 
 def _canonical(name, kind, table):
-    """The (kind, name) a source's name converts to, or None when the table removes it."""
+    """Return the (kind, name) a source's name converts to, or None when the table removes it."""
     key = term_key(name)
     hit = table.get((kind, key)) or table.get(("tag" if kind == "genre" else "genre", key))
     if hit:
@@ -198,7 +206,7 @@ def _derived_rule(rule, tag, table):
 
 
 def _rule_keys(terms, tag, table):
-    """A rule's list of terms as their canonical keys; ValueError when it is not a list of names."""
+    """Return a rule's list of terms as their canonical keys; ValueError when it is not a list of names."""
     if not isinstance(terms, list) or not all(isinstance(t, str) for t in terms):
         msg = f"derived_tags.yaml: {tag}: not a list of names: {terms!r}"
         raise ValueError(msg)
@@ -246,8 +254,11 @@ def _mu_categories(mu):
 
 
 def _sourced(mb, mu, md, al):
-    """The sources' own lists: genres from MangaBaka (else MangaUpdates), AniList and MangaDex's genre tags; tags from
-    AniList (rank at least 60, no spoiler) and MangaDex's theme tags, less any that is a genre."""
+    """Return the sources' own genre and tag lists.
+
+    Genres from MangaBaka (else MangaUpdates), AniList and MangaDex's genre tags; tags from AniList (rank at least 60,
+    no spoiler) and MangaDex's theme tags, less any that is a genre.
+    """
     md_tags = [
         (t["attributes"]["group"], t["attributes"]["name"].get("en"))
         for t in ((md or {}).get("attributes") or {}).get("tags") or []
@@ -283,9 +294,12 @@ def _consolidate(genres, tags, table):
 
 
 def _rule_terms(mb, mu):
-    """(MangaBaka's tags, the other terms) derived-tag rules match. MangaBaka's tags carry weights; the other terms
-    carry none to judge: MangaBaka's genres, status, content rating and type, MangaUpdates' categories and genres when
-    MangaBaka's tags are sparse, and MangaUpdates' terms and type alone without MangaBaka."""
+    """Return (MangaBaka's tags, the other terms) derived-tag rules match.
+
+    MangaBaka's tags carry weights; the other terms carry none to judge: MangaBaka's genres, status, content rating and
+    type, MangaUpdates' categories and genres when MangaBaka's tags are sparse, and MangaUpdates' terms and type alone
+    without MangaBaka.
+    """
     mu_terms = (_mu_categories(mu) + _mu_genres(mu)) if mu else []
     if not mb:
         return [], mu_terms + ([f"Type: {mu['type']}"] if mu and mu.get("type") else [])
@@ -300,9 +314,11 @@ def _rule_terms(mb, mu):
 
 
 def _term_weights(mb, other_terms, table):
-    """{term key: rank in RULE_WEIGHTS}: each MangaBaka tag's best weight; another term ranks 0 unless it is spelt
-    exactly as a MangaBaka tag. MangaBaka carries MangaUpdates' categories and weights the low-vote ones incidental, so
-    a raw category it repeats keeps MangaBaka's weight (as the old tool did)."""
+    """Return {term key: rank in RULE_WEIGHTS}: each MangaBaka tag's best weight.
+
+    Another term ranks 0 unless it is spelt exactly as a MangaBaka tag. MangaBaka carries MangaUpdates' categories and
+    weights the low-vote ones incidental, so a raw category it repeats keeps MangaBaka's weight (as the old tool did).
+    """
     if not mb:
         return {}
     ranks = {}
@@ -334,9 +350,12 @@ def _derive(terms, rules, weights):
 
 
 def _top_up(genres, tags, mb, rules, mu_categories):
-    """(genres, tags) to add toward MIN_GENRES / MIN_TAGS from MangaBaka's genres and weighted tags, then MangaUpdates
-    categories MangaBaka lacks; only names in the allowlists, never excluded ones. Allowlisted tags, and tags the
-    table makes genres, are added past the minimum too, at a strong weight only."""
+    """Return (genres, tags) to add toward MIN_GENRES / MIN_TAGS.
+
+    They come from MangaBaka's genres and weighted tags, then MangaUpdates categories MangaBaka lacks; only names in the
+    allowlists, never excluded ones. Allowlisted tags, and tags the table makes genres, are added past the minimum too,
+    at a strong weight only.
+    """
     cand_g, cand_t = _top_up_candidates(mb or {}, rules, mu_categories)
     have_g = {term_key(g) for g in genres}
     genre_keys = _top_up_genres(cand_g, have_g, rules)
@@ -345,8 +364,11 @@ def _top_up(genres, tags, mb, rules, mu_categories):
 
 
 def _top_up_candidates(mb, rules, mu_categories):
-    """([(genre, weight)], [(tag, weight)]) a top-up may take, in order: MangaBaka's genres, its strong tags (strongest
-    first), then MangaUpdates categories MangaBaka has no tag for; each as the table names it, removed ones left out."""
+    """Return ([(genre, weight)], [(tag, weight)]) a top-up may take, in order.
+
+    The order: MangaBaka's genres, its strong tags (strongest first), then MangaUpdates categories MangaBaka has no tag
+    for; each as the table names it, removed ones left out.
+    """
     table = rules.table
     cand_g, cand_t = [], []
 
@@ -375,8 +397,10 @@ def _top_up_candidates(mb, rules, mu_categories):
 
 
 def _top_up_genres(candidates, have, rules):
-    """The keys of the allowlisted, not excluded genres the top-up adds, in order: up to MIN_GENRES held, past it at a
-    strong weight only."""
+    """Return the keys of the allowlisted, not excluded genres the top-up adds, in order.
+
+    Up to MIN_GENRES held, past it at a strong weight only.
+    """
     have, added = set(have), []
     for name, w in candidates:
         key = term_key(name)
@@ -389,8 +413,10 @@ def _top_up_genres(candidates, have, rules):
 
 
 def _top_up_tags(candidates, have, genre_keys, rules):
-    """The keys of the allowlisted, not excluded tags the top-up adds, in order, none a genre (genre_keys: held and
-    added): up to MIN_TAGS held, past it an always-added tag at a strong weight only."""
+    """Return the keys of the allowlisted, not excluded tags the top-up adds, in order, none a genre.
+
+    genre_keys are the genres held and added. Up to MIN_TAGS held, past it an always-added tag at a strong weight only.
+    """
     have, added = set(have), []
     for name, w in candidates:
         key = term_key(name)

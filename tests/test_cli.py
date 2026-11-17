@@ -1,6 +1,8 @@
-"""The entry point runs each command in its row of the command table: config (with env and --set), its locks, its log
-file, its preflight checks, its handler; a bad config is a usage error, a held lock exits 3, a hard preflight problem
-exits 4 (SPEC "CLI", "Run lock", "Logging", "Preflight")."""
+"""The entry point runs each command in its row of the command table (SPEC "CLI", "Run lock", "Logging", "Preflight").
+
+Config (with env and --set), its locks, its log file, its preflight checks, its handler; a bad config is a usage
+error, a held lock exits 3, a hard preflight problem exits 4.
+"""
 
 import dataclasses
 import errno
@@ -87,8 +89,10 @@ def reset_logging():
 
 @pytest.fixture
 def site(tmp_path):
-    """--set items giving a run its own folders under tmp_path, with the staging folder present (the share is
-    mounted) and no owner file yet."""
+    """Provide --set items giving a run its own folders under tmp_path.
+
+    The staging folder is present (the share is mounted) and there is no owner file yet.
+    """
     (tmp_path / "share" / "staging").mkdir(parents=True)
     (tmp_path / "share" / "downloads" / "mangas").mkdir(parents=True)
     (tmp_path / "share" / "retention").mkdir()
@@ -106,7 +110,7 @@ def site(tmp_path):
 
 
 def adopt(site):
-    """state adopt, and this machine's digest stored as the fleet's (as state version --yes, with the fake tools)."""
+    """Run state adopt and store this machine's digest as the fleet's (as state version --yes, with the fake tools)."""
     assert run(site, "state adopt") == 0
     cfg = site_cfg(site)
     with closing(db.connect(cfg)) as conn, db.transaction(conn):

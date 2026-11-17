@@ -1,5 +1,7 @@
-"""page_store and chapter_edit: the page measurements and the junk edit the stage phases share (SPEC "Parts",
-hand-off between parts)."""
+"""page_store and chapter_edit: the page measurements and the junk edit the stage phases share.
+
+SPEC "Parts", hand-off between parts.
+"""
 
 import shutil
 
@@ -22,7 +24,7 @@ def conn(tmp_path):
 
 
 def chapter_cbz(path, n=2, *, blank=True):
-    """n manga pages, then a blank white page when blank (phash and junk_signature None)."""
+    """Write a CBZ of n manga pages, then a blank white page when blank (phash and junk_signature None)."""
     content = {f"{i + 1:03}.jpg": pages.jpeg(pages.manga_page(seed=i)) for i in range(n)}
     if blank:
         content[f"{n + 1:03}.jpg"] = pages.jpeg(Image.new("RGB", (900, 1300), "white"))

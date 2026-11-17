@@ -32,27 +32,31 @@ LONG_PATHS_KEY = r"SYSTEM\CurrentControlSet\Control\FileSystem"
 
 @dataclass(frozen=True)
 class Check:
+    """A preflight check: its name, its level (HARD or SOFT) and its function of the config returning the problem."""
+
     name: str
     level: str  # HARD: the run cannot work without it; SOFT: it can, with a warning
     run: Callable[[dict], str | None]
 
 
 class PreflightError(RuntimeError):
-    pass
+    """A hard check failed; the message names every failed hard check (exit 4)."""
 
 
 def owner_file(cfg):
-    """The share's owner file: it holds the id of the database that owns the share (SPEC "State")."""
+    """Return the share's owner file: it holds the id of the database that owns the share (SPEC "State")."""
     return config.abs_path(cfg["paths"]["staging"]) / OWNER_FILE
 
 
 def python_version(_cfg, version=sys.version_info):
+    """Check that Python is 3.13 or later."""
     if version < (3, 13):
         return f"Python 3.13 or later is required, this is {version[0]}.{version[1]}"
     return None
 
 
 def free_space(cfg):
+    """Check that logging.dir's drive has preflight.min_free_mb MiB free; 0 skips the check, below 0 is a problem."""
     want = cfg["preflight"]["min_free_mb"]
     if want < 0:
         return f"preflight.min_free_mb must be 0 or more, got {want}"
@@ -63,7 +67,7 @@ def free_space(cfg):
 
 
 def _below(wanted, want, key):
-    """The problem when the drive of wanted (measured at its nearest existing folder) has less than want MiB free."""
+    """Return the problem when the drive of wanted (measured at its nearest existing folder) has under want MiB free."""
     folder = next((p for p in (wanted, *wanted.parents) if p.exists()), None)
     if folder is None:
         return f"cannot read free space at {wanted}: no part of the path exists"
@@ -77,8 +81,10 @@ def _below(wanted, want, key):
 
 
 def folder_layout(cfg):
-    """The folders `state reset` empties (paths.staging, paths.scratch, paths.candidates) must hold nothing else the
-    pipeline keeps."""
+    """Check that the folders `state reset` empties hold nothing else the pipeline keeps.
+
+    Those folders are paths.staging, paths.scratch and paths.candidates.
+    """
     try:
         paths = {
             key: config.abs_path(cfg["paths"][key]).resolve()
@@ -145,10 +151,16 @@ def _missing_folders(cfg, keys):
 
 
 def staging_folder(cfg):
+    """Check that paths.staging is an existing folder."""
     return _missing_folders(cfg, ("staging",))
 
 
 def share_folders(cfg):
+    """Check that the share folders exist and paths.retention is on the filesystem of paths.downloads and paths.library.
+
+    The folders: paths.downloads and its Suwayomi mangas folder, paths.library, paths.retention, paths.candidates and
+    paths.covers.
+    """
     missing = _missing_folders(
         cfg, ("downloads", ("downloads", suwayomi.MANGAS_FOLDER), "library", "retention", "candidates", "covers")
     )
@@ -167,6 +179,7 @@ def share_folders(cfg):
 
 
 def workflow_settings(cfg):
+    """Check the workflow settings' minimums, complete_months above recent_months, and series.only names as text."""
     problems = []
     for key, low in (
         ("workflow.attempt_limit", 1),
@@ -192,7 +205,7 @@ def workflow_settings(cfg):
 
 
 def service_settings(cfg):
-    """What the Suwayomi and Kavita clients need (SPEC "Services"). A value is never shown: one is a secret."""
+    """Check what the Suwayomi and Kavita clients need (SPEC "Services"). A value is never shown: one is a secret."""
     problems = []
     for section, name in (("suwayomi", "url"), ("kavita", "url")):
         value = cfg[section][name]
@@ -213,6 +226,7 @@ def service_settings(cfg):
 
 
 def share_ownership(cfg):
+    """Check that the share's owner file holds this database's id (SPEC "State"); the database is not upgraded."""
     path = owner_file(cfg)
     try:
         owner = path.read_text(encoding="utf-8")
@@ -232,6 +246,7 @@ def share_ownership(cfg):
 
 
 def image_tools(cfg):
+    """Check that the tools.<name> path of every image tool and of vship is an existing file."""
     missing = [
         f"tools.{name} {path}"
         for name in (*tools.NAMES, "vship")
@@ -241,6 +256,7 @@ def image_tools(cfg):
 
 
 def scorer(cfg):
+    """Check that the vship scorer loads from tools.vship."""
     try:
         vship.Scorer(config.abs_path(cfg["tools"]["vship"]))
     except (OSError, vship.VshipError) as e:
@@ -249,6 +265,7 @@ def scorer(cfg):
 
 
 def scratch_space(cfg):
+    """Check that paths.scratch's drive has convert.min_scratch_free_mb MiB free; below 0 is a problem."""
     want = cfg["convert"]["min_scratch_free_mb"]
     if want < 0:
         return f"convert.min_scratch_free_mb must be 0 or more, got {want}"
@@ -256,7 +273,7 @@ def scratch_space(cfg):
 
 
 def claude_settings(cfg):
-    """junk review can start Claude: junk.claude_path resolves to an executable, junk.claude_token is set."""
+    """Check that junk review can start Claude: junk.claude_path resolves to an executable, junk.claude_token is set."""
     problems = []
     if shutil.which(cfg["junk"]["claude_path"]) is None:
         problems.append(f"junk.claude_path {cfg['junk']['claude_path']!r} is no executable (path or name on PATH)")
@@ -277,6 +294,7 @@ def junk_word_lists(cfg):
 
 
 def naming_overrides(cfg):
+    """Check that paths.naming_overrides is an existing folder."""
     return _missing_folders(cfg, ("naming_overrides",))
 
 
@@ -309,7 +327,7 @@ def long_paths(_cfg):
 
 
 def fleet_version(cfg):
-    """This machine runs the fleet's version (SPEC "State"): fleet.problem, read on a connection of its own."""
+    """Check that this machine runs the fleet's version (SPEC "State"): fleet.problem, read on its own connection."""
     try:
         with closing(db.open_database(cfg, builds=False)) as conn:
             return fleet.problem(conn, cfg)
@@ -337,8 +355,10 @@ LONG_PATHS = Check("long paths", HARD, long_paths)
 
 
 def run(cfg, checks):
-    """Run every check. Logs each soft problem as a warning and returns them; when any check is hard and failed,
-    logs each and raises PreflightError naming all of them."""
+    """Run every check; log each soft problem as a warning and return them.
+
+    When any check is hard and failed, logs each and raises PreflightError naming all of them.
+    """
     unknown = [c.name for c in checks if c.level not in (HARD, SOFT)]
     if unknown:
         msg = f"preflight check level must be HARD or SOFT: {', '.join(unknown)}"

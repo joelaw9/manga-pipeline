@@ -1,7 +1,8 @@
-"""Part process (SPEC "Parts"): junk, then convert, picking by priority after every chapter; a series' ready junk
-stage chapters are all scanned before any is decided, and all run before any of it converts (workflow.claim). First
-it removes what a killed run of it left: chapter scratch folders on this machine, and staged files no chapter names
-(SPEC "Conversion"). junk review cleans up the junk candidates (SPEC "Junk decisions").
+"""Part process (SPEC "Parts"): junk, then convert, picking by priority after every chapter.
+
+A series' ready junk stage chapters are all scanned before any is decided, and all run before any of it converts
+(workflow.claim). First it removes what a killed run of it left: chapter scratch folders on this machine, and staged
+files no chapter names (SPEC "Conversion"). junk review cleans up the junk candidates (SPEC "Junk decisions").
 """
 
 import logging
@@ -16,7 +17,7 @@ log = logging.getLogger(__name__)
 
 
 def _convert(ctx: workflow.Context, chapter):
-    """A rewrite chapter's convert changes its file's cover (SPEC "Retroactive updates")."""
+    """Run the chapter's convert: a rewrite chapter's convert changes its file's cover (SPEC "Retroactive updates")."""
     return (rewrite_covers.convert_run if chapter["kind"] == "rewrite" else convert.run)(ctx, chapter)
 
 
@@ -30,6 +31,7 @@ def run(cfg, conn):
 
 
 def work(ctx: workflow.Context):
+    """Do the part's work: remove a killed run's leftovers, end junk decision waits, then drain junk and convert."""
     with workflow.share_errors():
         clean_scratch(ctx.cfg)
         clean_staging(ctx)
@@ -38,8 +40,10 @@ def work(ctx: workflow.Context):
 
 
 def clean_scratch(cfg):
-    """Remove the chapter folders (<id>-<count>) in this machine's scratch folder and nothing else there (junk review
-    keeps its own folder in it). Not with lock.enabled false: another run may be using them."""
+    """Remove the chapter folders (<id>-<count>) in this machine's scratch folder and nothing else there.
+
+    Junk review keeps its own folder in it. Not with lock.enabled false: another run may be using them.
+    """
     if not cfg["lock"]["enabled"]:
         return
     root = config.abs_path(cfg["paths"]["scratch"])
@@ -51,9 +55,11 @@ def clean_scratch(cfg):
 
 
 def clean_staging(ctx: workflow.Context):
-    """Delete a staged .cbz no chapter names, or a .cbz.part (a killed archive write's), once it is a day old (a run
-    whose claim was freed may have left one); the owner file and anything else in the staging folder are kept. A file
-    another machine's process start deleted first is skipped."""
+    """Delete a staged .cbz no chapter names, or a .cbz.part (a killed archive write's), once it is a day old.
+
+    A run whose claim was freed may have left one; the owner file and anything else in the staging folder are kept. A
+    file another machine's process start deleted first is skipped.
+    """
     root = config.abs_path(ctx.cfg["paths"]["staging"])
     named = {row[0] for row in ctx.conn.execute("SELECT staged_path FROM chapter WHERE staged_path IS NOT NULL")}
     # a queued rewrite's staged file belongs to its published file's row, whatever became of its chapter

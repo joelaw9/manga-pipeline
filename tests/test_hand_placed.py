@@ -1,5 +1,7 @@
-"""Downloads Suwayomi did not make, placed by hand (SPEC "Suwayomi", "Series identification", "Bad downloads"):
-taken once settled, matched by their folder, and re-downloaded from ranked sources when bad."""
+"""Downloads Suwayomi did not make, placed by hand (SPEC "Suwayomi", "Series identification", "Bad downloads").
+
+Taken once settled, matched by their folder, and re-downloaded from ranked sources when bad.
+"""
 
 import errno
 import json
@@ -23,7 +25,7 @@ def world(tmp_path):
 
 
 def place(world, folder, name, data=None):
-    """A CBZ put into <downloads>/mangas/<folder>/ by hand, settled."""
+    """Put a CBZ into <downloads>/mangas/<folder>/ by hand, settled."""
     path = world.mangas / folder / f"{name}.cbz"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(cbz(seed=name) if data is None else data)

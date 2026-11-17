@@ -1,7 +1,9 @@
-"""Part export (SPEC "Parts", "Publishing"): empties expired retention files, adds ComicInfo.xml, publishes series by
-series (each Kavita series only while its files lie in its recorded folder), then does what needs Kavita: ends
-kavita_scan waits, confirms, publishes the new series that are ready, writes series fields when no scan is awaited,
-and requests at most 1 library scan."""
+"""Part export (SPEC "Parts", "Publishing").
+
+Empties expired retention files, adds ComicInfo.xml, publishes series by series (each Kavita series only while its files
+lie in its recorded folder), then does what needs Kavita: ends kavita_scan waits, confirms, publishes the new series
+that are ready, writes series fields when no scan is awaited, and requests at most 1 library scan.
+"""
 
 import logging
 from datetime import timedelta
@@ -25,6 +27,10 @@ def run(cfg, conn):
 
 
 def work(ctx: workflow.Context):
+    """Do 1 export run's work in the order the module docstring gives.
+
+    The retroactive rewrites run in it too (SPEC "Retroactive updates"): rewrite.compare, finish_all and restore_all.
+    """
     with workflow.share_errors():
         retention.purge(ctx.cfg)
     # The comparison (SPEC "Retroactive updates"): rewrite chapters for comicinfo and publish below
@@ -57,9 +63,11 @@ BEFORE_PUBLISH = workflow.STAGES[: workflow.STAGES.index("publish")]
 
 
 def new_series(ctx: workflow.Context):
-    """Publish each new series Kavita does not hold that is ready, in a run where no scan is awaited: none of its
-    chapters ready or claimed before publish, and its batch open (nothing published, or not yet followed by a scan
-    request). Every one ready lands under the run's 1 library scan."""
+    """Publish each new series Kavita does not hold that is ready, in a run where no scan is awaited.
+
+    Ready: none of its chapters ready or claimed before publish, and its batch open (nothing published, or not yet
+    followed by a scan request). Every one ready lands under the run's 1 library scan.
+    """
     if scan_awaited(ctx) is not None:
         return
     for series_id in workflow.series_with_ready(ctx, ("publish",)):
@@ -80,9 +88,12 @@ def new_series(ctx: workflow.Context):
 
 
 def _folder_ready(ctx: workflow.Context, series):
-    """Create the series' folder, or check the one there holds only its own files: those it published and those a crash
-    left renamed in but unrecorded (a chapter at publish whose staged file is gone and whose file has its staged size);
-    anything else, or a folder that cannot be made or read, makes the series needs_human."""
+    """Create the series' folder, or check the one there holds only its own files.
+
+    Its own: those it published and those a crash left renamed in but unrecorded (a chapter at publish whose staged file
+    is gone and whose file has its staged size); anything else, or a folder that cannot be made or read, makes the
+    series needs_human.
+    """
     folder = config.to_local(ctx.cfg, series["folder"])
     try:
         if not errors.exists(folder):
@@ -144,9 +155,11 @@ def _in_kavita(ctx: workflow.Context, series_id):
 
 
 def folder_moved(ctx: workflow.Context, series_id):
-    """Whether a Kavita series' files lie elsewhere than its recorded folder (or in no single folder): then the series
-    is needs_human, naming both, and nothing is published into it. A new series (no Kavita id) is not checked, nor one
-    Kavita no longer holds (confirm reports that, with its fix)."""
+    """Return whether a Kavita series' files lie elsewhere than its recorded folder (or in no single folder).
+
+    Then the series is needs_human, naming both, and nothing is published into it. A new series (no Kavita id) is not
+    checked, nor one Kavita no longer holds (confirm reports that, with its fix).
+    """
     series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (series_id,))
     kid = series["kavita_series_id"]
     if kid is None or ctx.kavita.series(kid) is None:
@@ -167,8 +180,10 @@ def folder_moved(ctx: workflow.Context, series_id):
 
 
 def scan_awaited(ctx: workflow.Context):
-    """The time of the last library scan request while it is still awaited (less than kavita.rescan_after_minutes ago,
-    with chapters still waiting on kavita_scan), else None."""
+    """Return the time of the last library scan request while it is still awaited, else None.
+
+    Awaited: less than kavita.rescan_after_minutes ago, with chapters still waiting on kavita_scan.
+    """
     previous = workflow.get_meta(ctx.conn, REQUESTED_AT)
     if previous is None or not _waiting(ctx):
         return None
@@ -192,10 +207,13 @@ def _waiting(ctx: workflow.Context):
 
 
 def request_scan(ctx: workflow.Context):
-    """At most 1 library scan per run, never while one is awaited (requested less than kavita.rescan_after_minutes
-    ago with chapters still waiting on kavita_scan): requested when a publish made a scan due or chapters still wait.
+    """Request at most 1 library scan per run, never while one is awaited.
+
+    Awaited: requested less than kavita.rescan_after_minutes ago with chapters still waiting on kavita_scan. Requested
+    when a publish made a scan due or chapters still wait.
     A repeat request charges 1 attempt to each chapter already waiting at the previous one. A failed request writes
-    nothing and is decided again by the next run."""
+    nothing and is decided again by the next run.
+    """
     minutes = ctx.cfg["kavita"]["rescan_after_minutes"]
     previous = workflow.get_meta(ctx.conn, REQUESTED_AT)
     waiting = _waiting(ctx)

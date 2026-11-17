@@ -1,4 +1,4 @@
-"""Logo units of a chapter (SPEC "Junk decisions": units, candidates, the chapter edit's `blank`), both layouts:
+"""Logo units of a chapter (SPEC "Junk decisions": units, candidates, the chapter edit's `blank`), both layouts.
 
 - `measure(index, rgb)` at the scan: a gray-mark page's badge (images.classify with convert's constants, then
   marks.measure), as JSON: page, tight box, padded box, fill, ring share, template key text.
@@ -20,7 +20,7 @@ GAP = 8  # px between the before and after crops
 
 
 def measure(index, rgb):
-    """The logo of download page `index` (RGB array), or None when the page is not gray-mark or its mark is faint."""
+    """Return the logo of download page `index` (RGB array), or None when not gray-mark or its mark is faint."""
     a = np.asarray(rgb)
     cls, box = images.classify(a, images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)
     if cls != images.GRAY_MARK:
@@ -39,8 +39,10 @@ def measure(index, rgb):
 
 
 def page_survives(edit):
-    """Whether a logo survives a page-layout edit: its page is not dropped, and any of its tight box lies inside the
-    page's kept band crop."""
+    """Return whether a logo survives a page-layout edit.
+
+    Its page is not dropped, and any of its tight box lies inside the page's kept band crop.
+    """
     drops = set(edit["drop_pages"])
     crops = {b["page"]: b["box"] for b in edit["bands"]}
 
@@ -70,9 +72,12 @@ def strip_survives(removed):
 
 
 def decide(found, survives, decide_unit):
-    """found: the scan's logos; survives(logo) -> bool; decide_unit(kind, key text) -> the deciding row or None.
-    Returns {"blank": the edit's blank entries, "undecided": [{"kind": "logo", "key", "keys", "page", "logo",
-    "reasons"}]}, 1 undecided unit per undecided variant (its first member's page and logo)."""
+    """Decide the scan's logos by variant: the edit's blank entries and the undecided units.
+
+    found: the scan's logos; survives(logo) -> bool; decide_unit(kind, key text) -> the deciding row or None. Returns
+    {"blank": the edit's blank entries, "undecided": [{"kind": "logo", "key", "keys", "page", "logo", "reasons"}]}, 1
+    undecided unit per undecided variant (its first member's page and logo).
+    """
     live = [g for g in found if g["ring_frac"] >= marks.RING_FRAC and survives(g)]
     templates = [marks.Template.from_key(g["template"]) for g in live]
     blank, undecided = [], []
@@ -90,8 +95,10 @@ def decide(found, survives, decide_unit):
 
 
 def review_images(page, logo):
-    """(unit image, context image) of a logo candidate: the badge's surroundings before and after the blank, side by
-    side; the page. page: the source page (PIL RGB)."""
+    """Return (unit image, context image) of a logo candidate.
+
+    The badge's surroundings before and after the blank, side by side; the page. page: the source page (PIL RGB).
+    """
     a = np.asarray(page)
     x0, y0, x1, y1 = logo["box"]
     pad = y1 - y0

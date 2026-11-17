@@ -1,5 +1,7 @@
-"""The metadata sources' clients (SPEC "Source ids", "Metadata checks"): MangaBaka, MangaUpdates, MangaDex, AniList,
-and the official platforms' episode lists, Tapas and Webtoons (SPEC "Metadata", platform lists).
+"""The metadata sources' clients: MangaBaka, MangaUpdates, MangaDex, AniList, and the Tapas and Webtoons episode lists.
+
+SPEC "Source ids", "Metadata checks"; Tapas and Webtoons are the official platforms' episode lists (SPEC "Metadata",
+platform lists).
 
 Each client is thin: a record by id (None when the source no longer has it), and a title search returning the raw
 results; which result is accepted is `match`'s job. Every record is the source's own JSON, stored as fetched. 1 client
@@ -43,7 +45,7 @@ class SourceError(Exception):
 
 
 def _gone(call, statuses=(404,)):
-    """The call's result, or None when the site answers that the page is gone."""
+    """Return the call's result, or None when the site answers that the page is gone."""
     try:
         return call()
     except http.HttpError as e:
@@ -53,7 +55,7 @@ def _gone(call, statuses=(404,)):
 
 
 def _unless_gone(call):
-    """The call's result, or None when the source answers 404 (the entry is gone or merged)."""
+    """Return the call's result, or None when the source answers 404 (the entry is gone or merged)."""
     try:
         return call()
     except http.HttpError as e:
@@ -63,21 +65,28 @@ def _unless_gone(call):
 
 
 class MangaBaka:
+    """MangaBaka's API client: a series by id, the series of an AniList or MangaUpdates id, and a title search."""
+
     def __init__(self, service=None):
+        """Take the record calls' service (by default a new one with a 0.5 s gap); search gets its own, with 2.1 s."""
         self._service = service or http.Service("mangabaka", 0.5)
         self._search = http.Service("mangabaka", 2.1)  # search has its own, slower limit
 
     def series(self, mb_id):
+        """Return MangaBaka's series record of mb_id, or None when MangaBaka no longer has it."""
         return _unless_gone(lambda: self._get(self._service, f"/series/{mb_id}"))
 
     def by_source(self, source, source_id):
-        """The 1 active series MangaBaka holds for an AniList ("anilist") or MangaUpdates ("manga-updates") id; None
-        for none or several."""
+        """Return the 1 active series MangaBaka holds for an AniList ("anilist") or MangaUpdates ("manga-updates") id.
+
+        None for none or several.
+        """
         data = _unless_gone(lambda: self._get(self._service, f"/source/{source}/{source_id}")) or {}
         active = [s for s in data.get("series") or [] if s.get("state") == "active"]
         return active[0] if len(active) == 1 else None
 
     def search(self, name):
+        """Return the active series among the results of MangaBaka's title search for name."""
         query = urllib.parse.urlencode({"q": name})
         results = self._get(self._search, f"/series/search?{query}") or []
         return [r for r in results if r.get("state", "active") == "active"]
@@ -88,28 +97,37 @@ class MangaBaka:
 
 
 class MangaUpdates:
+    """MangaUpdates' API client: a series by id and a title search."""
+
     def __init__(self, service=None):
+        """Take the client's service; by default a new one with a 0.5 s gap between requests."""
         self._service = service or http.Service("mangaupdates", 0.5)
 
     def series(self, mu_id):
+        """Return MangaUpdates' series record of mu_id, or None when MangaUpdates no longer has it."""
         return _unless_gone(lambda: self._service.request("GET", f"{MANGAUPDATES}/series/{mu_id}").json())
 
     def search(self, name):
-        """The search's results: each {"record": {...}, "hit_title": ...}."""
+        """Return the search's results: each {"record": {...}, "hit_title": ...}."""
         body = {"search": name, "perpage": SEARCH_RESULTS}
         reply = self._service.request("POST", f"{MANGAUPDATES}/series/search", json=body).json()
         return reply.get("results") or []
 
 
 class MangaDex:
+    """MangaDex's API client: a manga, its aggregate, covers and newest chapter's date, a title search, cover images."""
+
     def __init__(self, service=None):
+        """Take the client's service; by default a new one with a 0.25 s gap and the User-Agent MangaDex accepts."""
         self._service = service or http.Service("mangadex", 0.25, MANGADEX_USER_AGENT)
 
     def manga(self, md_id):
+        """Return the manga's record with its cover art included, or None when MangaDex no longer has it."""
         query = urllib.parse.urlencode([("includes[]", "cover_art")])
         return _unless_gone(lambda: self._get(f"/manga/{md_id}?{query}")["data"])
 
     def aggregate(self, md_id):
+        """Return the manga's aggregate (its volumes and their chapters), or None when MangaDex no longer has it."""
         return _unless_gone(lambda: self._get(f"/manga/{md_id}/aggregate"))
 
     def covers(self, md_id):
@@ -126,7 +144,7 @@ class MangaDex:
                 return out
 
     def latest_chapter_date(self, md_id):
-        """The publish time (ISO text) of the manga's newest chapter in any language, or None."""
+        """Return the publish time (ISO text) of the manga's newest chapter in any language, or None."""
         query = urllib.parse.urlencode(
             [("limit", 1), ("order[publishAt]", "desc"), *MANGADEX_RATINGS, ("includeFuturePublishAt", 0)]
         )
@@ -134,12 +152,14 @@ class MangaDex:
         return chapters[0]["attributes"]["publishAt"] if chapters else None
 
     def search(self, name):
+        """Return the manga records of MangaDex's title search for name: every content rating, cover art included."""
         query = urllib.parse.urlencode(
             [("title", name), ("limit", SEARCH_RESULTS), ("includes[]", "cover_art"), *MANGADEX_RATINGS]
         )
         return self._get(f"/manga?{query}")["data"]
 
     def cover_image(self, md_id, file_name):
+        """Return the bytes of the manga's cover image file_name, from MangaDex's uploads host."""
         url = f"{MANGADEX_UPLOADS}/covers/{md_id}/{urllib.parse.quote(file_name)}"
         return self._service.request("GET", url, headers={"Accept": "image/*"}, timeout=IMAGE_TIMEOUT).body
 
@@ -148,18 +168,23 @@ class MangaDex:
 
 
 class AniList:
+    """AniList's GraphQL client: a manga's Media by id, a title search and cover images."""
+
     def __init__(self, service=None):
+        """Take the client's service; by default a new one with a 2.1 s gap between requests."""
         self._service = service or http.Service("anilist", 2.1)
 
     def media(self, al_id):
+        """Return the manga's Media record, or None when AniList no longer has it."""
         data = _unless_gone(lambda: self._query(ANILIST_MEDIA, {"id": int(al_id)}))
         return None if data is None else data["Media"]
 
     def search(self, name):
+        """Return the manga media of AniList's title search for name (its first page)."""
         return (self._query(ANILIST_SEARCH, {"s": name})["Page"] or {}).get("media") or []
 
     def cover_image(self, url):
-        """The media's `coverImage.extraLarge` image (served by AniList's image host)."""
+        """Return the media's `coverImage.extraLarge` image (served by AniList's image host)."""
         return self._service.request("GET", url, headers={"Accept": "image/*"}, timeout=IMAGE_TIMEOUT).body
 
     def _query(self, query, variables):
@@ -175,11 +200,14 @@ class Tapas:
     GONE = (HTTPStatus.BAD_REQUEST, HTTPStatus.NOT_FOUND)
 
     def __init__(self, service=None):
+        """Take the client's service; by default a new one with a 0.5 s gap between requests."""
         self._service = service or http.Service("tapas", 0.5)
 
     def series_id(self, slug):
-        """The numeric series id from the series' /info page (its `tapastic://series/<id>` meta; the page carries it
-        only when asked for HTML), or None when the page is gone or carries none."""
+        """Return the numeric series id from the series' /info page, or None when the page is gone or carries none.
+
+        The id is the page's `tapastic://series/<id>` meta; the page carries it only when asked for HTML.
+        """
         url = f"{TAPAS}/series/{urllib.parse.quote(slug)}/info"
         reply = _gone(lambda: self._get(url, "text/html"), self.GONE)
         if reply is None:
@@ -189,8 +217,10 @@ class Tapas:
         return finder.found.split("/")[0] if finder.found and finder.found.split("/")[0].isdigit() else None
 
     def episodes(self, series_id):
-        """([(site number, title, date, id)] in site order, the count Tapas says it has), or None when the list is
-        gone. Episodes are kept once each, by id."""
+        """Return the series' episodes and the count Tapas says it has, or None when the list is gone.
+
+        The result is ([(site number, title, date, id)] in site order, the count). Episodes are kept once each, by id.
+        """
         items, seen, total, page = [], set(), 0, 1
         while True:
             url = f"{TAPAS}/series/{series_id}/episodes?page={page}&sort=OLDEST&max_limit={TAPAS_PAGE}"
@@ -225,11 +255,14 @@ class Webtoons:
     GONE = (HTTPStatus.BAD_REQUEST, HTTPStatus.NOT_FOUND)
 
     def __init__(self, service=None):
+        """Take the client's service; by default a new one with a 0.5 s gap between requests."""
         self._service = service or http.Service("webtoons", 0.5)
 
     def episodes(self, ref):
-        """[(site number, title, date, None)] in site order, or None when Webtoons has no such series
-        (`success` false, or a page that is gone)."""
+        """Return [(site number, title, date, None)] in site order, or None when Webtoons has no such series.
+
+        No such series is `success` false, or a page that is gone.
+        """
         kind, number = ref.split(":")
         items, cursor = [], None
         while True:
@@ -258,8 +291,10 @@ class Webtoons:
             cursor = following
 
     def app_only(self, ref):
-        """Whether the web list page says episodes are only on the app (its `detail_install_app` block); None when the
-        page cannot be read."""
+        """Return whether the web list page says episodes are only on the app; None when the page cannot be read.
+
+        The page says so with its `detail_install_app` block.
+        """
         kind, number = ref.split(":")
         path = "/challenge/episodeList" if kind == "canvas" else "/episodeList"
         try:
@@ -286,6 +321,7 @@ class Sources:
 
 
 def new_sources():
+    """Build the run's source clients, each with its own new service."""
     return Sources(MangaBaka(), MangaUpdates(), MangaDex(), AniList(), Tapas(), Webtoons())
 
 

@@ -1,9 +1,11 @@
-"""Junk units of a long-strip chapter (SPEC "Junk decisions": units, decisions; manga_pipeline.junk.strip_units): edge
-blocks and their probes, stored decisions on them (match_blocks), the watermark rule, the tail pass (tail pieces, W1
-blank, W3 wedge), the join rule and the kept check, on synthetic strips and layouts and on 1 real strip head
+"""Junk units of a long-strip chapter (SPEC "Junk decisions": units, decisions; manga_pipeline.junk.strip_units).
+
+Edge blocks and their probes, stored decisions on them (match_blocks), the watermark rule, the tail pass (tail pieces,
+W1 blank, W3 wedge), the join rule and the kept check, on synthetic strips and layouts and on 1 real strip head
 (tests/fixtures_junk/s5_2_real_head_c0003). Ported from the bulk converter's tests/test_restitch.py,
 test_anchored.py and test_junk_single.py (chains, cut rows, card holes and the cross-chapter watermark rule are not
-ported: strip_units has none of them)."""
+ported: strip_units has none of them).
+"""
 
 import hashlib
 from pathlib import Path
@@ -28,14 +30,14 @@ BANNER = fx.PAGE_FIX / "strip_bring_the_love_ch87_p001_head.png"  # banner glued
 
 
 def strip_of(pages):
-    """A chapter's Strip as the junk stage builds it: header sizes and each page's row profile."""
+    """Return a chapter's Strip as the junk stage builds it: header sizes and each page's row profile."""
     return strip.make_strip(
         pages, [images.page_size(p) for p in pages], [strip.page_rows(images.open_image(p)[0]) for p in pages]
     )
 
 
 def sliced(out_dir, im, height=1000):
-    """The image uploaded as fixed-height PNG slices; its Strip."""
+    """Save the image as fixed-height PNG slices, as uploaded; return its Strip."""
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = []
     for n, top in enumerate(range(0, im.height, height), 1):
@@ -45,7 +47,7 @@ def sliced(out_dir, im, height=1000):
 
 
 def save_one(out_dir, im):
-    """The image saved as 1 PNG page; its Strip."""
+    """Save the image as 1 PNG page; return its Strip."""
     p = out_dir / "001.png"
     im.save(p)
     return strip_of([p])
@@ -95,8 +97,10 @@ def span(rows):
 
 @budget(2.0, load="fs")
 def test_approved_junk_block_removed_unapproved_kept(tmp_path):
-    """The tail notice is undecided until a block decision approves it, then removed; the join rule takes its blank
-    run to the strip end and the gutter above it whole (1 join at the strip end)."""
+    """The tail notice is undecided until a block decision approves it, then removed.
+
+    The join rule takes its blank run to the strip end and the gutter above it whole (1 join at the strip end).
+    """
     im, _ = panel_strip([1200, 1500, 1300, 600], seed=3)  # the last panel plays the recruitment notice
     sc = su.scan(sliced(tmp_path, im))
     before = su.decide(sc, store())
@@ -112,8 +116,10 @@ def test_approved_junk_block_removed_unapproved_kept(tmp_path):
 
 @budget(1.0, load="fs")
 def test_approved_banner_cut_off_its_edge_block():
-    """Bring The Love ch87: the approved banner piece is removed at its hard join, the cover stays an undecided block
-    without probes."""
+    """Bring The Love ch87: the approved banner piece is removed at its hard join.
+
+    The cover stays an undecided block without probes.
+    """
     banner = sig_of(Image.open(BANNER).convert("RGB").crop((0, 0, 360, 166)))
     got = su.decide(su.scan(strip_of([BANNER])), store(("probe", banner, "junk", 3)))
     assert got["removed"] == [{"start": 0, "end": 166, "why": "match"}], got["removed"]
@@ -191,8 +197,10 @@ def test_a_unit_with_a_stored_decision_is_not_read():
 
 
 def glued_block(where):
-    """A scanned edge block of rows 0-200 with hard joins at rows 60 and 120, walked from the chapter edge: Bring The
-    Love ch87's banner glued onto the cover is such a block (1 join there)."""
+    """Return a scanned edge block of rows 0-200 with hard joins at rows 60 and 120, walked from the chapter edge.
+
+    Bring The Love ch87's banner glued onto the cover is such a block (1 join there).
+    """
 
     def join(a, b, rest):
         return {
@@ -229,8 +237,10 @@ def approver(approved, row=7):
     ids=["head-from-the-top", "tail-from-the-bottom"],
 )
 def test_match_blocks_cuts_at_the_first_join_whose_edge_piece_is_approved(where, approved, cut, left):
-    """Joins are tried from the chapter edge inward after the whole block; the first approved piece is removed, the
-    remainder is checked, then left as an edge block without probes."""
+    """Joins are tried from the chapter edge inward after the whole block.
+
+    The first approved piece is removed, the remainder is checked, then left as an edge block without probes.
+    """
     approve = approver(approved)
     removed, blocks = su.match_blocks([glued_block(where)], approve)
     assert removed == [{"start": cut[0], "end": cut[1], "where": where, "decision": 7, "why": "match"}], removed
@@ -280,10 +290,13 @@ def test_a_keep_decision_removes_nothing_and_leaves_nothing_undecided():
 
 @budget(2.0, load="fs")
 def test_a_block_decision_removes_the_magus_band_of_a_real_end_card(tmp_path):
-    """I Was the Real Head of the House c0003's D&C end card (fixture strip.png, its row 0 = strip row 111380) under
-    2,400 px of story, the Magus band the crop cuts at 29 px extended to 149 px (its last row repeated) so it is an edge
+    """A block decision removes the Magus band of a real end card; the card's other blocks stay undecided.
+
+    I Was the Real Head of the House c0003's D&C end card (fixture strip.png, its row 0 = strip row 111380) under 2,400
+    px of story, the Magus band the crop cuts at 29 px extended to 149 px (its last row repeated) so it is an edge
     block: a block decision on the band removes it, with the blank rows above it (strip end), and the card's other
-    blocks stay undecided."""
+    blocks stay undecided.
+    """
     a = np.asarray(Image.open(JUNK_FIX / "s5_2_real_head_c0003" / "strip.png").convert("RGB"))
     paths = [tmp_path / "001.png", tmp_path / "002.png"]
     fx.webtoon_page((720, 2400), seed=3).save(paths[0])
@@ -305,7 +318,10 @@ def test_a_block_decision_removes_the_magus_band_of_a_real_end_card(tmp_path):
 
 
 def tsig(n):
-    """A signature text of 1 tile distinct for each n (tiles of different n differ by far more than Hamming 6)."""
+    """Return a signature text of 1 tile distinct for each n.
+
+    Tiles of different n differ by far more than Hamming 6.
+    """
     return images.sig_to_str(((int.from_bytes(hashlib.sha256(str(n).encode()).digest()[:8], "big"),), 1.0))
 
 
@@ -400,10 +416,12 @@ def test_a_block_too_tall_to_match_a_band_is_never_rendered(tmp_path):
 
 
 def tail_chapter(bands, pieces, middle=()):
-    """A scan of a strip's tail without pixels: bands [(start, end, id) or (start, end, id, where)] are edge blocks
-    a block decision (id) removes, pieces [(start, end, std, ink)] the measured ink between them; the spans are both,
-    there are no gaps, the strip ends at the last of them. middle: ids whose band key also sits mid-chapter.
-    Returns (scan, decide_unit)."""
+    """Build a scan of a strip's tail without pixels.
+
+    bands [(start, end, id) or (start, end, id, where)] are edge blocks a block decision (id) removes, pieces [(start,
+    end, std, ink)] the measured ink between them; the spans are both, there are no gaps, the strip ends at the last of
+    them. middle: ids whose band key also sits mid-chapter. Returns (scan, decide_unit).
+    """
     bands = [(*b, "tail")[:4] for b in bands]
     spans = sorted([(s, e) for s, e, *_ in bands] + [(s, e) for s, e, *_ in pieces])
     sc = {
@@ -427,8 +445,11 @@ def piece(start, end, std=25.0, ink=200):
 
 
 def classes(bands, pieces, middle=()):
-    """{index into pieces: "blank" | "wedge" | "review"} as decide settles them: dropped why blank / wedge, or
-    undecided tail pieces; pieces before the credit start are absent."""
+    """Return how decide settles each tail piece.
+
+    {index into pieces: "blank" | "wedge" | "review"} as decide settles them: dropped why blank / wedge, or undecided
+    tail pieces; pieces before the credit start are absent.
+    """
     got = su.decide(*tail_chapter(bands, pieces, middle))
     why = {(r["start"], r["end"]): r["why"] for r in got["removed"]}
     review = {(u["start"], u["end"]) for u in got["undecided"] if u["kind"] == "piece"}
@@ -561,8 +582,11 @@ def test_an_unmeasured_tail_piece_fails_fast():
 
 @budget(2.0, load="fs")
 def test_pieces_after_the_first_tail_band_measured(tmp_path):
-    """Kept rows from the credit start on, split at every gap: a faint dot's rows are a measured piece of their own, no
-    W1 blank, the gaps around it blank; with its gutters it is WEDGE_PX or taller: reviewed, not a wedge."""
+    """Kept rows from the credit start on are split at every gap.
+
+    A faint dot's rows are a measured piece of their own, no W1 blank, the gaps around it blank; with its gutters it is
+    WEDGE_PX or taller: reviewed, not a wedge.
+    """
     speck = np.full((60, 200, 3), 255, np.uint8)
     speck[30, 100:102] = 0  # a faint line's dot: std < 3, ink > 40
     im = fx.stack(
@@ -587,7 +611,7 @@ def test_pieces_after_the_first_tail_band_measured(tmp_path):
 
 
 def layout(height, spans, width=1000):
-    """A Layout whose gaps are the walkable runs of at least 1 gutter between and around the spans."""
+    """Return a Layout whose gaps are the walkable runs of at least 1 gutter between and around the spans."""
     lay = su.Layout({"height": height, "width": width, "spans": spans, "gaps": []})
     gaps = [r for r in lay.runs() if r[1] - r[0] >= su.gutter(width)]
     return su.Layout({"height": height, "width": width, "spans": spans, "gaps": gaps})
@@ -622,8 +646,11 @@ def test_w1_drops_gaps_blank_uniform_and_unsignable_pieces():
 
 @budget(load="pure")
 def test_w3_reads_the_nearest_non_blank_neighbours():
-    """This Girl Is A Little Wild ch9: a short line between two credit bands is a wedge; a blank piece between it and a
-    band does not stop that; a removed non-band range does."""
+    """W3 reads the nearest non-blank neighbours (This Girl Is A Little Wild ch9).
+
+    A short line between two credit bands is a wedge; a blank piece between it and a band does not stop that; a
+    removed non-band range does.
+    """
     piece_ = {"start": 1100, "end": 1130, "gap": False, "blank": False, "uniform": False, "unsignable": False}
     piece_.update(std=40.0, ink=200)
     blank = dict(piece_, start=1130, end=1180, gap=True)
@@ -635,8 +662,11 @@ def test_w3_reads_the_nearest_non_blank_neighbours():
 
 @budget(load="pure")
 def test_w3_measures_a_piece_with_its_gutters():
-    """This Girl Is A Little Wild ch9: an 84 px line + 2 x 40 px gutters = 164 px between 2 credit bands is reviewed;
-    a 30 px line with 2 x 20 px gutters (70 px) is a wedge."""
+    """W3 measures a piece with its gutters (This Girl Is A Little Wild ch9).
+
+    An 84 px line + 2 x 40 px gutters = 164 px between 2 credit bands is reviewed; a 30 px line with 2 x 20 px gutters
+    (70 px) is a wedge.
+    """
     line = {"start": 1140, "end": 1224, "gap": False, "blank": False, "uniform": False, "unsignable": False}
     line.update(std=40.0, ink=200)
     gaps = [dict(line, start=1100, end=1140, gap=True), dict(line, start=1224, end=1264, gap=True)]
@@ -686,8 +716,11 @@ def test_the_join_rule_keeps_one_gutter_centred_takes_strip_ends_and_slivers():
 
 @budget(load="pure")
 def test_kept_tail_pieces_keep_one_gutter_between_them_after_w1_drops_the_gap():
-    """W1 drops every gap after the credit start; the join rule counts those blank rows, so kept pieces keep 1 gutter
-    between them, and 1 between the story and the first piece."""
+    """W1 drops every gap after the credit start.
+
+    The join rule counts those blank rows, so kept pieces keep 1 gutter between them, and 1 between the story and the
+    first piece.
+    """
     lay = layout(20000, [(0, 17900), (18000, 18100), (18200, 18300), (18400, 18500), (19000, 20000)])
     g = su.gutter(1000)
 
@@ -752,8 +785,11 @@ def test_uniform_and_unsignable_images_have_no_signature():
 
 @budget(load="pure")
 def test_a_key_the_series_knows_as_a_watermark_is_one_here_too():
-    """W2 across chapters (the bulk converter holds it for the whole series): band 855 sits once at this chapter's
-    tail and nowhere in its middle, but an earlier chapter showed it to be a watermark."""
+    """W2 across chapters (the bulk converter holds it for the whole series).
+
+    Band 855 sits once at this chapter's tail and nowhere in its middle, but an earlier chapter showed it to be a
+    watermark.
+    """
     known = [images.sig_from_str(tsig(855))]
     assert su.watermarks([removed_band(855), removed_band(1)], [], known) == {855}
 

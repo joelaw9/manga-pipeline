@@ -1,5 +1,7 @@
-"""Page images (contracts section 1): format detection from file contents, dimensions, decoding to 8-bit sRGB, and
-page classes. Copied from the bulk converter's optimizer/formats.py (its archive half is archive.py); reads no config.
+"""Page images (contracts section 1).
+
+Format detection from file contents, dimensions, decoding to 8-bit sRGB, and page classes. Copied from the bulk
+converter's optimizer/formats.py (its archive half is archive.py); reads no config.
 """
 
 import functools
@@ -74,8 +76,11 @@ _SIGNATURES = (
 
 
 def detect(data):
-    """Return the format constant for image bytes (needs the whole file for VP8X WebP): the first _SIGNATURES entry
-    the bytes start with, else a RIFF/WEBP stream's kind, else AVIF by its brand, else UNKNOWN."""
+    """Return the format constant for image bytes (needs the whole file for VP8X WebP).
+
+    The first _SIGNATURES entry the bytes start with, else a RIFF/WEBP stream's kind, else AVIF by its brand, else
+    UNKNOWN.
+    """
     fmt = next((fmt for prefix, fmt in _SIGNATURES if data[: len(prefix)] == prefix), None)
     if fmt is not None:
         return fmt
@@ -87,9 +92,11 @@ def detect(data):
 
 
 def dimensions(head):
-    """(width, height) from the first bytes of an image, without decoding. WebP needs this because
-    Pillow decodes the whole stream to learn the size. Returns None if the header isn't understood: always for an
-    AVIF cut short, whose size Pillow reads only from the whole file."""
+    """Return (width, height) from the first bytes of an image, without decoding.
+
+    WebP needs this because Pillow decodes the whole stream to learn the size. Returns None if the header isn't
+    understood: always for an AVIF cut short, whose size Pillow reads only from the whole file.
+    """
     if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         chunk = head[12:16]
         if chunk == b"VP8X" and len(head) >= VP8X_HEAD:
@@ -120,15 +127,17 @@ def page_size(path):
 
 
 def exif_orientation(data):
-    """A page's EXIF orientation from its header (1: none, or upright; XMP tiff:Orientation counts too). Image.getexif
-    of the base class reads only what the header holds: PngImageFile.getexif would decode the whole page to look for
-    an eXIf chunk after the pixels."""
+    """Return a page's EXIF orientation from its header (1: none, or upright; XMP tiff:Orientation counts too).
+
+    Image.getexif of the base class reads only what the header holds: PngImageFile.getexif would decode the whole page
+    to look for an eXIf chunk after the pixels.
+    """
     with Image.open(io.BytesIO(data)) as im:
         return Image.Image.getexif(im).get(ExifTags.Base.Orientation, 1)
 
 
 def is_srgb(icc):
-    """True for no profile or an sRGB profile (description read properly, incl. UTF-16 ICC v4 text)."""
+    """Return whether icc is no profile or an sRGB profile (description read properly, incl. UTF-16 ICC v4 text)."""
     if not icc:
         return True
     try:
@@ -139,21 +148,25 @@ def is_srgb(icc):
 
 def open_image(src):
     """Decode a page fully into an 8-bit image Pillow converts correctly, and close the file.
+
     - 16-bit gray (I;16) / 32-bit (I) are scaled to 8 bits; Pillow's own convert("L") clips them to white.
     - Palette images keep transparency (tRNS) as RGBA.
     - Pixels in a non-sRGB ICC profile are converted to sRGB, so everything downstream can drop the profile. A profile
       applies only to pixels of its own colour space: CMYK pixels in a CMYK profile go straight to sRGB; a profile of
       another space (Azumi's colour JPEGs carry a GRAY "Dot Gain 20%" profile from Ch.100 on) describes nothing here
       and is ignored (the pixels are taken as sRGB).
-    Returns (image, has_alpha)."""
+    Returns (image, has_alpha).
+    """
     with Image.open(io.BytesIO(src) if isinstance(src, (bytes, bytearray)) else src) as im:
         im.load()
         return from_loaded(im)
 
 
 def from_loaded(im):
-    """open_image of a page Pillow has opened and loaded already (a check that decoded it reuses that decode); im is
-    left as it is. Returns (image, has_alpha)."""
+    """Return open_image's result for a page Pillow has opened and loaded already.
+
+    A check that decoded it reuses that decode; im is left as it is. Returns (image, has_alpha).
+    """
     icc = im.info.get("icc_profile")
     profile = None if is_srgb(icc) else ImageCms.core.profile_frombytes(icc)
     space = profile.xcolor_space.strip() if profile else None
@@ -181,7 +194,7 @@ def from_loaded(im):
 
 
 def _to_srgb(im, profile):
-    """im's pixels converted from profile to sRGB, as a new RGB image."""
+    """Convert im's pixels from profile to sRGB, as a new RGB image."""
     out = ImageCms.profileToProfile(im, profile, ImageCms.createProfile("sRGB"), outputMode="RGB")
     if out is None:  # only an in-place conversion returns None
         msg = "ImageCms.profileToProfile returned no image"
@@ -194,9 +207,11 @@ ALPHA_WHITE = 1  # version of open_flat's compositing: page scans record it per 
 
 
 def open_flat(src):
-    """open_image with real alpha (any pixel under 255) composited onto white, the canvas rendered pages are built on:
-    the page as a rendered page shows it, and as the plan measures it. An opaque-alpha or alpha-free page comes back
-    exactly as open_image returns it. Returns (image, had real alpha)."""
+    """Decode a page as open_image does, with real alpha (any pixel under 255) composited onto white.
+
+    White is the canvas rendered pages are built on: the page as a rendered page shows it, and as the plan measures it.
+    An opaque-alpha or alpha-free page comes back exactly as open_image returns it. Returns (image, had real alpha).
+    """
     return flatten(*open_image(src))
 
 
@@ -208,17 +223,21 @@ def flatten(im, alpha):
 
 
 def may_have_alpha(path):
-    """True when a page's header allows transparency (an alpha band, or a transparency entry: PNG / GIF tRNS); a page
-    for which this is False has no real alpha, known without a decode."""
+    """Return whether a page's header allows transparency (an alpha band, or a transparency entry: PNG / GIF tRNS).
+
+    A page for which this is False has no real alpha, known without a decode.
+    """
     with Image.open(path) as im:
         return "A" in im.getbands() or "transparency" in im.info
 
 
 def to_gray(im, alpha):
-    """An open_image page as true gray (L, or LA with alpha) for a gray encode. A colour profile the page carried is
-    dropped: it can't describe gray pixels, and libpng readers (libjxl's ssimulacra2, the scorer before Vship) refuse a
-    gray PNG holding one (Gunslinger
-    Girl ch38-56, 83-86: sRGB-profiled colour JPEGs classed gray)."""
+    """Return an open_image page as true gray (L, or LA with alpha) for a gray encode.
+
+    A colour profile the page carried is dropped: it can't describe gray pixels, and libpng readers (libjxl's
+    ssimulacra2, the scorer before Vship) refuse a gray PNG holding one (Gunslinger Girl ch38-56, 83-86: sRGB-profiled
+    colour JPEGs classed gray).
+    """
     g = im.convert("LA" if alpha else "L")
     icc = g.info.get("icc_profile")
     if icc and ImageCms.core.profile_frombytes(icc).xcolor_space.strip() != "GRAY":
@@ -237,16 +256,20 @@ MARK_BLOCK = 8  # px: side of the colour tiles (classify, gray_mark_box)
 
 
 def _spread(rgb):
-    """Channel spread (max-min of R,G,B) of each pixel, channel by channel: numpy's reduction over the 3-value axis
-    is ~12x slower (it was most of the plan's page scan)."""
+    """Return the channel spread (max-min of R,G,B) of each pixel, computed channel by channel.
+
+    numpy's reduction over the 3-value axis is ~12x slower (it was most of the plan's page scan).
+    """
     a = np.asarray(rgb)
     r, g, b = a[..., 0], a[..., 1], a[..., 2]
     return np.maximum(np.maximum(r, g), b) - np.minimum(np.minimum(r, g), b)
 
 
 def _tile_spread(spread, block):
-    """Mean channel spread (_spread) of each block x block tile; None when the page is smaller than a tile (then the
-    page's own max spread is the strength)."""
+    """Return the mean channel spread (_spread) of each block x block tile; None when the page is smaller than a tile.
+
+    Then the page's own max spread is the strength.
+    """
     h, w = (spread.shape[0] // block) * block, (spread.shape[1] // block) * block
     if not h or not w:
         return None, float(spread.max())
@@ -280,8 +303,11 @@ def colour_mask(rgb, colour_block, block):
 
 
 def _mark_boxes(mask, block):
-    """[(x0, y0, x1, y1)] pixel box of each coloured component. Components join after MARK_DILATION tiles of
-    dilation, and each box is the dilated component's (the extent the gray-mark size caps were calibrated on)."""
+    """Return the [(x0, y0, x1, y1)] pixel box of each coloured component.
+
+    Components join after MARK_DILATION tiles of dilation, and each box is the dilated component's (the extent the
+    gray-mark size caps were calibrated on).
+    """
     grown = mask
     for _ in range(MARK_DILATION):
         n = grown.copy()
@@ -294,11 +320,13 @@ def _mark_boxes(mask, block):
 
 
 def gray_mark_box(rgb, colour_block, limits, block=MARK_BLOCK):
-    """The pixel box (x0, y0, x1, y1) of the page's one compact colour mark (a scanlation badge), or None when the
-    page is not gray-mark: exactly 1 component, under limits["mark_max_frac"] of the page's tiles, box within
-    mark_max_w x mark_max_h of the page and at least mark_min_area px2 (a lone faint speck is not a badge; it keeps the
-    page colour). The one mark finder: Part C (optimizer.marks.measure) measures the logo inside this box. limits: the
-    config's integrity section, the caller's own (never config.cached())."""
+    """Return the pixel box (x0, y0, x1, y1) of the page's one compact colour mark (a scanlation badge).
+
+    None when the page is not gray-mark: exactly 1 component, under limits["mark_max_frac"] of the page's tiles, box
+    within mark_max_w x mark_max_h of the page and at least mark_min_area px2 (a lone faint speck is not a badge; it
+    keeps the page colour). The one mark finder: Part C (optimizer.marks.measure) measures the logo inside this box.
+    limits: the config's integrity section, the caller's own (never config.cached()).
+    """
     return _mark_box(colour_mask(rgb, colour_block, block), np.asarray(rgb).shape[:2], limits, block)
 
 
@@ -321,10 +349,13 @@ def _mark_box(mask, shape, limits, block):
 
 
 def classify(rgb, colour_block, tint_p99, limits):
-    """(page class, mark box): gray-mark with its mark's box (gray_mark_box); colour: any other coloured patch
-    (colour strength, the strongest tile mean channel spread, above colour_block); tinted: no patch but a faint
-    overall cast (sepia, yellowed scan, p99 spread above tint_p99); gray: none of these. The box is None for every
-    class but gray-mark. limits: the config's integrity section (mark size limits)."""
+    """Return (page class, mark box) of a page.
+
+    gray-mark with its mark's box (gray_mark_box); colour: any other coloured patch (colour strength, the strongest tile
+    mean channel spread, above colour_block); tinted: no patch but a faint overall cast (sepia, yellowed scan, p99
+    spread above tint_p99); gray: none of these. The box is None for every class but gray-mark. limits: the config's
+    integrity section (mark size limits).
+    """
     spread = _spread(rgb)  # once: colour strength, gray_mark_box and the tint test share it
     tiles, whole = _tile_spread(spread, MARK_BLOCK)
     if (whole if tiles is None else float(tiles.max())) > colour_block:
@@ -334,7 +365,7 @@ def classify(rgb, colour_block, tint_p99, limits):
 
 
 def page_class(rgb, colour_block, tint_p99, limits):
-    """The page class of classify (gray | tinted | colour | gray-mark)."""
+    """Return the page class of classify (gray | tinted | colour | gray-mark)."""
     return classify(rgb, colour_block, tint_p99, limits)[0]
 
 
@@ -360,6 +391,7 @@ def signature(im):
 
 
 def matches(a, b, threshold=PHASH_THRESHOLD, aspect_tol=ASPECT_TOLERANCE):
+    """Return whether 2 signatures match: as many tiles, aspects within aspect_tol, each tile within threshold bits."""
     (ta, aa), (tb, ab) = a, b
     return (
         len(ta) == len(tb)
@@ -369,18 +401,19 @@ def matches(a, b, threshold=PHASH_THRESHOLD, aspect_tol=ASPECT_TOLERANCE):
 
 
 def is_uniform(im, tolerance=UNIFORM_TOLERANCE):
+    """Return whether every RGB channel of im spans at most tolerance levels."""
     lo_hi = im.convert("RGB").getextrema()
     return all(hi - lo <= tolerance for lo, hi in lo_hi)
 
 
 @functools.cache
 def uniform_tiles():
-    """The tile hashes of uniform images (the pHash of every gray level)."""
+    """Return the tile hashes of uniform images (the pHash of every gray level)."""
     return frozenset(signature(Image.new("L", (64, 64), v))[0][0] for v in range(256))
 
 
 def unsignable(sig):
-    """A signature whose every tile is a uniform image's: it would match any blank or flat rows."""
+    """Return whether every tile of a signature is a uniform image's: it would match any blank or flat rows."""
     return set(sig[0]) <= uniform_tiles()
 
 
@@ -400,6 +433,7 @@ def sig_to_str(sig):
 
 
 def sig_from_str(s):
+    """Return the signature of its text form (sig_to_str's 'tiles:tiles|aspect')."""
     tiles, aspect = s.split("|")
     return _tiles(tiles), float(aspect)
 
@@ -413,8 +447,11 @@ _BITS = 1 << np.arange(63, -1, -1, dtype=np.uint64)
 
 
 def phash(thumb):
-    """pHash (imagehash layout: 32x32 luma, 2-D DCT, 8x8 low band incl. DC > its median) of a 64x64 luma thumbnail,
-    as a 64-bit int. Reuses the page's thumbnail, so no second decode."""
+    """Return the pHash of a 64x64 luma thumbnail, as a 64-bit int.
+
+    imagehash layout: 32x32 luma, 2-D DCT, 8x8 low band incl. DC > its median. Reuses the page's thumbnail, so no second
+    decode.
+    """
     small = thumb.astype(np.float64).reshape(32, 2, 32, 2).mean(axis=(1, 3))
     low = (_DCT @ small @ _DCT.T)[:8, :8]
     return int(_BITS[(low > np.median(low)).ravel()].sum())
@@ -432,9 +469,12 @@ def _jpeg_sampling(data):
 
 
 def chroma(data, fmt):
-    """A source image's chroma resolution as avifenc --yuv: a JPEG's stored subsampling (444 / 422 / 420; an
-    unrecognised one counts as 444, never below the source), full chroma (444) for PNG, lossless WebP, GIF and BMP,
-    420 for lossy WebP and anything else. A single-component (grayscale) JPEG has no chroma: 400. Header only."""
+    """Return a source image's chroma resolution as avifenc --yuv.
+
+    A JPEG's stored subsampling (444 / 422 / 420; an unrecognised one counts as 444, never below the source), full
+    chroma (444) for PNG, lossless WebP, GIF and BMP, 420 for lossy WebP and anything else. A single-component
+    (grayscale) JPEG has no chroma: 400. Header only.
+    """
     if fmt == JPEG:
         mode, sampling = _jpeg_sampling(data)
         return "400" if mode == GRAY_JPEG_MODE else JPEG_CHROMA.get(sampling, "444")
@@ -468,10 +508,12 @@ DECODED_FIELDS = ("width", "height", "blank", "phash", "junk_signature", "colour
 
 
 def _measure_decoded(data):
-    """The DECODED_FIELDS of a page from one decode: width, height, blank and phash from the stored pixels' 64x64 luma
-    thumbnail (as the bulk converter's integrity check; phash None for a blank page), junk_signature and colour_class
-    from the page composited onto white (open_flat, as the bulk converter's page scan; junk_signature None for a
-    uniform page)."""
+    """Return the DECODED_FIELDS of a page from one decode.
+
+    width, height, blank and phash from the stored pixels' 64x64 luma thumbnail (as the bulk converter's integrity
+    check; phash None for a blank page), junk_signature and colour_class from the page composited onto white (open_flat,
+    as the bulk converter's page scan; junk_signature None for a uniform page).
+    """
     with Image.open(io.BytesIO(data)) as raw:
         raw.load()
         thumb = np.asarray(raw.convert("L").resize(THUMB))
@@ -488,10 +530,12 @@ def _measure_decoded(data):
 
 
 def measure_pages(cbz, known=None, *, decode=_measure_decoded):
-    """The one page measurement: [{PAGE_FIELDS}] of a CBZ's pages in archive.archive_pages order. known: {index: dict
-    of fields measured before}; a page keeps its known fields and gets only the missing ones, and is decoded only when
-    a DECODED_FIELDS field is missing (decode(page bytes): its DECODED_FIELDS). A known sha1
-    that is not the page's raises ValueError (stale measurements). Pure: writes nothing."""
+    """Return [{PAGE_FIELDS}] of a CBZ's pages in archive.archive_pages order: the one page measurement.
+
+    known: {index: dict of fields measured before}; a page keeps its known fields and gets only the missing ones, and is
+    decoded only when a DECODED_FIELDS field is missing (decode(page bytes): its DECODED_FIELDS). A known sha1 that is
+    not the page's raises ValueError (stale measurements). Pure: writes nothing.
+    """
     known = known or {}
     out = []
     for index, (name, data) in enumerate(archive.pages(cbz)):
@@ -515,9 +559,11 @@ def measure_pages(cbz, known=None, *, decode=_measure_decoded):
 
 
 def blank(rgb, box, fill):
-    """A copy of the page (RGB uint8 array) with `box` filled with `fill`: a logo's blank (SPEC "Junk decisions", the
-    chapter edit's `blank`). Raises ValueError for a box outside the page or a fill that is not one RGB colour; the
-    input is never modified."""
+    """Return a copy of the page (RGB uint8 array) with `box` filled with `fill`.
+
+    A logo's blank (SPEC "Junk decisions", the chapter edit's `blank`). Raises ValueError for a box outside the page or
+    a fill that is not one RGB colour; the input is never modified.
+    """
     out = np.array(rgb, dtype=np.uint8)
     x0, y0, x1, y1 = box
     h, w = out.shape[:2]

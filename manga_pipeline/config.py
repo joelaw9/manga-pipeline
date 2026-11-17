@@ -1,5 +1,7 @@
-"""Load config.yaml from the project root, overridden by environment variables and --set, checked against
-config.yaml.example (SPEC "Config")."""
+"""Load config.yaml from the project root, overridden by environment variables and --set (SPEC "Config").
+
+Checked against config.yaml.example.
+"""
 
 import os
 import re
@@ -15,7 +17,7 @@ DECIMAL = re.compile(r"-?[0-9]+(\.[0-9]+)?")
 
 
 class ConfigError(ValueError):
-    pass
+    """The config does not load, does not match config.yaml.example, or holds an invalid value (SPEC "Config")."""
 
 
 class _Process:
@@ -28,9 +30,11 @@ _process = _Process()
 
 
 def load(path=None, example=None, env=None, sets=()):
-    """The config file overridden by env (None = os.environ) and then by sets ("key=value" strings), refused unless
-    the merged keys and value types match the example's: a null example value allows any type, an empty example
-    mapping allows any keys, an int stands in for a float and a bool for nothing else."""
+    """Return the config file overridden by env (None = os.environ) and then by sets ("key=value" strings).
+
+    Refused unless the merged keys and value types match the example's: a null example value allows any type, an empty
+    example mapping allows any keys, an int stands in for a float and a bool for nothing else.
+    """
     path = Path(path or ROOT / "config.yaml")
     schema = _read(Path(example or EXAMPLE))
     cfg = _read(path, allow_empty=True)
@@ -55,20 +59,22 @@ def reset():
 
 
 def cached():
-    """The process config: init's, else config.yaml + the environment, loaded once. Read-only: callers must not
-    modify it."""
+    """Return the process config: init's, else config.yaml + the environment, loaded once.
+
+    Read-only: callers must not modify it.
+    """
     if _process.cfg is None:
         _process.cfg = load()
     return _process.cfg
 
 
 def secret_keys(example=None):
-    """The key paths of the secrets: the keys whose example value is null (SPEC "Config")."""
+    """Return the key paths of the secrets: the keys whose example value is null (SPEC "Config")."""
     return [parts for parts, value in _leaves(_read(Path(example or EXAMPLE))).items() if value is None]
 
 
 def abs_path(value):
-    """A configured path: absolute as given, else relative to the project root."""
+    """Return a configured path as a Path: absolute as given, else relative to the project root."""
     p = Path(value)
     return p if p.is_absolute() else ROOT / p
 
@@ -82,9 +88,11 @@ class PathError(ValueError):
 
 
 def to_stored(cfg, path):
-    """The stored form of a path on this machine: the share root it lies under (paths.<root>, compared as configured:
-    no link, drive letter or UNC name is resolved) and the path below it, with / separators. PathError when it lies
-    under no root."""
+    """Return the stored form of a path on this machine.
+
+    The share root it lies under (paths.<root>, compared as configured: no link, drive letter or UNC name is resolved)
+    and the path below it, with / separators. PathError when it lies under no root.
+    """
     path = Path(path)
     if ".." in path.parts:  # compared as written: a .. would pass for a path under the root it leaves
         msg = f"{path} holds '..': a stored path names no parent folder"
@@ -99,7 +107,10 @@ def to_stored(cfg, path):
 
 
 def to_local(cfg, stored):
-    """This machine's path for a stored path (to_stored's form). PathError for a text that names no share root."""
+    """Return this machine's path for a stored path (to_stored's form).
+
+    PathError for a text that names no share root.
+    """
     root, _, below = stored.partition("/")
     if root not in SHARE_ROOTS or "\\" in stored or ".." in below.split("/"):
         msg = f"stored path {stored!r} is not <share root>/<path>"
@@ -208,7 +219,7 @@ def _convert(text, schema, source):
 
 
 def _null_sections(cfg, schema):
-    """An empty section (YAML null) where the example has a mapping reads as an empty mapping."""
+    """Make an empty section (YAML null) where the example has a mapping read as an empty mapping."""
     for k, sub in schema.items():
         if isinstance(sub, dict) and k in cfg:
             if cfg[k] is None:

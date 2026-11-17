@@ -1,5 +1,7 @@
-"""The junk commands Claude and a person use (SPEC "Junk decisions", review; "CLI"): `junk list`, `junk show`,
-`junk decide`. No lock; 1 short transaction each. `junk review` (the command that starts Claude) is review_run.
+"""The junk commands Claude and a person use (SPEC "Junk decisions", review; "CLI").
+
+`junk list`, `junk show`, `junk decide`. No lock; 1 short transaction each. `junk review` (the command that starts
+Claude) is review_run.
 """
 
 from manga_pipeline import db
@@ -14,16 +16,21 @@ class Refused(ValueError):  # noqa: N818  # a signal, not an error (PEP 8: the E
 
 
 def listable(conn, cfg):
-    """The open candidates Claude may be shown: neither unsure nor stuck, fewest reviews first, at most
-    junk.review_batch."""
+    """Return the open candidates Claude may be shown.
+
+    Neither unsure nor stuck, fewest reviews first, at most junk.review_batch.
+    """
     limit = cfg["junk"]["review_limit"]
     rows = [r for r in candidates.open_rows(conn) if r["verdict"] is None and r["reviews"] < limit]
     return rows[: cfg["junk"]["review_batch"]]
 
 
 def listing(conn, cfg, review_id=None, *, everything=False):
-    """The candidates `junk list` prints: listable ones, or (everything) every open candidate. With a review id, each
-    listed candidate records it (counted once when that review ends). `everything` is refused under a review id."""
+    """Return the candidates `junk list` prints: listable ones, or (everything) every open candidate.
+
+    With a review id, each listed candidate records it (counted once when that review ends). `everything` is refused
+    under a review id.
+    """
     if everything and review_id:
         msg = "junk list --all is for a person; it is refused inside a review"
         raise Refused(msg)
@@ -47,6 +54,7 @@ def chapters(conn, candidate_id):
 
 
 def get_open(conn, candidate_id):
+    """Return the candidate row of candidate_id; Refused unless it is open."""
     row = conn.execute("SELECT * FROM junk_candidate WHERE id = %s", (candidate_id,)).fetchone()
     if row is None or not candidates.is_open(conn, row):
         msg = f"junk candidate {candidate_id} is not open (unknown, decided, or no chapter waits on it)"
@@ -55,8 +63,11 @@ def get_open(conn, candidate_id):
 
 
 def decide(conn, candidate_id, verdict, decider, at):
-    """Record a verdict on an open candidate: junk / keep become a series-scoped decision on its key; unsure marks it
-    (its chapters become needs_human at the next process run)."""
+    """Record a verdict on an open candidate.
+
+    junk / keep become a series-scoped decision on its key; unsure marks it (its chapters become needs_human at the
+    next process run).
+    """
     if verdict not in VERDICTS:
         msg = f"verdict must be one of {VERDICTS}, got {verdict!r}"
         raise Refused(msg)

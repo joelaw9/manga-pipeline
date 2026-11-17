@@ -1,5 +1,7 @@
-"""A download of a series Kavita holds, through intake, process and export into its series folder, indexed and
-confirmed (SPEC "Publishing", "Chapter stages", "Bad downloads"); PLAN Phase 3 "Done when" on the fakes."""
+"""A download of a series Kavita holds, through intake, process and export into its series folder.
+
+Indexed and confirmed (SPEC "Publishing", "Chapter stages", "Bad downloads"); PLAN Phase 3 "Done when" on the fakes.
+"""
 
 import os
 import time
@@ -179,7 +181,7 @@ def scans(world):
 
 
 def an_hour_passes(world):
-    """The last scan request and every wait so far are older than kavita.rescan_after_minutes."""
+    """Make the last scan request and every wait so far older than kavita.rescan_after_minutes."""
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute("UPDATE chapter SET updated_at = '2000-01-01T00:00:00+00:00' WHERE status = 'waiting'")
         conn.execute("UPDATE meta SET value = '2000-01-01T00:00:01+00:00' WHERE key = %s", (export.REQUESTED_AT,))

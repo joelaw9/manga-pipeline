@@ -71,7 +71,7 @@ def test_a_top_up_adds_only_allowlisted_names_and_never_an_excluded_one(rules):
 
 
 def mb_with(*named, genres=()):
-    """A MangaBaka record with at least 10 tags (not sparse): the named (name, weight) ones plus fillers."""
+    """Return a MangaBaka record with at least 10 tags (not sparse): the named (name, weight) ones plus fillers."""
     filler = [{"name": f"Filler {i}", "weight": "incidental"} for i in range(10)]
     return {"genres": list(genres), "tags_v2": [{"name": n, "weight": w} for n, w in named] + filler}
 

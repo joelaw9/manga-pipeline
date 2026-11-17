@@ -36,8 +36,11 @@ IMAGES = (".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif")
 
 class FakeKavita(kavita.Kavita):
     def __init__(self, libraries, path_map):
-        """libraries: {library id: its folder as Kavita sees it}; path_map: Kavita prefix to local prefix, so each
-        library folder is a real (temp) folder."""
+        """Store the libraries and the path map, with no series yet.
+
+        libraries: {library id: its folder as Kavita sees it}; path_map: Kavita prefix to local prefix, so each library
+        folder is a real (temp) folder.
+        """
         super().__init__("http://kavita.invalid", "fake-key", path_map, NoNetwork("kavita"))
         self.library_folders = {library_id: folder.rstrip("/") for library_id, folder in libraries.items()}
         self.series_rows = {}  # series id: DTO
@@ -53,8 +56,10 @@ class FakeKavita(kavita.Kavita):
     # --- building state
 
     def add_series(self, name, folder, library_id=None, localized="", original=None):
-        """A series Kavita already holds, with every CBZ now in <library folder>/<folder> indexed into it, whatever
-        the files say. folder may be nested ("Local/Name"). Returns the series id."""
+        """Add a series Kavita already holds, with every CBZ now in <library folder>/<folder> indexed into it.
+
+        Indexed whatever the files say. folder may be nested ("Local/Name"). Returns the series id.
+        """
         library_id = next(iter(self.library_folders)) if library_id is None else library_id
         series_id = self._add(library_id, name, f"{self.library_folders[library_id]}/{folder}", localized, original)
         for path in self._cbz_in(self.series_rows[series_id]["lowestFolderPath"]):
@@ -142,9 +147,11 @@ class FakeKavita(kavita.Kavita):
             self._scan(library_id)
 
     def _scan(self, library_id):
-        """Index again every CBZ in the library, each into the series its name matches;
-        then delete every series of the library left with no file, and move the others' folders to where their files
-        are."""
+        """Index again every CBZ in the library, each into the series its name matches.
+
+        Then delete every series of the library left with no file, and move the others' folders to where their files
+        are.
+        """
         top = self.library_folders[library_id]
         on_disk = [self._kavita_path(folder) for folder, _, _ in os.walk(self.local_path(top))]
         indexed = [p.rpartition("/")[0] for p in self.files if p.startswith(top + "/")]
@@ -174,8 +181,11 @@ class FakeKavita(kavita.Kavita):
         return None
 
     def _index(self, series_id, path, before):
-        """Index 1 file into a series. A file the series held before the scan under the same volume keeps its ids and
-        reading progress, and with stale_sizes its old size; a re-read file's chapter gets a later lastModifiedUtc."""
+        """Index 1 file into a series.
+
+        A file the series held before the scan under the same volume keeps its ids and reading progress, and with
+        stale_sizes its old size; a re-read file's chapter gets a later lastModifiedUtc.
+        """
         local = self.local_path(path)
         try:
             with zipfile.ZipFile(local) as archive:
@@ -214,7 +224,7 @@ class FakeKavita(kavita.Kavita):
         return series_id
 
     def _folder_fields(self, library_id, lowest):
-        """folderPath and lowestFolderPath of a series whose files' common parent is `lowest`."""
+        """Return folderPath and lowestFolderPath of a series whose files' common parent is `lowest`."""
         root = self.library_folders[library_id]
         top = lowest[len(root) + 1 :].split("/")[0]
         return {"folderPath": f"{root}/{top}" if top else root, "lowestFolderPath": lowest}
@@ -227,7 +237,7 @@ class FakeKavita(kavita.Kavita):
         return sorted(f"{folder}/{e.name}" for e in os.scandir(local) if e.is_file() and e.name.endswith(".cbz"))
 
     def _kavita_path(self, local):
-        """A local folder as Kavita sees it (the reverse of local_path, for folders under a library root)."""
+        """Return a local folder as Kavita sees it (the reverse of local_path, for folders under a library root)."""
         for root in self.library_folders.values():
             local_root = self.local_path(root)
             if os.path.commonpath([local_root, local]) == str(local_root):
@@ -247,7 +257,7 @@ class FakeKavita(kavita.Kavita):
 
 
 def _volume_in(local):
-    """The ComicInfo Volume a scan reads from a CBZ, or None."""
+    """Return the ComicInfo Volume a scan reads from a CBZ, or None."""
     try:
         with zipfile.ZipFile(local) as archive:
             return (ET.fromstring(archive.read("ComicInfo.xml")).findtext("Volume") or "").strip() or None
@@ -256,8 +266,10 @@ def _volume_in(local):
 
 
 def _names_in(local, folder_name):
-    """(Series, LocalizedSeries) a scan reads from a CBZ: its ComicInfo.xml values, the folder's name for Series when
-    the file has none."""
+    """Return (Series, LocalizedSeries) a scan reads from a CBZ.
+
+    Its ComicInfo.xml values, the folder's name for Series when the file has none.
+    """
     try:
         with zipfile.ZipFile(local) as archive:
             root = ET.fromstring(archive.read("ComicInfo.xml"))

@@ -1,5 +1,6 @@
-"""A series' source ids (SPEC "Source ids"): read from each origin's data, in 1 form per source, and judged for
-agreement. Pure: the caller fetches and stores.
+"""A series' source ids (SPEC "Source ids"): read from each origin's data, in 1 form per source, judged for agreement.
+
+Pure: the caller fetches and stores.
 
 Forms: AniList, MyAnimeList and MangaBaka ids are decimal text; a MangaUpdates id is the decimal of the number its
 base-36 text spells (an all-digit MangaUpdates link is a retired legacy id and is ignored); a MangaDex id is its
@@ -25,7 +26,7 @@ KIND_ID_SITES = {
 
 
 def form(source, value):
-    """The id in its source's form, or None when value is not one (ValueError for an unknown source)."""
+    """Return the id in its source's form, or None when value is not one (ValueError for an unknown source)."""
     text = str(value).strip().lower() if value is not None else ""
     if source not in SOURCES:
         msg = f"unknown source {source!r}: one of {', '.join(SOURCES)}"
@@ -43,7 +44,7 @@ def form(source, value):
 
 
 def mangaupdates_link(text):
-    """A MangaUpdates id from a link's base-36 text; None for an all-digit (legacy) one."""
+    """Return a MangaUpdates id from a link's base-36 text; None for an all-digit (legacy) one."""
     return None if text.isdigit() else form("mangaupdates", text)
 
 
@@ -81,8 +82,11 @@ def _pair(source, value):
 
 
 def suwayomi_ids(manga):
-    """Ids of a Suwayomi manga: its AniList and MangaUpdates tracker records, and the MangaDex id of a MangaDex
-    source's manga URL ("/title/<uuid>")."""
+    """Return the ids of a Suwayomi manga.
+
+    Its AniList and MangaUpdates tracker records, and the MangaDex id of a MangaDex source's manga URL
+    ("/title/<uuid>").
+    """
     found = []
     for record in manga["trackRecords"]["nodes"]:
         source = {TRACKER_ANILIST: "anilist", TRACKER_MANGAUPDATES: "mangaupdates"}.get(record["trackerId"])
@@ -103,7 +107,7 @@ def kavita_ids(series, metadata):
 
 
 def mangabaka_ids(record):
-    """A MangaBaka record's own id and its cross-links (AniList, MangaUpdates, MyAnimeList)."""
+    """Return a MangaBaka record's own id and its cross-links (AniList, MangaUpdates, MyAnimeList)."""
     links = record.get("source") or {}
 
     def linked(key):
@@ -120,7 +124,7 @@ def mangabaka_ids(record):
 
 
 def mangadex_ids(record):
-    """A MangaDex record's own id and its cross-links (`links.al`, `links.mu`, `links.mal`)."""
+    """Return a MangaDex record's own id and its cross-links (`links.al`, `links.mu`, `links.mal`)."""
     links = (record.get("attributes") or {}).get("links") or {}
     mu = links.get("mu")
     found = [
@@ -133,14 +137,17 @@ def mangadex_ids(record):
 
 
 def anilist_ids(media):
-    """An AniList record's own id and its MyAnimeList id (`idMal`)."""
+    """Return an AniList record's own id and its MyAnimeList id (`idMal`)."""
     found = [_pair("anilist", media.get("id")), _pair("myanimelist", media.get("idMal"))]
     return [pair for pair in found if pair]
 
 
 def resolve(rows):
-    """rows: (source, origin, id) of 1 series. Returns ({source: id}, problem): the agreed id per source, and None,
-    or the disagreement as text. A `human` id is the source's id whatever the other origins hold."""
+    """Resolve 1 series' ids into the agreed id per source.
+
+    rows: (source, origin, id) of 1 series. Returns ({source: id}, problem): the agreed id per source, and None, or
+    the disagreement as text. A `human` id is the source's id whatever the other origins hold.
+    """
     by_source = {}
     for source, origin, value in dict.fromkeys(rows):
         by_source.setdefault(source, []).append((origin, value))

@@ -1,6 +1,8 @@
-"""New-series publishing (SPEC "Publishing", "Metadata checks"): an admitted new series lands whole in its own folder
-under the run's 1 library scan, never while a scan is awaited; once Kavita lists it, its id is found by its name and
-folder, once per run, and it is an ordinary series."""
+"""New-series publishing (SPEC "Publishing", "Metadata checks").
+
+An admitted new series lands whole in its own folder under the run's 1 library scan, never while a scan is awaited;
+once Kavita lists it, its id is found by its name and folder, once per run, and it is an ordinary series.
+"""
 
 from types import SimpleNamespace
 
@@ -19,7 +21,10 @@ def world(tmp_path):
 
 
 def ready(world, title="Brand New Thing", chapters=(1, 2, 3), al_id=7):
-    """A new series whose chapters all wait for export at comicinfo: admitted, then taken, validated and processed."""
+    """Add a new series whose chapters all wait for export at comicinfo.
+
+    Admitted, then taken, validated and processed.
+    """
     media = {"id": al_id, "format": "MANGA", "title": {"romaji": title, "english": None, "native": None}}
     world.sources.anilist.results[title] = [media]
     world.sources.anilist.records[("media", str(al_id))] = media

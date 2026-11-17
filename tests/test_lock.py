@@ -1,5 +1,8 @@
-"""lock.held: run locks are session locks of the database; 1 session per lock name, several names all or nothing, the
-idle lock shared or exclusive, none when lock.enabled is false; a lock dies with its session (SPEC "Run lock")."""
+"""lock.held: run locks are session locks of the database (SPEC "Run lock").
+
+1 session per lock name, several names all or nothing, the idle lock shared or exclusive, none when lock.enabled is
+false; a lock dies with its session.
+"""
 
 from contextlib import closing
 

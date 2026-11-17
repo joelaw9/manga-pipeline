@@ -1,6 +1,9 @@
-"""clients.suwayomi: GraphQL errors, paging, the reads, the writes' requests, the source-call rules and the download
-file names (SPEC "Services"). Replies under tests/fixtures_api were recorded from a real Suwayomi v2.4.2366 by reads
-only; the replies of the calls that write are written by hand from its schema."""
+"""clients.suwayomi (SPEC "Services").
+
+GraphQL errors, paging, the reads, the writes' requests, the source-call rules and the download file names. Replies
+under tests/fixtures_api were recorded from a real Suwayomi v2.4.2366 by reads only; the replies of the calls that
+write are written by hand from its schema.
+"""
 
 import copy
 import json
@@ -31,7 +34,7 @@ def recorded(name):
 
 
 def client(*answers):
-    """A client answered by `answers`, 1 per request in order."""
+    """Return a client answered by `answers`, 1 per request in order."""
     service = CannedService("suwayomi", {GRAPHQL: Each(answers)})
     return suwayomi.Suwayomi("http://suwayomi.invalid/", service), service
 

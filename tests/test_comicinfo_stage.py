@@ -1,5 +1,7 @@
-"""The comicinfo stage's ComicInfo.xml (SPEC "Metadata" ComicInfo, "Publishing"): series fields from stored records,
-the chapter's source, pages, and the folder check before publish."""
+"""The comicinfo stage's ComicInfo.xml (SPEC "Metadata" ComicInfo, "Publishing").
+
+Series fields from stored records, the chapter's source, pages, and the folder check before publish.
+"""
 
 import io
 import xml.etree.ElementTree as ET
@@ -191,9 +193,11 @@ def png(width, height=1400):
 
 @budget(load="db", seconds=5)
 def test_a_mangadex_series_names_its_new_chapter_and_side_story_and_covers_the_new_volume(world):
-    """SPEC "Publishing": the volume from the recorded basis (MangaDex), a side story in the next volume after the
-    main story, numbered and titled as the bulk converter does; the first chapter of a covered volume takes MangaDex's
-    cover of that volume."""
+    """SPEC "Publishing": the volume from the recorded basis (MangaDex).
+
+    A side story goes in the next volume after the main story, numbered and titled as the bulk converter does; the first
+    chapter of a covered volume takes MangaDex's cover of that volume.
+    """
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", 1), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", 1))
     kavita_id = world.kavita_series("Solo Leveling", bulk=bulk, basis="mangadex")
     world.kavita.metadata_rows[kavita_id] = {"seriesId": kavita_id, "webLinks": f"https://mangadex.org/title/{MD}"}

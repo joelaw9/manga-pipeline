@@ -1,5 +1,7 @@
-"""`metadata import STATE_FILE CONFIG_FILE` (SPEC "Metadata checks", Import): the old metadata tool's ids, covers and
-written fields, and its config's manga overrides, into the database. Run again, it replaces what it imported before.
+"""`metadata import STATE_FILE CONFIG_FILE` (SPEC "Metadata checks", Import): the old metadata tool's data imported.
+
+The old metadata tool's ids, covers and written fields, and its config's manga overrides, into the database. Run
+again, it replaces what it imported before.
 """
 
 import json
@@ -19,7 +21,7 @@ OLD_SOURCES = {"al": "anilist", "mu": "mangaupdates", "md": "mangadex", "mal": "
 
 
 def read_state(path):
-    """The state file's parts the import reads; Refused when it is not the old tool's state file."""
+    """Return the state file's parts the import reads; Refused when it is not the old tool's state file."""
     try:
         state = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -32,8 +34,10 @@ def read_state(path):
 
 
 def read_overrides(path):
-    """{Kavita series name: Suwayomi manga id or title}: the config's `overrides`, then its `map` file's (a path
-    relative to the config's folder)."""
+    """Return the config's manga overrides as {Kavita series name: Suwayomi manga id or title}.
+
+    The config's `overrides`, then its `map` file's (a path relative to the config's folder).
+    """
     try:
         old = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as e:
@@ -55,6 +59,11 @@ def read_overrides(path):
 
 
 def run(ctx: workflow.Context, state, overrides):
+    """Import the state file's ids, covers and written fields of each in-scope library series, then link the overrides.
+
+    The library's series are synced to rows first; a series the state file no longer names loses what an earlier
+    import gave it. Logs the counts imported, missing and linked.
+    """
     conn = ctx.conn
     listing = ctx.kavita.series_in_library(ctx.cfg["kavita"]["library_id"])
     library.sync(ctx, listing)

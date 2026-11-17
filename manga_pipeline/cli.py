@@ -1,4 +1,4 @@
-"""Command-line entry point (SPEC "CLI", "Run lock", "Logging", "Preflight"): python -m manga_pipeline.cli
+"""Command-line entry point, `python -m manga_pipeline.cli` (SPEC "CLI", "Run lock", "Logging", "Preflight").
 
 COMMANDS is the command table: each command's locks, log file, preflight checks and handler. Every command runs in
 the same order: config, its connection and locks (a command with locks), logging, its checks, the schema steps (a
@@ -91,6 +91,8 @@ EDIT_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SHARE_FOLDERS_PRESENT, pre
 
 @dataclass(frozen=True)
 class Command:
+    """1 row of the command table: a command's locks, idle mode, log file, preflight checks and handler."""
+
     locks: tuple[str, ...]  # run locks taken for the run (a part's name stands for workflow.owner of it); empty = none
     idle: str | None  # how the run holds lock.IDLE: lock.SHARED, lock.EXCLUSIVE or None
     log: str | None  # log file name (<log>.log); None = console only
@@ -101,10 +103,12 @@ class Command:
 
     @property
     def locked(self):
+        """Return whether the command takes any run lock: its own locks or lock.IDLE."""
         return bool(self.locks or self.idle)
 
 
 def retry(cfg, args):
+    """Make a needs_human chapter, or a series and its needs_human chapters, ready again (`retry`)."""
     with _database(cfg, "retry") as conn:
         if args.series is None:
             workflow.retry_chapter(conn, args.chapter)
@@ -115,7 +119,7 @@ def retry(cfg, args):
 
 
 def _database(cfg, what):
-    """The built database, for a command that never builds one (SPEC "State")."""
+    """Return a connection to the built database, for a command that never builds one (SPEC "State")."""
     if not db.built(cfg):
         msg = f"no database {cfg['database']['name']} built yet: nothing to {what}"
         raise workflow.Refused(msg)
@@ -123,14 +127,17 @@ def _database(cfg, what):
 
 
 def chapter_use(cfg, args):
+    """Have a needs_human chapter re-downloaded at validate from the given Suwayomi chapter (`chapter use`)."""
     with _database(cfg, "use") as conn:
         workflow.use_chapter(conn, args.chapter, args.suwayomi_chapter)
     log.info("chapter %s will be re-downloaded from Suwayomi chapter %s", args.chapter, args.suwayomi_chapter)
 
 
 def chapter_drop(cfg, args):
-    """The download goes the retention way first, then the chapter is done: a crash between leaves it needs_human,
-    and the next drop finds its download already gone."""
+    """Give a needs_human chapter up: its download goes the retention way first, then the chapter is done.
+
+    A crash between leaves it needs_human, and the next drop finds its download already gone.
+    """
     with _database(cfg, "drop") as conn:
         row = workflow.droppable(conn, args.chapter)
         if row["kind"] == "rewrite":  # no download, nothing handled: its staged file goes; the file stays as it is
@@ -154,6 +161,7 @@ def chapter_drop(cfg, args):
 
 
 def series_link(cfg, args):
+    """Link a Suwayomi manga or a hand-placed download folder to a Kavita series (`series link`)."""
     with _database(cfg, "link") as conn:
         identify.link(
             cfg,
@@ -165,24 +173,28 @@ def series_link(cfg, args):
 
 
 def series_set_id(cfg, args):
+    """Set a series' id for a metadata source by hand (`series set-id`); it wins over the rest."""
     with _database(cfg, "set an id in") as conn:
         found = human.set_id(conn, args.series_id, args.source, args.id)
     log.info("series %s: %s id %s set by hand", args.series_id, args.source, found)
 
 
 def series_refetch_covers(cfg, args):
+    """Make a series' check due now, so the next intake refreshes its volume covers (`series refetch-covers`)."""
     with _database(cfg, "refetch covers in") as conn:
         human.refetch_covers(conn, args.series_id)
     log.info("series %s: its check is due now: the next intake refreshes its volume covers", args.series_id)
 
 
 def series_new(cfg, args):
+    """Have a held series admitted as a new series, under --name when given (`series new`)."""
     with _database(cfg, "admit a series in") as conn:
         human.new_series(conn, args.series_id, args.name)
     log.info("series %s: to be admitted as a new series%s", args.series_id, f" as {args.name!r}" if args.name else "")
 
 
 def series_edit(cfg, args):
+    """Apply a hand-edit file of chapter titles and volumes and print the lines it reports (`series edit`)."""
     data = hand_edits.load(args.file)
     with _database(cfg, "edit") as conn:
         lines = hand_edits.apply(workflow.context(cfg, conn, "export"), data, args.series_id)
@@ -191,8 +203,10 @@ def series_edit(cfg, args):
 
 
 def naming_diff(cfg, args):
-    """Read-only: what the comparison would rewrite, and the differences 7e never applies (SPEC "Retroactive
-    updates")."""
+    """Print what the comparison would rewrite, and the differences 7e never applies (SPEC "Retroactive updates").
+
+    Read-only.
+    """
     with db.read_only(cfg) as conn:
         ctx = workflow.context(cfg, conn, "export")
         where = sql.SQL("s.id = %(series)s") if args.series_id else sql.SQL("s.kavita_series_id IS NOT NULL")
@@ -224,6 +238,7 @@ def naming_diff(cfg, args):
 
 
 def rewrite_drop(cfg, args):
+    """Give up a stuck rewrite before its rename and delete its staged file (`rewrite drop`)."""
     with _database(cfg, "drop a rewrite in") as conn:
         row = rewrite.drop(conn, args.file_id, cfg["workflow"]["attempt_limit"])
     if row["pending_staged"]:
@@ -232,23 +247,33 @@ def rewrite_drop(cfg, args):
 
 
 def rewrite_retry(cfg, args):
+    """Have the next export try a failed rewrite again from its next step (`rewrite retry`)."""
     with _database(cfg, "retry a rewrite in") as conn:
         rewrite.retry(conn, args.file_id)
     log.info("published file %s: rewrite tried again by the next export", args.file_id)
 
 
 def metadata_import(cfg, args, conn):
+    """Import the old metadata tool's ids, covers and overrides from its state and config files (`metadata import`)."""
     state, overrides = importer.read_state(args.state_file), importer.read_overrides(args.config_file)
     importer.run(workflow.context(cfg, conn, "intake"), state, overrides)
 
 
 def metadata_audit(cfg, args):
-    """Opens no database (SPEC "Metadata checks", Audit): it runs before cutover, with or without one."""
+    """Print the library's source-id audit (`metadata audit`).
+
+    It lists the series whose source ids disagree, the sources no origin gives an id for and the Suwayomi manga no
+    series matches. Opens no database (SPEC "Metadata checks", Audit): it runs before cutover, with or without one.
+    """
     state = importer.read_state(args.state) if args.state else None
     audit.run(cfg, kavita.from_config(cfg), suwayomi.from_config(cfg), sources.new_sources(), state)
 
 
 def junk_import(cfg, args):
+    """Import junk decisions from a bulk-converter junk store or a pipeline database and print the counts.
+
+    The `junk import` command.
+    """
     try:
         source = importing.read_store(args.path) if args.path else importing.read_database(cfg, args.database)
     except importing.SourceError as e:
@@ -273,6 +298,7 @@ def _folder(cfg, row):
 
 
 def junk_list(cfg, args):
+    """Print the open junk candidates to decide, 1 line each with its image paths (`junk list`; --all: every one)."""
     with _junk_db(cfg) as conn:
         try:
             rows = review.listing(conn, cfg, os.environ.get(review.REVIEW_ID_VARIABLE), everything=args.all)
@@ -287,6 +313,7 @@ def junk_list(cfg, args):
 
 
 def junk_show(cfg, args):
+    """Print an open junk candidate's reason, chapters, OCR text and image paths (`junk show`)."""
     with _junk_db(cfg) as conn:
         try:
             row = review.get_open(conn, args.id)
@@ -303,6 +330,7 @@ def junk_show(cfg, args):
 
 
 def junk_decide(cfg, args):
+    """Record a verdict on a junk candidate, by claude under a review run, else by a human (`junk decide`)."""
     decider = "claude" if os.environ.get(review.REVIEW_ID_VARIABLE) else "human"
     with _junk_db(cfg) as conn:
         try:
@@ -313,7 +341,7 @@ def junk_decide(cfg, args):
 
 
 def _unlocked(handler):
-    """A command without locks: its handler opens what it needs itself."""
+    """Return the command-table handler of a command without locks: its handler opens what it needs itself."""
     return lambda cfg, args, _conn: handler(cfg, args)
 
 
@@ -351,6 +379,7 @@ COMMANDS = {
 
 
 def parser():
+    """Build the argument parser: the global --config and --set, and every command."""
     p = argparse.ArgumentParser(prog="manga_pipeline", description=DESCRIPTION)
     p.add_argument("--config", help="config file (default: config.yaml in the project root)")
     p.add_argument(
@@ -511,10 +540,13 @@ def _state_commands(commands):
 
 
 def main(argv=None):
-    """Exit code: 0 done, 1 an unexpected error (logged with its traceback), a failed smoke check or a failed junk
-    review, 2 usage or config error or a refused command, 3 another run holds a lock the command takes, 4 a hard
-    preflight check failed, the database server cannot be used, a command with locks finds no database, or the
-    database is not one this version can use."""
+    """Run the command line's command; return its exit code.
+
+    Exit code: 0 done, 1 an unexpected error (logged with its traceback), a failed smoke check or a failed junk review,
+    2 usage or config error or a refused command, 3 another run holds a lock the command takes, 4 a hard preflight
+    check failed, the database server cannot be used, a command with locks finds no database, or the database is not
+    one this version can use.
+    """
     p = parser()
     args = p.parse_args(argv)
     command = COMMANDS[args.command]
@@ -540,8 +572,10 @@ def main(argv=None):
 
 
 def _under_locks(p, cfg, command, args, conn):
-    """Run the command under its locks (SPEC "Run lock"), its log set up there; its exit code (3 when another run holds
-    a lock it takes)."""
+    """Run the command under its locks (SPEC "Run lock"), its log set up there; return its exit code.
+
+    3 when another run holds a lock it takes.
+    """
     names = tuple(workflow.owner(name) for name in command.locks)
     try:
         with lock.held(conn, cfg, names, command.idle) if command.locked else nullcontext():
@@ -557,7 +591,7 @@ def _under_locks(p, cfg, command, args, conn):
 
 
 def _run(p, cfg, command, args, conn):
-    """The command's preflight checks, schema steps and handler; its exit code (main's docstring)."""
+    """Run the command's preflight checks, schema steps and handler; return its exit code (main's docstring)."""
     try:
         preflight.run(cfg, command.checks)
         if conn is not None:
@@ -585,8 +619,11 @@ def _run(p, cfg, command, args, conn):
 
 
 def _open(cfg, command):
-    """The command's 1 connection, opened before its locks (SPEC "Run lock"): a command that builds creates a missing
-    database; for any other, a database missing or holding no schema record is NoDatabaseError."""
+    """Open the command's 1 connection, before its locks (SPEC "Run lock").
+
+    A command that builds creates a missing database; for any other, a database missing or holding no schema record is
+    NoDatabaseError.
+    """
     return db.open_database(cfg, builds=command.builds)
 
 

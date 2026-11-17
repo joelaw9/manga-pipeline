@@ -1,5 +1,7 @@
-"""Part intake (SPEC "Parts"): discovers new downloads, then per series takes its chapters through discover and
-validate."""
+"""Part intake (SPEC "Parts"): discovers new downloads, then works each series' chapters.
+
+Per series, it takes the chapters through discover and validate.
+"""
 
 from manga_pipeline import discovery, redownload, workflow
 from manga_pipeline.metadata import check, step
@@ -14,6 +16,11 @@ def run(cfg, conn):
 
 
 def work(ctx: workflow.Context):
+    """Run 1 intake pass: discover new downloads, run the metadata step, then drain each ready series' chapters.
+
+    The waits for a re-download, a bulk conversion and a metadata check are ended on the way; the chapters go through
+    discover and validate.
+    """
     # Before discovery, so a re-download that ended is judged by validate, not listed as a new download.
     workflow.end_waits(ctx, "suwayomi_download", redownload.wait_over)
     with workflow.share_errors():

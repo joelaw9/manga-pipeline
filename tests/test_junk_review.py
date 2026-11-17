@@ -1,5 +1,7 @@
-"""`junk review` with a fake claude (SPEC "Junk decisions", review; "CLI" exit codes): what Claude's process gets,
-when Claude is started at all, and how reviews are counted."""
+"""`junk review` with a fake claude (SPEC "Junk decisions", review; "CLI" exit codes).
+
+What Claude's process gets, when Claude is started at all, and how reviews are counted.
+"""
 
 import json
 import os
@@ -25,7 +27,7 @@ FAKE = Path(__file__).with_name("fake_claude.py")
 
 
 def fake_claude(folder, cfg, actions, exit_code=0, reply=None):
-    """A claude executable in `folder` running fake_claude.py with this plan; returns its path."""
+    """Write a claude executable in `folder` running fake_claude.py with this plan; return its path."""
     folder.mkdir(parents=True, exist_ok=True)
     shutil.copy(FAKE, folder / "fake_claude.py")
     plan = {
@@ -178,8 +180,10 @@ def test_review_checks_need_claude_and_its_token(tmp_path):
 
 
 def _review_hiding_the_token(world, tmp_path, capsys, monkeypatch, reply):
-    """Run a review whose Claude replies `reply`; assert the token is in neither the log nor the output; its exit
-    code."""
+    """Run a review whose Claude replies `reply`; return its exit code.
+
+    Asserts the token is in neither the log nor the output.
+    """
     monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "DEBUG")
     token = "tok-SECRET-4711"
     cfg = {**world.cfg, "junk": {**world.cfg["junk"], "claude_token": token}}

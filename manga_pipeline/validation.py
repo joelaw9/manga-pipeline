@@ -1,4 +1,5 @@
 """Validation of a download (SPEC "Validation"): what a CBZ's pages say about it, against the series' published files.
+
 Reads the file; writes nothing.
 """
 
@@ -28,9 +29,12 @@ class Verdict:
 
 
 def check(cbz, key, published, same=lambda _p: True):
-    """The verdict on a download. key: its (season, side label, number); published: the series' published files as
-    [{key, page_phashes (list or None), strip_length (int or None), ...}]; same(p): whether a published file of the
-    download's key is the same chapter (chapter_names.same_chapter), asked only once the pages have passed."""
+    """Return the verdict on a download.
+
+    key: its (season, side label, number); published: the series' published files as [{key, page_phashes (list or
+    None), strip_length (int or None), ...}]; same(p): whether a published file of the download's key is the same
+    chapter (chapter_names.same_chapter), asked only once the pages have passed.
+    """
     try:
         members = archive.pages(cbz)
     except archive.UNREADABLE as e:
@@ -51,8 +55,10 @@ def check(cbz, key, published, same=lambda _p: True):
 
 
 def _page_bytes(members):
-    """The verdict on the first page that is empty (bad) or in a format nothing here decodes (human), else None; bad
-    for an archive with no pages."""
+    """Return the verdict on the first page that is empty (bad) or in a format nothing here decodes (human), else None.
+
+    Bad for an archive with no pages.
+    """
     if not members:
         return Verdict("bad", "the archive holds no pages")
     for name, data in members:
@@ -110,7 +116,9 @@ def _short(pages, published):
 
 
 def chapter_key(identity):
-    """(season, side label, number) of an identity (names.identity's JSON): what tells chapters apart across
-    sources and scanlators."""
+    """Return (season, side label, number) of an identity (names.identity's JSON).
+
+    It is what tells chapters apart across sources and scanlators.
+    """
     _, season, side, number, _ = json.loads(identity)
     return (season, side, number)

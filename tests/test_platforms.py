@@ -1,6 +1,8 @@
-"""Official platform lists (SPEC "Metadata", platform lists; "Publishing"): which page a series' links name, the Tapas
-and Webtoons clients on replies recorded from the sites, and the platform-seasons basis and titles against the bulk
-converter's records."""
+"""Official platform lists (SPEC "Metadata", platform lists; "Publishing").
+
+Which page a series' links name, the Tapas and Webtoons clients on replies recorded from the sites, and the
+platform-seasons basis and titles against the bulk converter's records.
+"""
 
 import json
 from contextlib import closing
@@ -24,7 +26,7 @@ RECORDS = Path(__file__).parent / "fixtures_api" / "records"
 
 
 def tapas_service(slug):
-    """A Tapas service answering from the recorded replies of 1 series."""
+    """Return a Tapas service answering from the recorded replies of 1 series."""
     html = (PLATFORMS / f"tapas-{slug}-info.html").read_bytes()
     series_id = html.decode().split("tapastic://series/")[1].split("/")[0]
     answers = {f"/series/{slug}/info": reply(html)}
@@ -49,7 +51,7 @@ def webtoons_client(kind, number):
 
 
 def stored_list(platform, ref):
-    """The platform list a check stores, built through the clients from the recorded replies."""
+    """Return the platform list a check stores, built through the clients from the recorded replies."""
     if platform == platforms.TAPAS:
         client = tapas_client(ref)
         series_id = client.series_id(ref)

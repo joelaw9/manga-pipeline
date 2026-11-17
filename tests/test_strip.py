@@ -1,8 +1,10 @@
-"""Strip model, gaps, cuts, layout, slices (strip; contracts section 1/5), on synthetic chapters shaped like the
-library's: panels separated by gutters and uploaded as fixed-height slices, pages cut into page + sliver, stitched
-pages; and strip segmentation (spans, walkable runs, edge regions) on the real cached blank-row profiles of two
-chapters (tests/fixtures_pages/junk/). Ported from the bulk converter's tests/test_restitch.py and
-tests/test_segmentation.py (the tests of its junk modules are not ported)."""
+"""Strip model, gaps, cuts, layout, slices (strip; contracts section 1/5), and strip segmentation.
+
+On synthetic chapters shaped like the library's: panels separated by gutters and uploaded as fixed-height slices, pages
+cut into page + sliver, stitched pages; and strip segmentation (spans, walkable runs, edge regions) on the real cached
+blank-row profiles of two chapters (tests/fixtures_pages/junk/). Ported from the bulk converter's tests/test_restitch.py
+and tests/test_segmentation.py (the tests of its junk modules are not ported).
+"""
 
 import base64
 import itertools
@@ -31,9 +33,12 @@ JUNK_FIX = fx.PAGE_FIX / "junk"
 
 @pytest.fixture(scope="module")
 def cached(tmp_path_factory):
-    """cached(out_dir, key, build, limit=None): fresh copies in out_dir of the files build(dir) -> [paths] wrote, built
+    """Provide a builder of page files that builds each key once per module and hands out fresh copies.
+
+    cached(out_dir, key, build, limit=None): fresh copies in out_dir of the files build(dir) -> [paths] wrote, built
     only once per key in this module (the synthetic pages are deterministic, and generating + encoding them was most of
-    the module's run time); the first `limit` copies, in build's order."""
+    the module's run time); the first `limit` copies, in build's order.
+    """
     root, built = tmp_path_factory.mktemp("strip-cache"), {}
 
     def copies(out_dir, key, build, limit=None):
@@ -88,21 +93,25 @@ def save_pages(out_dir, ims, stem=""):
 
 
 def strip_of(pages):
-    """A chapter's Strip as the plan builds it: header sizes and each page's row profile (the plan scan's one
-    decode)."""
+    """Return a chapter's Strip as the plan builds it.
+
+    Header sizes and each page's row profile (the plan scan's one decode).
+    """
     return strip.make_strip(
         pages, [images.page_size(p) for p in pages], [strip.page_rows(images.open_image(p)[0]) for p in pages]
     )
 
 
 def strip_plan(st):
-    """A Strip's plan with no junk removed: cut_strip's {"kept", "cuts", "forced", "length"} over its gaps."""
+    """Return a Strip's plan with no junk removed: cut_strip's {"kept", "cuts", "forced", "length"} over its gaps."""
     return strip.cut_strip(st.height, strip.find_gaps(st), [])
 
 
 def render_cuts(layout, cuts, x_dir, out_dir):
-    """Execution of a strip / split plan: strip.render of `layout` ({"width", "pages": [{"name", "top", "th"}],
-    "kept"}) over the planned cuts."""
+    """Execute a strip / split plan.
+
+    strip.render of `layout` ({"width", "pages": [{"name", "top", "th"}], "kept"}) over the planned cuts.
+    """
     outputs = [{"name": strip.output_name(n), "rows": [a, b]} for n, (a, b) in enumerate(itertools.pairwise(cuts), 1)]
     return strip.render(outputs, x_dir, out_dir, layout)
 
@@ -114,13 +123,15 @@ def render_strip(pl, st, out_dir):
 
 
 def stacked(paths):
-    """The pages' pixels stacked top to bottom (int, for exact comparisons)."""
+    """Return the pages' pixels stacked top to bottom (int, for exact comparisons)."""
     return np.vstack([np.asarray(Image.open(p).convert("RGB")) for p in paths]).astype(int)
 
 
 def rows_strip(sizes, uniform_rows, rows_per_page):
-    """A Strip from page sizes and row profiles only (no files): page k has rows_per_page[k] analysis rows, True
-    (uniform) at the indexes uniform_rows[k]."""
+    """Build a Strip from page sizes and row profiles only (no files).
+
+    Page k has rows_per_page[k] analysis rows, True (uniform) at the indexes uniform_rows[k].
+    """
     rows = []
     for n, on in zip(rows_per_page, uniform_rows, strict=True):
         r = np.zeros(n, bool)
@@ -138,8 +149,11 @@ def manga_chapter(out_dir, n=6):
 
 
 def joins_chapter(out_dir, slices, others):
-    """A 400 px wide chapter: `slices` 300 px slices of one smooth strip (continuous joins), then `others` unrelated
-    pages (discontinuous joins)."""
+    """Write a 400 px wide chapter.
+
+    `slices` 300 px slices of one smooth strip (continuous joins), then `others` unrelated pages (discontinuous
+    joins).
+    """
     im = fx.webtoon_page((400, 300 * slices), seed=0)
     ims = [im.crop((0, 300 * k, 400, 300 * k + 300)) for k in range(slices)]
     return save_pages(out_dir, ims + [fx.webtoon_page((400, 300), seed=7 * (k + 1)) for k in range(others)])
@@ -159,8 +173,10 @@ def metadata_flag(source, claim, value, share):
 
 @budget(1.0, load="fs")
 def test_webtoon_slices_are_a_strip_by_geometry_alone(tmp_path):
-    """Webtoon slices with no genre at all (most of the census' strip series carry no Kavita long-strip genre):
-    strip."""
+    """Webtoon slices with no genre at all are a strip.
+
+    Most of the census' strip series carry no Kavita long-strip genre.
+    """
     layout, why, flags = strip.classify_layout([webtoon_chapter(tmp_path / "w")])
     assert (layout, flags) == ("strip", []), "geometry alone decides the layout"
     assert why.startswith("continuous joins "), "the reason names the continuous share"
@@ -183,8 +199,10 @@ def test_a_webtoon_with_a_manga_origin_is_a_strip_and_flagged(tmp_path):
 
 @budget(1.0, load="fs")
 def test_a_long_strip_genre_on_page_format_is_pages_and_flagged(tmp_path):
-    """A Kavita long-strip genre (matched case-insensitively after stripping) no longer restitches: page geometry says
-    pages, the claim is flagged with the genre as Kavita spells it."""
+    """A Kavita long-strip genre (matched case-insensitively after stripping) no longer restitches.
+
+    Page geometry says pages, the claim is flagged with the genre as Kavita spells it.
+    """
     layout, _, flags = strip.classify_layout([manga_chapter(tmp_path)], None, [" Long Strip"])
     assert layout == "pages", "geometry decides"
     assert flags == [metadata_flag("Kavita genre", "strip", "Long Strip", "0%")], "the genre claim is flagged"
@@ -198,8 +216,10 @@ def test_several_origin_genres_claim_nothing(tmp_path):
 
 @budget(1.0, load="fs")
 def test_override_strip_never_silences_the_metadata_check(tmp_path):
-    """Blue Glass shape (page-format pages, Kavita `Manhwa`) under `layout: Strip`: the override decides (case-folded);
-    the claim is checked against the geometry's verdict (pages): Manhwa disagrees and is flagged, Manga is not."""
+    """Blue Glass shape (page-format pages, Kavita `Manhwa`) under `layout: Strip`: the override decides (case-folded).
+
+    The claim is checked against the geometry's verdict (pages): Manhwa disagrees and is flagged, Manga is not.
+    """
     pages = [manga_chapter(tmp_path)]
     layout, why, flags = strip.classify_layout(pages, {"layout": "Strip"}, ["Manhwa"])
     assert (layout, flags) == ("strip", [metadata_flag("Kavita origin", "strip", "Manhwa", "0%")]), (
@@ -620,7 +640,7 @@ def slices_of(pages):
 
 
 def render_joined(pages, joins, out_dir):
-    """Execution of a page-format plan's joins: every non-sliver page with its slivers appended (strip.render)."""
+    """Execute a page-format plan's joins: every non-sliver page with its slivers appended (strip.render)."""
     attach = {j["page"]: j["sliver"] for j in joins if j["join"]}
     outputs, n = [], 0
     for i, _ in enumerate(pages):
@@ -746,8 +766,11 @@ def test_a_blank_cut_is_not_joined_by_seam():
 
 
 def pairs_with_blank_last(seam_pairs, extra=((1500, 100),)):
-    """seam_pairs textured continuous 1125-wide pairs of 1,500 + 100, then the `extra` height pairs cut on blank
-    margin: (sizes, edges)."""
+    """Return (sizes, edges) of textured page pairs, the last ones cut on blank margin.
+
+    seam_pairs textured continuous 1125-wide pairs of 1,500 + 100, then the `extra` height pairs cut on blank margin:
+    (sizes, edges).
+    """
     heights = [(1500, 100)] * seam_pairs + list(extra)
     sizes = [(1125, h) for pair in heights for h in pair]
     edges = dict.fromkeys(range(2 * seam_pairs), (TEX, TEX))
@@ -836,8 +859,10 @@ def test_ordinary_pages_are_not_stitched(tmp_path):
 
 @budget(load="fs")
 def test_series_shape_learned_from_unstitched_chapters(tmp_path):
-    """6 pages of 1125x1600 (sizes read from their headers, as the plan's inventory does): the one candidate shape
-    1.422."""
+    """6 pages of 1125x1600 (sizes read from their headers, as the plan's inventory does).
+
+    The one candidate shape: 1.422.
+    """
     pages = save_pages(tmp_path, [Image.new("RGB", (1125, 1600))] * 6, "p")
     assert strip.page_aspect([[images.file_dimensions(p) for p in pages]]) == [round(1600 / 1125, 3)], (
         "the page shape is learned"
@@ -998,13 +1023,15 @@ def test_edge_indexes_are_the_first_2_and_last_3(n, want):
 
 
 def unpack_rows(d):
-    """A page's blank-row profile as the bulk converter's plan scan cached it (bits, base64)."""
+    """Decode a page's blank-row profile as the bulk converter's plan scan cached it (bits, base64)."""
     return np.unpackbits(np.frombuffer(base64.b64decode(d["bits"]), np.uint8))[: d["n"]].astype(bool)
 
 
 def fixture_strip(name):
-    """(Strip of the cached blank-row profiles of a fixture chapter's pages, the fixture's crop [start, end)): rows
-    mapped per page as strip.make_strip maps them; the strip ends with the last page in the fixture."""
+    """Return (Strip of the cached blank-row profiles of a fixture chapter's pages, the fixture's crop [start, end)).
+
+    Rows mapped per page as strip.make_strip maps them; the strip ends with the last page in the fixture.
+    """
     scan = json.loads((JUNK_FIX / name / "scan.json").read_text(encoding="utf-8"))
     pages, rows, starts = [], [], []
     for b in scan["blank_rows"]:
@@ -1031,8 +1058,11 @@ def spans_in(st, crop):
 
 @budget(load="fs")
 def test_glued_lines_are_one_span():
-    """I Stole the Female Lead's First Love c0006: the D&C logo, the (c) line and the bunny watermark glued with no
-    blank row between them are one span; the three notice lines above it, 9 px blank runs apart, are three."""
+    """Glued lines are 1 span (I Stole the Female Lead's First Love c0006).
+
+    The D&C logo, the (c) line and the bunny watermark glued with no blank row between them are one span; the three
+    notice lines above it, 9 px blank runs apart, are three.
+    """
     st, crop = fixture_strip("s5_2_i_stole_c0006")
     got = spans_in(st, crop)
     assert (132462, 132663) in got, f"glued lines are one span: {got}"
@@ -1043,8 +1073,11 @@ def test_glued_lines_are_one_span():
 
 @budget(load="fs")
 def test_notice_lines_with_blank_runs_between_are_separate_spans():
-    """I Was the Real Head of the House c0003: 18 px notice lines with 9 px blank runs between them; every span starts
-    and ends on a non-blank row (no blank rows at its ends) and every walkable run between spans is >= SPAN_BREAK_PX."""
+    """I Was the Real Head of the House c0003: 18 px notice lines with 9 px blank runs between them.
+
+    Every span starts and ends on a non-blank row (no blank rows at its ends) and every walkable run between spans is
+    >= SPAN_BREAK_PX.
+    """
     st, crop = fixture_strip("s5_2_real_head_c0003")
     got = spans_in(st, crop)
     assert [s for s in got if 111600 <= s[0] < 111700] == [(111612, 111630), (111639, 111657), (111666, 111684)], (
@@ -1055,8 +1088,10 @@ def test_notice_lines_with_blank_runs_between_are_separate_spans():
 
 
 def one_page_strip(uniform):
-    """A strip of one 400 px wide page whose analysis rows are its pixel rows (analysis_width 400): uniform[i] = row i
-    is blank."""
+    """Return a strip of one 400 px wide page whose analysis rows are its pixel rows (analysis_width 400).
+
+    uniform[i] = row i is blank.
+    """
     uniform = np.asarray(uniform, bool)
     return strip.make_strip(["001.png"], [(400, len(uniform))], [uniform])
 
@@ -1071,8 +1106,11 @@ def one_page_strip(uniform):
     ids=["shorter-run-joins", "break-run-splits"],
 )
 def test_a_walkable_run_breaks_a_span_from_span_break_px(run, want):
-    """Two text lines (I Was the Real Head of the House c0003's notice lines are 18 px) with a `run` px blank run
-    between them: shorter than SPAN_BREAK_PX they stay one span (glued lines), from SPAN_BREAK_PX on two."""
+    """A walkable run breaks a span from SPAN_BREAK_PX on.
+
+    Two text lines (I Was the Real Head of the House c0003's notice lines are 18 px) with a `run` px blank run between
+    them: shorter than SPAN_BREAK_PX they stay one span (glued lines), from SPAN_BREAK_PX on two.
+    """
     rows = [False] * 14 + [True] * run + [False] * (30 - 14 - run)
     st = one_page_strip(rows)
     assert strip.walkable_runs(st) == [(14, 14 + run)], "a walkable run of any length"
@@ -1100,8 +1138,10 @@ def test_spans_leave_out_blank_rows_at_their_ends_and_an_all_blank_strip_has_non
     ],
 )
 def test_edge_region_of_a_short_strip_takes_the_half_it_lies_in(start, end, height, want):
-    """101 Concubine Walkthrough kind: in a strip shorter than 2 x edge_px a unit lies in both edge regions and takes
-    the half its middle lies in."""
+    """101 Concubine Walkthrough kind: in a strip shorter than 2 x edge_px a unit lies in both edge regions.
+
+    It takes the half its middle lies in.
+    """
     assert strip.edge_region(start, end, height, 6000) == want, "edge region by the half the middle lies in"
 
 

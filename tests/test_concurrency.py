@@ -1,5 +1,7 @@
 """The parts as real processes: run at once on 1 database, and killed mid-stage (SPEC "Parts", "State", "Run lock").
-The processes reach the world's fakes through tests/world_run.py."""
+
+The processes reach the world's fakes through tests/world_run.py.
+"""
 
 import os
 import subprocess
@@ -41,7 +43,7 @@ sys.exit(cli.main(["--config", sys.argv[2], "process"]))
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):
-    """A World whose fakes the parts run in this process get too."""
+    """Provide a World whose fakes the parts run in this process get too."""
     world = World(tmp_path)
     monkeypatch.setattr(suwayomi_client, "from_config", lambda _cfg: world.suwayomi)
     monkeypatch.setattr(kavita_client, "from_config", lambda _cfg: world.kavita)
@@ -60,7 +62,7 @@ def downloads(world, series_count, per_series):
 
 
 def clean_env():
-    """The environment without the developer's MANGA_PIPELINE_* variables."""
+    """Return the environment without the developer's MANGA_PIPELINE_* variables."""
     return {k: v for k, v in os.environ.items() if not k.upper().startswith(f"{config.ENV_PREFIX}_")}
 
 

@@ -1,5 +1,6 @@
-"""The PostgreSQL database (SPEC "State", "Config"): the login, the ordered schema steps that build it, and the write
-lock that makes write transactions run 1 at a time.
+"""The PostgreSQL database (SPEC "State", "Config").
+
+The login, the ordered schema steps that build it, and the write lock that makes write transactions run 1 at a time.
 
 A schema step is a SQL file in schema/, applied in name order and recorded in schema_step, so steps added on 2
 branches are both applied whatever order they merge in.
@@ -36,17 +37,24 @@ PORT_MAX = 65535  # the highest TCP port
 
 
 class SchemaError(RuntimeError):
-    pass
+    """The database's schema steps are not this program's.
+
+    An unknown step, one that refuses it, a missing record, or (read_only) steps not applied yet.
+    """
 
 
 class CannotConnectError(RuntimeError):
-    """The server cannot be reached, or refuses the login or the creation of the database (exit 4). The message never
-    holds the password."""
+    """The server cannot be reached, or refuses the login or the creation of the database (exit 4).
+
+    The message never holds the password.
+    """
 
 
 class NoDatabaseError(RuntimeError):
-    """The configured database does not exist on the server (or, for a caller that does not build it, holds no schema
-    record)."""
+    """The configured database does not exist on the server.
+
+    Or, for a caller that does not build it, it holds no schema record.
+    """
 
 
 class MissingRowError(LookupError):
@@ -54,9 +62,12 @@ class MissingRowError(LookupError):
 
 
 class Row(tuple):
-    """A row that reads as sqlite3.Row does: by position (negative and sliced too), by column name (case-insensitive,
-    the first column of a repeated name), as a sequence of values, with keys(); equal to a row of the same columns
-    and values. Each column list has its own subclass (_row_class), whose _keys names the columns."""
+    """A row that reads as sqlite3.Row does.
+
+    By position (negative and sliced too), by column name (case-insensitive, the first column of a repeated name), as a
+    sequence of values, with keys(); equal to a row of the same columns and values. Each column list has its own
+    subclass (_row_class), whose _keys names the columns.
+    """
 
     __slots__ = ()
     _keys: tuple[str, ...] = ()
@@ -67,6 +78,7 @@ class Row(tuple):
     @overload
     def __getitem__(self, key: slice) -> tuple[Any, ...]: ...
     def __getitem__(self, key: SupportsIndex | str | slice) -> Any:
+        """Return a value by position or slice, or by column name (case-insensitive); IndexError for an unknown name."""
         if isinstance(key, str):
             folded = key.casefold()
             for i, name in enumerate(self._keys):
@@ -77,18 +89,23 @@ class Row(tuple):
         return tuple.__getitem__(self, key)
 
     def keys(self) -> list[str]:
+        """Return the column names, in order."""
         return list(self._keys)
 
     def __eq__(self, other):
+        """Return whether other is a Row of the same columns and values."""
         return isinstance(other, Row) and self._keys == other._keys and tuple.__eq__(self, other)
 
     def __ne__(self, other):
+        """Return whether other is not a Row of the same columns and values."""
         return not self.__eq__(other)
 
     def __hash__(self):
+        """Return a hash of the columns and values, so equal rows hash alike."""
         return hash((self._keys, tuple(self)))
 
     def __repr__(self):
+        """Return the row as Row({column: value})."""
         return f"Row({dict(zip(self._keys, self, strict=True))!r})"
 
 
@@ -106,7 +123,7 @@ def _rows(cursor) -> RowMaker[Row]:
 
 
 def _login(cfg):
-    """The 5 database settings, checked (SPEC "Config"): a config error names what is wrong."""
+    """Return the 5 database settings, checked (SPEC "Config"): a config error names what is wrong."""
     settings = cfg["database"]
     for key in ("host", "name", "user"):
         if not isinstance(settings[key], str) or not settings[key]:
@@ -123,8 +140,10 @@ def _login(cfg):
 
 
 def open_connection(cfg, dbname=None):
-    """A connection whose host, port, database, user and password are the database settings; no password file is read
-    (a PG* variable can set only what these do not, SPEC "Config")."""
+    """Open a connection whose host, port, database, user and password are the database settings.
+
+    No password file is read (a PG* variable can set only what these do not, SPEC "Config").
+    """
     login = _login(cfg)
     dbname = dbname or login["name"]
     try:
@@ -160,9 +179,11 @@ def _exists(cfg, dbname):
 
 
 def connect(cfg):
-    """Open database.name, creating it if absent, and apply the schema steps it lacks. The connection is in
-    autocommit mode (every write goes in an explicit transaction()) and returns Row rows. Raises SchemaError for a
-    database holding a step this program does not have."""
+    """Open database.name, creating it if absent, and apply the schema steps it lacks.
+
+    The connection is in autocommit mode (every write goes in an explicit transaction()) and returns Row rows. Raises
+    SchemaError for a database holding a step this program does not have.
+    """
     conn = open_database(cfg, builds=True)
     try:
         apply_steps(conn)
@@ -173,8 +194,11 @@ def connect(cfg):
 
 
 def open_database(cfg, builds):
-    """Open database.name and apply nothing (SPEC "State"). A caller that builds gets the database created when the
-    server has none; for any other caller, a database that is missing or holds no schema record is NoDatabaseError."""
+    """Open database.name and apply nothing (SPEC "State").
+
+    A caller that builds gets the database created when the server has none; for any other caller, a database that is
+    missing or holds no schema record is NoDatabaseError.
+    """
     try:
         conn = open_connection(cfg)
     except NoDatabaseError:
@@ -194,9 +218,11 @@ def open_database(cfg, builds):
 
 
 def read_only(cfg):
-    """Open the existing database for reading only: every transaction is read-only and repeatable-read, so 1
-    transaction reads 1 snapshot. Raises NoDatabaseError when there is none, and SchemaError unless it holds exactly
-    this program's steps."""
+    """Open the existing database for reading only.
+
+    Every transaction is read-only and repeatable-read, so 1 transaction reads 1 snapshot. Raises NoDatabaseError when
+    there is none, and SchemaError unless it holds exactly this program's steps.
+    """
     conn = open_connection(cfg)
     try:
         conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
@@ -235,16 +261,20 @@ def built(cfg):
 
 
 def peek_id(cfg):
-    """The id of the existing database, read without creating, applying or checking anything. Raises NoDatabaseError
-    when there is none, Error when the id cannot be read."""
+    """Return the id of the existing database, read without creating, applying or checking anything.
+
+    Raises NoDatabaseError when there is none, Error when the id cannot be read.
+    """
     with closing(open_connection(cfg)) as conn:
         return database_id(conn)
 
 
 @contextmanager
 def transaction(conn):
-    """1 write transaction: committed when the block ends, rolled back when it raises. It takes the database-wide
-    write lock first, so write transactions never overlap (SPEC "State")."""
+    """Run 1 write transaction: committed when the block ends, rolled back when it raises.
+
+    It takes the database-wide write lock first, so write transactions never overlap (SPEC "State").
+    """
     if in_transaction(conn):
         msg = "a transaction is already open on this connection"
         raise RuntimeError(msg)
@@ -254,16 +284,21 @@ def transaction(conn):
 
 
 def in_transaction(conn):
+    """Return whether the connection is inside a transaction (its status is not idle)."""
     return conn.info.transaction_status != TransactionStatus.IDLE
 
 
 def executemany(conn, statement, rows):
+    """Execute the statement once per row, on 1 cursor of the connection."""
     with conn.cursor() as cur:
         cur.executemany(statement, rows)
 
 
 def one_row(conn: Connection, query: LiteralString | sql.SQL | sql.Composed, params: Sequence | Mapping = ()) -> Row:
-    """The query's 1st row, where the caller's own data guarantees one; MissingRowError naming the query if none."""
+    """Return the query's 1st row, where the caller's own data guarantees one.
+
+    MissingRowError naming the query if none.
+    """
     row = conn.execute(query, params).fetchone()
     if row is None:
         text = query.as_string(conn) if isinstance(query, sql.Composable) else query
@@ -273,13 +308,15 @@ def one_row(conn: Connection, query: LiteralString | sql.SQL | sql.Composed, par
 
 
 def database_id(conn):
-    """This database's random id (32 hex characters), made when step 0001 built it."""
+    """Return the database's random id (32 hex characters), made when step 0001 built it."""
     return one_row(conn, "SELECT value FROM meta WHERE key = 'database_id'")[0]
 
 
 def _create(cfg):
     """Create database.name as UTF-8 with bytewise text order; another run creating it at the same time is fine.
-    CannotConnectError naming the database when the server refuses (a role that may not create one, for one)."""
+
+    CannotConnectError naming the database when the server refuses (a role that may not create one, for one).
+    """
     login = cfg["database"]
     name = login["name"]
     with closing(open_connection(cfg, MAINTENANCE_DATABASE)) as conn:
@@ -301,8 +338,10 @@ def _has_record(conn):
 
 
 def now(conn):
-    """The server's clock as the program stores a time: ISO 8601 in UTC to the second ('2026-11-14T17:00:00+00:00'),
-    so times written from several machines compare (SPEC "State")."""
+    """Return the server's clock as the program stores a time: ISO 8601 in UTC to the second.
+
+    As '2026-11-14T17:00:00+00:00', so times written from several machines compare (SPEC "State").
+    """
     return one_row(
         conn,
         """SELECT to_char(date_trunc('second', clock_timestamp()) AT TIME ZONE 'UTC',

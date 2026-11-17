@@ -1,6 +1,9 @@
-"""db: the login and its settings, schema steps applied once each in name order, an unknown step refused, the write
-lock, read_only's 1 snapshot, rows that read as sqlite3.Row does (SPEC "State", "Config"); and the test harness's
-databases (SPEC "Tests")."""
+"""db and the test harness's databases (SPEC "State", "Config", "Tests").
+
+The login and its settings, schema steps applied once each in name order, an unknown step refused, the write lock,
+read_only's 1 snapshot, rows that read as sqlite3.Row does (SPEC "State", "Config"); and the test harness's databases
+(SPEC "Tests").
+"""
 
 import os
 import secrets
@@ -32,7 +35,7 @@ def db_cfg(tmp_path, *, built=True):
 
 
 def steps_folder(tmp_path, *extra):
-    """A schema folder holding the shipped steps plus extra (name, sql) steps."""
+    """Write a schema folder holding the shipped steps plus extra (name, sql) steps."""
     folder = tmp_path / "schema"
     shutil.copytree(SHIPPED, folder, dirs_exist_ok=True)
     for name, sql in extra:
@@ -446,7 +449,7 @@ POOL_BUDGET = 10.0  # a pool of its own: CREATE DATABASE and a build per databas
 
 @pytest.fixture
 def own_pool():
-    """A pool name and lock space of the test's own: it races no worker and leaves nothing in the run's pool."""
+    """Provide a pool name and lock space of the test's own: it races no worker and leaves nothing in the run's pool."""
     pool, space = f"{pg.PREFIX}pooltest_{secrets.token_hex(4)}_", secrets.randbits(30)
     yield pool, space
     pg.drop_pool(pool)

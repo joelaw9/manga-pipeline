@@ -1,5 +1,7 @@
-"""redownload.pick_manga and pick_chapter (SPEC "Bad downloads"): which search hit is the series and which chapter of
-another source is ours, over hand-built Suwayomi replies."""
+"""redownload.pick_manga and pick_chapter (SPEC "Bad downloads").
+
+Which search hit is the series and which chapter of another source is ours, over hand-built Suwayomi replies.
+"""
 
 from manga_pipeline import names, redownload
 

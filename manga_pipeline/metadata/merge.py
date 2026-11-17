@@ -1,6 +1,7 @@
-"""A series' fields from its stored records (SPEC "Metadata"): what goes to Kavita through its API and into every
-`ComicInfo.xml` written. `fields` is pure: the same records, ids and rules give the same fields; `stored` reads them
-from the database.
+"""A series' fields from its stored records (SPEC "Metadata").
+
+What goes to Kavita through its API and into every `ComicInfo.xml` written. `fields` is pure: the same records, ids
+and rules give the same fields; `stored` reads them from the database.
 
 From the old metadata tool's build_metadata (summary order, links, status), with the fields it never wrote (decision
 D7.11): age rating from MangaBaka, language from MangaDex, writers and pencillers from AniList's staff.
@@ -30,6 +31,8 @@ DIGITS36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 @dataclass(frozen=True)
 class SeriesFields:
+    """A series' fields, as `fields` builds them: what Kavita's API and every `ComicInfo.xml` written receive."""
+
     summary: str | None
     genres: tuple
     tags: tuple
@@ -44,7 +47,7 @@ class SeriesFields:
 
 
 def fields(records, agreed, rules):
-    """The series' fields from its records ({(source, kind): payload or None}) and agreed ids ({source: id})."""
+    """Return the series' fields from its records ({(source, kind): payload or None}) and agreed ids ({source: id})."""
     mb, mu = records.get(("mangabaka", "series")), records.get(("mangaupdates", "series"))
     md, al = records.get(("mangadex", "manga")), records.get(("anilist", "media"))
     md_attr = (md or {}).get("attributes") or {}
@@ -71,7 +74,7 @@ def fields(records, agreed, rules):
 
 
 def stored(conn, series_id, rules):
-    """The series' fields from its stored records and agreed ids."""
+    """Return the series' fields from its stored records and agreed ids."""
     records = {
         (r["source"], r["kind"]): r["payload"]
         for r in conn.execute("SELECT source, kind, payload FROM fetched WHERE series_id = %s", (series_id,))
@@ -88,8 +91,10 @@ def _edges(al):
 
 
 def _summary(al, md_attr, mb, mu):
-    """The first non-empty of AniList (HTML), MangaDex English (Markdown), MangaBaka (Markdown and HTML), MangaUpdates
-    (HTML)."""
+    """Return the first non-empty summary of its sources, in order.
+
+    AniList (HTML), MangaDex English (Markdown), MangaBaka (Markdown and HTML), MangaUpdates (HTML).
+    """
     found = [
         html_text((al or {}).get("description")),
         markdown_text((md_attr.get("description") or {}).get("en")),
@@ -153,8 +158,10 @@ class _Text(html.parser.HTMLParser):
 
 
 def html_text(text):
-    """Plain text of an HTML summary: paragraphs kept (at most 1 blank line between), a trailing "(Source: ...)"
-    note dropped."""
+    """Return the plain text of an HTML summary.
+
+    Paragraphs kept (at most 1 blank line between), a trailing "(Source: ...)" note dropped.
+    """
     if not text:
         return None
     parser = _Text()
@@ -167,8 +174,10 @@ def html_text(text):
 
 
 def markdown_text(text):
-    """Plain text of a Markdown summary, cut at its first horizontal rule (MangaDex appends links and credits under
-    one); links keep their text, emphasis marks go."""
+    """Return the plain text of a Markdown summary, cut at its first horizontal rule.
+
+    MangaDex appends links and credits under one. Links keep their text, emphasis marks go.
+    """
     if not text:
         return None
     md = MarkdownIt("commonmark")

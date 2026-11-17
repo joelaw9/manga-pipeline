@@ -1,7 +1,8 @@
-"""Logo marks (SPEC "Junk decisions": units, keys; junk/marks.py; images.blank): measuring in the gray-mark box, the
-ring test, variant matching, variants and a variant's decision, the blank. Ported from the bulk converter's
-tests/test_marks.py; its Library tests (decisions, supersession, scopes, persistence) are covered by the store and
-import tests instead (tests/test_junk_store.py).
+"""Logo marks (SPEC "Junk decisions": units, keys; junk/marks.py; images.blank).
+
+Measuring in the gray-mark box, the ring test, variant matching, variants and a variant's decision, the blank. Ported
+from the bulk converter's tests/test_marks.py; its Library tests (decisions, supersession, scopes, persistence) are
+covered by the store and import tests instead (tests/test_junk_store.py).
 
 Fixtures are tiny PNG crops of the real marks in "Akuyaku Kizoku to shite Hitsuyou na Sore" (pilot originals):
   marks_scans_plain / _plain_b  RESET-SCANS.CO on a plain white margin (ch6 p2, p17; blankable)
@@ -11,7 +12,8 @@ Fixtures are tiny PNG crops of the real marks in "Akuyaku Kizoku to shite Hitsuy
   marks_scan_org                RESET-SCAN.ORG (ch15 p3)
   marks_screentone              RESET-SCAN.ORG on dark screentone (ch15 p11; ring refused)
 Each crop is pasted on a white 1200 x 1723 canvas (the pilot's page size), so the page is gray except for the badge.
-Synthetic pages (a solid badge on a 200 x 200 white page) pin the documented thresholds by hand calculation."""
+Synthetic pages (a solid badge on a 200 x 200 white page) pin the documented thresholds by hand calculation.
+"""
 
 import re
 
@@ -33,7 +35,7 @@ def mark_crop(name):
 
 
 def mark_page(name, at=MARK_AT, size=(1200, 1723)):
-    """The crop pasted on a white page of the pilot's size: gray except for the badge."""
+    """Return the crop pasted on a white page of the pilot's size: gray except for the badge."""
     canvas = np.full((size[1], size[0], 3), 255, np.uint8)
     c = mark_crop(name)
     canvas[at[1] : at[1] + c.shape[0], at[0] : at[0] + c.shape[1]] = c
@@ -76,21 +78,24 @@ NAMES = [
 
 
 def badge_page(x0, y0, x1, y1, colour=(255, 0, 0)):
-    """A white 200 x 200 page with a solid `colour` badge in the box (x0, y0, x1, y1)."""
+    """Return a white 200 x 200 page with a solid `colour` badge in the box (x0, y0, x1, y1)."""
     rgb = np.full((200, 200, 3), 255, np.uint8)
     rgb[y0:y1, x0:x1] = colour
     return rgb
 
 
 def solid(rgb, h=20, w=40, mask=None):
-    """A template of one colour, every pixel coloured unless `mask` says otherwise."""
+    """Return a template of one colour, every pixel coloured unless `mask` says otherwise."""
     return marks.Template(np.full((h, w, 3), rgb, np.uint8), np.ones((h, w), bool) if mask is None else mask)
 
 
 @pytest.fixture(scope="module")
 def templates():
-    """The templates of the 7 pilot crops, in NAMES order (immutable, shared by the module). Measuring the 7
-    1200x1723 pages takes ~0.1 s, charged to the first test that uses it: those tests carry a 0.5 s budget."""
+    """Provide the templates of the 7 pilot crops, in NAMES order (immutable, shared by the module).
+
+    Measuring the 7 1200x1723 pages takes ~0.1 s, charged to the first test that uses it: those tests carry a 0.5 s
+    budget.
+    """
     return [mark_of(n)[1].template for n in NAMES]
 
 
@@ -306,7 +311,7 @@ def test_ring_of_a_box_filling_the_page_is_empty():
 @budget(load="pure")
 @pytest.mark.parametrize(("frac", "want"), [(0.95, True), (0.9499, False)], ids=["at-95pct", "below"])
 def test_a_mark_is_blankable_from_95_percent_plain_ring(frac, want):
-    """blankable is ring_frac >= 0.95."""
+    """A mark is blankable when ring_frac >= 0.95."""
     assert marks.Mark((0, 0, 1, 1), (0, 0, 1, 1), (255, 255, 255), frac, solid((255, 0, 0))).blankable is want
 
 
@@ -415,7 +420,7 @@ def test_representatives_skip_templates_an_earlier_one_covers():
 # Variant rule (marks.resolve): one logo variant (e.g. Reset Scans' RESET-SCANS.CO, 63 pilot pages, several
 # representatives) decided from its representatives' deciding rows.
 def row(row_id, verdict, series_key):
-    """A store row as a lookup returns it."""
+    """Return a store row as a lookup returns it."""
     return {"id": row_id, "verdict": verdict, "series_key": series_key}
 
 
@@ -428,8 +433,10 @@ K, GK = row(3, "keep", AK), row(4, "keep", "")
     ("ds", "keep"), [([A, K], K), ([None, K], K), ([A, GK], GK)], ids=["after-approval", "after-pending", "global-keep"]
 )
 def test_a_keep_on_any_representative_wins(ds, keep):
-    """A keep on any representative decides the variant, a global one too (plan L5: a candidate a decision covers
-    never leaves its variant undecided)."""
+    """A keep on any representative decides the variant, a global one too.
+
+    Plan L5: a candidate a decision covers never leaves its variant undecided.
+    """
     assert marks.resolve(ds) == keep
 
 

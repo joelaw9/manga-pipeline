@@ -1,7 +1,8 @@
-"""Logo marks (SPEC "Junk decisions": units, keys): a gray-mark page's badge measured inside its mark box
-(images.gray_mark_box), its template, the variant match, variants (cluster, representatives) and a variant's decision
-from its representatives' (resolve). Ported from the bulk converter's optimizer/marks.py with its constants; the
-blank itself is images.blank (convert applies it).
+"""Logo marks (SPEC "Junk decisions": units, keys): a badge's measure, template, variants and a variant's decision.
+
+A gray-mark page's badge measured inside its mark box (images.gray_mark_box), its template, the variant match, variants
+(cluster, representatives) and a variant's decision from its representatives' (resolve). Ported from the bulk
+converter's optimizer/marks.py with its constants; the blank itself is images.blank (convert applies it).
 
 A mark is one small strongly coloured badge. Its tight box is the pixels with channel spread > STRONG inside the mark
 box (rows/columns with < EDGE_FRAC of the peak count are trimmed as JPEG noise); the padded box (PAD_REL x its height
@@ -39,6 +40,7 @@ class Template:
     """Tight-box RGB plus the mask of coloured pixels. Stored as an RGBA PNG (alpha = mask)."""
 
     def __init__(self, rgb, mask):
+        """Store rgb with its pixels outside mask zeroed, and mask as bool; ValueError for a mask with no pixel set."""
         self.rgb = np.where(mask[..., None], rgb, 0).astype(np.uint8)
         self.mask = np.asarray(mask, dtype=bool)
         if not self.mask.any():
@@ -47,9 +49,11 @@ class Template:
 
     @property
     def size(self):
+        """The template's (width, height)."""
         return self.mask.shape[1], self.mask.shape[0]
 
     def to_png(self):
+        """Return the template as RGBA PNG bytes (alpha = mask)."""
         rgba = np.dstack([self.rgb, self.mask.astype(np.uint8) * 255])
         buf = io.BytesIO()
         Image.fromarray(rgba, "RGBA").save(buf, "PNG")
@@ -57,15 +61,17 @@ class Template:
 
     @classmethod
     def from_png(cls, data):
+        """Return the template an RGBA PNG holds (alpha above MASK_HALF = mask)."""
         a = np.asarray(Image.open(io.BytesIO(data)).convert("RGBA"))
         return cls(a[..., :3], a[..., 3] > MASK_HALF)
 
     def key_text(self):
-        """The template as a decision key: its RGBA PNG, base64."""
+        """Return the template as a decision key: its RGBA PNG, base64."""
         return base64.b64encode(self.to_png()).decode("ascii")
 
     @classmethod
     def from_key(cls, text):
+        """Return the template a decision key (key_text) holds."""
         return cls.from_png(base64.b64decode(text))
 
     def review_id(self):
@@ -75,7 +81,7 @@ class Template:
 
 
 def same_variant(a, b):
-    """True when template b is the same badge as template a (see module docstring for the three tests)."""
+    """Return whether template b is the same badge as template a (see module docstring for the three tests)."""
     (aw, ah), (bw, bh) = a.size, b.size
     if abs(aw / ah - bw / bh) > ASPECT_TOL * max(aw / ah, bw / bh):
         return False
@@ -94,8 +100,10 @@ def same_variant(a, b):
 
 
 def cluster(templates):
-    """Group templates into variants (single link: a template joins every group holding a match). Each group is a
-    sorted list of indices into `templates`; groups are ordered by their first index."""
+    """Group templates into variants (single link: a template joins every group holding a match).
+
+    Each group is a sorted list of indices into `templates`; groups are ordered by their first index.
+    """
     groups = []
     for i, t in enumerate(templates):
         joined = [g for g in groups if any(same_variant(templates[k], t) for k in g)]
@@ -105,9 +113,11 @@ def cluster(templates):
 
 
 def representatives(templates):
-    """A covering subset of one variant's templates, in order: every template matches at least one of them
-    (same_variant(representative, template), the direction Library.decision tests). What a review decision records:
-    deciding these decides every member, in a few rows instead of one per page."""
+    """Return a covering subset of one variant's templates, in order.
+
+    Every template matches at least one of them (same_variant(representative, template), the direction Library.decision
+    tests). What a review decision records: deciding these decides every member, in a few rows instead of one per page.
+    """
     reps = []
     for t in templates:
         if not any(same_variant(r, t) for r in reps):
@@ -123,8 +133,11 @@ def _pad(box, shape, n):
 
 
 def ring_stats(rgb, box):
-    """(fill, frac) of the RING px frame around `box`: its per-channel median colour and the share of its pixels
-    within RING_TOL of that median on every channel. A frame with no pixels gives frac 0."""
+    """Return (fill, frac) of the RING px frame around `box`.
+
+    Its per-channel median colour and the share of its pixels within RING_TOL of that median on every channel. A frame
+    with no pixels gives frac 0.
+    """
     a = np.asarray(rgb)
     x0, y0, x1, y1 = _pad(box, a.shape, RING)
     inside = np.ones((y1 - y0, x1 - x0), dtype=bool)
@@ -139,6 +152,8 @@ def ring_stats(rgb, box):
 
 @dataclass(frozen=True)
 class Mark:
+    """A measured badge: its tight and padded boxes, its ring's fill and plain share, and its template."""
+
     tight: tuple  # box of the strongly coloured pixels
     box: tuple  # tight box + PAD_REL x its height, clamped to the page: what a blank-out overwrites
     fill: tuple  # ring median RGB
@@ -147,21 +162,26 @@ class Mark:
 
     @property
     def blankable(self):
+        """Whether the mark may be blanked: its ring is plain (ring_frac >= RING_FRAC)."""
         return self.ring_frac >= RING_FRAC
 
 
 def _solid(counts):
-    """(start, stop) of the profile entries holding at least EDGE_FRAC of the peak: JPEG chroma noise leaves sparse
-    strong pixels outside the badge, which would otherwise stretch its box."""
+    """Return (start, stop) of the profile entries holding at least EDGE_FRAC of the peak.
+
+    JPEG chroma noise leaves sparse strong pixels outside the badge, which would otherwise stretch its box.
+    """
     keep = np.nonzero(counts >= EDGE_FRAC * counts.max())[0]
     return int(keep[0]), int(keep[-1]) + 1
 
 
 def measure(rgb, bbox):
-    """The Mark inside Part B's gray-mark box (formats.gray_mark_box), or None when no pixel in it is strongly
-    coloured, or none is left inside the solid rows x solid columns (a faint mark: nothing to template or blank; it
-    only goes gray). The rows and columns are trimmed separately, so scattered specks can leave an empty overlap
-    (Before the Real Heroine Steps In, Eva_Chapter 52 p031)."""
+    """Return the Mark inside Part B's gray-mark box (formats.gray_mark_box), or None for a faint mark.
+
+    None when no pixel in it is strongly coloured, or none is left inside the solid rows x solid columns (a faint mark:
+    nothing to template or blank; it only goes gray). The rows and columns are trimmed separately, so scattered specks
+    can leave an empty overlap (Before the Real Heroine Steps In, Eva_Chapter 52 p031).
+    """
     a = np.asarray(rgb)
     x0, y0, x1, y1 = bbox
     sub = a[y0:y1, x0:x1].astype(np.int16)
@@ -182,9 +202,12 @@ def measure(rgb, bbox):
 
 # ---------------------------------------------------------------- a variant's decision
 def resolve(rows):
-    """A logo variant's deciding row from its representatives' deciding rows (store lookups; None = undecided): a keep
-    on any representative wins, else a junk on any, else None (undecided). The bulk converter counted only series
-    keeps; a global keep counts here too, so a candidate a decision covers never leaves its variant undecided."""
+    """Return a logo variant's deciding row from its representatives' deciding rows.
+
+    Store lookups; None = undecided. A keep on any representative wins, else a junk on any, else None (undecided). The
+    bulk converter counted only series keeps; a global keep counts here too, so a candidate a decision covers never
+    leaves its variant undecided.
+    """
     keeps = [r for r in rows if r is not None and r["verdict"] == "keep"]
     if keeps:
         return keeps[0]

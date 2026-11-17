@@ -1,5 +1,6 @@
-"""Run locks (SPEC "Run lock"): session advisory locks of the database, taken on the command's 1 connection, so
-they hold across machines and the server frees them when the connection ends.
+"""Run locks (SPEC "Run lock"): session advisory locks of the database, taken on the command's 1 connection.
+
+They hold across machines, and the server frees them when the connection ends.
 
 A lock's key is 2 integers: NAMESPACE and the server's hashtext of the lock's name, so every machine computes the
 same key and none collides with the write lock (db.WRITE_LOCK, 1 integer). IDLE is the "nothing else is running"
@@ -17,14 +18,16 @@ SHARED, EXCLUSIVE = "shared", "exclusive"
 
 
 class LockHeld(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
-    pass
+    """Another session holds a lock the command asked for; the message names that lock."""
 
 
 @contextmanager
 def held(conn, cfg, names, idle=None):
     """Hold the named locks, and IDLE in mode idle (SHARED, EXCLUSIVE or None), for the block when lock.enabled.
+
     All or nothing: when another session holds one, the ones already taken are freed and LockHeld names the held
-    one, at once."""
+    one, at once.
+    """
     if idle not in (None, SHARED, EXCLUSIVE):
         msg = f"idle must be {SHARED!r}, {EXCLUSIVE!r} or None, got {idle!r}"
         raise ValueError(msg)
@@ -52,8 +55,11 @@ def held(conn, cfg, names, idle=None):
 
 
 def held_sql(name):
-    """Whether some session holds the run lock `name` exclusive in this database, in SQL; name is the SQL expression
-    (a Composable) giving the lock's name: sql.Placeholder() for a parameter, sql.Identifier for a column."""
+    """Return, in SQL, whether some session holds the run lock `name` exclusive in this database.
+
+    name is the SQL expression (a Composable) giving the lock's name: sql.Placeholder() for a parameter,
+    sql.Identifier for a column.
+    """
     return sql.SQL("""EXISTS (SELECT 1 FROM pg_locks l
     WHERE l.locktype = 'advisory' AND l.granted AND l.mode = 'ExclusiveLock' AND l.objsubid = 2
         AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())

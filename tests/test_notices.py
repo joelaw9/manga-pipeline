@@ -1,6 +1,9 @@
-"""Numbered notice titles (SPEC "Chapter stages": discover and junk): a download whose title is a notice
-(validate.non_chapter_names) but that has a chapter number is judged at junk by the bulk converter's rule: kept as a
-chapter with a note when it has an end marker, at least the series' median page count, or no median is known."""
+"""Numbered notice titles (SPEC "Chapter stages": discover and junk).
+
+A download whose title is a notice (validate.non_chapter_names) but that has a chapter number is judged at junk by the
+bulk converter's rule: kept as a chapter with a note when it has an end marker, at least the series' median page count,
+or no median is known.
+"""
 
 import json
 from contextlib import closing
@@ -48,7 +51,7 @@ def chapter(world):
 
 
 def listed_notes(world):
-    """The chapter notes `status` lists."""
+    """Return the chapter notes `status` lists."""
     with closing(db.read_only(world.cfg)) as conn:
         lines = status.report(conn)
     start = lines.index("Chapter notes:") + 1

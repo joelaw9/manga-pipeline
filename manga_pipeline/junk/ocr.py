@@ -1,6 +1,8 @@
-"""OCR text of a strip unit and its keyword test (SPEC "Junk decisions", candidates). Copied from the bulk converter's
-optimizer/ocr.py and junk.text_hits; its process pool is not ported (only a chapter's unmatched edge blocks and probes
-are read). RapidOCR with its bundled PP-OCR models on onnxruntime, on device `junk.ocr_device`:
+"""OCR text of a strip unit and its keyword test (SPEC "Junk decisions", candidates).
+
+Copied from the bulk converter's optimizer/ocr.py and junk.text_hits; its process pool is not ported (only a chapter's
+unmatched edge blocks and probes are read). RapidOCR with its bundled PP-OCR models on onnxruntime, on device
+`junk.ocr_device`:
 
 - cpu: onnxruntime (CI, any machine);
 - dml: onnxruntime-directml (Windows GPU); DirectML crashes when 2 threads run sessions at once: calls are serial;
@@ -41,8 +43,11 @@ _serial = threading.Lock()
 
 
 def provider_problem(device):
-    """Why `device` cannot run OCR here, or None: unknown device, no onnxruntime, or a session on the device's
-    provider that falls back to another (listing a provider is no proof it loads)."""
+    """Return why `device` cannot run OCR here, or None.
+
+    Unknown device, no onnxruntime, or a session on the device's provider that falls back to another (listing a provider
+    is no proof it loads).
+    """
     if device not in PROVIDERS:
         return f"junk.ocr_device {device!r} is not one of {sorted(PROVIDERS)}"
     try:
@@ -64,7 +69,7 @@ def provider_problem(device):
 
 @functools.cache
 def _engine(device):
-    """A reader of 1 tile: its text lines (RapidOCR on the device's onnxruntime provider)."""
+    """Return a reader of 1 tile: its text lines (RapidOCR on the device's onnxruntime provider)."""
     import onnxruntime  # noqa: PLC0415  # lazy: only process loads onnxruntime/RapidOCR; every command imports junk.ocr
     from rapidocr import RapidOCR  # noqa: PLC0415  # lazy: only process loads onnxruntime/RapidOCR; every command imports junk.ocr
     from rapidocr.utils.output import RapidOCROutput  # noqa: PLC0415  # lazy: only process loads onnxruntime/RapidOCR; every command imports junk.ocr
@@ -96,13 +101,13 @@ def tiles(im):
 
 
 def scale(im, width=WIDTH):
-    """im as RGB, `width` px wide (aspect kept)."""
+    """Return im as RGB, `width` px wide (aspect kept)."""
     im = im.convert("RGB")
     return im.resize((width, max(1, round(im.height * width / im.width))), Image.Resampling.LANCZOS)
 
 
 def text(im, device):
-    """The lines read in im (scaled to WIDTH) on `device`, newline-joined; "" when none."""
+    """Return the lines read in im (scaled to WIDTH) on `device`, newline-joined; "" when none."""
     if device not in PARAMS:
         msg = f"ocr device must be one of {sorted(PARAMS)}, got {device!r}"
         raise ValueError(msg)
@@ -123,17 +128,21 @@ def normalize(s):
 
 
 def word_list_problem(words):
-    """What is wrong with config `junk`'s word lists, or None: a weak or a paired term only restricts when a keyword
-    counts, so each must be a keyword."""
+    """Return what is wrong with config `junk`'s word lists, or None.
+
+    A weak or a paired term only restricts when a keyword counts, so each must be a keyword.
+    """
     stray = {key: sorted(set(words[key]) - set(words["keywords"])) for key in ("weak", "paired")}
     return "; ".join(f"junk.{key} terms not in junk.keywords: {terms}" for key, terms in stray.items() if terms) or None
 
 
 def text_hits(text_, height, words):
-    """The keywords found in a unit's OCR text, in list order: each a case-insensitive substring of the normalized
-    text; a weak term counts only on a unit at most MAX_WEAK_PX tall; a paired term only beside a hit of a keyword
-    that is not paired; none at all when a suppress term is found. words: config `junk` (keywords, weak, paired,
-    suppress)."""
+    """Return the keywords found in a unit's OCR text, in list order.
+
+    Each a case-insensitive substring of the normalized text; a weak term counts only on a unit at most MAX_WEAK_PX
+    tall; a paired term only beside a hit of a keyword that is not paired; none at all when a suppress term is found.
+    words: config `junk` (keywords, weak, paired, suppress).
+    """
     problem = word_list_problem(words)
     if problem:
         raise ValueError(problem)

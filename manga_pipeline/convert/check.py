@@ -1,6 +1,8 @@
-"""The post-check of a staged chapter (SPEC "Conversion"), copied from the bulk converter's integrity.check_post without
-its ComicInfo checks (export adds ComicInfo.xml) and with page bytes, not archive sizes, in the size rule (the
-download is deflated, the staged file stored)."""
+"""The post-check of a staged chapter (SPEC "Conversion").
+
+Copied from the bulk converter's integrity.check_post without its ComicInfo checks (export adds ComicInfo.xml) and with
+page bytes, not archive sizes, in the size rule (the download is deflated, the staged file stored).
+"""
 
 import zipfile
 from collections import Counter
@@ -17,8 +19,10 @@ def _extensions(fmt):
 
 @dataclass
 class _Read:
-    """The page pass's outputs: its failures, the pages' formats, the decodable pages ({"name", "sha1"}) and the
-    bytes of every page read."""
+    """The page pass's outputs.
+
+    Its failures, the pages' formats, the decodable pages ({"name", "sha1"}) and the bytes of every page read.
+    """
 
     fails: list = field(default_factory=list)
     fmts: Counter = field(default_factory=Counter)
@@ -27,8 +31,11 @@ class _Read:
 
 
 def check(cbz, rec, x_dir, kept):
-    """The post-check's failures ([] when the staged CBZ passes). rec: image.process_chapter's record; x_dir: the
-    extracted source pages; kept: the plan's kept pages ([{"name", "bytes"}])."""
+    """Return the post-check's failures ([] when the staged CBZ passes).
+
+    rec: image.process_chapter's record; x_dir: the extracted source pages; kept: the plan's kept pages ([{"name",
+    "bytes"}]).
+    """
     with zipfile.ZipFile(cbz) as z:
         bad = z.testzip()
         if bad is not None:
@@ -49,7 +56,7 @@ def check(cbz, rec, x_dir, kept):
 
 
 def _entry_fails(infos, extra):
-    """The archive's own failures: not store mode, folders, entries that are not pages."""
+    """Return the archive's own failures: not store mode, folders, entries that are not pages."""
     fails = []
     if any(i.compress_type != zipfile.ZIP_STORED for i in infos):
         fails.append("not-store-mode")
@@ -61,8 +68,10 @@ def _entry_fails(infos, extra):
 
 
 def _read_pages(z, names, rec, x_dir):
-    """Each page entry read in order and checked: its extension, that it decodes, then (a decodable page) its lossless
-    match and its AVIF score."""
+    """Read each page entry in order and check it.
+
+    Its extension, that it decodes, then (a decodable page) its lossless match and its AVIF score.
+    """
     read = _Read()
     for name in names:
         data = z.read(name)
@@ -86,7 +95,10 @@ def _read_pages(z, names, rec, x_dir):
 
 
 def _lossless_fails(name, page, source, x_dir):
-    """A lossless page against its source ({"source", "mode"}): a luma check on a colour source is checked exact."""
+    """Check a lossless page against its source ({"source", "mode"}).
+
+    A luma check on a colour source is checked exact.
+    """
     fails = []
     mode = source["mode"]
     original = pages.Page((Path(x_dir) / source["source"]).read_bytes())
@@ -99,7 +111,7 @@ def _lossless_fails(name, page, source, x_dir):
 
 
 def _score_fails(name, score):
-    """An AVIF page's score: present and at least the floor."""
+    """Check an AVIF page's score: present and at least the floor."""
     if score is None:
         return [f"score-missing: {name}"]
     if score < image.SCORE_FLOOR:
@@ -108,7 +120,10 @@ def _score_fails(name, score):
 
 
 def _sequence_fails(actual, expected):
-    """The decodable pages against the record's output: the same count, then the same names and contents in order."""
+    """Check the decodable pages against the record's output.
+
+    The same count, then the same names and contents in order.
+    """
     if len(actual) != len(expected):
         return [f"page-count: {len(actual)} != expected {len(expected)}"]
     if actual != expected:
@@ -118,21 +133,21 @@ def _sequence_fails(actual, expected):
 
 
 def _format_fails(rec, fmts):
-    """An AVIF outcome holds AVIF pages only."""
+    """Check that an AVIF outcome holds AVIF pages only."""
     if rec["outcome"] == "avif" and set(fmts) != {images.AVIF}:
         return ["mixed-formats: " + "+".join(sorted(fmts))]
     return []
 
 
 def _order_fails(names):
-    """The entries sort the same naturally and plainly."""
+    """Check that the entries sort the same naturally and plainly."""
     if sorted(names, key=archive.natural_key) != sorted(names):
         return ["page-order-ambiguous: natural and lexical order differ"]
     return []
 
 
 def _size_fails(rec, kept, out_bytes):
-    """The lossless and size-gated AVIF outcomes are not larger than the source pages."""
+    """Check that the lossless and size-gated AVIF outcomes are not larger than the source pages."""
     if not (rec["outcome"] == "lossless" or rec.get("gate") == "floor+size"):
         return []
     source_bytes = sum(q["bytes"] for q in kept)

@@ -1,5 +1,7 @@
-"""Episode lists of the official platforms (SPEC "Metadata", platform lists): posts classified, titles cleaned, season
-markers read; the bulk converter's optimizer/sources/episodes.py, ported whole. Pure.
+"""Episode lists of the official platforms (SPEC "Metadata", platform lists): posts, titles and season markers read.
+
+Posts classified, titles cleaned, season markers read; the bulk converter's optimizer/sources/episodes.py, ported
+whole. Pure.
 
 Neither Tapas nor Webtoons has a season or volume field: seasons come only from finale and premiere markers in episode
 titles. An episode record, in site order:
@@ -80,8 +82,10 @@ def read_markers(title):
 
 
 def read_marker(title):
-    """The title's first season marker as an episode record holds it (end, start, then "Main Story Finale"), or
-    None."""
+    """Return the title's first season marker as an episode record holds it, or None.
+
+    Markers are tried in order: end, start, then "Main Story Finale".
+    """
     found = read_markers(title)
     if found:
         return {"type": found[0][0], "season": found[0][1]}
@@ -89,9 +93,12 @@ def read_marker(title):
 
 
 def close_seasons(ends, starts):
-    """A start marker for season N closes season N-1 at the last chapter before it, unless an end marker already
-    closed N-1. ends: {season: last chapter}, updated in place and returned; starts: [(season, last chapter before its
-    start marker, or None)] in the caller's order."""
+    """Close each season a later season's start marker ends; return ends.
+
+    A start marker for season N closes season N-1 at the last chapter before it, unless an end marker already closed
+    N-1. ends: {season: last chapter}, updated in place and returned; starts: [(season, last chapter before its start
+    marker, or None)] in the caller's order.
+    """
     for season, before in starts:
         if season > 1 and season - 1 not in ends and before is not None:
             ends[season - 1] = before
@@ -125,8 +132,11 @@ def _tidy(t):
 
 
 def classify(raw_title):
-    """(kind, stated number, rest of the title after its label). A stated chapter number ("Ep. 3 - X", "3. X") makes
-    it a chapter; otherwise announcement-type words make it a non-chapter post."""
+    """Classify a post's title: return (kind, stated number, rest of the title after its label).
+
+    A stated chapter number ("Ep. 3 - X", "3. X") makes it a chapter; otherwise announcement-type words make it a
+    non-chapter post.
+    """
     t = raw_title or ""
     if SPECIAL_WORDS.match(t) and not NON_CHAPTER_WORDS.search(t):
         m = SPECIAL_LABEL.match(t)
@@ -144,9 +154,12 @@ def classify(raw_title):
 
 
 def build(items):
-    """items: [(site number, raw title, date, id)] in site order -> episode records (module doc). When most posts
-    state a chapter number, an unnumbered post that is not a special is a non-chapter; in a series whose titles carry
-    no numbers at all, every such post is a chapter."""
+    """Build the episode records (module doc) from a site's posts.
+
+    items: [(site number, raw title, date, id)] in site order -> episode records. When most posts state a chapter
+    number, an unnumbered post that is not a special is a non-chapter; in a series whose titles carry no numbers at
+    all, every such post is a chapter.
+    """
     parsed = [(n, (raw or "").strip(), date, eid) for n, raw, date, eid in items]
     kinds = [classify(raw) for _, raw, _, _ in parsed]
     numbered = sum(1 for k, stated, _ in kinds if k == MAIN and stated is not None)
@@ -181,11 +194,13 @@ def build(items):
 
 
 def _main_chapter(stated, number, prev_main, *, numbered_series):
-    """(chapter number text, whether it is the label's own) of a main post: stated, its label's number (None: none);
-    number, its site index; prev_main, the chapter before it (None: none yet). The label is the episode's own number
-    when it repeats the site index or the running chapter count; in a numbered series also on the first chapter and
-    on small forward jumps (a chapter the site skipped); otherwise ("Episode 7 Begins" as chapter 2) it is part of
-    the title and the post takes the next chapter number."""
+    """Return (chapter number text, whether it is the label's own) of a main post.
+
+    stated, its label's number (None: none); number, its site index; prev_main, the chapter before it (None: none
+    yet). The label is the episode's own number when it repeats the site index or the running chapter count; in a
+    numbered series also on the first chapter and on small forward jumps (a chapter the site skipped); otherwise
+    ("Episode 7 Begins" as chapter 2) it is part of the title and the post takes the next chapter number.
+    """
     expected = int(prev_main) + 1 if prev_main is not None else None
     own = stated is not None and (
         _same(stated, number)
@@ -199,15 +214,19 @@ def _main_chapter(stated, number, prev_main, *, numbered_series):
 
 
 class _SeasonLine:
-    """The seasons a list's posts have marked so far, in site order: the last ended season and the season started
-    since (None: none)."""
+    """The seasons a list's posts have marked so far, in site order.
+
+    The last ended season and the season started since (None: none).
+    """
 
     def __init__(self):
         self.last_end, self.started = 0, None
 
     def marker(self, raw):
-        """The next post's season marker (read_marker): "(Season Finale)" / "(Season Premiere)" without a number
-        takes the season in line. The line moves on past it."""
+        """Return the next post's season marker (read_marker).
+
+        "(Season Finale)" / "(Season Premiere)" without a number takes the season in line. The line moves on past it.
+        """
         marker = read_marker(raw)
         if marker and marker["type"] in ("end", "start") and marker["season"] is None:
             marker["season"] = (self.started or self.last_end + 1) if marker["type"] == "end" else self.last_end + 1
@@ -219,7 +238,10 @@ class _SeasonLine:
 
 
 def _episode_title(title, kind):
-    """A post's title cleaned: season markers read off, None when nothing is left (or a main post's bare label)."""
+    """Return a post's title cleaned: season markers read off.
+
+    None when nothing is left (or a main post's bare label).
+    """
     title = BRACKETED_MARKER.sub("", title)
     if BARE_MARKER.match(title):
         title = ""
@@ -230,11 +252,13 @@ def _episode_title(title, kind):
 
 
 def season_breaks(episodes):
-    """Season ranges over main chapters from the episodes' markers: [{"season": n, "first": chapter, "last": chapter
-    or None (open: no end marker yet), "side": bool}]. An end marker closes its season at that episode (on a
-    non-chapter post: at the last chapter before it); a start marker for season N closes N-1 one chapter earlier,
-    unless an end marker already did. "Main Story Finale" closes the running season, and the chapters after it form 1
-    more range with side true. [] when no episode carries a season marker."""
+    """Return the season ranges over main chapters from the episodes' markers.
+
+    [{"season": n, "first": chapter, "last": chapter or None (open: no end marker yet), "side": bool}]. An end marker
+    closes its season at that episode (on a non-chapter post: at the last chapter before it); a start marker for
+    season N closes N-1 one chapter earlier, unless an end marker already did. "Main Story Finale" closes the running
+    season, and the chapters after it form 1 more range with side true. [] when no episode carries a season marker.
+    """
     ends, starts, main_end = _season_points(episodes)
     close_seasons(ends, starts)
     if not ends and not starts and main_end is None:
@@ -246,9 +270,11 @@ def season_breaks(episodes):
 
 
 def _season_points(episodes):
-    """(ends, starts, main end) the episodes' markers give: ends {season: last chapter} (an end marker on a
-    non-chapter post: the last chapter before it), starts [(season, the last chapter before its start marker)] in site
-    order, and the chapter of "Main Story Finale" (None: none)."""
+    """Return (ends, starts, main end) the episodes' markers give.
+
+    ends {season: last chapter} (an end marker on a non-chapter post: the last chapter before it), starts [(season,
+    the last chapter before its start marker)] in site order, and the chapter of "Main Story Finale" (None: none).
+    """
     ends, starts, main_end, last_main = {}, [], None, None
     for e in episodes:
         m = e.get("season_marker")
@@ -266,9 +292,12 @@ def _season_points(episodes):
 
 
 def _season_ranges(ends, mains, main_end):
-    """season_breaks' ranges from the closed seasons (ends: {season: last chapter}) over the main chapter numbers
-    (mains, ascending): a season whose end does not pass the one before, or that holds no chapter, is left out; the
-    chapters after the last end form 1 more open range, a side one past the main-story finale (main_end)."""
+    """Return season_breaks' ranges from the closed seasons over the main chapter numbers.
+
+    ends: {season: last chapter}; mains: the main chapter numbers, ascending. A season whose end does not pass the one
+    before, or that holds no chapter, is left out; the chapters after the last end form 1 more open range, a side one
+    past the main-story finale (main_end).
+    """
     out, prev, last_season = [], None, 0
     for season, end in sorted(ends.items()):
         if prev is not None and end <= prev:
@@ -301,9 +330,11 @@ def gaps(episodes, key="number"):
 
 
 def coverage(episodes, listed_total=None, *, app_only=False, list_page_read=True):
-    """{"status": complete | partial | unknown, "reason"}: partial when the site lists fewer episodes than it says it
-    has, when site numbers are missing, when none is listed, or when the platform keeps episodes to its app; unknown
-    when the page that tells is unread."""
+    """Return how much of the series an episode list covers: {"status": complete | partial | unknown, "reason"}.
+
+    partial when the site lists fewer episodes than it says it has, when site numbers are missing, when none is
+    listed, or when the platform keeps episodes to its app; unknown when the page that tells is unread.
+    """
     reasons = []
     if listed_total and len(episodes) < listed_total:
         reasons.append(f"{len(episodes)} of {listed_total} episodes listed")

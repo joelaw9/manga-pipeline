@@ -1,7 +1,8 @@
-"""`metadata audit [--state PATH]` (SPEC "Metadata checks", Audit): read-only, over every series of the library
-whatever `series.only` says. Gathers each series' ids from every origin itself (the database is not read: a test
-database holds few series) and prints the series whose ids disagree, the sources no origin gives an id for, and the
-Suwayomi library manga no series matches by name.
+"""`metadata audit [--state PATH]` (SPEC "Metadata checks", Audit): a read-only check of the library's series' ids.
+
+It runs over every series of the library whatever `series.only` says. Gathers each series' ids from every origin
+itself (the database is not read: a test database holds few series) and prints the series whose ids disagree, the
+sources no origin gives an id for, and the Suwayomi library manga no series matches by name.
 """
 
 from manga_pipeline.clients.kavita_match import normalize, series_names
@@ -9,8 +10,10 @@ from manga_pipeline.metadata import ids, importer
 
 
 def run(cfg, kavita, suwayomi, clients, state=None):
-    """Print the audit; clients: the metadata sources' clients; state: the old tool's state file as
-    importer.read_state gives it, or None."""
+    """Print the audit.
+
+    clients: the metadata sources' clients; state: the old tool's state file as importer.read_state gives it, or None.
+    """
     listing = kavita.series_in_library(cfg["kavita"]["library_id"])
     manga = list(suwayomi.library_manga())
     by_title = {}

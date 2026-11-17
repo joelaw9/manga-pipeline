@@ -1,7 +1,9 @@
-"""Page images (images; contracts section 1): the formats present in the library (JPEG, PNG, lossy/lossless WebP,
-AVIF, GIF), header-only dimensions, open_image's decode rules, real alpha (open_flat, may_have_alpha), to_gray,
-save_png and the page classes (gray-mark included). Ported from the bulk converter's tests/test_formats.py and
-tests/test_alpha_pages.py."""
+"""Page images (images; contracts section 1).
+
+The formats present in the library (JPEG, PNG, lossy/lossless WebP, AVIF, GIF), header-only dimensions, open_image's
+decode rules, real alpha (open_flat, may_have_alpha), to_gray, save_png and the page classes (gray-mark included).
+Ported from the bulk converter's tests/test_formats.py and tests/test_alpha_pages.py.
+"""
 
 import io
 from pathlib import Path
@@ -31,13 +33,16 @@ W, H = 120, 400  # alpha pages
 
 
 def riff(*chunks):
-    """A RIFF/WEBP stream of (fourcc, payload) chunks, each padded to an even size as the container requires."""
+    """Return a RIFF/WEBP stream of (fourcc, payload) chunks, each padded to an even size as the container requires."""
     body = b"".join(c + len(p).to_bytes(4, "little") + p + b"\0" * (len(p) & 1) for c, p in chunks)
     return b"RIFF" + (len(body) + 4).to_bytes(4, "little") + b"WEBP" + body
 
 
 def badge_page(*badges, fill=(0, 200, 220)):
-    """A 1200 x 1723 gray manga page (Akuyaku Kizoku to shite Hitsuyou na Sore) with solid colour boxes (x, y, w, h)."""
+    """Return a 1200 x 1723 gray manga page with solid colour boxes (x, y, w, h).
+
+    The page: Akuyaku Kizoku to shite Hitsuyou na Sore.
+    """
     a = np.asarray(fx.manga_page(fx.PILOT)).copy()
     for x, y, w, h in badges:
         a[y : y + h, x : x + w] = fill
@@ -336,7 +341,7 @@ def test_profile_of_another_colour_space_is_ignored():
 
 
 def wide_icc():
-    """A non-sRGB RGB profile: an sRGB profile renamed (no such profile in the sample)."""
+    """Return a non-sRGB RGB profile: an sRGB profile renamed (no such profile in the sample)."""
     return (fx.PAGE_FIX / "icc_srgb_iec61966.icc").read_bytes().replace(b"sRGB IEC61966-2.1", b"Wide IEC61966-2.1")
 
 
@@ -388,7 +393,7 @@ def rgba(a):
 
 
 def edge_slice(seed=1):
-    """A WebP RGBA strip slice, alpha 64 in column 0, opaque elsewhere."""
+    """Return a WebP RGBA strip slice, alpha 64 in column 0, opaque elsewhere."""
     a = np.dstack([np.asarray(fx.webtoon_page((W, H), seed=seed)), np.full((H, W), 255, np.uint8)])
     a[:, 0, 3] = 64
     return rgba(a)
@@ -560,9 +565,11 @@ def test_wide_or_tall_mark_is_colour(box):
     ],
 )
 def test_mark_size_limits(box, want):
-    """Tile-aligned marks dilate by 3 tiles (48 px) per axis: width 416 is within 35% of 1200 (420), 424 is not;
-    height 136 is within 8% of 1723 (137.84), 144 is not; a 16 px square dilates to 64 x 64 (4096 px2 < 5000) and
-    stays colour, a 32 px one to 80 x 80 (6400 px2) is gray-mark."""
+    """Tile-aligned marks dilate by 3 tiles (48 px) per axis.
+
+    Width 416 is within 35% of 1200 (420), 424 is not; height 136 is within 8% of 1723 (137.84), 144 is not; a 16 px
+    square dilates to 64 x 64 (4096 px2 < 5000) and stays colour, a 32 px one to 80 x 80 (6400 px2) is gray-mark.
+    """
     assert page_class(badge_page(box)) == want, "the mark's dilated box is held to the width, height and area caps"
 
 

@@ -1,5 +1,8 @@
-"""Which published files' volumes change (SPEC "Retroactive updates"): only a fill of a published file holding no
-volume, or its override range's volume; a source moving or dropping a volume changes nothing and is listed."""
+"""Which published files' volumes change (SPEC "Retroactive updates").
+
+Only a fill of a published file holding no volume, or its override range's volume; a source moving or dropping a
+volume changes nothing and is listed.
+"""
 
 import dataclasses
 import json

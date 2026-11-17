@@ -1,14 +1,21 @@
-"""Stage discover (SPEC "Chapter stages", "Bad downloads"): the first look inside a download. It settles the chapter's
-identity (the ComicInfo Number numbers a chapter whose name has none) and content digest, drops an unnumbered notice
-or hiatus page (a numbered one is judged at junk: notices.py) and a download a handled chapter already had, and makes a
-chapter with no number, or a number with 2 readings (names.two_readings), needs_human. An archive it
-cannot read gets no digest and goes on to validate, which judges it. Finding the downloads is discovery.py's.
+"""Stage discover (SPEC "Chapter stages", "Bad downloads"): the first look inside a download.
+
+It settles the chapter's identity (the ComicInfo Number numbers a chapter whose name has none) and content digest,
+drops an unnumbered notice or hiatus page (a numbered one is judged at junk: notices.py) and a download a handled
+chapter already had, and makes a chapter with no number, or a number with 2 readings (names.two_readings),
+needs_human. An archive it cannot read gets no digest and goes on to validate, which judges it. Finding the downloads
+is discovery.py's.
 """
 
 from manga_pipeline import archive, comicinfo, config, errors, handled, names, notices, workflow
 
 
 def run(ctx: workflow.Context, chapter):
+    """Settle the chapter's identity and digest from its download, or drop it or make it needs_human.
+
+    Dropped: a gone download, an unnumbered notice, a download a handled chapter already had. Needs_human: no number,
+    or a number with 2 readings.
+    """
     download = config.to_local(ctx.cfg, chapter["download_path"])
     if not errors.exists(download):
         # Moved away after discovery listed it, or put aside by a run that crashed before its outcome.

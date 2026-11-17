@@ -1,6 +1,8 @@
-"""The bulk converter's series record, read only (convert.record_reader; SPEC "State", baseline): load from a series
-folder, parse (the stage rule) and check (the structural rules). Ported from the bulk converter's tests/test_record.py
-(its read path)."""
+"""The bulk converter's series record, read only (convert.record_reader; SPEC "State", baseline).
+
+Load from a series folder, parse (the stage rule) and check (the structural rules). Ported from the bulk converter's
+tests/test_record.py (its read path).
+"""
 
 import copy
 import json
@@ -17,7 +19,7 @@ RUN_ID = "20261028-000000-0000"
 
 
 def series_record(outputs, carried=None, folder="Series", schema=4):
-    """A minimal valid record of written outputs (one source each, "source N.cbz") and carried files."""
+    """Return a minimal valid record of written outputs (one source each, "source N.cbz") and carried files."""
     chapters, sources = [], []
     for i, out in enumerate(sorted(outputs), 1):
         src = f"source {i}.cbz"
@@ -66,7 +68,7 @@ def series_record(outputs, carried=None, folder="Series", schema=4):
 
 
 def pilot_record():
-    """The pilot shaped minimally: two written chapters, a carried file."""
+    """Return the pilot shaped minimally: two written chapters, a carried file."""
     return series_record([CH1, CH2], {"ComicInfo.xml": "c" * 64}, folder=PILOT)
 
 

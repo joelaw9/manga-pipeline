@@ -1,5 +1,8 @@
-"""Test pages and chapters for the convert tests: synthetic colour and gray pages as JPEG / PNG / WebP bytes, a CBZ of
-them, its extraction and measurement, and a plan of it (convert.plan.build)."""
+"""Test pages and chapters for the convert tests.
+
+Synthetic colour and gray pages as JPEG / PNG / WebP bytes, a CBZ of them, its extraction and measurement, and a plan
+of it (convert.plan.build).
+"""
 
 import io
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +19,7 @@ QUALITY = {"gray": 80, "colour": 80}
 
 
 def colour(size=(96, 128), seed=1):
-    """A colour panel: a gradient and filled circles."""
+    """Draw a colour panel: a gradient and filled circles."""
     rng = np.random.default_rng(seed)
     w, h = size
     grad = np.linspace(0, 255, h, dtype=np.uint8)[:, None]
@@ -31,7 +34,7 @@ def colour(size=(96, 128), seed=1):
 
 
 def gray(size=(96, 128), seed=2):
-    """A gray page: paper, strokes, a frame."""
+    """Draw a gray page: paper, strokes, a frame."""
     rng = np.random.default_rng(seed)
     im = Image.new("L", size, 255)
     d = ImageDraw.Draw(im)
@@ -44,20 +47,24 @@ def gray(size=(96, 128), seed=2):
 
 
 def encoded(im, fmt, **opts):
+    """Return im saved in format `fmt` with Pillow's save options `opts`, as bytes."""
     buf = io.BytesIO()
     im.save(buf, fmt, **opts)
     return buf.getvalue()
 
 
 def jpeg(im, quality=92):
+    """Return im as JPEG bytes at `quality`, converted to RGB unless its mode is L, RGB or CMYK."""
     return encoded(im.convert("RGB") if im.mode not in ("L", "RGB", "CMYK") else im, "JPEG", quality=quality)
 
 
 def png(im):
+    """Return im as PNG bytes."""
     return encoded(im, "PNG")
 
 
 def webp(im, *, lossless=False):
+    """Return im as WebP bytes: lossless, or lossy at quality 80."""
     return encoded(im, "WEBP", lossless=lossless, quality=80)
 
 
@@ -65,6 +72,7 @@ class Chapter:
     """A CBZ of members, extracted into x/ and measured, with its folders under root."""
 
     def __init__(self, root, members):
+        """Write the CBZ of `members` under root, extract it into x/ and measure its pages."""
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.cbz = self.root / "chapter.cbz"
@@ -76,6 +84,7 @@ class Chapter:
         self.out, self.work, self.rendered_dir = self.root / "out", self.root / "work", self.root / "render"
 
     def plan(self, edit=None, layout="pages", page_aspect=None, quality=QUALITY):
+        """Build the chapter's plan (no edit by default) for the series layout, at `quality`, with its routes."""
         p = plan.build(
             "test chapter", self.measured, self.files, edit or NO_EDIT, plan.SeriesLayout(layout, page_aspect)
         )
@@ -84,6 +93,7 @@ class Chapter:
         return p
 
     def run(self, chapter_plan):
+        """Execute `chapter_plan` on the extracted pages, without a cover; return image.process_chapter's record."""
         avif_first = chapter_plan.outcomes[0]["outcome"] == "avif"
         blanked = image.blank_pages(chapter_plan, self.x, self.root / "blank") if avif_first else {}
         src = image.sources(chapter_plan, self.x, blanked, self.root / "sources")
@@ -100,6 +110,7 @@ class Chapter:
 
 
 def tool_paths():
+    """Return the test config's paths of avifenc, avifdec, jpegtran and oxipng, by tool name."""
     return {
         name: str(config.abs_path(config.cached()["tools"][name]))
         for name in ("avifenc", "avifdec", "jpegtran", "oxipng")
@@ -107,4 +118,5 @@ def tool_paths():
 
 
 def scorer():
+    """Return a vship.Scorer of the test config's vship tool."""
     return vship.Scorer(config.cached()["tools"]["vship"])

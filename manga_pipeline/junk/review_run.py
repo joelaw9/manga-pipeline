@@ -1,5 +1,6 @@
-"""`junk review` (SPEC "Junk decisions", review): starts `claude -p` when some open candidate can be listed, and exits
-at once when none can.
+"""`junk review` (SPEC "Junk decisions", review): starts `claude -p` when some open candidate can be listed.
+
+It exits at once when none can.
 
 Claude's environment is built from nothing: the OS variables a program needs, the Claude token from the config as
 CLAUDE_CODE_OAUTH_TOKEN, and this review's id as review.REVIEW_ID_VARIABLE; no MANGA_PIPELINE_ variable and no API
@@ -38,7 +39,7 @@ class ReviewError(RuntimeError):
 
 
 def child_config(cfg):
-    """The resolved config with every secret null and every configured path absolute."""
+    """Return the resolved config with every secret null and every configured path absolute."""
     out = json.loads(json.dumps(cfg))
     for section, name in config.secret_keys():
         out[section][name] = None
@@ -51,8 +52,10 @@ def child_config(cfg):
 
 
 def child_env(token, review_id, environ=None):
-    """Claude's environment: the OS variables present, the project root as PYTHONPATH, the token, the review id;
-    nothing else."""
+    """Return Claude's environment: the OS variables present, the project root as PYTHONPATH, the token, the review id.
+
+    Nothing else.
+    """
     environ = os.environ if environ is None else environ
     names = OS_VARIABLES + (WINDOWS_VARIABLES if os.name == "nt" else ())
     env = {n: environ[n] for n in names if n in environ}
@@ -63,14 +66,20 @@ def child_env(token, review_id, environ=None):
 
 
 def join_command(parts):
-    """A command line as Claude's Bash tool reads it: a POSIX shell on every platform (Git Bash on Windows, which drops
-    backslashes), so paths go in forward slashes (Claude's Bash rules compare this text)."""
+    """Return a command line as Claude's Bash tool reads it.
+
+    A POSIX shell on every platform (Git Bash on Windows, which drops backslashes), so paths go in forward slashes
+    (Claude's Bash rules compare this text).
+    """
     return shlex.join(p.replace("\\", "/") for p in parts)
 
 
 def rule_path(path):
-    """An absolute path as a Claude Code permission rule writes it: `//` and its POSIX form, a Windows drive as its
-    lower-case letter (F: -> //f/...). A single leading `/` would anchor to Claude's working directory."""
+    """Return an absolute path as a Claude Code permission rule writes it.
+
+    `//` and its POSIX form, a Windows drive as its lower-case letter (F: -> //f/...). A single leading `/` would
+    anchor to Claude's working directory.
+    """
     p = path if isinstance(path, PurePath) else Path(path)
     if p.drive:
         return "//" + p.drive[0].lower() + p.as_posix()[len(p.drive) :]
@@ -78,7 +87,7 @@ def rule_path(path):
 
 
 def command(cfg, prefix):
-    """The claude -p command line."""
+    """Return the claude -p command line."""
     candidates = str(config.abs_path(cfg["paths"]["candidates"]))
     return [
         shutil.which(cfg["junk"]["claude_path"]),

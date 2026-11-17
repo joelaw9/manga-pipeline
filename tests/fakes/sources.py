@@ -1,5 +1,7 @@
-"""In-memory metadata sources (manga_pipeline.metadata.sources): records by id, search results by name. A source
-holds nothing until a test adds it; every call is recorded in `calls`."""
+"""In-memory metadata sources (manga_pipeline.metadata.sources): records by id, search results by name.
+
+A source holds nothing until a test adds it; every call is recorded in `calls`.
+"""
 
 from dataclasses import dataclass
 

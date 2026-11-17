@@ -1,6 +1,8 @@
-"""ComicInfo v2.1 (comicinfo; SPEC "Metadata", "Publishing"): what Suwayomi writes vs what the metadata stage writes,
-every violation kind the validator reports, the value types, `field_ok`, `read_fields`, `read_all` and `build`. Ported
-from the bulk converter's tests/test_comicinfo.py."""
+"""ComicInfo v2.1 (comicinfo; SPEC "Metadata", "Publishing").
+
+What Suwayomi writes vs what the metadata stage writes, every violation kind the validator reports, the value types,
+`field_ok`, `read_fields`, `read_all` and `build`. Ported from the bulk converter's tests/test_comicinfo.py.
+"""
 
 import xml.etree.ElementTree as ET
 
@@ -15,14 +17,16 @@ TY = "{http://www.w3.org/2001/XMLSchema}"  # the namespace Suwayomi puts its Tac
 
 
 def doc(body):
-    """A ComicInfo document around the given child elements."""
+    """Return a ComicInfo document around the given child elements."""
     return f'<?xml version="1.0" encoding="utf-8"?><ComicInfo>{body}</ComicInfo>'.encode()
 
 
 @pytest.fixture
 def part_one():
-    """A built ComicInfo with Kavita's LocalizedSeries extension, BlackAndWhite, ScanInformation and full Page
-    entries (A Fairytale for the Demon Lord, part 1)."""
+    """Return a built ComicInfo of A Fairytale for the Demon Lord, part 1.
+
+    With Kavita's LocalizedSeries extension, BlackAndWhite, ScanInformation and full Page entries.
+    """
     fields = {
         "Series": "A Fairytale for the Demon Lord",
         "LocalizedSeries": "Mawangeul Wihan Donghwa",

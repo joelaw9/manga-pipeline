@@ -1,5 +1,7 @@
-"""The junk stage's bulk_conversion wait and a series' baseline from its record (SPEC "State", "Bad downloads",
-"Publishing")."""
+"""The junk stage's bulk_conversion wait and a series' baseline from its record.
+
+SPEC "State", "Bad downloads", "Publishing".
+"""
 
 import json
 from contextlib import closing
@@ -18,8 +20,10 @@ def world(tmp_path):
 
 
 def at_junk(world, *, record=True, name="Chapter 2", data=None, **series):
-    """A Kavita series with 2 bulk chapters (record or not) and 1 download of it taken through intake (which takes the
-    baseline at validate)."""
+    """Add a Kavita series with 2 bulk chapters (record or not) and 1 download of it taken through intake.
+
+    Intake takes the baseline at validate.
+    """
     bulk = (("Ch.1.cbz", "Grp_Chapter 1", "1"), ("Ch.1.5 - Extra.cbz", "Grp_Chapter 1.5 - Extra", "1.5"))
     series_of = world.kavita_series if record else world.series_without_record
     kavita_id = series_of("Solo Leveling", bulk=bulk, **series)

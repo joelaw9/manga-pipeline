@@ -1,6 +1,9 @@
-"""The convert stage (stages/convert.py; SPEC "Conversion", "Calibration"): its staged file and record, the program
-errors that need a human, scratch life, the post-check, and the calibration of a series arriving a few chapters at a
-time. Tools and scorer are the fakes; each test inserts its own chapter_edit row."""
+"""The convert stage (stages/convert.py; SPEC "Conversion", "Calibration").
+
+Its staged file and record, the program errors that need a human, scratch life, the post-check, and the calibration
+of a series arriving a few chapters at a time. Tools and scorer are the fakes; each test inserts its own chapter_edit
+row.
+"""
 
 import errno
 import hashlib
@@ -34,12 +37,16 @@ def site(tmp_path):
 
 
 class Site:
+    """An adopted site's connection and process Context, with builders of series and convert-stage chapters."""
+
     def __init__(self, cfg, conn):
+        """Store the site's config and connection and build its process Context."""
         self.cfg, self.conn = cfg, conn
         self.ctx = workflow.context(cfg, conn, "process")
         self.n = 0
 
     def series(self, name="S", layout="pages", aspect=None):
+        """Add series `name` with its computed series_conversion row (layout, page aspect); return its id."""
         series_id = add_series(self.conn, name)
         with db.transaction(self.conn):
             self.conn.execute(
@@ -50,6 +57,10 @@ class Site:
         return series_id
 
     def chapter(self, series_id, members, edit=NO_EDIT):
+        """Add a convert-stage chapter of the series whose download holds `members`; return its id.
+
+        Its chapter_edit row holds `edit`; edit=None adds none.
+        """
         self.n += 1
         path = download(self.cfg, "S", f"Ch {self.n}")
         archive.write(path, members)
@@ -69,15 +80,16 @@ class Site:
         return chapter_id
 
     def run(self, chapter_id):
-        """The convert stage on the chapter, claimed as workflow.claim claims it."""
+        """Run the convert stage on the chapter, claimed as workflow.claim claims it."""
         return convert.run(self.ctx, claimed(self.conn, self.ctx, chapter_id))
 
     def record(self, outcome):
+        """Record a stage outcome in its own transaction."""
         with db.transaction(self.conn):
             outcome.record(self.conn)
 
     def scratch(self, chapter_id):
-        """The scratch folder of the chapter's last claim."""
+        """Return the scratch folder of the chapter's last claim."""
         return config.abs_path(self.cfg["paths"]["scratch"]) / workflow.claim_name(chapter(self.conn, chapter_id))
 
 
@@ -673,7 +685,6 @@ def test_a_blanked_rendered_chapter_samples_its_unblanked_render_and_records_the
 
 def add_cover(site, chapter_id, data, rel="vol/1.jpg", sha256=None):
     """Hand chapter_id a volume cover as intake does: the file under paths.covers and its volume_cover row."""
-
     path = config.abs_path(site.cfg["paths"]["covers"]) / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
@@ -777,7 +788,7 @@ def test_pages_sharing_no_cover_format_go_out_without_it(site):
 
 
 def fails_the_attempt(site, chapter_id, match):
-    """The cover fails the attempt with an error matching match, and the scratch folder is gone."""
+    """Check that the cover fails the attempt with an error matching match, and the scratch folder is gone."""
     with pytest.raises(covers.CoverError, match=match):
         site.run(chapter_id)
     assert not site.scratch(chapter_id).exists()

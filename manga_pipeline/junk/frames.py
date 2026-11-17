@@ -1,6 +1,7 @@
-"""Template frames (SPEC "Junk decisions", units): a page's outer border, shrunk, as the key of a scanlator template
-page. Copied from the bulk converter's optimizer/frames.py (signature and matching; its cross-series index is not
-ported). The constants are frozen: the imported frame decisions were made with them.
+"""Template frames (SPEC "Junk decisions", units): a page's outer border, shrunk, as a scanlator template page's key.
+
+Copied from the bulk converter's optimizer/frames.py (signature and matching; its cross-series index is not ported). The
+constants are frozen: the imported frame decisions were made with them.
 
 The frame is the page shrunk to W x H RGB (BOX) keeping only the outer MARGIN_X / MARGIN_Y cells on every side. It
 carries template content (`has_content`) when it is not one plain tone and at least INK_FRAC of its cells are
@@ -30,6 +31,8 @@ CELLS = int(_MASK.sum())
 
 
 class Frame(NamedTuple):
+    """A page's frame: its cells' RGB vector and the page's aspect."""
+
     vec: np.ndarray  # uint8, CELLS * 3 (RGB per frame cell, row-major)
     aspect: float  # page height / width
 
@@ -44,15 +47,18 @@ def frame_of_small(small, aspect):
 
 
 def frame(im, size=None):
-    """Frame of a PIL page. A JPEG not yet decoded is draft-decoded first, as the stored frames were (it changes the
-    pixels). `size` = (width, height) of the original page when `im` is already a draft decode; defaults to im.size."""
+    """Return the frame of a PIL page.
+
+    A JPEG not yet decoded is draft-decoded first, as the stored frames were (it changes the pixels). `size` = (width,
+    height) of the original page when `im` is already a draft decode; defaults to im.size.
+    """
     w, h = size or im.size
     im.draft("RGB", (W * 4, H * 4))  # JPEG only, no-op once decoded
     return frame_of_small(np.asarray(im.convert("RGB").resize((W, H), Image.Resampling.BOX)), h / w)
 
 
 def has_content(f):
-    """True when the frame carries template content (not one plain tone, >= INK_FRAC inked cells)."""
+    """Return whether the frame carries template content (not one plain tone, >= INK_FRAC inked cells)."""
     cells = f.vec.reshape(-1, 3).astype(np.int16)
     lum = cells.mean(axis=1)
     if (np.abs(lum - np.median(lum)) <= PLAIN_BAND).mean() >= PLAIN_FRAC:
@@ -68,6 +74,7 @@ def distance(a, b):
 
 
 def matches(a, b):
+    """Return whether 2 frames match: aspects within ASPECT_TOL and RGB difference RMS <= RMS_MAX."""
     return abs(a.aspect - b.aspect) <= ASPECT_TOL * max(a.aspect, b.aspect) and distance(a, b) <= RMS_MAX
 
 
@@ -81,10 +88,11 @@ def from_bytes(blob, aspect):
 
 
 def key_text(f):
-    """The frame as a decision key: the vector in hex, '|', the aspect."""
+    """Return the frame as a decision key: the vector in hex, '|', the aspect."""
     return f"{f.vec.tobytes().hex()}|{f.aspect!r}"
 
 
 def from_key(text):
+    """Return the frame a decision key (key_text) holds."""
     vec, aspect = text.split("|")
     return from_bytes(bytes.fromhex(vec), float(aspect))

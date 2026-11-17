@@ -1,7 +1,9 @@
-"""`series edit FILE [--series-id ID]` (SPEC "Retroactive updates", hand edits): a person's corrections of a series'
-chapter titles and volumes, checked whole and stored in `naming_edit`. The command rewrites nothing: the edits enter
-the series' naming inputs, so the next `export` compares it (rewrite.py) and open chapters are named with them
-(metadata/naming.py)."""
+"""`series edit FILE [--series-id ID]` (SPEC "Retroactive updates", hand edits).
+
+A person's corrections of a series' chapter titles and volumes, checked whole and stored in `naming_edit`. The command
+rewrites nothing: the edits enter the series' naming inputs, so the next `export` compares it (rewrite.py) and open
+chapters are named with them (metadata/naming.py).
+"""
 
 import json
 from pathlib import Path, PurePosixPath
@@ -15,7 +17,9 @@ FIELDS = ("title", "volume")
 
 def apply(ctx: workflow.Context, data, series_id=None):
     """Check data (the edit file's JSON) whole and store its edits in 1 transaction; returns the lines to print.
-    Refused naming every problem found."""
+
+    Refused naming every problem found.
+    """
     problems = []
     chapters = _chapters_of(data, problems)
     series = _series(ctx, data.get("series"), series_id, problems)
@@ -39,8 +43,10 @@ def apply(ctx: workflow.Context, data, series_id=None):
 
 
 def _chapters_of(data, problems):
-    """The edit file's 'chapters' object ({} when it is not a non-empty object); its problems added to problems.
-    Refused when the file is not a JSON object."""
+    """Return the edit file's 'chapters' object ({} when it is not a non-empty object); its problems added to problems.
+
+    Refused when the file is not a JSON object.
+    """
     if not isinstance(data, dict):
         msg = "the edit file must be a JSON object with 'series' and 'chapters'"
         raise workflow.Refused(msg)
@@ -53,9 +59,11 @@ def _chapters_of(data, problems):
 
 
 def _wanted(chapters, problems):
-    """{edit_key: (token, {field: value}, whether the change is valid)} of the edit file's chapters; their problems
-    added to problems (a token that is no chapter, or names one already given, or whose change is not an object, is
-    left out)."""
+    """Return {edit_key: (token, {field: value}, whether the change is valid)} of the edit file's chapters.
+
+    Their problems added to problems (a token that is no chapter, or names one already given, or whose change is not an
+    object, is left out).
+    """
     wanted = {}
     for token, change in chapters.items():
         try:
@@ -77,8 +85,10 @@ def _wanted(chapters, problems):
 
 
 def _change_problems(token, change):
-    """The problems of 1 chapter's change: an unknown field, a title that is not a non-empty text or null, a volume
-    that is not a whole number from 0 or null."""
+    """Return the problems of 1 chapter's change.
+
+    An unknown field, a title that is not a non-empty text or null, a volume that is not a whole number from 0 or null.
+    """
     problems = [f"chapter {token!r}: unknown field {f!r} (title, volume)" for f in change if f not in FIELDS]
     title, volume = change.get("title"), change.get("volume")
     if "title" in change and title is not None and not (isinstance(title, str) and title.strip()):
@@ -93,8 +103,10 @@ def _change_problems(token, change):
 
 
 def _merged(stored, wanted):
-    """The series' edits once the valid wanted changes are applied over the stored ones ({edit_key: Edit}); an edit
-    left with no field is gone."""
+    """Return the series' edits once the valid wanted changes are applied over the stored ones ({edit_key: Edit}).
+
+    An edit left with no field is gone.
+    """
     merged = dict(stored)
     for key, (_, change, ok) in wanted.items():
         old = stored.get(key, naming.Edit(None, None))
@@ -104,7 +116,10 @@ def _merged(stored, wanted):
 
 
 def _unmatched(after, wanted):
-    """A problem for each wanted chapter that does not match exactly 1 of the series' chapters (after: _chapters)."""
+    """Return a problem for each wanted chapter that does not match exactly 1 of the series' chapters.
+
+    after: _chapters.
+    """
     problems = []
     for key, (token, _, _) in wanted.items():
         found = [c for c in after if c["key"] == key]
@@ -114,8 +129,10 @@ def _unmatched(after, wanted):
 
 
 def _new_clashes(ctx: workflow.Context, series, stored, after):
-    """The clashes of the series' chapters as the edits leave them (after) that the stored edits do not have: only
-    what these edits make, wherever it lands."""
+    """Return the clashes of the series' chapters as the edits leave them (after) that the stored edits do not have.
+
+    Only what these edits make, wherever it lands.
+    """
     try:
         existing = _clashes(_chapters(ctx, series, stored))
     except volumes.VolumeError:  # unnamable as it stands (a volume that is not whole): these edits may fix it
@@ -153,7 +170,7 @@ def _store(conn, series_id, stored, merged, wanted):
 
 
 def load(path):
-    """The edit file's JSON; Refused when it cannot be read or is not JSON."""
+    """Return the edit file's JSON; Refused when it cannot be read or is not JSON."""
     try:
         with Path(path).open(encoding="utf-8") as f:
             return json.load(f)
@@ -185,8 +202,10 @@ def _series(ctx: workflow.Context, name, series_id, problems):
 
 
 def _chapters(ctx: workflow.Context, series, edits):
-    """The series' chapters as the edits would leave them: [{key, kind, season, number, volume, title, name}] (name:
-    the file name it holds or would get)."""
+    """Return the series' chapters as the edits would leave them: [{key, kind, season, number, volume, title, name}].
+
+    name: the file name it holds or would get.
+    """
     rows, overrides, mangadex, platform = chapter_names.inputs(ctx, series)
     named = naming.resolve(series["naming_basis"], rows, overrides, mangadex, platform, edits=edits)
     files = {
@@ -225,8 +244,11 @@ def _chapters(ctx: workflow.Context, series, edits):
 
 
 def _clashes(chapters):
-    """{(what, the 2 chapters' keys): problem} of the series' chapters (2 chapters of 1 file name or 1 (volume,
-    number), or main volumes decreasing along a season's chapter numbers), each pair once."""
+    """Return {(what, the 2 chapters' keys): problem} of the series' chapters, each pair once.
+
+    A problem: 2 chapters of 1 file name or 1 (volume, number), or main volumes decreasing along a season's chapter
+    numbers.
+    """
     problems = {}
     for c in chapters:
         token = naming.edit_token(*c["key"])
@@ -256,7 +278,7 @@ def _clashes(chapters):
 
 
 def describe(e):
-    """An edit as printed: its fields, or "edit removed" for None."""
+    """Return an edit as printed: its fields, or "edit removed" for None."""
     if e is None:
         return "edit removed"
     parts = [f"title {e.title!r}" if e.title is not None else "", f"volume {e.volume}" if e.volume is not None else ""]

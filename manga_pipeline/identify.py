@@ -1,5 +1,6 @@
-"""Series identification (SPEC "Series identification"): which series a Suwayomi manga's downloads, or a hand-placed
-download folder's, belong to.
+"""Series identification (SPEC "Series identification").
+
+Which series a Suwayomi manga's downloads, or a hand-placed download folder's, belong to.
 
 `series_for` (a manga) and `series_for_folder` (a folder no library manga maps to) work through the order the spec
 gives and write what they settle (a series row and the manga's or folder's link) in 1 transaction; a match outside
@@ -40,10 +41,12 @@ class KavitaSeries:
     """The library's series, read from Kavita once per discovery and only when a manga needs them."""
 
     def __init__(self, ctx: workflow.Context):
+        """Keep the run's context; Kavita is not read until rows() is first called."""
         self._ctx = ctx
         self._rows = None
 
     def rows(self):
+        """Return the series of kavita.library_id, read from Kavita on the first call only."""
         if self._rows is None:
             self._rows = self._ctx.kavita.series_in_library(self._ctx.cfg["kavita"]["library_id"])
         return self._rows
@@ -106,8 +109,10 @@ def _folder_subject(folder):
 
 
 def series_for(ctx: workflow.Context, manga, kavita_series):
-    """The series row of a library manga, or NotTaken. A series row may be needs_human (near or double hit, no
-    usable folder): its chapters are recorded and held."""
+    """Return the series row of a library manga, or NotTaken.
+
+    A series row may be needs_human (near or double hit, no usable folder): its chapters are recorded and held.
+    """
     conn, cfg = ctx.conn, ctx.cfg
     subject = _manga_subject(manga)
     row = subject.linked(conn)
@@ -131,8 +136,11 @@ def series_for(ctx: workflow.Context, manga, kavita_series):
 
 
 def series_for_folder(ctx: workflow.Context, folder, paths, kavita_series):
-    """The series row of a hand-placed download folder ("<source folder>/<title folder>", holding paths), or NotTaken:
-    its stored link, else its title folder's name, else (read only then) the ComicInfo Series its files agree on."""
+    """Return the series row of a hand-placed download folder ("<source folder>/<title folder>", holding paths).
+
+    Or NotTaken. Found by its stored link, else its title folder's name, else (read only then) the ComicInfo Series its
+    files agree on.
+    """
     subject = _folder_subject(folder)
     row = subject.linked(ctx.conn)
     if row is not None:
@@ -154,8 +162,10 @@ def link_manga(conn, manga, series_id):
 
 
 def sweep(ctx: workflow.Context, library, kavita_series):
-    """Link each library manga with no link to its series when steps 2 or 3 find exactly 1 (SPEC "Series
-    identification"); a near, double or missing hit writes nothing. Returns the manga left unlinked."""
+    """Link each library manga with no link to its series when steps 2 or 3 find exactly 1.
+
+    SPEC "Series identification"; a near, double or missing hit writes nothing. Returns the manga left unlinked.
+    """
     conn = ctx.conn
     linked = {row[0] for row in conn.execute("SELECT manga_id FROM suwayomi_manga")}
     by_key = {}
@@ -187,8 +197,10 @@ def sweep(ctx: workflow.Context, library, kavita_series):
 
 
 def comicinfo_series(paths):
-    """The ComicInfo.xml Series every download that carries a non-empty one and can be read agrees on, else None. A
-    dropped share raises."""
+    """Return the ComicInfo.xml Series every download that carries a non-empty one and can be read agrees on.
+
+    Else None. A dropped share raises.
+    """
     found = set()
     for path in paths:
         try:
@@ -205,10 +217,12 @@ def comicinfo_series(paths):
 
 
 def _by_names(ctx: workflow.Context, subject, titles, kavita_series):
-    """Step 3 over each title in turn: the first with exactly 1 strict hit is the series; else the first near or
-    double hit holds the subject's series (needs_human); else a new series (pending: its row and link are stored, its
-    downloads not taken). A held or new series is in scope when any title is; its row keeps a second title (a
-    folder's ComicInfo Series) as its alt_name."""
+    """Run step 3 over each title in turn.
+
+    The first with exactly 1 strict hit is the series; else the first near or double hit holds the subject's series
+    (needs_human); else a new series (pending: its row and link are stored, its downloads not taken). A held or new
+    series is in scope when any title is; its row keeps a second title (a folder's ComicInfo Series) as its alt_name.
+    """
     cfg, tried, held = ctx.cfg, [], None
     for title in titles:
         tried.append(title)
@@ -241,27 +255,31 @@ def _by_names(ctx: workflow.Context, subject, titles, kavita_series):
 
 
 def _near(title, kseries):
-    """A near hit (D7.18): a Kavita name equal to the title under the lenient key, or within search.close's fuzzy
-    ratio of it."""
+    """Return whether a Kavita series is a near hit of the title (D7.18).
+
+    A Kavita name equal to the title under the lenient key, or within search.close's fuzzy ratio of it.
+    """
     key = names.key(title)
     return bool(key) and any(key == names.key(n) or search.close(title, n) for n in series_names(kseries))
 
 
 def _taken(ctx: workflow.Context, row):
-    """The linked row of a manga or folder, with its folder; NotTaken for a pending new series (a held one is
-    returned: its chapters are recorded and held)."""
+    """Return the linked row of a manga or folder, with its folder.
+
+    NotTaken for a pending new series (a held one is returned: its chapters are recorded and held).
+    """
     if row["origin"] == "new" and row["admitted_at"] is None and row["status"] == "ok":
         return NOT_ADMITTED
     return _with_folder(ctx, row)
 
 
 def source_ids(manga):
-    """The (source, id) pairs a manga carries (SPEC "Source ids": its trackers and its MangaDex URL)."""
+    """Return the (source, id) pairs a manga carries (SPEC "Source ids": its trackers and its MangaDex URL)."""
     return metadata_ids.suwayomi_ids(manga)
 
 
 def _by_source_id(conn, pairs):
-    """The series rows holding any of the ids, from any origin; 2 or more is a double hit."""
+    """Return the series rows holding any of the ids, from any origin; 2 or more is a double hit."""
     if not pairs:
         return []
     return conn.execute(
@@ -281,8 +299,11 @@ def _strict_keys(series):
 
 
 def _store_kavita_series(ctx: workflow.Context, subject, found):
-    """The series row of a strict Kavita hit: the row already holding its Kavita id (another source's manga of the
-    same series), else a new one with its names and folder; a series with no usable folder is needs_human."""
+    """Return the series row of a strict Kavita hit.
+
+    The row already holding its Kavita id (another source's manga of the same series), else a new one with its names
+    and folder; a series with no usable folder is needs_human.
+    """
     conn = ctx.conn
     existing = conn.execute("SELECT id FROM series WHERE kavita_series_id = %s", (found["id"],)).fetchone()
     folder, problem = _folder(ctx, found["id"]) if existing is None else (None, None)
@@ -311,8 +332,11 @@ def _store_kavita_series(ctx: workflow.Context, subject, found):
 
 
 def _with_folder(ctx: workflow.Context, row):
-    """The row with its folder: a Kavita series' row the library listing stored has none until a download needs it
-    (SPEC "Metadata checks"); one Kavita gives no usable folder is needs_human."""
+    """Return the row with its folder.
+
+    A Kavita series' row the library listing stored has none until a download needs it (SPEC "Metadata checks"); one
+    Kavita gives no usable folder is needs_human.
+    """
     if row["kavita_series_id"] is None or row["folder"] is not None:
         return row
     folder, problem = _folder(ctx, row["kavita_series_id"])
@@ -325,7 +349,7 @@ def _with_folder(ctx: workflow.Context, row):
 
 
 def _folder(ctx: workflow.Context, kavita_series_id):
-    """(the series folder in stored form, None) or (None, why it has none)."""
+    """Return (the series folder in stored form, None) or (None, why it has none)."""
     try:
         return kavita_link.library_folder(ctx.cfg, ctx.kavita.series_folder(kavita_series_id)), None
     except (kavita_client.FolderError, config.PathError) as e:
@@ -333,7 +357,7 @@ def _folder(ctx: workflow.Context, kavita_series_id):
 
 
 def _store_new_series(conn, subject, alt_name):
-    """A pending new series' row (origin new, status ok, not admitted) and the subject's link to it."""
+    """Store a pending new series' row (origin new, status ok, not admitted) and the subject's link to it."""
     with db.transaction(conn):
         series_id = db.one_row(
             conn,
@@ -347,7 +371,10 @@ def _store_new_series(conn, subject, alt_name):
 
 
 def _store_held_series(conn, subject, reason, alt_name=None):
-    """A needs_human series row for a manga or folder a person must link (no Kavita id: in scope as not yet known)."""
+    """Store a needs_human series row for a manga or folder a person must link.
+
+    No Kavita id: in scope as not yet known.
+    """
     with db.transaction(conn):
         series_id = db.one_row(
             conn,
@@ -365,15 +392,17 @@ def _store_held_series(conn, subject, reason, alt_name=None):
 
 
 def _names(folder):
-    """The entry names of a folder, spelt as listed."""
+    """Return the entry names of a folder, spelt as listed."""
     return {p.name for p in folder.iterdir()}
 
 
 def folder_key(cfg, suwayomi, text):
-    """A hand-placed folder named on the command line ("SOURCE_FOLDER/TITLE_FOLDER") as stored; workflow.Refused unless
-    it is 2 folder names that exist under <downloads>/mangas, spelt as listed (a case-insensitive share would find
-    another spelling, which discovery never keys by), and no library manga maps to it (discovery would never read the
-    link)."""
+    """Return a hand-placed folder named on the command line ("SOURCE_FOLDER/TITLE_FOLDER") as stored.
+
+    workflow.Refused unless it is 2 folder names that exist under <downloads>/mangas, spelt as listed (a
+    case-insensitive share would find another spelling, which discovery never keys by), and no library manga maps to it
+    (discovery would never read the link).
+    """
     parts = text.split("/")
     if len(parts) != FOLDER_LINK_PARTS or any(part in ("", ".", "..") or "\\" in part for part in parts):
         msg = f"--folder takes SOURCE_FOLDER/TITLE_FOLDER under the downloads' mangas folder: {text}"
@@ -389,8 +418,10 @@ def folder_key(cfg, suwayomi, text):
 
 
 def link_subject(cfg, suwayomi, *, manga_id=None, folder=None):
-    """What `series link` links: the manga (manga_id) or the hand-placed folder (folder, as the command line gives it;
-    folder_key). workflow.Refused when the manga or the folder does not exist."""
+    """Return what `series link` links: the manga (manga_id) or the hand-placed folder.
+
+    folder: as the command line gives it (folder_key). workflow.Refused when the manga or the folder does not exist.
+    """
     if (manga_id is None) == (folder is None):
         msg = "link takes a manga_id or a folder"
         raise ValueError(msg)
@@ -404,14 +435,16 @@ def link_subject(cfg, suwayomi, *, manga_id=None, folder=None):
 
 
 def link(cfg, conn, kavita, kavita_series_id, subject):
-    """`series link` (SPEC "Series identification"): the downloads of the subject (a manga or a hand-placed folder:
-    link_subject) belong to the Kavita series. The row holding that Kavita id, else the subject's held row, else a
-    new row gets its Kavita id, names and folder (refreshed when run again); the subject is linked to it. A held row of
-    the subject (no Kavita id) is merged into the Kavita series' row: its chapters and links move there and it is
-    deleted. workflow.Refused when the series does not exist, is outside kavita.library_id or has no folder, the
-    subject's row is another Kavita series' row that holds chapters, or the subject's row is an admitted new series (its
-    rows, published files included, are its own). needs_human is left for `retry --series` to clear. Returns the series
-    id."""
+    """Link the subject's downloads to the Kavita series: `series link` (SPEC "Series identification").
+
+    The downloads of the subject (a manga or a hand-placed folder: link_subject) belong to the Kavita series. The row
+    holding that Kavita id, else the subject's held row, else a new row gets its Kavita id, names and folder (refreshed
+    when run again); the subject is linked to it. A held row of the subject (no Kavita id) is merged into the Kavita
+    series' row: its chapters and links move there and it is deleted. workflow.Refused when the series does not exist,
+    is outside kavita.library_id or has no folder, the subject's row is another Kavita series' row that holds chapters,
+    or the subject's row is an admitted new series (its rows, published files included, are its own). needs_human is
+    left for `retry --series` to clear. Returns the series id.
+    """
     found = _kavita_series(cfg, kavita, kavita_series_id)
     try:
         series_dir = kavita_link.library_folder(cfg, kavita.series_folder(kavita_series_id))
@@ -448,7 +481,10 @@ def link(cfg, conn, kavita, kavita_series_id, subject):
 
 
 def _kavita_series(cfg, kavita, kavita_series_id):
-    """The Kavita series link names; workflow.Refused when Kavita holds none or it is outside kavita.library_id."""
+    """Return the Kavita series link names.
+
+    workflow.Refused when Kavita holds none or it is outside kavita.library_id.
+    """
     found = kavita.series(kavita_series_id)
     if found is None:
         msg = f"Kavita holds no series {kavita_series_id}"
@@ -463,9 +499,11 @@ def _kavita_series(cfg, kavita, kavita_series_id):
 
 
 def _link_row(conn, subject, kavita_series_id):
-    """The id of the series row the link takes (inside link's transaction): the row holding the Kavita id (a held row
-    of the subject merged into it), else the subject's row, else None (a new row). workflow.Refused for an admitted new
-    series, or another Kavita series' row that holds chapters."""
+    """Return the id of the series row the link takes (inside link's transaction).
+
+    The row holding the Kavita id (a held row of the subject merged into it), else the subject's row, else None (a new
+    row). workflow.Refused for an admitted new series, or another Kavita series' row that holds chapters.
+    """
     by_kavita = conn.execute("SELECT id FROM series WHERE kavita_series_id = %s", (kavita_series_id,)).fetchone()
     by_manga = subject.linked(conn, sql.SQL("s.id, s.kavita_series_id, s.origin, s.admitted_at"))
     if by_manga and by_manga["origin"] == "new" and by_manga["admitted_at"] is not None:
@@ -489,11 +527,13 @@ def _link_row(conn, subject, kavita_series_id):
 
 
 def _merge_held(conn, held_id, series_id):
-    """Move a held row's chapters (workflow.move_chapters), handled chapters, manga and folder links and the ids a
-    person set to the series row, and delete it (inside link's transaction); its other Phase 7 rows go with it
-    (ON DELETE CASCADE). A held row is never admitted, so it publishes nothing; a layout or calibration computed for
-    it is dropped. A human id the series row already holds is kept once; a different one is then a disagreement
-    (SPEC "Source ids")."""
+    """Move a held row's chapters, links and human ids to the series row, and delete it (inside link's transaction).
+
+    Its chapters (workflow.move_chapters), handled chapters, manga and folder links and the ids a person set move; its
+    other Phase 7 rows go with it (ON DELETE CASCADE). A held row is never admitted, so it publishes nothing; a layout
+    or calibration computed for it is dropped. A human id the series row already holds is kept once; a different one is
+    then a disagreement (SPEC "Source ids").
+    """
     workflow.move_chapters(conn, held_id, series_id)
     conn.execute("UPDATE handled_chapter SET series_id = %s WHERE series_id = %s", (series_id, held_id))
     conn.execute("UPDATE suwayomi_manga SET series_id = %s WHERE series_id = %s", (series_id, held_id))

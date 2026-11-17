@@ -1,8 +1,10 @@
-"""A new chapter's name next to its series' published chapters (SPEC "Publishing"): volume, number, title, kind and
-whether it opens a covered volume. The bulk converter's settled path, ported: its optimizer/naming.py `_main_volumes`
-with a recorded basis (`_Sources`, `_gap_fill`), `_side_stories`, `season_ends` / `season_volumes`,
-`_cover_confirmed`; covers.py `volume_cover_targets`; sources/episodes.py's season-marker reading; sources/mangadex.py
-`volume_map`. Pure: the caller loads the rows, the override mapping and the stored MangaDex aggregate.
+"""A new chapter's name next to its series' published chapters (SPEC "Publishing").
+
+Its volume, number, title, kind and whether it opens a covered volume. The bulk converter's settled path, ported: its
+optimizer/naming.py `_main_volumes` with a recorded basis (`_Sources`, `_gap_fill`), `_side_stories`, `season_ends` /
+`season_volumes`, `_cover_confirmed`; covers.py `volume_cover_targets`; sources/episodes.py's season-marker reading;
+sources/mangadex.py `volume_map`. Pure: the caller loads the rows, the override mapping and the stored MangaDex
+aggregate.
 
 Season markers are read from free-form chapter titles by the bulk converter's patterns, kept as they were so a new
 chapter gets the volume the converter would give it (flat text heuristics, not a structured format).
@@ -37,8 +39,11 @@ TOKEN_PARTS = 2  # a chapter token with a prefix: "S2 10", "side 3"
 
 @dataclass(frozen=True)
 class Row:
-    """One chapter of the series. settled: a published file or a chapter whose name is already recorded (its kind,
-    number, volume, volume_source and title are fixed); open: a chapter to name (volume and volume_source None)."""
+    """One chapter of the series.
+
+    settled: a published file or a chapter whose name is already recorded (its kind, number, volume, volume_source and
+    title are fixed); open: a chapter to name (volume and volume_source None).
+    """
 
     key: Hashable  # the caller's name for the row, opaque here: the key of resolve's result
     settled: bool
@@ -56,6 +61,8 @@ class Row:
 
 @dataclass(frozen=True)
 class Naming:
+    """A chapter's name as resolved: kind, volume, number, title, volume source, whether it opens a covered volume."""
+
     kind: str
     volume: float | None  # an int for a whole volume; a published file may hold one like 2.5
     number: float
@@ -66,21 +73,25 @@ class Naming:
 
 @dataclass(frozen=True)
 class Edit:
-    """A hand edit of 1 chapter (SPEC "Retroactive updates", hand edits): None = that field not edited. title: a main
-    chapter's title, or a side story's text after "Side Story <n>: "."""
+    """A hand edit of 1 chapter (SPEC "Retroactive updates", hand edits): None = that field not edited.
+
+    title: a main chapter's title, or a side story's text after "Side Story <n>: ".
+    """
 
     title: str | None
     volume: float | None  # an int for a whole volume; a published file may hold one like 2.5
 
 
 def edit_key(kind, season, number):
-    """The key a chapter's hand edit is stored under: (kind, season, number); a side story by its own side number and
-    no season."""
+    """Return the key a chapter's hand edit is stored under: (kind, season, number).
+
+    A side story by its own side number and no season.
+    """
     return (kind, None if kind == names.SIDE else season, float(number))
 
 
 def edit_token(kind, season, number):
-    """A chapter as a person names it in an edit file: "10", "S2 10", "side 3" (parse_token reads it back)."""
+    """Return a chapter as a person names it in an edit file: "10", "S2 10", "side 3" (parse_token reads it back)."""
     n = names.fmt_num(number)
     return f"side {n}" if kind == names.SIDE else f"S{season} {n}" if season is not None else n
 
@@ -105,14 +116,16 @@ def parse_token(text):
 
 
 def edited_title(kind, number, title):
-    """The title a chapter's edited title gives it: a side story keeps its "Side Story <n>: " label."""
+    """Return the title a chapter's edited title gives it: a side story keeps its "Side Story <n>: " label."""
     return f"{SIDE_TITLE.format(n=names.fmt_num(number))}: {title}" if kind == names.SIDE else title
 
 
 def unedited(named, plain):
-    """{published_file column-like field: value} of what a chapter's own hand edit changed in its naming (named) from
-    what the sources alone give it (plain): {"title": …} and/or {"volume": …, "volume_source": …} (volume as
-    ComicInfo text, an untitled one's title None); None when the edit changed nothing."""
+    """Return what a chapter's own hand edit changed in its naming, as {published_file column-like field: value}.
+
+    The change in its naming (named) from what the sources alone give it (plain): {"title": …} and/or {"volume": …,
+    "volume_source": …} (volume as ComicInfo text, an untitled one's title None); None when the edit changed nothing.
+    """
     out = {}
     if named.title != plain.title:
         out["title"] = plain.title or None
@@ -122,8 +135,10 @@ def unedited(named, plain):
 
 
 def apply_edit(row, edits):
-    """A settled row as its hand edit makes it: an edited field that differs from the row's (an edited volume with
-    source EDIT)."""
+    """Return a settled row as its hand edit makes it.
+
+    An edited field that differs from the row's replaces it (an edited volume with source EDIT).
+    """
     e = edits.get(edit_key(row.kind, row.season, row.number))
     if e is None:
         return row
@@ -135,16 +150,19 @@ def apply_edit(row, edits):
 
 
 def resolve(basis, rows, overrides, mangadex, platform=None, *, fill=frozenset(), edits=None):  # noqa: PLR0913  # 7 inputs the resolver itself uses
-    """{row key: Naming} for the open rows of 1 series. basis: the record's series.naming.basis (None: no volume);
-    overrides: the override file's mapping, or None when the series has none; mangadex: mangadex_volumes' map;
-    platform: the stored platform list (metadata/platforms.py), or None; fill: keys of open rows that are published
-    files holding no volume, named only to fill it (SPEC "Retroactive updates": their caller takes a whole volume of a
-    main chapter or nothing, so they raise no VolumeError).
+    """Return {row key: Naming} for the open rows of 1 series.
+
+    basis: the record's series.naming.basis (None: no volume); overrides: the override file's mapping, or None when
+    the series has none; mangadex: mangadex_volumes' map; platform: the stored platform list (metadata/platforms.py),
+    or None; fill: keys of open rows that are published files holding no volume, named only to fill it (SPEC
+    "Retroactive updates": their caller takes a whole volume of a main chapter or nothing, so they raise no
+    VolumeError).
     edits: {edit_key: Edit} of the series, applied over every source: the settled rows as their edits make them, an
     open row's edited volume before everything its volume decides (the volumes around it, covers, side-story
     volumes), an edited title over its own.
     VolumeError for an `override` basis without an override file, and for an open chapter whose volume is not a
-    whole number (ComicInfo Volume is an xs:int)."""
+    whole number (ComicInfo Volume is an xs:int).
+    """
     edits = edits or {}
     rows = [apply_edit(r, edits) if r.settled else r for r in rows]
     if basis == OVERRIDE and overrides is None:
@@ -205,25 +223,29 @@ def resolve(basis, rows, overrides, mangadex, platform=None, *, fill=frozenset()
 
 
 def _basis_list(basis, platform):
-    """The stored platform list when the series' basis is its seasons, else None."""
+    """Return the stored platform list when the series' basis is its seasons, else None."""
     if basis not in platforms.BASES or not platform or platform["name"] != platforms.BASES[basis]:
         return None
     return platform
 
 
 def _past_finale(rows, main, seasons):
-    """Open main rows of a platform-basis series that its stored list (seasons: _basis_list) puts past the main-story
-    finale: side stories, as the bulk converter named them (SPEC "Publishing")."""
+    """Return the open main rows of a platform-basis series that its stored list puts past the main-story finale.
+
+    seasons: _basis_list. They are side stories, as the bulk converter named them (SPEC "Publishing").
+    """
     if seasons is None:
         return set()
     return platforms.volumes(seasons, {i: rows[i].number for i in main if not rows[i].settled})[1]
 
 
 def choose(rows, overrides, mangadex, platform=None):  # noqa: PLR0911  # 1 priority chain
-    """A new series' volume basis (SPEC "Publishing"), chosen once over its chapters known then: the bulk converter's
-    order for a series it meets first (`_main_volumes` with no record). Platform seasons (the stored platform list's
-    season ranges) come after season markers. MangaDex is the basis only when it volumes half or more of the main
-    chapters."""
+    """Choose a new series' volume basis (SPEC "Publishing"), once, over its chapters known then.
+
+    The bulk converter's order for a series it meets first (`_main_volumes` with no record). Platform seasons (the
+    stored platform list's season ranges) come after season markers. MangaDex is the basis only when it volumes half or
+    more of the main chapters.
+    """
     override = (overrides or {}).get("volumes") or {}
     main = [i for i, r in enumerate(rows) if r.kind == names.MAIN]
     if any(names.to_volume(rows[i].src_volume) is not None for i in main):
@@ -244,9 +266,11 @@ def choose(rows, overrides, mangadex, platform=None):  # noqa: PLR0911  # 1 prio
 
 
 def mangadex_volumes(aggregate):
-    """{chapter number: volume or None} from a stored MangaDex aggregate payload (all languages): numbers normalised
-    ("01" -> "1", "17.50" -> "17.5"), "none" -> no volume, a real volume beats none; `volumes` / `chapters` may be
-    dicts keyed by number or lists ([] when empty)."""
+    """Return {chapter number: volume or None} from a stored MangaDex aggregate payload (all languages).
+
+    Numbers normalised ("01" -> "1", "17.50" -> "17.5"), "none" -> no volume, a real volume beats none; `volumes` /
+    `chapters` may be dicts keyed by number or lists ([] when empty).
+    """
     out = {}
     for volume in _items((aggregate or {}).get("volumes")):
         v = episodes.norm_number(volume.get("volume"))
@@ -266,18 +290,23 @@ def _items(x):
 
 @dataclass(frozen=True)
 class _Sources:
-    """A series' volume sources beside its chapters' own files: the override file's and MangaDex's volume of each main
-    row (by row index, any season) and the stored platform list when the basis is its seasons (_basis_list). It
-    answers which volumes the recorded basis gives and which sources fill its gaps."""
+    """A series' volume sources beside its chapters' own files.
+
+    The override file's and MangaDex's volume of each main row (by row index, any season) and the stored platform list
+    when the basis is its seasons (_basis_list). It answers which volumes the recorded basis gives and which sources
+    fill its gaps.
+    """
 
     override: dict
     mangadex: dict
     seasons: dict | None
 
     def basis_volumes(self, basis, rows, main, free):
-        """{row index: volume} of the free rows from the series' recorded basis only. A platform basis takes its
-        stored list's season ranges (a list of another platform gives none; a chapter past the main-story finale is a
-        side story, _past_finale). `none` and no basis give none."""
+        """Return {row index: volume} of the free rows from the series' recorded basis only.
+
+        A platform basis takes its stored list's season ranges (a list of another platform gives none; a chapter past
+        the main-story finale is a side story, _past_finale). `none` and no basis give none.
+        """
         if basis == FILENAME:
             vols = {i: names.to_volume(rows[i].src_volume) for i in free}
         elif basis == SEASON_TAGS:
@@ -297,10 +326,12 @@ class _Sources:
         return {i: v for i, v in vols.items() if v is not None}
 
     def fillers(self, basis):
-        """[(source, {row index: volume})] that fill a basis's gaps, in order: for a filename or MangaDex basis the
-        override first, then (filename only) MangaDex. A `none` basis takes the override only (user 2026-11-15: an
-        override file written after a series' bulk run re-volumed its chapters, and its new chapters follow it; the
-        bulk converter's own append gave them none)."""
+        """Return [(source, {row index: volume})] that fill a basis's gaps, in order.
+
+        For a filename or MangaDex basis the override first, then (filename only) MangaDex. A `none` basis takes the
+        override only (user 2026-11-15: an override file written after a series' bulk run re-volumed its chapters, and
+        its new chapters follow it; the bulk converter's own append gave them none).
+        """
         if basis not in (*FILL_PRIMARIES, NONE):
             return []
         fillers = [(OVERRIDE, self.override)]
@@ -310,9 +341,11 @@ class _Sources:
 
 
 def _open_main_volumes(basis, rows, main, sources):
-    """{row index: (volume, volume source)} of the open main rows: the override range's volume (whatever the basis;
-    only for a chapter that carries no season: a season's numbers restart), else the basis's volume, else a gap fill,
-    else none."""
+    """Return {row index: (volume, volume source)} of the open main rows.
+
+    The override range's volume (whatever the basis; only for a chapter that carries no season: a season's numbers
+    restart), else the basis's volume, else a gap fill, else none.
+    """
     free = [i for i in main if not rows[i].settled]
     ranged = _seasonless(rows, {i: sources.override[i] for i in free if i in sources.override})
     found = sources.basis_volumes(basis, rows, main, [i for i in free if i not in ranged])
@@ -332,14 +365,19 @@ def _open_main_volumes(basis, rows, main, sources):
 
 
 def override_volumes(override, rows, ids):
-    """{row index: volume} of the rows among ids that carry no season and whose number lies in a range of the
-    override file's `volumes` mapping (the 1 reader of ranges: volumes.override_volume)."""
+    """Return {row index: volume} of the rows among ids whose number lies in an override range.
+
+    Only rows that carry no season, and whose number lies in a range of the override file's `volumes` mapping (the 1
+    reader of ranges: volumes.override_volume).
+    """
     return _seasonless(rows, _override_volumes(override, rows, ids))
 
 
 def _seasonless(rows, vols):
-    """The volumes of vols whose row carries no season: an override range never reaches a season's chapters (their
-    numbers restart)."""
+    """Return the volumes of vols whose row carries no season.
+
+    An override range never reaches a season's chapters (their numbers restart).
+    """
     return {i: v for i, v in vols.items() if rows[i].season is None}
 
 
@@ -354,11 +392,13 @@ def _override_volumes(override, rows, ids):
 
 
 def _gap_fill(main, known, primary, targets, fillers):
-    """{row index: (volume, filler)}. `known`: every volume given so far; `primary`: the part the basis gave (settled
-    rows of the basis and the open rows' basis volumes); `targets`: the rows that may take a volume. A filler that
-    gives a different volume than `primary` on any chapter both have fills nothing; a fill outside the volumes known
-    around it (volumes never decrease along the numbers) is not applied; a filler whose fills are out of order among
-    themselves is not used."""
+    """Return {row index: (volume, filler)}: the gap fills of the target rows.
+
+    `known`: every volume given so far; `primary`: the part the basis gave (settled rows of the basis and the open rows'
+    basis volumes); `targets`: the rows that may take a volume. A filler that gives a different volume than `primary` on
+    any chapter both have fills nothing; a fill outside the volumes known around it (volumes never decrease along the
+    numbers) is not applied; a filler whose fills are out of order among themselves is not used.
+    """
     known, fills = dict(known), {}
     for name, cand in fillers:
         want = {i for i in main if i in targets and i not in known and i in cand}
@@ -382,8 +422,10 @@ def _gap_fill(main, known, primary, targets, fillers):
 
 
 def _bounds(order, vols):
-    """(before, after) along `order`: before[k] the largest volume of a row before row k, after[k + 1] the smallest
-    of a row after it (None: none)."""
+    """Return (before, after) along `order`.
+
+    before[k] the largest volume of a row before row k, after[k + 1] the smallest of a row after it (None: none).
+    """
     before, top = [], None
     for i in order:
         before.append(top)
@@ -414,10 +456,12 @@ def _unordered(main, vols):
 
 
 def season_ends(rows, main, known=None):
-    """{season: last main chapter number} from known ends ({season: end}, the record's closed volumes), the main rows'
-    season markers (a marker without a season number is not used) and season tags (a start marker; a season starts at
-    its lowest-numbered chapter). A start marker for season N closes N-1 at the chapter before it, unless an end
-    already did."""
+    """Return {season: last main chapter number} from known ends, the main rows' season markers and season tags.
+
+    known: {season: end}, the record's closed volumes. A marker without a season number is not used; a season tag is a
+    start marker (a season starts at its lowest-numbered chapter). A start marker for season N closes N-1 at the
+    chapter before it, unless an end already did.
+    """
     ends, starts = dict(known or {}), {}
     for i in main:
         r = rows[i]
@@ -436,11 +480,13 @@ def season_ends(rows, main, known=None):
 
 
 def season_volumes(rows, main):
-    """{row index: volume} of the main rows from season markers: volumes 1, 2, 3... in season order (a season without
-    a marker leaves no number out); after the last end, the next. The settled chapters' recorded season-marker volumes
-    count as ends too (each volume but the highest ends at its highest chapter): the bulk converter read markers its
-    record does not keep (a download's ComicInfo Title), so the record's volumes are where those ends survive. The
-    highest recorded volume stays open until a marker closes it."""
+    """Return {row index: volume} of the main rows from season markers.
+
+    Volumes 1, 2, 3... in season order (a season without a marker leaves no number out); after the last end, the next.
+    The settled chapters' recorded season-marker volumes count as ends too (each volume but the highest ends at its
+    highest chapter): the bulk converter read markers its record does not keep (a download's ComicInfo Title), so the
+    record's volumes are where those ends survive. The highest recorded volume stays open until a marker closes it.
+    """
     recorded = {}
     for i in main:
         r = rows[i]
@@ -461,15 +507,20 @@ def season_volumes(rows, main):
 
 
 def _opens_covered(rows, firsts):
-    """Open rows that are the first (lowest-numbered) main chapter of a covered volume no settled chapter has. firsts:
-    _covered_firsts' result."""
+    """Return the open rows that are the first (lowest-numbered) main chapter of a covered volume no settled row has.
+
+    firsts: _covered_firsts' result.
+    """
     settled = {r.volume for r in rows if r.settled and r.volume is not None}
     return {i for v, i in firsts.items() if not rows[i].settled and v not in settled}
 
 
 def covered_volumes(basis, rows, override, mangadex):
-    """The covered volumes (SPEC "Volume covers") of rows as they stand: each main row's volume and volume source
-    (the retroactive comparison passes the published rows with the volumes they will hold)."""
+    """Return the covered volumes (SPEC "Volume covers") of rows as they stand.
+
+    From each main row's volume and volume source (the retroactive comparison passes the published rows with the
+    volumes they will hold).
+    """
     main = sorted(
         (i for i, r in enumerate(rows) if r.kind == names.MAIN), key=lambda i: (rows[i].number, rows[i].order)
     )
@@ -479,8 +530,11 @@ def covered_volumes(basis, rows, override, mangadex):
 
 
 def _covered_firsts(basis, main, vol, maps):
-    """{volume: index of its first (lowest-numbered) main row} of the covered volumes: a volume whose first chapter's
-    volume came from MangaDex, the override or a hand edit, or is a filename volume confirmed by them."""
+    """Return {volume: index of its first (lowest-numbered) main row} of the covered volumes.
+
+    A covered volume: one whose first chapter's volume came from MangaDex, the override or a hand edit, or is a
+    filename volume confirmed by them.
+    """
     confirmed = _cover_confirmed(basis, main, vol, maps)
     first = {}
     for i in main:  # in number order
@@ -491,8 +545,10 @@ def _covered_firsts(basis, main, vol, maps):
 
 
 def _cover_confirmed(basis, main, vol, maps):
-    """Filename-volumed main rows whose volume an agreeing, ordered map of maps (the override's, MangaDex's) gives
-    too."""
+    """Return the filename-volumed main rows whose volume an agreeing, ordered map of maps gives too.
+
+    maps: the override's, MangaDex's.
+    """
     if basis != FILENAME:
         return set()
     fname = {i: vol[i][0] for i in main if vol[i][0] is not None and vol[i][1] == FILENAME}
@@ -505,12 +561,15 @@ def _cover_confirmed(basis, main, vol, maps):
 
 
 def _side_stories(rows, side, main_volumes, platform, past: AbstractSet = frozenset()):
-    """{row key: Naming} of the open side stories: the settled side stories' volume, else the highest main volume + 1,
-    else 2; numbered after the highest settled side number, in (source volume, number, date, order) order; titled
-    "Side Story <n>: <title>", or "Side Story <n>" when the side marker and a bare chapter label leave no title. An
-    untitled one takes the platform special's title for n when the list has as many specials as the series has side
-    stories, published and open (platforms.side_titles); a chapter past the main-story finale (past) takes its own
-    main episode's title first, as the bulk converter named it."""
+    """Return {row key: Naming} of the open side stories.
+
+    Their volume: the settled side stories' volume, else the highest main volume + 1, else 2; numbered after the highest
+    settled side number, in (source volume, number, date, order) order; titled "Side Story <n>: <title>", or "Side Story
+    <n>" when the side marker and a bare chapter label leave no title. An untitled one takes the platform special's
+    title for n when the list has as many specials as the series has side stories, published and open
+    (platforms.side_titles); a chapter past the main-story finale (past) takes its own main episode's title first, as
+    the bulk converter named it.
+    """
     special_titles = platforms.side_titles(platform, len(side))
     episode_titles = platforms.chapter_titles(platform)
     done = sorted((i for i in side if rows[i].settled), key=lambda i: (rows[i].number, rows[i].order))
