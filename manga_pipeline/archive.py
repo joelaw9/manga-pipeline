@@ -13,6 +13,7 @@ import re
 import struct
 import zipfile
 import zlib
+from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 
 from manga_pipeline import errors
@@ -32,12 +33,12 @@ COVER_NAME = re.compile(
 )
 
 
-def is_cover_name(name):
+def is_cover_name(name: str) -> bool:
     """Return whether Kavita would treat this page as the archive's cover (cover.jpg, 000_cover.png, folder.png)."""
     return bool(COVER_NAME.search(PurePosixPath(name.replace("\\", "/")).name))
 
 
-def natural_key(path):
+def natural_key(path: str) -> list[int | str]:
     """Return the natural sort key over a full archive path (matches Kavita's page ordering).
 
     The extension is compared last, so "1.jpg" < "1.5.jpg" < "2.jpg".
@@ -50,7 +51,7 @@ def natural_key(path):
     return [int(t) if t.isdecimal() else t.lower() for t in re.split(r"(\d+)", base)] + [ext.lower()]
 
 
-def is_junk(name):
+def is_junk(name: str) -> bool:
     """Return whether an archive member is junk: a junk file name (Thumbs.db), under __MACOSX/, or a ._* file."""
     p = PurePosixPath(name.replace("\\", "/"))
     return (
@@ -60,11 +61,11 @@ def is_junk(name):
     )
 
 
-def _posix(name):
+def _posix(name: str) -> str:
     return name.replace("\\", "/")
 
 
-def archive_pages(names):
+def archive_pages(names: Iterable[str]) -> list[str]:
     """Return an archive's page members (names as stored) in natural reading order.
 
     Image extensions only; directories, junk (__MACOSX/, ._*, Thumbs.db) and ComicInfo.xml dropped. Every reader of an
@@ -78,7 +79,7 @@ def archive_pages(names):
     return sorted(pages, key=lambda n: natural_key(_posix(n)))
 
 
-def comicinfo_member(names):
+def comicinfo_member(names: Iterable[str]) -> str | None:
     """Return the archive's ComicInfo.xml member (exact basename, any case, not under junk like __MACOSX/).
 
     Prefers one at the root; None if absent.
@@ -87,12 +88,12 @@ def comicinfo_member(names):
     return next((n for n in hits if "/" not in _posix(n)), hits[0] if hits else None)
 
 
-def sha1(data):
+def sha1(data: bytes) -> str:
     """Return the hex sha1 digest of data."""
     return hashlib.sha1(data, usedforsecurity=False).hexdigest()
 
 
-def pages_digest(cbz):
+def pages_digest(cbz: Path) -> str:
     r"""Return the content digest (SPEC "Bad downloads"): sha256 of the ordered page sha1 list, "\n"-joined.
 
     The bulk converter's record.pages_digest exactly, so its records' `pages_digest` compare with it.
@@ -102,7 +103,7 @@ def pages_digest(cbz):
     return hashlib.sha256("\n".join(sha1s).encode()).hexdigest()
 
 
-def digest_or_none(cbz):
+def digest_or_none(cbz: Path) -> str | None:
     """pages_digest, or None for an archive that cannot be read or is gone."""
     try:
         return pages_digest(cbz)
@@ -112,14 +113,14 @@ def digest_or_none(cbz):
         return None
 
 
-def read_comicinfo(cbz):
+def read_comicinfo(cbz: Path) -> bytes | None:
     """Return the bytes of the archive's ComicInfo.xml, or None when it has none."""
     with zipfile.ZipFile(cbz) as z:
         member = comicinfo_member(z.namelist())
         return None if member is None else z.read(member)
 
 
-def write(dest, members):
+def write(dest: Path, members: Iterable[tuple[str, bytes]]) -> int:
     """Write a store-mode CBZ of members ([(name, bytes)], stored in that order) at dest; return dest's size.
 
     Fixed date, attributes and system, so the same members give byte-identical archives. Written as dest.part, renamed
@@ -144,13 +145,13 @@ def write(dest, members):
     return size
 
 
-def pages(cbz):
+def pages(cbz: Path) -> list[tuple[str, bytes]]:
     """[(name, bytes)] of an archive's pages in reading order (archive_pages), bytes untouched."""
     with zipfile.ZipFile(cbz) as z:
         return [(n, z.read(n)) for n in archive_pages(z.namelist())]
 
 
-def replace_member(cbz, name, data):
+def replace_member(cbz: Path, name: str, data: bytes) -> int:
     """Rewrite cbz with member `name` (compared without case) stored last with data; return the new size.
 
     Replaces any member of that name; every other member keeps its bytes and order. Through write, so a crash leaves the
@@ -161,7 +162,7 @@ def replace_member(cbz, name, data):
     return write(cbz, [*members, (name, data)])
 
 
-def test(cbz, size):
+def test(cbz: Path, size: int) -> None:
     """Raise when cbz is not `size` bytes or fails the zip test (a CRC or a member it cannot read)."""
     actual = Path(cbz).stat().st_size
     if actual != size:

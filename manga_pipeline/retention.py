@@ -9,6 +9,8 @@ import errno
 import logging
 import os
 import time
+from pathlib import Path
+from typing import NoReturn
 
 from manga_pipeline import config, errors
 
@@ -16,7 +18,7 @@ log = logging.getLogger(__name__)
 DAY = 86400
 
 
-def put(cfg, download):
+def put(cfg: config.Config, download: Path) -> None:
     """Remove a download (a Path under <paths.downloads>/mangas) the retention way.
 
     A download already gone counts as removed (a crash after the move, before its outcome was recorded).
@@ -39,7 +41,7 @@ def put(cfg, download):
     log.info("retention: moved %s to %s", download, target)
 
 
-def put_library(cfg, file):
+def put_library(cfg: config.Config, file: Path) -> None:
     """Keep a library file about to be replaced (SPEC "Retroactive updates") the retention way.
 
     The way is a hard link to it under <paths.retention>/library-files/<its folder below the library root>/ (a free
@@ -60,7 +62,7 @@ def put_library(cfg, file):
     log.info("retention: kept %s as %s", file, target)
 
 
-def purge(cfg, now=None):
+def purge(cfg: config.Config, now: float | None = None) -> int:
     """Delete retained files older than export.retention_days by modification time, and the folders that leaves empty.
 
     Returns how many files were deleted. A folder that cannot be read raises.
@@ -87,5 +89,5 @@ def purge(cfg, now=None):
     return deleted
 
 
-def _raise(error):
+def _raise(error: OSError) -> NoReturn:
     raise error
