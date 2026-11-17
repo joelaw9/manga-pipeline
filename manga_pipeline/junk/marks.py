@@ -160,10 +160,10 @@ class Mark:
     ring_frac: float
     template: Template
 
-    @property
-    def blankable(self):
-        """Whether the mark may be blanked: its ring is plain (ring_frac >= RING_FRAC)."""
-        return self.ring_frac >= RING_FRAC
+
+def blankable(ring_frac):
+    """Return whether a mark with this ring share may be blanked: its ring is plain (ring_frac >= RING_FRAC)."""
+    return ring_frac >= RING_FRAC
 
 
 def _solid(counts):
