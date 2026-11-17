@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from manga_pipeline import db, lock
+from manga_pipeline import db, lock, strip
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.db import sql
@@ -262,12 +262,13 @@ def claim(ctx: Context, stages, series_id=None):
     converts), nor a scanned junk-stage chapter while its series has a ready junk-stage chapter not yet scanned (every
     one is scanned before any is decided; a scan is current while its series and content digest are the chapter's). A
     new series' chapter waits at validate while its series has no naming basis and any of its chapters is at discover
-    (the basis is chosen over the whole batch), and at junk while its series has no layout, fewer than 3 of its chapters
-    past validate (with a download path this machine can use) and any chapter still at discover or validate (SPEC
-    "State"). Nor is a chapter of a series in which any chapter is claimed at this part's stages, or of a series sharing
-    that series' rules key (machines work different series), nor one that failed less than RETRY_PAUSE ago. In the same
-    transaction the claims of every other owner of this part whose run lock is no longer held are freed first (SPEC
-    "State"). Returns the claimed row (its claim_count is this claim's), or None when nothing is ready.
+    (the basis is chosen over the whole batch), and at junk while its series has no layout, fewer than
+    strip.SAMPLE_CHAPTERS of its chapters past validate (with a download path this machine can use) and any chapter
+    still at discover or validate (SPEC "State"). Nor is a chapter of a series in which any chapter is claimed at this
+    part's stages, or of a series sharing that series' rules key (machines work different series), nor one that failed
+    less than RETRY_PAUSE ago. In the same transaction the claims of every other owner of this part whose run lock is no
+    longer held are freed first (SPEC "State"). Returns the claimed row (its claim_count is this claim's), or None when
+    nothing is ready.
     """
     stages = [s for s in stages if s not in ctx.unreachable]
     with db.transaction(ctx.conn):
@@ -280,6 +281,7 @@ def claim(ctx: Context, stages, series_id=None):
             part_stages=list(PART_STAGES[ctx.part]),
             windows=os.name == "nt",
             unusable=WINDOWS_UNUSABLE,
+            sample_chapters=strip.SAMPLE_CHAPTERS,
         )
         return ctx.conn.execute(
             sql.SQL("""UPDATE chapter SET status = 'claimed', claimed_by = %(owner)s, claim_count = claim_count + 1,
@@ -315,7 +317,8 @@ def claim(ctx: Context, stages, series_id=None):
                     AND (SELECT count(*) FROM chapter p
                         WHERE p.series_id = c.series_id AND p.kind = 'download' AND p.status <> 'done'
                             AND p.stage NOT IN ('discover', 'validate')
-                            AND NOT (%(windows)s AND coalesce(p.download_path, '') ~ %(unusable)s)) < 3
+                            AND NOT (%(windows)s AND coalesce(p.download_path, '') ~ %(unusable)s))
+                        < %(sample_chapters)s
                     AND EXISTS (
                         SELECT 1 FROM chapter d WHERE d.series_id = c.series_id
                             AND d.stage IN ('discover', 'validate') AND d.status IN ('ready', 'claimed')))
