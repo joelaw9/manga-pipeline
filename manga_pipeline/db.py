@@ -8,7 +8,7 @@ branches are both applied whatever order they merge in.
 
 import functools
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, LiteralString, SupportsIndex, overload
@@ -61,7 +61,8 @@ class MissingRowError(LookupError):
     """A query returned no row where the caller's own data guarantees one (a row named by a stored id, an aggregate)."""
 
 
-class Row(tuple):
+# Any: a column's value is whatever type its column holds, which only the query knows (as __getitem__'s).
+class Row(tuple[Any, ...]):  # pyright: ignore[reportExplicitAny]
     """A row that reads as sqlite3.Row does.
 
     By position (negative and sliced too), by column name (case-insensitive, the first column of a repeated name), as a
@@ -74,43 +75,47 @@ class Row(tuple):
 
     # Any: a column's value is whatever type its column holds, which only the query knows.
     @overload
-    def __getitem__(self, key: SupportsIndex | str) -> Any: ...
+    def __getitem__(self, key: SupportsIndex | str) -> Any: ...  # pyright: ignore[reportExplicitAny]
     @overload
-    def __getitem__(self, key: slice) -> tuple[Any, ...]: ...
-    def __getitem__(self, key: SupportsIndex | str | slice) -> Any:
+    def __getitem__(self, key: slice) -> tuple[Any, ...]: ...  # pyright: ignore[reportExplicitAny]
+    def __getitem__(self, key: SupportsIndex | str | slice) -> Any:  # pyright: ignore[reportExplicitAny]
         """Return a value by position or slice, or by column name (case-insensitive); IndexError for an unknown name."""
         if isinstance(key, str):
             folded = key.casefold()
             for i, name in enumerate(self._keys):
                 if name.casefold() == folded:
-                    return tuple.__getitem__(self, i)
+                    return super().__getitem__(i)
             msg = f"no column named {key!r}"
             raise IndexError(msg)
-        return tuple.__getitem__(self, key)
+        return super().__getitem__(key)
 
     def keys(self) -> list[str]:
         """Return the column names, in order."""
         return list(self._keys)
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         """Return whether other is a Row of the same columns and values."""
-        return isinstance(other, Row) and self._keys == other._keys and tuple.__eq__(self, other)
+        return isinstance(other, Row) and self._keys == other._keys and super().__eq__(other)
 
-    def __ne__(self, other):
+    def __ne__(self, other: object) -> bool:
         """Return whether other is not a Row of the same columns and values."""
         return not self.__eq__(other)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         """Return a hash of the columns and values, so equal rows hash alike."""
         return hash((self._keys, tuple(self)))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Return the row as Row({column: value})."""
         return f"Row({dict(zip(self._keys, self, strict=True))!r})"
 
 
 # A connection of the program (open_connection), for callers that annotate one without importing the driver.
 type Connection = psycopg.Connection[Row]
+# A statement as the program writes one: a literal, or one composed with psycopg.sql (no text built at run time).
+type Query = LiteralString | sql.SQL | sql.Composed
+# A statement's parameters: by position or by name, each any value psycopg adapts.
+type Params = Sequence[object] | Mapping[str, object]
 
 
 @functools.cache
@@ -118,11 +123,11 @@ def _row_class(keys: tuple[str, ...]) -> type[Row]:
     return type("Row", (Row,), {"__slots__": (), "_keys": keys})
 
 
-def _rows(cursor) -> RowMaker[Row]:
+def _rows(cursor: psycopg.Cursor[Row]) -> RowMaker[Row]:
     return _row_class(tuple(c.name for c in cursor.description or ()))
 
 
-def _login(cfg):
+def _login(cfg: config.Config) -> config.DatabaseConfig:
     """Return the 5 database settings, checked (SPEC "Config"): a config error names what is wrong."""
     settings = cfg["database"]
     for key in ("host", "name", "user"):
@@ -139,7 +144,7 @@ def _login(cfg):
     return settings  # whether a login needs the password is the server's to say (SPEC "Config")
 
 
-def open_connection(cfg, dbname=None):
+def open_connection(cfg: config.Config, dbname: str | None = None) -> Connection:
     """Open a connection whose host, port, database, user and password are the database settings.
 
     No password file is read (a PG* variable can set only what these do not, SPEC "Config").
@@ -172,13 +177,13 @@ def open_connection(cfg, dbname=None):
     raise CannotConnectError(msg) from None
 
 
-def _exists(cfg, dbname):
+def _exists(cfg: config.Config, dbname: str) -> bool:
     """Whether the server lists dbname; raises CannotConnectError when the server cannot be used at all."""
     with closing(open_connection(cfg, MAINTENANCE_DATABASE)) as conn:
         return conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,)).fetchone() is not None
 
 
-def connect(cfg):
+def connect(cfg: config.Config) -> Connection:
     """Open database.name, creating it if absent, and apply the schema steps it lacks.
 
     The connection is in autocommit mode (every write goes in an explicit transaction()) and returns Row rows. Raises
@@ -193,7 +198,7 @@ def connect(cfg):
     return conn
 
 
-def open_database(cfg, builds):
+def open_database(cfg: config.Config, *, builds: bool) -> Connection:
     """Open database.name and apply nothing (SPEC "State").
 
     A caller that builds gets the database created when the server has none; for any other caller, a database that is
@@ -217,7 +222,7 @@ def open_database(cfg, builds):
     return conn
 
 
-def read_only(cfg):
+def read_only(cfg: config.Config) -> Connection:
     """Open the existing database for reading only.
 
     Every transaction is read-only and repeatable-read, so 1 transaction reads 1 snapshot. Raises NoDatabaseError when
@@ -233,7 +238,7 @@ def read_only(cfg):
     return conn
 
 
-def _check_exact_steps(conn):
+def _check_exact_steps(conn: Connection) -> None:
     """SchemaError unless the database holds a schema record with exactly this program's steps."""
     if not _has_record(conn):
         msg = f"database {conn.info.dbname}: holds no schema record (empty, or not built by this program)"
@@ -250,7 +255,7 @@ def _check_exact_steps(conn):
         raise SchemaError(msg)
 
 
-def built(cfg):
+def built(cfg: config.Config) -> bool:
     """Whether the database exists and holds a schema record; builds nothing (SPEC "State")."""
     try:
         conn = open_connection(cfg)
@@ -260,7 +265,7 @@ def built(cfg):
         return _has_record(conn)
 
 
-def peek_id(cfg):
+def peek_id(cfg: config.Config) -> str:
     """Return the id of the existing database, read without creating, applying or checking anything.
 
     Raises NoDatabaseError when there is none, Error when the id cannot be read.
@@ -270,7 +275,7 @@ def peek_id(cfg):
 
 
 @contextmanager
-def transaction(conn):
+def transaction(conn: Connection) -> Iterator[Connection]:
     """Run 1 write transaction: committed when the block ends, rolled back when it raises.
 
     It takes the database-wide write lock first, so write transactions never overlap (SPEC "State").
@@ -283,18 +288,18 @@ def transaction(conn):
         yield conn
 
 
-def in_transaction(conn):
+def in_transaction(conn: Connection) -> bool:
     """Return whether the connection is inside a transaction (its status is not idle)."""
     return conn.info.transaction_status != TransactionStatus.IDLE
 
 
-def executemany(conn, statement, rows):
+def executemany(conn: Connection, statement: Query, rows: Iterable[Params]) -> None:
     """Execute the statement once per row, on 1 cursor of the connection."""
     with conn.cursor() as cur:
         cur.executemany(statement, rows)
 
 
-def one_row(conn: Connection, query: LiteralString | sql.SQL | sql.Composed, params: Sequence | Mapping = ()) -> Row:
+def one_row(conn: Connection, query: Query, params: Params = ()) -> Row:
     """Return the query's 1st row, where the caller's own data guarantees one.
 
     MissingRowError naming the query if none.
@@ -307,12 +312,12 @@ def one_row(conn: Connection, query: LiteralString | sql.SQL | sql.Composed, par
     return row
 
 
-def database_id(conn):
+def database_id(conn: Connection) -> str:
     """Return the database's random id (32 hex characters), made when step 0001 built it."""
     return one_row(conn, "SELECT value FROM meta WHERE key = 'database_id'")[0]
 
 
-def _create(cfg):
+def _create(cfg: config.Config) -> None:
     """Create database.name as UTF-8 with bytewise text order; another run creating it at the same time is fine.
 
     CannotConnectError naming the database when the server refuses (a role that may not create one, for one).
@@ -333,11 +338,11 @@ def _create(cfg):
             raise CannotConnectError(msg) from None
 
 
-def _has_record(conn):
+def _has_record(conn: Connection) -> bool:
     return one_row(conn, "SELECT to_regclass('schema_step') IS NOT NULL")[0]
 
 
-def now(conn):
+def now(conn: Connection) -> str:
     """Return the server's clock as the program stores a time: ISO 8601 in UTC to the second.
 
     As '2026-11-14T17:00:00+00:00', so times written from several machines compare (SPEC "State").
@@ -349,20 +354,23 @@ def now(conn):
     )[0]
 
 
-def apply_steps(conn):
+def apply_steps(conn: Connection) -> None:
     """Apply the schema steps the database lacks; SchemaError for a step this program does not have."""
     steps = {p.stem: p for p in SCHEMA.glob("*.sql")}
     # Under the write lock from reading the record to the last step: 2 runs opening the database at once apply each
     # step once.
     with transaction(conn):
-        applied = {row[0] for row in conn.execute("SELECT name FROM schema_step")} if _has_record(conn) else set()
+        applied: set[str] = (
+            {row[0] for row in conn.execute("SELECT name FROM schema_step")} if _has_record(conn) else set()
+        )
         unknown = sorted(applied - steps.keys())
         if unknown:
             msg = f"database {conn.info.dbname}: holds schema step(s) this program does not have: {', '.join(unknown)}"
             raise SchemaError(msg)
         for name in sorted(steps.keys() - applied):
             try:
-                conn.execute(steps[name].read_text(encoding="utf-8"))
+                # As bytes: psycopg takes a str query only as a literal, and a step is the program's own SQL file.
+                conn.execute(steps[name].read_bytes())
             except psycopg.errors.RaiseException as e:  # a step that refuses the database names why
                 msg = f"database {conn.info.dbname}: step {name}: {e.diag.message_primary}"
                 raise SchemaError(msg) from None

@@ -18,7 +18,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from manga_pipeline import db, images, names
+from manga_pipeline import config, db, images, names
 from manga_pipeline.convert import record_reader
 from manga_pipeline.db import sql
 from manga_pipeline.junk import frames, marks, store
@@ -180,7 +180,7 @@ def record_rows(record):
     return out
 
 
-def read_database(cfg, name):
+def read_database(cfg: config.Config, name):
     """Return (rows, skipped, seen) of another pipeline database on the server.
 
     Its decisions with their deciders, times and sources; its sightings are not read (seen None).

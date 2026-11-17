@@ -73,7 +73,7 @@ def connect(dbname):
     )
 
 
-def cfg_for(name):
+def cfg_for(name) -> config.Config:
     """Return the test config with its database section naming database `name`."""
     return {**config.cached(), "database": {**_login(), "name": name}}
 

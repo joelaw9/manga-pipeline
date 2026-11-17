@@ -18,7 +18,7 @@ from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.metadata import sources
 
-from tests.builders import run_part
+from tests.builders import run_part, share_paths
 from tests.timing import budget
 from tests.world import World
 
@@ -58,7 +58,7 @@ def is_stored_form(text):
 )
 @budget(load="fs")
 def test_a_path_is_stored_by_its_root_and_maps_back(tmp_path, path, stored):
-    cfg = {"paths": {root: str(tmp_path / "share" / root) for root in config.SHARE_ROOTS}}
+    cfg = share_paths(config.cached(), tmp_path / "share")
     path = Path(path.format(share=tmp_path / "share"))
     assert config.to_stored(cfg, path) == stored
     assert config.to_local(cfg, stored) == path
@@ -66,7 +66,7 @@ def test_a_path_is_stored_by_its_root_and_maps_back(tmp_path, path, stored):
 
 @budget(load="fs")
 def test_a_path_under_no_root_and_a_stored_text_naming_none_are_refused(tmp_path):
-    cfg = {"paths": {root: str(tmp_path / "share" / root) for root in config.SHARE_ROOTS}}
+    cfg = share_paths(config.cached(), tmp_path / "share")
     with pytest.raises(config.PathError, match="lies under no share root"):
         config.to_stored(cfg, tmp_path / "elsewhere" / "a.cbz")
     for text in ("nowhere/a.cbz", "library/../a.cbz", "library\\a.cbz", str(tmp_path / "share" / "library" / "a")):

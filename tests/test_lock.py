@@ -103,8 +103,8 @@ def test_locks_of_another_database_are_not_held_here(cfg, tmp_path):
 
 
 @budget(load="db")
-def test_no_lock_when_locks_are_off(cfg):
-    off = {**cfg, "lock": {**config.cached()["lock"], "enabled": False}}
+def test_no_lock_when_locks_are_off(cfg: config.Config):
+    off: config.Config = {**cfg, "lock": {**config.cached()["lock"], "enabled": False}}
     with (
         closing(db.connect(cfg)) as a,
         closing(db.connect(cfg)) as b,
@@ -114,7 +114,11 @@ def test_no_lock_when_locks_are_off(cfg):
         assert not held(cfg, a, "intake")
 
 
-@budget(load="pure")
-def test_idle_mode_is_checked():
-    with pytest.raises(ValueError, match="idle must be"), lock.held(None, config.cached(), [], "sometimes"):
+@budget(load="db")
+def test_idle_mode_is_checked(cfg: config.Config):
+    with (
+        closing(db.connect(cfg)) as conn,
+        pytest.raises(ValueError, match="idle must be"),
+        lock.held(conn, cfg, [], "sometimes"),
+    ):
         pass

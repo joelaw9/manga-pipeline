@@ -29,7 +29,7 @@ def world_overrides(world):
 )
 def test_override_ranges_as_the_bulk_converter_reads_them(tmp_path, number, want):
     write_override(tmp_path, "Solo Leveling", 'layout: strip\nvolumes: {0: "-3", 3: "4", 1: "6-65", 2: "66-"}\n')
-    ranges = present(volumes.override_file(tmp_path, "Solo Leveling"))["volumes"]
+    ranges = present(present(volumes.override_file(tmp_path, "Solo Leveling")).get("volumes"))
     assert volumes.override_volume(ranges, float(number)) == want
 
 
@@ -139,6 +139,14 @@ def test_the_series_group_is_the_override_files_names_joined(tmp_path, text, gro
     if text is not None:
         write_override(tmp_path, "Solo Leveling", text)
     assert volumes.series_group(tmp_path, "Solo Leveling") == group, "no file or no key: none"
+
+
+@budget(load="fs")
+@pytest.mark.parametrize("text", ["", "# no overrides yet\n"], ids=["empty", "comment-only"])
+def test_an_empty_override_file_holds_no_overrides(tmp_path, text):
+    write_override(tmp_path, "Solo Leveling", text)
+    assert volumes.override_file(tmp_path, "Solo Leveling") == {}, "an empty file is a file with no keys, not no file"
+    assert volumes.series_group(tmp_path, "Solo Leveling") is None, "and names no series group"
 
 
 @budget(load="fs")

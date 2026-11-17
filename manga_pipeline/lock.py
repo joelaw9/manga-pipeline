@@ -7,9 +7,10 @@ same key and none collides with the write lock (db.WRITE_LOCK, 1 integer). IDLE 
 lock: parts and junk review hold it shared, the state commands exclusive.
 """
 
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 
-from manga_pipeline import db
+from manga_pipeline import config, db
 from manga_pipeline.db import sql
 
 NAMESPACE = 0x6D70  # "mp"
@@ -22,7 +23,7 @@ class LockHeld(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: th
 
 
 @contextmanager
-def held(conn, cfg, names, idle=None):
+def held(conn: db.Connection, cfg: config.Config, names: Iterable[str], idle: str | None = None) -> Iterator[None]:
     """Hold the named locks, and IDLE in mode idle (SHARED, EXCLUSIVE or None), for the block when lock.enabled.
 
     All or nothing: when another session holds one, the ones already taken are freed and LockHeld names the held
@@ -35,7 +36,7 @@ def held(conn, cfg, names, idle=None):
         yield
         return
     wanted = [(name, False) for name in names] + ([(IDLE, idle == SHARED)] if idle else [])
-    taken = []
+    taken: list[tuple[str, bool]] = []
     try:
         for name, shared in wanted:
             fn = "pg_try_advisory_lock_shared" if shared else "pg_try_advisory_lock"
@@ -54,7 +55,7 @@ def held(conn, cfg, names, idle=None):
                 conn.execute(f"SELECT {fn}(%s, hashtext(%s))", (NAMESPACE, name))
 
 
-def held_sql(name):
+def held_sql(name: sql.Composable) -> sql.Composed:
     """Return, in SQL, whether some session holds the run lock `name` exclusive in this database.
 
     name is the SQL expression (a Composable) giving the lock's name: sql.Placeholder() for a parameter,

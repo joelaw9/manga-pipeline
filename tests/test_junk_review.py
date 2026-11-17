@@ -66,7 +66,7 @@ def world(tmp_path, monkeypatch):
     return w
 
 
-def review_cmd(tmp_path, cfg, exe):
+def review_cmd(tmp_path, cfg: config.Config, exe):
     cfg = {**cfg, "junk": {**cfg["junk"], "claude_path": str(exe)}}
     path = config_file(tmp_path, cfg)
     return cli.main(["--config", str(path), "junk", "review"]), cfg
@@ -179,14 +179,14 @@ def test_review_checks_need_claude_and_its_token(tmp_path):
     assert preflight.CLAUDE_SETTINGS in cli.COMMANDS["junk review"].checks
 
 
-def _review_hiding_the_token(world, tmp_path, capsys, monkeypatch, reply):
+def _review_hiding_the_token(world: World, tmp_path, capsys, monkeypatch, reply):
     """Run a review whose Claude replies `reply`; return its exit code.
 
     Asserts the token is in neither the log nor the output.
     """
     monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "DEBUG")
     token = "tok-SECRET-4711"
-    cfg = {**world.cfg, "junk": {**world.cfg["junk"], "claude_token": token}}
+    cfg: config.Config = {**world.cfg, "junk": {**world.cfg["junk"], "claude_token": token}}
     exe = fake_claude(tmp_path / "claude", cfg, ["list", "decide:keep"], reply=reply)
     code, cfg = review_cmd(tmp_path, cfg, exe)
     log_text = (config.abs_path(cfg["logging"]["dir"]) / "junk-review.log").read_bytes().decode("utf-8")
@@ -210,9 +210,9 @@ def test_the_token_is_never_in_an_error(world, tmp_path, capsys, monkeypatch):
 
 
 @budget(load="subprocess", seconds=20)
-def test_the_review_child_sees_the_reviews_set_values(world, tmp_path):
+def test_the_review_child_sees_the_reviews_set_values(world: World, tmp_path):
     exe = fake_claude(tmp_path / "claude", world.cfg, ["list"])
-    cfg = {**world.cfg, "junk": {**world.cfg["junk"], "claude_path": str(exe)}}
+    cfg: config.Config = {**world.cfg, "junk": {**world.cfg["junk"], "claude_path": str(exe)}}
     path = config_file(tmp_path, cfg)
     with closing(db.connect(cfg)) as conn, db.transaction(conn):  # review_batch is shared: the fleet's version has 7
         fleet.store(conn, {**cfg, "junk": {**cfg["junk"], "review_batch": 7}})

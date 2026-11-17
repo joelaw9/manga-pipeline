@@ -300,15 +300,19 @@ def test_built_is_false_for_an_empty_database_and_true_once_connected(tmp_path):
 )
 @budget(load="pure")
 def test_bad_database_settings_are_config_errors(change, error):
-    cfg = {**config.cached(), "database": {**config.cached()["database"], **change}}
+    cfg: config.Config = {**config.cached(), "database": config.cached()["database"] | change}
     with pytest.raises(config.ConfigError, match=error):
         db.connect(cfg)
 
 
 @budget(load="db")
 def test_a_refused_login_cannot_connect_and_never_shows_the_password():
-    login = {"user": "mp_test_no_such_role", "password": "wrong-secret"}  # a role the test server does not have
-    cfg = {**config.cached(), "database": {**config.cached()["database"], **login}}
+    login: config.DatabaseConfig = {
+        **config.cached()["database"],
+        "user": "mp_test_no_such_role",  # a role the test server does not have
+        "password": "wrong-secret",
+    }
+    cfg: config.Config = {**config.cached(), "database": login}
     with pytest.raises(db.CannotConnectError) as e:
         db.connect(cfg)
     assert "localhost:5432" in str(e.value)
@@ -318,7 +322,10 @@ def test_a_refused_login_cannot_connect_and_never_shows_the_password():
 
 @budget(load="db")
 def test_a_socket_folder_needs_no_password():
-    cfg = {**config.cached(), "database": {**config.cached()["database"], "host": "/nowhere", "password": None}}
+    cfg: config.Config = {
+        **config.cached(),
+        "database": {**config.cached()["database"], "host": "/nowhere", "password": None},
+    }
     with pytest.raises(db.CannotConnectError, match="/nowhere"):  # not a config error: the login is tried
         db.connect(cfg)
 

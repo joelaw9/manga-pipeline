@@ -4,11 +4,14 @@ It refuses a result whose keys or value types differ from the example (SPEC "Con
 config.yaml (SPEC "Tests").
 """
 
+import types
+import typing
+
 import pytest
 
 from manga_pipeline import config
 
-from tests import TMP, LiveConfigReadError, real_load
+from tests import TMP, LiveConfigReadError, builders, real_load
 from tests.timing import budget
 
 EXAMPLE = """\
@@ -240,3 +243,44 @@ def test_init_sets_the_process_config_until_reset():
     config.init(sets=["logging.level=WARNING"])
     config.reset()
     assert config.cached()["logging"]["level"] != "WARNING", "reset forgets init's config"
+
+
+def _example_leaves(mapping, parts=()):
+    """{key path: value} of a loaded config's leaves: every value but a non-empty mapping (what env and --set set)."""
+    out = {}
+    for key, value in mapping.items():
+        if isinstance(value, dict) and value:
+            out |= _example_leaves(value, (*parts, key))
+        else:
+            out[(*parts, key)] = value
+    return out
+
+
+def _typed_leaves(shape, parts=()):
+    """{key path: type} of a TypedDict's leaves, descending into section TypedDicts."""
+    out = {}
+    for key, hint in typing.get_type_hints(shape).items():
+        if typing.is_typeddict(hint):
+            out |= _typed_leaves(hint, (*parts, key))
+        else:
+            out[(*parts, key)] = hint
+    return out
+
+
+@budget(load="fs")
+def test_the_config_types_name_every_key_of_the_example_with_its_type():
+    example = _example_leaves(real_load(config.EXAMPLE))
+    typed = _typed_leaves(config.Config)
+    assert sorted(example) == sorted(typed), "config.Config and its sections hold exactly the example's keys"
+    for parts, value in example.items():
+        hint = typed[parts]
+        if value is None:
+            assert set(typing.get_args(hint)) == {str, types.NoneType}, f"{parts}: a null example leaf is str | None"
+        else:
+            assert (typing.get_origin(hint) or hint) is type(value), f"{parts}: typed as the example value's type"
+
+
+@budget(load="pure")
+def test_the_sections_a_test_may_replace_are_config_sections():
+    sections = typing.get_type_hints(builders.ConfigChanges).keys()
+    assert sections == typing.get_type_hints(config.Config).keys(), "ConfigChanges names every Config section, no other"

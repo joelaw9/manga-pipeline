@@ -16,8 +16,8 @@ def a_download(cfg, source="Src (EN)", title="Title", name="ch1.cbz"):
     return path
 
 
-def with_days(cfg, days):
-    return {**cfg, "export": {"retention_days": days}}
+def with_days(cfg: config.Config, days) -> config.Config:
+    return {**cfg, "export": {**cfg["export"], "retention_days": days}}
 
 
 @budget(load="fs")

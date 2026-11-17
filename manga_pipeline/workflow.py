@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from manga_pipeline import db, lock, strip
+from manga_pipeline import config, db, lock, strip
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.db import sql
@@ -86,7 +86,7 @@ class Context:
     A caller that holds its clients (a test's fakes) gives every field.
     """
 
-    cfg: dict
+    cfg: config.Config
     conn: db.Connection  # the command's connection (cli.main), holding its run lock
     part: str
     owner: str  # who this run's claims name
@@ -105,7 +105,7 @@ class Context:
     kavita_cache: dict = field(default_factory=dict)
 
 
-def context(cfg: dict, conn: db.Connection, part: str):
+def context(cfg: config.Config, conn: db.Connection, part: str):
     """Build the part's run state from cfg: its owner and its 1 client of each service and metadata source."""
     return Context(
         cfg,

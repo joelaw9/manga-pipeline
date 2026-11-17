@@ -11,6 +11,7 @@ import json
 import math
 import re
 import unicodedata
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import overload
@@ -77,6 +78,8 @@ MONTHS = {
     m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)
 }
 ADULT_AGE = 18  # a rating tag from this age up is uncensored
+# A name body's match (_match): its season tag, the other leading tags, the shape matched and the match.
+type NameMatch = tuple[str | None, str, str, re.Match[str]]
 
 
 @dataclass
@@ -96,33 +99,33 @@ class Item:
     date: str | None = None
     season: str | None = None  # leading season tag ("S1 - ", "(S2) ", "[Season 2] "), kept off the title
     error: bool = False  # unreadable CBZ: integrity's to judge, never trashed here
-    notes: list = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
     @property
-    def num(self):
+    def num(self) -> float | None:
         """Return the chapter number as a float, or None when the item has none."""
         return float(self.number) if self.number is not None else None
 
     @property
-    def key(self):
+    def key(self) -> tuple[int, str] | None:
         """Return the chapter number's number_key: its parts, so 3.1 and 3.10 stay apart; None without a number."""
         return number_key(self.number)
 
 
-def number_key(number):
+def number_key(number: str | float | None) -> tuple[int, str] | None:
     """Chapter number as parts, so 3.1 and 3.10 stay apart: "3.10" -> (3, "10"), "3" / "3.0" -> (3, "")."""
     if number is None:
         return None
     return _number_parts(number)
 
 
-def _number_parts(number):
+def _number_parts(number: str | float) -> tuple[int, str]:
     """number_key of a number that is not None."""
     base, _, frac = str(number).strip().partition(".")
     return int(base), frac if frac.strip("0") else ""
 
 
-def two_readings(number):
+def two_readings(number: str | float | None) -> str | None:
     """Return why a chapter number has no single reading, or None.
 
     It has none when its decimal part ends in 0 without being all zeros ("26.10": 26.1, or part 10 of chapter 26).
@@ -144,14 +147,14 @@ def two_readings(number):
 def fmt_num(n: None) -> None: ...
 @overload
 def fmt_num(n: float | str | Decimal) -> str: ...
-def fmt_num(n):
+def fmt_num(n: float | str | Decimal | None) -> str | None:
     """Chapter / volume number as text, every digit kept: 1.0 / "01" -> "1", 17.5 -> "17.5"; None -> None."""
     if n is None:
         return None
     return format(Decimal(str(n)).normalize(), "f")  # str(float): the shortest exact repr
 
 
-def _peel(body):
+def _peel(body: str) -> tuple[str | None, str, str]:
     """Leading season tags and other bracket tags before the label: (season, tags text, rest)."""
     season, tags = None, ""
     while True:
@@ -166,7 +169,7 @@ def _peel(body):
         return season, tags.strip(), body
 
 
-def _match(body):
+def _match(body: str) -> NameMatch | None:
     """Return (season, tags, kind of match, regex match) for a name body, or None.
 
     A label without a number counts only for labels that stand alone ("Epilogue", "Prologue", "Special Episode: Ivy").
@@ -186,12 +189,12 @@ def _match(body):
     return None
 
 
-def _numbered(body):
+def _numbered(body: str) -> bool:
     hit = _match(body)
     return bool(hit) and hit[2] != "volume" and (hit[3].group("num") is not None)
 
 
-def split_group(stem):
+def split_group(stem: str) -> tuple[str, str]:
     """Split a chapter file's stem into its scanlator group ("" for none) and the rest.
 
     'Easy Going Scans_Vol.1 Ch.1' -> ('Easy Going Scans', 'Vol.1 Ch.1');
@@ -211,17 +214,17 @@ def split_group(stem):
     return "", stem
 
 
-def clean_title(rest):
+def clean_title(rest: str) -> str:
     """Return rest with its leading and trailing separators ("-", "_", ":") and spaces removed."""
     return TITLE_SEP.sub("", rest).strip()
 
 
-def _hyphen_part(num):
+def _hyphen_part(num: str | None) -> str | None:
     """'45-1' -> '45.1' (hyphen part = decimal part); other numbers unchanged."""
     return num.replace("-", ".", 1) if num and "-" in num else num
 
 
-def parse_name(stem, ci=None, non_chapter_names=()):
+def parse_name(stem: str, ci: Mapping[str, str] | None = None, non_chapter_names: Iterable[str] = ()) -> Item:
     """Classify one chapter file from its filename stem; ComicInfo Number numbers it when the filename has none."""
     group, body = split_group(stem)
     item = Item(file=stem, group=group.strip("_ ") or (ci or {}).get("Translator", ""))
@@ -235,7 +238,7 @@ def parse_name(stem, ci=None, non_chapter_names=()):
     return item
 
 
-def _read_shape(item, stem, hit):
+def _read_shape(item: Item, stem: str, hit: NameMatch) -> None:
     """Fill item from its name's shape match (_match): season, label, volume, number and title.
 
     A prologue without a number is chapter 0; a hyphen part is the decimal part, and a decimal with a hyphen part
@@ -264,7 +267,7 @@ def _read_shape(item, stem, hit):
             item.notes.append(f"hyphen part {m.group('num')} -> {item.number}")
 
 
-def _number_from_comicinfo(item, name_number, ci_num):
+def _number_from_comicinfo(item: Item, name_number: str | None, ci_num: str) -> None:
     """Set the number of an item its file name left unnumbered from ComicInfo Number (ci_num, "" when absent).
 
     Note a file name's hyphen-part number (name_number: the number as the name writes it) that ComicInfo disagrees
@@ -278,7 +281,7 @@ def _number_from_comicinfo(item, name_number, ci_num):
         item.notes.append(f"hyphen part {item.number} disagrees with ComicInfo Number {ci_num}")
 
 
-def _kind(item, texts, non_chapter_names):
+def _kind(item: Item, texts: list[str], non_chapter_names: Iterable[str]) -> str:
     """Return an item's kind.
 
     A non-chapter when one of texts (its title, and an unmatched name's whole body) is a non-chapter name, else
@@ -292,7 +295,7 @@ def _kind(item, texts, non_chapter_names):
     return SIDE if item.label in SIDE_LABELS or SIDE_MARKER.match(item.title) else MAIN
 
 
-def side_label(item):
+def side_label(item: Item) -> str:
     """Return the side-story series an item belongs to: its own label, or the side tag's ("[Side Story] Chapter 1")."""
     if item.label in SIDE_LABELS:
         return item.label.replace("spin off", "spin-off")
@@ -300,13 +303,13 @@ def side_label(item):
     return m.group("side").lower() if m else ""
 
 
-def rating(title):
+def rating(title: str | None) -> str | None:
     """'uncensored' for [R19]/[R18]/[🔞], 'censored' for [R15]/[R12], None when untagged."""
     ages = [99 if m.group("adult") else int(m.group("age")) for m in RATING.finditer(title or "")]
     return None if not ages else ("uncensored" if max(ages) >= ADULT_AGE else "censored")
 
 
-def normalize_title(t):
+def normalize_title(t: str | None) -> str:
     """Lowercase words for comparison; bracketed markers ([END], [FIXED]) dropped, rating tags kept as tokens."""
     t = RATING.sub(lambda m: " rated_" + ("adult" if m.group("adult") else "r" + m.group("age")) + " ", t or "")
     t = BRACKETS.sub(" ", t).lower().replace("\u2019", "'")  # right single quotation mark
@@ -316,13 +319,14 @@ def normalize_title(t):
 DATE_PARTS = (("Year", 1, 9999), ("Month", 1, 12), ("Day", 1, 31))
 
 
-def ci_date_parts(ci):
+def ci_date_parts(ci: Mapping[str, str | int] | None) -> tuple[dict[str, int | None], list[tuple[str, str]]]:
     """Read ComicInfo Year / Month / Day each on its own.
 
     Returns ({part: int or None}, [(part, value)] of the values present but unusable). A part is an ASCII integer in
     range (DATE_PARTS); Month may be a name ("Mar", "March"); never clamped.
     """
-    parts, bad = {}, []
+    parts: dict[str, int | None] = {}
+    bad: list[tuple[str, str]] = []
     for name, lo, hi in DATE_PARTS:
         raw = str((ci or {}).get(name) or "").strip()
         v = None
@@ -338,7 +342,7 @@ def ci_date_parts(ci):
     return parts, bad
 
 
-def ci_date(ci):
+def ci_date(ci: Mapping[str, str | int] | None) -> str | None:
     """Return 'YYYY-MM-DD' from ComicInfo Year/Month/Day; None without a usable Year.
 
     The parts are ci_date_parts'; a missing or unusable Month / Day counts as 1.
@@ -352,7 +356,7 @@ def ci_date(ci):
 # --- identity and published file name
 
 
-def parse(stem, ci_number=""):
+def parse(stem: str, ci_number: str = "") -> Item:
     """Parse a chapter file's stem ("<scanlator>_<chapter name>", or the name alone).
 
     Its ComicInfo Number numbers it when the name has none.
@@ -360,7 +364,7 @@ def parse(stem, ci_number=""):
     return parse_name(stem, {"Number": ci_number} if ci_number else None)
 
 
-def key(text):
+def key(text: str | None) -> str:
     """Return text's letters and digits only, lower-cased (after NFKC).
 
     ":" in a chapter name is "_" in its file name, and both must give 1 key.
@@ -368,7 +372,7 @@ def key(text):
     return "".join(c for c in unicodedata.normalize("NFKC", text or "").casefold() if c.isalnum())
 
 
-def identity(item):
+def identity(item: Item) -> str:
     """Return a chapter's identity (SPEC "Bad downloads").
 
     JSON text of [scanlator key, season, side label, number, title key]; numbers as fmt_num gives them, so "01" and "1"
@@ -376,7 +380,10 @@ def identity(item):
     chapter fmt_num would make of it (26.1).
     """
     season = fmt_num(item.season) if item.season is not None else None
-    number = "{}.{}".format(*_number_parts(item.number)) if two_readings(item.number) else fmt_num(item.number)
+    if item.number is not None and two_readings(item.number):
+        number = "{}.{}".format(*_number_parts(item.number))
+    else:
+        number = fmt_num(item.number)
     return json.dumps([key(item.group), season, side_label(item), number, key(item.title)])
 
 
@@ -395,7 +402,7 @@ ILLEGAL = re.compile(r'[\\/:*?"<>|]')
 MAX_TITLE = 80
 
 
-def to_volume(v):
+def to_volume(v: object) -> int | float | None:
     """Return a volume text as a number: '2' -> 2, '0' -> 0, '2.5' -> 2.5.
 
     None, '', 'none', non-numeric ('Special') and negative values (Suwayomi/Kavita write -1 for "no volume") -> None.
@@ -409,7 +416,7 @@ def to_volume(v):
     return int(f) if f == int(f) else f
 
 
-def title_from_comicinfo(ci_title, num=None):
+def title_from_comicinfo(ci_title: str, num: str | float | None = None) -> str:
     """Return a ComicInfo Title without its leading label: 'Chapter 4 : Where Is She?' -> 'Where Is She?'.
 
     'Vol.1 Ch.1' -> ''. The leading label is dropped only when its number is the chapter's own (`num`): "Episode 7
@@ -423,7 +430,7 @@ def title_from_comicinfo(ci_title, num=None):
     return it.title
 
 
-def clean_marker_title(title):
+def clean_marker_title(title: str) -> str:
     """Strip a title's status markers, unwrap its decorative brackets and tidy its separators.
 
     Status markers: [END], (END), (S1 END), {S2-END}, [End of Main Story], (End of Season 1). Decorative brackets:
@@ -440,7 +447,7 @@ def clean_marker_title(title):
     return "" if BARE_LABEL.fullmatch(title) else title
 
 
-def chapter_title(item, ci_title):
+def chapter_title(item: Item, ci_title: str | None) -> str:
     """Return a chapter's title as the bulk converter gives it; "" for none.
 
     Its ComicInfo Title (which keeps characters the file name lost) without a leading label of its own number, else the
@@ -449,14 +456,14 @@ def chapter_title(item, ci_title):
     return clean_marker_title(title_from_comicinfo(ci_title or "", item.num) or item.title)
 
 
-def safe_title(title, limit=MAX_TITLE):
+def safe_title(title: str, limit: int = MAX_TITLE) -> str:
     """Filename-safe title: Windows-illegal characters replaced, trailing dots/spaces trimmed, length capped."""
     t = re.sub(r"\s*:\s+", " - ", re.sub(r"\s+", " ", title))  # "Side Story 1: Anxiety" reads as " - "
     t = ILLEGAL.sub("_", t).strip().rstrip(". ")
     return t if len(t) <= limit else t[: limit - 1].rstrip(" ._-") + "…"
 
 
-def folder_name(series_name):
+def folder_name(series_name: str) -> str:
     """Return a new series' folder name (SPEC "Series identification"); "" when nothing is left.
 
     Windows-illegal characters replaced, trailing dots and spaces trimmed.
@@ -464,7 +471,9 @@ def folder_name(series_name):
     return ILLEGAL.sub("_", series_name).strip().rstrip(". ")
 
 
-def file_name(number, title, volume=None):
+def file_name(
+    number: float | str | Decimal | None, title: str | None, volume: float | str | Decimal | None = None
+) -> str:
     """Return the name a published file gets (SPEC "Publishing"): "Vol.<volume> Ch.<number> - <title>.cbz".
 
     Without "Vol.<volume> " when the volume is None and without " - <title>" when the title is empty once made safe.
