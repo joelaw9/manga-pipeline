@@ -7,7 +7,7 @@ from contextlib import closing
 import pytest
 import yaml
 
-from manga_pipeline import cli, db, intake, workflow
+from manga_pipeline import cli, config, db, intake, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.metadata import audit, human, importer, sources
@@ -129,8 +129,8 @@ def test_import_again_drops_ids_the_newer_state_file_no_longer_holds(world, tmp_
 
 
 @budget(load="db")
-def test_audit_opens_no_database(world, monkeypatch, capsys):
-    cfg = {**world.cfg, "database": {**world.cfg["database"], "name": "mp_test_never_built_audit"}}
+def test_audit_opens_no_database(world: World, monkeypatch, capsys):
+    cfg: config.Config = {**world.cfg, "database": {**world.cfg["database"], "name": "mp_test_never_built_audit"}}
     monkeypatch.setattr(suwayomi_client, "from_config", lambda _c: world.suwayomi)
     monkeypatch.setattr(kavita_client, "from_config", lambda _c: world.kavita)
     monkeypatch.setattr(sources, "new_sources", lambda: world.sources)

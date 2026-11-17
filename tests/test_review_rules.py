@@ -15,7 +15,7 @@ import pytest
 from manga_pipeline import archive, config, db, discovery, errors, kavita_link, retention, workflow
 from manga_pipeline.junk import candidates, review_run
 
-from tests.builders import WinFileNotFoundError, add_chapter, add_series, adopted, one, site_cfg
+from tests.builders import WinFileNotFoundError, add_chapter, add_series, adopted, one, share_paths, site_cfg
 from tests.timing import budget
 from tests.world import World
 
@@ -114,7 +114,7 @@ def test_junk_review_records_an_unreachable_share_and_exits_quietly(tmp_path, mo
 
 @budget(load="pure")
 def test_a_path_with_a_parent_step_is_never_stored(tmp_path):
-    cfg = {"paths": {root: str(tmp_path / "share" / root) for root in config.SHARE_ROOTS}}
+    cfg = share_paths(config.cached(), tmp_path / "share")
     with pytest.raises(config.PathError, match=r"'\.\.'"):
         config.to_stored(cfg, tmp_path / "share" / "library" / ".." / "elsewhere")
 

@@ -9,7 +9,7 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import db, workflow
+from manga_pipeline import config, db, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import sources as metadata_sources
 from manga_pipeline.workflow import Done, Dropped, Failed, NeedsHuman, Waiting
@@ -97,8 +97,8 @@ def test_needs_human_series_holds_its_chapters(ctx):
 
 
 @budget(load="db")
-def test_out_of_scope_series_is_not_claimed(ctx):
-    cfg = {**ctx.cfg, "series": {"only": ["Other"]}}
+def test_out_of_scope_series_is_not_claimed(ctx: workflow.Context):
+    cfg: config.Config = {**ctx.cfg, "series": {"only": ["Other"]}}
     add_chapter(ctx.conn, add_series(ctx.conn, "S"), "c1", "junk")
     assert workflow.claim(workflow.context(cfg, ctx.conn, "process"), ("junk",)) is None
 
@@ -301,17 +301,17 @@ def test_release_own_claims_frees_only_this_parts_claims(ctx):
 
 
 @budget(load="db")
-def test_release_own_claims_frees_a_claim_on_a_series_now_out_of_scope(ctx):
+def test_release_own_claims_frees_a_claim_on_a_series_now_out_of_scope(ctx: workflow.Context):
     row = claimed(ctx)
-    cfg = {**ctx.cfg, "series": {"only": ["Other"]}}
+    cfg: config.Config = {**ctx.cfg, "series": {"only": ["Other"]}}
     workflow.release_own_claims(workflow.context(cfg, ctx.conn, "process"))
     assert chapter(ctx.conn, row["id"])["status"] == "ready", "SPEC 'Parts': a dead run's claim is freed in any scope"
 
 
 @budget(load="db")
-def test_claims_are_kept_when_locks_are_off(ctx):
+def test_claims_are_kept_when_locks_are_off(ctx: workflow.Context):
     row = claimed(ctx)
-    cfg = {**ctx.cfg, "lock": {**ctx.cfg["lock"], "enabled": False}}
+    cfg: config.Config = {**ctx.cfg, "lock": {**ctx.cfg["lock"], "enabled": False}}
     workflow.release_own_claims(workflow.context(cfg, ctx.conn, "process"))
     assert chapter(ctx.conn, row["id"])["status"] == "claimed", "with locks off another live run may hold it"
 
@@ -328,10 +328,10 @@ def test_end_waits_readies_a_chapter_whose_condition_holds(ctx):
 
 
 @budget(load="db")
-def test_end_waits_never_checks_a_wait_of_an_out_of_scope_series(ctx):
+def test_end_waits_never_checks_a_wait_of_an_out_of_scope_series(ctx: workflow.Context):
     row = claimed(ctx)
     workflow.work(ctx, row, returns(Waiting("junk_decision")))
-    cfg = {**ctx.cfg, "series": {"only": ["Other"]}}
+    cfg: config.Config = {**ctx.cfg, "series": {"only": ["Other"]}}
     asked = []
     workflow.end_waits(
         workflow.context(cfg, ctx.conn, "process"), "junk_decision", lambda _ctx, chapter: asked.append(chapter["id"])

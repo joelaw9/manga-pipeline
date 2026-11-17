@@ -152,8 +152,11 @@ def outcome_lines(text, outcome):
 
 # 2 process runs over 40 chapters: every statement is a round trip to the server (23 s on SQLite, 33-40 s here).
 @budget(load="subprocess", seconds=45)
-def test_2_unlocked_runs_of_a_part_never_work_a_chapter_twice(world, tmp_path):
-    cfg = {**world.cfg, "lock": {"enabled": False}}  # a shared setting: the fleet's version is set with it
+def test_2_unlocked_runs_of_a_part_never_work_a_chapter_twice(world: World, tmp_path):
+    cfg: config.Config = {
+        **world.cfg,
+        "lock": {"enabled": False},
+    }  # a shared setting: the fleet's version is set with it
     with closing(db.connect(cfg)) as conn, db.transaction(conn):
         fleet.store(conn, cfg)
     downloads(world, 4, 10)

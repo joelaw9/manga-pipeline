@@ -15,7 +15,7 @@ from manga_pipeline.convert import vship
 from manga_pipeline.preflight import HARD, SOFT, Check
 
 from tests import pg, real_load
-from tests.builders import problem_text, site_cfg
+from tests.builders import problem_text, share_paths, site_cfg
 from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
@@ -134,17 +134,18 @@ def test_free_space_measures_the_drive_of_a_log_folder_not_made_yet(tmp_path):
     assert not (tmp_path / "logs").exists(), "the check creates no folder"
 
 
-def site(tmp_path, database=pg.UNASSIGNED):
+def site(tmp_path, database=pg.UNASSIGNED) -> config.Config:
     """Return a config with the share folders under tmp_path/share and the database named database.
 
     Default database: one never built, for checks that open none.
     """
-    share = tmp_path / "share"
-    paths = {key: str(share / key) for key in config.SHARE_ROOTS} | {
+    cfg = share_paths(pg.cfg_for(database), tmp_path / "share")
+    paths: config.PathsConfig = {
+        **cfg["paths"],
         "scratch": str(tmp_path / "scratch"),
         "naming_overrides": str(tmp_path / "overrides"),
     }
-    return {**pg.cfg_for(database), "paths": paths}
+    return {**cfg, "paths": paths}
 
 
 def adopted(tmp_path, owner=None):

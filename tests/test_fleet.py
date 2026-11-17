@@ -25,7 +25,7 @@ from tests.world import cbz
 class Fleet:
     """Machines (name -> Context) sharing 1 database, each on its own connection holding its run lock."""
 
-    def __init__(self, cfg, stack):
+    def __init__(self, cfg: config.Config, stack):
         """Open the test's own connection on `stack`; no machine yet."""
         self.cfg, self.stack = cfg, stack
         self.conn = stack.enter_context(closing(db.connect(cfg)))  # the test's own view
@@ -209,8 +209,8 @@ def test_a_lost_claim_puts_no_download_aside_and_adds_no_calibration_sample(flee
 
 
 @budget(load="db", seconds=2)
-def test_a_lost_claim_neither_notes_a_kept_notice_nor_puts_a_dropped_one_aside(fleet):
-    cfg = {**fleet.cfg, "validate": {**fleet.cfg["validate"], "non_chapter_names": ["Author's Note"]}}
+def test_a_lost_claim_neither_notes_a_kept_notice_nor_puts_a_dropped_one_aside(fleet: Fleet):
+    cfg: config.Config = {**fleet.cfg, "validate": {**fleet.cfg["validate"], "non_chapter_names": ["Author's Note"]}}
     a, stale = lost(fleet, cfg)
     download = config.abs_path(cfg["paths"]["downloads"]) / "Chapter 131 - Author's Note [END].cbz"
     download.parent.mkdir(parents=True, exist_ok=True)
@@ -360,7 +360,7 @@ def test_a_second_process_on_1_host_exits_3_and_another_hosts_does_not_stop_it(t
 def test_a_command_with_locks_on_no_database_exits_4_and_creates_none(tmp_path, capsys, command):
     cfg = site_cfg(tmp_path, built=False)
     name = f"{cfg['database']['name']}_never"
-    cfg = {**cfg, "database": {**cfg["database"], "name": name}}
+    cfg: config.Config = {**cfg, "database": {**cfg["database"], "name": name}}
     assert cli.main(argv(cfg, tmp_path, *command)) == 4
     assert f"no database {name}" in capsys.readouterr().err
     assert not db.built(cfg), "nothing creates it"

@@ -3,6 +3,7 @@
 import os
 import time
 from contextlib import closing, contextmanager
+from typing import TypedDict, Unpack
 
 import yaml
 
@@ -43,7 +44,29 @@ def problem_text(problem):
     return problem
 
 
-def site_cfg(tmp_path, *, built=True, **changes):
+class ConfigChanges(TypedDict, total=False):
+    """Whole config sections a test replaces (site_cfg's changes): any of config.Config's."""
+
+    logging: config.LoggingConfig
+    lock: config.LockConfig
+    preflight: config.PreflightConfig
+    database: config.DatabaseConfig
+    paths: config.PathsConfig
+    workflow: config.WorkflowConfig
+    intake: config.IntakeConfig
+    series: config.SeriesConfig
+    suwayomi: config.SuwayomiConfig
+    kavita: config.KavitaConfig
+    metadata: config.MetadataConfig
+    export: config.ExportConfig
+    tools: config.ToolsConfig
+    convert: config.ConvertConfig
+    sources: config.SourcesConfig
+    validate: config.ValidateConfig
+    junk: config.JunkConfig
+
+
+def site_cfg(tmp_path, *, built=True, **changes: Unpack[ConfigChanges]) -> config.Config:
     """Return the test config with every path in tmp_path and this process's database for tmp_path.
 
     The database is built, or with no schema when not built (tests/pg.py); changes replace whole sections, and a
@@ -53,7 +76,7 @@ def site_cfg(tmp_path, *, built=True, **changes):
     for key in ("downloads/mangas", "library", "staging", "retention", "candidates", "covers"):
         (share / key).mkdir(parents=True, exist_ok=True)
     (tmp_path / "overrides").mkdir(exist_ok=True)
-    cfg = {
+    cfg: config.Config = {
         **config.cached(),
         "database": changes.get("database") or pg.cfg_for(pg.current().database(tmp_path.resolve(), built))["database"],
         "paths": {
@@ -69,6 +92,14 @@ def site_cfg(tmp_path, *, built=True, **changes):
         },
     }
     return {**cfg, **changes}
+
+
+def share_paths(cfg: config.Config, share) -> config.Config:
+    """Return cfg with every share root's folder under share (config.SHARE_ROOTS), the other paths kept."""
+    paths: config.PathsConfig = {**cfg["paths"]}
+    for root in config.SHARE_ROOTS:
+        paths[root] = str(share / root)
+    return {**cfg, "paths": paths}
 
 
 def config_file(tmp_path, cfg):
