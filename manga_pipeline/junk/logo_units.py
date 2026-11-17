@@ -78,7 +78,7 @@ def decide(found, survives, decide_unit):
     {"blank": the edit's blank entries, "undecided": [{"kind": "logo", "key", "keys", "page", "logo", "reasons"}]}, 1
     undecided unit per undecided variant (its first member's page and logo).
     """
-    live = [g for g in found if g["ring_frac"] >= marks.RING_FRAC and survives(g)]
+    live = [g for g in found if marks.blankable(g["ring_frac"]) and survives(g)]
     templates = [marks.Template.from_key(g["template"]) for g in live]
     blank, undecided = [], []
     for group in marks.cluster(templates):

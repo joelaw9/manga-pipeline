@@ -11,7 +11,6 @@ import urllib.parse
 import uuid
 
 SOURCES = ("anilist", "mangaupdates", "mangadex", "mangabaka", "myanimelist")
-ORIGINS = ("suwayomi", "kavita", "anilist", "mangabaka", "mangadex", "search", "import", "human")
 TRACKER_ANILIST = 2  # Suwayomi's tracker ids
 TRACKER_MANGAUPDATES = 7
 KAVITA_ID_FIELDS = {"aniListId": "anilist", "malId": "myanimelist", "mangaBakaId": "mangabaka"}

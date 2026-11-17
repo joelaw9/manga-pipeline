@@ -56,6 +56,24 @@ python -m basedpyright --warnings
 python -m basedpyright --warnings --pythonplatform Linux
 ```
 
+Import contracts (import-linter, `[tool.importlinter]` in `pyproject.toml`: each contract encodes a rule of this file or SPEC; all must be kept; a new contract or `ignore_imports` entry needs the user's approval first):
+
+```bash
+lint-imports --no-cache
+```
+
+Dead code (vulture over the program only, `[tool.vulture]`: program code must be used by the program; must report nothing; a new `ignore_names` entry needs the user's approval first):
+
+```bash
+python -m vulture manga_pipeline
+```
+
+Known vulnerabilities (pip-audit; CI's non-required `audit` job runs it on every PR and weekly; a `--ignore-vuln` needs the user's approval first):
+
+```bash
+python -m pip_audit --strict
+```
+
 Run:
 
 ```bash
@@ -76,7 +94,7 @@ python -m manga_pipeline.cli --help
 | `manga_pipeline/clients/http.py` | `Service(name, min_gap)`: 1 per client per run; `request` retries, throttles, raises `Unreachable` (and remembers it), `HttpError` or `HttpTimeoutError`; `redact_url`; no module state |
 | `manga_pipeline/clients/suwayomi.py` | `Suwayomi` GraphQL client (`from_config`): paged library, manga, chapters, queue, sources, `enqueue`, `delete_downloaded`, `start_downloader`, the 2 source calls (`SourceUnavailableError`); `GraphQLError`; download names `source_folder`, `manga_folder`, `chapter_file` |
 | `manga_pipeline/clients/kavita.py` | `Kavita` client (`from_config`): token and the 401 rule, `libraries`, `series_in_library`, `series`, `volumes`, `series_files`, `series_folder` (`FolderError`), `local_path`, `scan_library` |
-| `manga_pipeline/clients/kavita_match.py` | Kavita's name `normalize`, `series_names`, `off_names`, `match_folders` (copied from the bulk converter) |
+| `manga_pipeline/clients/kavita_match.py` | Kavita's name `normalize`, `series_names` (copied from the bulk converter) |
 | `manga_pipeline/rewrite.py` | retroactive rewrites (SPEC "Retroactive updates"): `compare` (export's start: naming hash, `export.rewrites_open`), the rewrite chapter's `comicinfo_run` and `publish_run` (queues on the `published_file` row), `finish_all` / `finish` (file acts recorded by `pending_step`: `record_step`), `restore_all` (progress once Kavita re-read the file), `drop`, `diff`; `metadata/rewrite_plan.py` is its pure part (`changes`, `differences`) |
 | `manga_pipeline/hand_edits.py` | `series edit FILE [--series-id ID]` (SPEC "Retroactive updates", hand edits): `apply` checks the edit file whole (series, chapter tokens `10` / `S2 10` / `side 3`, fields, file-name, volume-number and volume-order clashes) and stores `naming_edit` rows; the resolver applies them last (`naming.apply_edit`, `resolve(edits=…)`), `rewrite_plan.edit_changes` writes them into published files and restores a removed one (`published_file.unedited`) |
 | `manga_pipeline/rewrite_covers.py` | volume covers of published files (SPEC "Retroactive updates"): `fill_states` (each file's `cover_state`: a bulk file's from its record's `covers.volumes`, a pipeline file's from its member list), the rewrite chapter's `convert_run` (pages copied byte for byte, cover inserted or dropped; `process` dispatches to it), `shift_pages`; `metadata/rewrite_plan.cover_changes` is its pure part, `metadata/covers.fetch_wanted` its supply; `covers.refresh_volumes` (each check) refetches an image MangaDex now chooses another file for and marks its holders `stale:<V>` |
@@ -122,12 +140,12 @@ python -m manga_pipeline.cli --help
 - Tests stay offline and never read the live `config.yaml` (SPEC "Tests"). Test only situations that occur in real use.
 - Talk to Suwayomi and Kavita only through `clients/` (SPEC "Services"); a client never imports `workflow`, a stage or a part. Every path Kavita reports goes through `Kavita.local_path`; a series' folder is `Kavita.series_folder`, never Kavita's `folderPath`. A stage uses the run's clients, `ctx.suwayomi` and `ctx.kavita`, and never builds its own; `intake`'s metadata step uses `ctx.sources` (built by `workflow.context` through `sources.new_sources`). Tests use `tests/fakes/`.
 - Module docstrings or header comments name the SPEC section they implement. Comment only where the reason isn't obvious.
-- Run the linter, the formatter and the type checker before finishing a change; all must pass.
+- Run the linter, the formatter, the type checker, the import contracts (`lint-imports --no-cache`) and the dead-code check (`python -m vulture manga_pipeline`) before finishing a change; all must pass.
 
 ## Merging
 
-- `main` changes only through a pull request; its required `tests` check runs lint, format, types and the full test suite (`.github/workflows/tests.yml`; the rule is `.github/rulesets/main.json`, applied as README "Merging" says).
-- Local merge commits and squash commits run lint, the format check, the type check and the full test suite first: `.githooks/pre-merge-commit`, and `.githooks/pre-commit` for a commit that concludes a merge or a squash, both run `.githooks/full-suite`. A fast-forward runs no hook: merge with a plain `git merge BRANCH`, never `--ff` / `--ff-only` or `git pull` of another branch into it. Never skip the hooks with `--no-verify`; fix the failing test instead.
+- `main` changes only through a pull request; its required `tests` check runs lint, format, types, import contracts, dead code and the full test suite (`.github/workflows/tests.yml`, whose `audit` job, pip-audit, is not required; the rule is `.github/rulesets/main.json`, applied as README "Merging" says).
+- Local merge commits and squash commits run lint, the format check, the type check, the import contracts, the dead-code check and the full test suite first: `.githooks/pre-merge-commit`, and `.githooks/pre-commit` for a commit that concludes a merge or a squash, both run `.githooks/full-suite`. A fast-forward runs no hook: merge with a plain `git merge BRANCH`, never `--ff` / `--ff-only` or `git pull` of another branch into it. Never skip the hooks with `--no-verify`; fix the failing test instead.
 
 ## Known gotchas
 

@@ -140,7 +140,7 @@ def site(tmp_path, database=pg.UNASSIGNED):
     Default database: one never built, for checks that open none.
     """
     share = tmp_path / "share"
-    paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {
+    paths = {key: str(share / key) for key in config.SHARE_ROOTS} | {
         "scratch": str(tmp_path / "scratch"),
         "naming_overrides": str(tmp_path / "overrides"),
     }

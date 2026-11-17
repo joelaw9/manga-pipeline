@@ -25,8 +25,6 @@ log = logging.getLogger(__name__)
 HARD, SOFT = "hard", "soft"
 MIB = 1024 * 1024
 OWNER_FILE = ".pipeline-owner"
-# The share folders a run needs (SPEC "Preflight"): the share roots of SPEC "State".
-SHARE_FOLDERS = ("downloads", "library", "staging", "retention", "candidates", "covers")
 LONG_PATHS_KEY = r"SYSTEM\CurrentControlSet\Control\FileSystem"
 
 

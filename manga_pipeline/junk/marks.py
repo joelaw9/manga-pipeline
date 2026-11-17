@@ -1,6 +1,6 @@
 """Logo marks (SPEC "Junk decisions": units, keys): a badge's measure, template, variants and a variant's decision.
 
-A gray-mark page's badge measured inside its mark box (images.gray_mark_box), its template, the variant match, variants
+A gray-mark page's badge measured inside its mark box (images.classify), its template, the variant match, variants
 (cluster, representatives) and a variant's decision from its representatives' (resolve). Ported from the bulk
 converter's optimizer/marks.py with its constants; the blank itself is images.blank (convert applies it).
 
@@ -160,10 +160,10 @@ class Mark:
     ring_frac: float
     template: Template
 
-    @property
-    def blankable(self):
-        """Whether the mark may be blanked: its ring is plain (ring_frac >= RING_FRAC)."""
-        return self.ring_frac >= RING_FRAC
+
+def blankable(ring_frac):
+    """Return whether a mark with this ring share may be blanked: its ring is plain (ring_frac >= RING_FRAC)."""
+    return ring_frac >= RING_FRAC
 
 
 def _solid(counts):
@@ -176,7 +176,7 @@ def _solid(counts):
 
 
 def measure(rgb, bbox):
-    """Return the Mark inside Part B's gray-mark box (formats.gray_mark_box), or None for a faint mark.
+    """Return the Mark inside Part B's gray-mark box (images.classify), or None for a faint mark.
 
     None when no pixel in it is strongly coloured, or none is left inside the solid rows x solid columns (a faint mark:
     nothing to template or blank; it only goes gray). The rows and columns are trimmed separately, so scattered specks

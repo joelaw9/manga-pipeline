@@ -43,7 +43,7 @@ def mark_page(name, at=MARK_AT, size=(1200, 1723)):
 
 
 def mark_box(rgb):
-    return images.gray_mark_box(rgb, images.COLOUR_BLOCK, images.MARK_LIMITS)
+    return images.classify(rgb, images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)[1]
 
 
 def found_box(rgb):
@@ -160,7 +160,7 @@ def test_specks_with_no_solid_overlap_have_no_mark():
 def test_solid_badge_is_padded_by_three_quarters_of_its_height():
     """A 40 x 20 red badge at (80, 90): tight box is the badge, padded by round(0.75 * 20) = 15; white ring, plain."""
     m = measured(badge_page(80, 90, 120, 110), (60, 60, 140, 140))
-    assert (m.tight, m.box, m.fill, m.ring_frac, m.blankable) == (
+    assert (m.tight, m.box, m.fill, m.ring_frac, marks.blankable(m.ring_frac)) == (
         (80, 90, 120, 110),
         (65, 75, 135, 125),
         (255, 255, 255),
@@ -216,7 +216,7 @@ def test_plain_ring_is_blankable_and_filled_with_its_median(name):
     x0, y0, x1, y1 = m.box
     outside = np.ones(rgb.shape[:2], bool)
     outside[y0:y1, x0:x1] = False
-    assert m.blankable, "a plain white margin is blankable"
+    assert marks.blankable(m.ring_frac), "a plain white margin is blankable"
     assert m.fill[0] >= 240, "the fill is the white margin's median"
     assert (out[y0:y1, x0:x1] == m.fill).all(), "the whole box takes the fill"
     assert (out[outside] == rgb[outside]).all(), "nothing outside the box changes"
@@ -231,7 +231,7 @@ def test_plain_ring_is_blankable_and_filled_with_its_median(name):
 )
 def test_busy_ring_is_not_blankable(name):
     """Badges next to art or on screentone are never blanked."""
-    assert not mark_of(name)[1].blankable, f"{name}: the ring is not plain"
+    assert not marks.blankable(mark_of(name)[1].ring_frac), f"{name}: the ring is not plain"
 
 
 @budget(load="pure")
@@ -312,7 +312,7 @@ def test_ring_of_a_box_filling_the_page_is_empty():
 @pytest.mark.parametrize(("frac", "want"), [(0.95, True), (0.9499, False)], ids=["at-95pct", "below"])
 def test_a_mark_is_blankable_from_95_percent_plain_ring(frac, want):
     """A mark is blankable when ring_frac >= 0.95."""
-    assert marks.Mark((0, 0, 1, 1), (0, 0, 1, 1), (255, 255, 255), frac, solid((255, 0, 0))).blankable is want
+    assert marks.blankable(frac) is want
 
 
 # Variants

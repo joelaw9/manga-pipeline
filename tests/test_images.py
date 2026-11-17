@@ -1,7 +1,7 @@
 """Page images (images; contracts section 1).
 
 The formats present in the library (JPEG, PNG, lossy/lossless WebP, AVIF, GIF), header-only dimensions, open_image's
-decode rules, real alpha (open_flat, may_have_alpha), to_gray, save_png and the page classes (gray-mark included).
+decode rules, real alpha (open_flat), to_gray, save_png and the page classes (gray-mark included).
 Ported from the bulk converter's tests/test_formats.py and tests/test_alpha_pages.py.
 """
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image, ImageCms, ImageFile
+from PIL import Image, ImageCms
 
 from manga_pipeline import images
 
@@ -384,7 +384,7 @@ def test_cmyk_pixels_in_a_cmyk_profile_go_straight_to_srgb():
     assert im.tobytes() != raw.convert("RGB").tobytes(), "the CMYK profile is applied, not Pillow's naive conversion"
 
 
-# real alpha: open_flat, may_have_alpha (pages modelled on Caught by the Villain's edge-alpha slices, Protected by My
+# real alpha: open_flat (pages modelled on Caught by the Villain's edge-alpha slices, Protected by My
 # Dragon Knight's fully transparent page, The Villainess Turns the Hourglass's all-255 alpha)
 
 
@@ -408,13 +408,6 @@ def opaque_rgba():
     """RGBA PNG whose alpha is 255 everywhere."""
     a = np.dstack([np.asarray(fx.manga_page((W, H), seed=4, noise=3)), np.full((H, W), 255, np.uint8)])
     return fx.png(Image.fromarray(a, "RGBA"))
-
-
-def palette_with_trns():
-    p = fx.webtoon_page((W, H)).quantize(32)
-    buf = io.BytesIO()
-    p.save(buf, "PNG", transparency=0)
-    return buf.getvalue()
 
 
 @budget(load="fs")
@@ -443,31 +436,6 @@ def test_real_alpha_is_composited_onto_white(data):
     want = np.rint(a[..., :3] * a[..., 3:] / 255 + 255 * (1 - a[..., 3:] / 255))
     assert real, "a page with any alpha under 255 has real alpha"
     assert float(np.abs(np.asarray(im, np.float32) - want).max()) <= 1, "real alpha is composited onto white"
-
-
-@budget(load="fs")
-@pytest.mark.parametrize(
-    ("data", "want"),
-    [
-        (lambda: fx.jpeg(fx.webtoon_page((W, H))), False),
-        (lambda: fx.png(fx.webtoon_page((W, H))), False),
-        (lambda: fx.webp(fx.webtoon_page((W, H)), lossless=True), False),
-        (edge_slice, True),
-        (opaque_rgba, True),
-        (palette_with_trns, True),
-    ],
-    ids=["jpeg", "rgb-png", "rgb-webp", "rgba-webp", "rgba-png", "p-trns"],
-)
-def test_may_have_alpha_reads_only_the_header(tmp_path, monkeypatch, data, want):
-    p = tmp_path / "page"
-    p.write_bytes(data())
-
-    def no_decode(*_args, **_kw):
-        msg = "may_have_alpha decoded pixels"
-        raise AssertionError(msg)
-
-    monkeypatch.setattr(ImageFile.ImageFile, "load", no_decode)
-    assert images.may_have_alpha(p) is want, "an alpha band or a transparency entry in the header allows alpha"
 
 
 # to_gray, save_png
@@ -519,7 +487,7 @@ def test_one_small_badge_is_gray_mark():
 
 
 @budget(load="fs")
-def test_gray_mark_box_is_the_dilated_badge():
+def test_the_mark_box_is_the_dilated_badge():
     """The badge covers tiles x 112..144, y 206..211; 3 tiles of dilation give px (872, 1624)-(1184, 1720)."""
     assert images.classify(badge_page(BADGE), 22, 6, LIMITS) == (images.GRAY_MARK, (872, 1624, 1184, 1720)), (
         "the mark box is the dilated badge"
@@ -534,7 +502,7 @@ def test_two_badges_are_colour():
 @budget(load="fs")
 def test_large_colour_area_is_colour():
     rgb = badge_page((100, 300, 400, 140))
-    assert present(images.colour_mask(rgb, 22, 8)).mean() >= 0.026, "precondition: patch as large as a real colour page"
+    assert (np.ptp(rgb, axis=2) > 22).mean() >= 0.026, "precondition: patch as large as a real colour page"
     assert images.classify(rgb, 22, 6, LIMITS) == (images.COLOUR, None), "a large colour area is colour"
 
 
@@ -660,10 +628,9 @@ def test_tile_spread_at_the_threshold_is_not_colour():
     rgb = badge_page(BADGE)
     rgb[96:112, 96:112] = (100, 122, 100)
     box = (872, 1624, 1184, 1720)
-    assert (images.classify(rgb, 22, 6, LIMITS), images.gray_mark_box(rgb, 22, LIMITS)) == (
-        (images.GRAY_MARK, box),
-        box,
-    ), "a patch of spread exactly 22 beside the badge is no second mark (coloured tiles have spread > 22)"
+    assert images.classify(rgb, 22, 6, LIMITS) == (images.GRAY_MARK, box), (
+        "a patch of spread exactly 22 beside the badge is no second mark (coloured tiles have spread > 22)"
+    )
 
 
 @budget(load="fs")

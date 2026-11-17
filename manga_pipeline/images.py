@@ -202,10 +202,6 @@ def _to_srgb(im, profile):
     return out
 
 
-ALPHA_WHITE = 1  # version of open_flat's compositing: page scans record it per page, the strip slots and the digest
-# of a rendered chapter carry it only where a page has real alpha (SPEC cache keys)
-
-
 def open_flat(src):
     """Decode a page as open_image does, with real alpha (any pixel under 255) composited onto white.
 
@@ -220,15 +216,6 @@ def flatten(im, alpha):
     if alpha:
         im = Image.alpha_composite(Image.new("RGBA", im.size, (255, 255, 255, 255)), im.convert("RGBA")).convert("RGB")
     return im, alpha
-
-
-def may_have_alpha(path):
-    """Return whether a page's header allows transparency (an alpha band, or a transparency entry: PNG / GIF tRNS).
-
-    A page for which this is False has no real alpha, known without a decode.
-    """
-    with Image.open(path) as im:
-        return "A" in im.getbands() or "transparency" in im.info
 
 
 def to_gray(im, alpha):
@@ -252,7 +239,7 @@ def save_png(im, path):
 
 GRAY, TINTED, COLOUR, GRAY_MARK = "gray", "tinted", "colour", "gray-mark"  # page classes (SPEC "Page classes")
 MARK_DILATION = 3  # tiles: coloured tiles this close (Manhattan) belong to one mark
-MARK_BLOCK = 8  # px: side of the colour tiles (classify, gray_mark_box)
+MARK_BLOCK = 8  # px: side of the colour tiles (classify, _mark_box)
 
 
 def _spread(rgb):
@@ -296,12 +283,6 @@ def _components(mask):
     return boxes
 
 
-def colour_mask(rgb, colour_block, block):
-    """Boolean grid of coloured tiles (tile spread above colour_block); None for a page smaller than a tile."""
-    tiles, _ = _tile_spread(_spread(rgb), block)
-    return None if tiles is None else tiles > colour_block
-
-
 def _mark_boxes(mask, block):
     """Return the [(x0, y0, x1, y1)] pixel box of each coloured component.
 
@@ -319,19 +300,16 @@ def _mark_boxes(mask, block):
     return [(c0 * block, r0 * block, c1 * block, r1 * block) for r0, c0, r1, c1 in _components(grown)]
 
 
-def gray_mark_box(rgb, colour_block, limits, block=MARK_BLOCK):
+def _mark_box(mask, shape, limits, block):
     """Return the pixel box (x0, y0, x1, y1) of the page's one compact colour mark (a scanlation badge).
 
-    None when the page is not gray-mark: exactly 1 component, under limits["mark_max_frac"] of the page's tiles, box
-    within mark_max_w x mark_max_h of the page and at least mark_min_area px2 (a lone faint speck is not a badge; it
-    keeps the page colour). The one mark finder: Part C (optimizer.marks.measure) measures the logo inside this box.
-    limits: the config's integrity section, the caller's own (never config.cached()).
+    mask: the page's coloured-tile grid (tile spread above colour_block; None for a page smaller than a tile);
+    shape: its (height, width). None when the page is not gray-mark: exactly 1 component, under
+    limits["mark_max_frac"] of the page's tiles, box within mark_max_w x mark_max_h of the page and at least
+    mark_min_area px2 (a lone faint speck is not a badge; it keeps the page colour). The one mark finder:
+    junk.marks.measure measures the logo inside this box. limits: the config's integrity section, the caller's own
+    (never config.cached()).
     """
-    return _mark_box(colour_mask(rgb, colour_block, block), np.asarray(rgb).shape[:2], limits, block)
-
-
-def _mark_box(mask, shape, limits, block):
-    """gray_mark_box from the page's coloured-tile mask (colour_mask) and its (height, width)."""
     cfg = limits
     if mask is None or not mask.any() or mask.mean() >= cfg["mark_max_frac"]:
         return None
@@ -351,12 +329,12 @@ def _mark_box(mask, shape, limits, block):
 def classify(rgb, colour_block, tint_p99, limits):
     """Return (page class, mark box) of a page.
 
-    gray-mark with its mark's box (gray_mark_box); colour: any other coloured patch (colour strength, the strongest tile
+    gray-mark with its mark's box (_mark_box); colour: any other coloured patch (colour strength, the strongest tile
     mean channel spread, above colour_block); tinted: no patch but a faint overall cast (sepia, yellowed scan, p99
     spread above tint_p99); gray: none of these. The box is None for every class but gray-mark. limits: the config's
     integrity section (mark size limits).
     """
-    spread = _spread(rgb)  # once: colour strength, gray_mark_box and the tint test share it
+    spread = _spread(rgb)  # once: colour strength, the mark box and the tint test share it
     tiles, whole = _tile_spread(spread, MARK_BLOCK)
     if (whole if tiles is None else float(tiles.max())) > colour_block:
         box = _mark_box(None if tiles is None else tiles > colour_block, spread.shape, limits, MARK_BLOCK)
