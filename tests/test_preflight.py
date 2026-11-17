@@ -15,7 +15,7 @@ from manga_pipeline.convert import vship
 from manga_pipeline.preflight import HARD, SOFT, Check
 
 from tests import pg, real_load
-from tests.builders import problem_text, site_cfg
+from tests.builders import SHARE_FOLDERS, problem_text, site_cfg
 from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
@@ -140,7 +140,7 @@ def site(tmp_path, database=pg.UNASSIGNED):
     Default database: one never built, for checks that open none.
     """
     share = tmp_path / "share"
-    paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {
+    paths = {key: str(share / key) for key in SHARE_FOLDERS} | {
         "scratch": str(tmp_path / "scratch"),
         "naming_overrides": str(tmp_path / "overrides"),
     }

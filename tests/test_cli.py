@@ -20,7 +20,7 @@ from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.metadata import sources
 
 from tests import pg
-from tests.builders import one, running
+from tests.builders import SHARE_FOLDERS, one, running
 from tests.fakes.kavita import FakeKavita
 from tests.fakes.sources import fake_sources
 from tests.fakes.suwayomi import FakeSuwayomi
@@ -103,7 +103,7 @@ def site(tmp_path):
     return [
         f"logging.dir={tmp_path / 'logs'}",
         f"database.name={pg.current().database(tmp_path.resolve(), built=True)}",
-        *(f"paths.{key}={tmp_path / 'share' / key}" for key in preflight.SHARE_FOLDERS),
+        *(f"paths.{key}={tmp_path / 'share' / key}" for key in SHARE_FOLDERS),
         f"paths.scratch={tmp_path / 'scratch'}",
         f"paths.naming_overrides={tmp_path / 'overrides'}",
     ]
