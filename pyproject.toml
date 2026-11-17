@@ -163,6 +163,22 @@ forbidden_modules = [
     "psycopg",
 ]
 
+# Dead code (python -m vulture manga_pipeline): program code must be used by the program, so tests are not scanned.
+# Every finding today is a 60% one; a higher threshold keeps only kinds ruff's F401 and ARG already check. Each
+# ignore_names entry is a use vulture cannot see, approved by the user; a new one needs the user's approval.
+[tool.vulture]
+paths = ["manga_pipeline"]
+min_confidence = 60
+ignore_names = [
+    "handle_starttag",  # HTMLParser calls them (metadata/merge.py, metadata/sources.py)
+    "handle_endtag",
+    "handle_data",
+    "create_system",  # zipfile.ZipInfo attributes ZipFile.writestr reads (archive.py)
+    "external_attr",
+    "MAX_IMAGE_PIXELS",  # Pillow's module setting (images.py)
+    "row_factory",  # sqlite3.Connection's attribute (junk/importing.py)
+]
+
 [tool.coverage.run]
 branch = true
 parallel = true
