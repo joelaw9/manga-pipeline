@@ -6,6 +6,7 @@ converter's optimizer/comicinfo.py; `from_kavita` comes with Phase 7c.
 
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable, Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
@@ -18,7 +19,7 @@ INT = re.compile(r"^-?\d+$")
 
 
 @lru_cache(maxsize=1)
-def schema():
+def schema() -> tuple[list[tuple[str, str | None]], dict[str | None, set[str | None]], dict[str | None, str | None]]:
     """Element order + types, simple-type enumerations and Page attributes, read from the XSD."""
     root = ET.parse(XSD).getroot()
     types = {t.get("name"): t for t in root}
@@ -27,7 +28,7 @@ def schema():
         msg = f"{XSD}: the ComicInfo type has no sequence"
         raise ValueError(msg)
     elements = [(e.attrib["name"], e.get("type")) for e in seq.findall(f"{XS}element")]
-    enums = {}
+    enums: dict[str | None, set[str | None]] = {}
     for name, t in types.items():
         if t.tag == f"{XS}simpleType":
             vals = [e.get("value") for e in t.iter(f"{XS}enumeration")]
@@ -37,15 +38,15 @@ def schema():
     return elements, enums, page_attrs
 
 
-def _is_int(value):
+def _is_int(value: str) -> bool:
     return bool(INT.match(value))
 
 
-def _is_boolean(value):
+def _is_boolean(value: str) -> bool:
     return value in ("true", "false", "1", "0")
 
 
-def _is_rating(value):
+def _is_rating(value: str) -> bool:
     try:
         return Decimal(0) <= Decimal(value) <= Decimal(5)
     except InvalidOperation:
@@ -56,7 +57,7 @@ VALUE_CHECKS = {"xs:int": _is_int, "xs:long": _is_int, "xs:boolean": _is_boolean
 LIST_TYPES = {"ComicPageType"}  # a space-separated list of its enumeration's values
 
 
-def _type_ok(value, xsd_type, enums):
+def _type_ok(value: str, xsd_type: str | None, enums: dict[str | None, set[str | None]]) -> bool:
     """Return whether value is valid for a schema type.
 
     Checked as a type with a value check, then a list of an enumeration, then an enumeration; any other type is text
@@ -71,14 +72,14 @@ def _type_ok(value, xsd_type, enums):
     return True  # xs:string
 
 
-def field_ok(name, value):
+def field_ok(name: str, value: str) -> bool:
     """Whether `name` is a ComicInfo element other than Pages and `value` is valid for its schema type."""
     elements, enums, _ = schema()
     kinds = dict(elements)
     return name in kinds and name != "Pages" and _type_ok(value, kinds[name], enums)
 
 
-def validate(xml_bytes):
+def validate(xml_bytes: bytes) -> list[str]:
     """Return a list of schema violations (empty = valid)."""
     try:
         root = ET.fromstring(xml_bytes)
@@ -89,7 +90,9 @@ def validate(xml_bytes):
     elements, enums, page_attrs = schema()
     order = {name: i for i, (name, _) in enumerate(elements)}
     kinds = dict(elements)
-    errors, last, seen = [], -1, set()
+    errors: list[str] = []
+    last = -1
+    seen: set[str] = set()
     for child in root:
         tag = child.tag
         if tag not in order:
@@ -110,12 +113,14 @@ def validate(xml_bytes):
     return errors
 
 
-def _page_errors(pages, page_attrs, enums):
+def _page_errors(
+    pages: ET.Element, page_attrs: dict[str | None, str | None], enums: dict[str | None, set[str | None]]
+) -> list[str]:
     """Return the schema violations of the Pages element.
 
     An element other than Page, a Page without Image, an unknown Page attribute or one whose value its type refuses.
     """
-    errors = []
+    errors: list[str] = []
     for page in pages:
         if page.tag != "Page":
             errors.append(f"unknown element Pages/{page.tag}")
@@ -130,13 +135,15 @@ def _page_errors(pages, page_attrs, enums):
     return errors
 
 
-def read_fields(xml_bytes, names=("Series", "Title", "Number", "Volume", "Count")):
+def read_fields(
+    xml_bytes: bytes, names: Iterable[str] = ("Series", "Title", "Number", "Volume", "Count")
+) -> dict[str, str]:
     """Return {name: text} of the named top-level elements, stripped; '' for one that is absent or empty."""
     root = ET.fromstring(xml_bytes)
     return {n: (root.findtext(n) or "").strip() for n in names}
 
 
-def read_all(xml_bytes):
+def read_all(xml_bytes: bytes) -> dict[str, str]:
     """Return {element: text} of every non-empty top-level element but Pages, as written (unknown elements included).
 
     ET.ParseError for XML that does not parse.
@@ -147,7 +154,7 @@ def read_all(xml_bytes):
     }
 
 
-def read_pages(xml_bytes):
+def read_pages(xml_bytes: bytes) -> list[dict[str, str]]:
     """Return the Page entries of the Pages element, as build takes them.
 
     [{attribute: value}] in order; [] when there is none. ET.ParseError for XML that does not parse.
@@ -156,7 +163,7 @@ def read_pages(xml_bytes):
     return [] if pages is None else [dict(page.attrib) for page in pages.findall("Page")]
 
 
-def build(fields, pages=None):
+def build(fields: Mapping[str, str | int | None], pages: Sequence[Mapping[str, str | int]] | None = None) -> bytes:
     """Build ComicInfo.xml bytes with elements in schema order.
 
     `fields` maps element -> value (str/int); empty values are skipped; `pages` is [{"Image": 0, "Type": "FrontCover",
@@ -191,7 +198,7 @@ def build(fields, pages=None):
     return xml
 
 
-def download_number(path):
+def download_number(path: Path) -> str:
     """Return a download's ComicInfo Number: '' without one, or for an archive that cannot be read."""
     try:
         xml = archive.read_comicinfo(path)
@@ -200,7 +207,7 @@ def download_number(path):
     return read_fields(xml, ("Number",))["Number"] if xml else ""
 
 
-def read_download(path):
+def read_download(path: Path) -> tuple[dict[str, str], names.Item]:
     """Return (fields, item) of a download as the comicinfo stage reads it.
 
     The ComicInfo.xml fields valid for the schema ({} without one), and its name's parse, numbered by that Number when
