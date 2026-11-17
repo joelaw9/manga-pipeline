@@ -11,9 +11,6 @@ from manga_pipeline.db import sql
 
 from tests import pg
 
-# The share folders a run needs (SPEC "Preflight"): the share roots of SPEC "State".
-SHARE_FOLDERS = ("downloads", "library", "staging", "retention", "candidates", "covers")
-
 
 class WinOSError(OSError):
     """An OSError carrying winerror on every platform, as Windows reports one (a dropped share's code)."""
