@@ -38,7 +38,7 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "COM", "CPY", "ANN",          # not used (ANN: to revisit once basedpyright is in)
+    "COM", "CPY",                 # not used
     "ISC001", "W191", "E111", "E114", "E117", "D206", "D300", "Q000", "Q001", "Q002", "Q003",  # the formatter's job
     "D203", "D213",               # incompatible with D211 / D212, which are kept (ruff must drop 1 of each pair)
     "BLE001",                     # every catch-all is deliberate: a stage, row or check boundary, or Pillow's many errors
@@ -47,10 +47,12 @@ ignore = [
     "S314",                       # xml.etree on expat >= 2.4.1 resists entity expansion and resolves no external entity
     "TRY004",                     # every isinstance check validates a parsed YAML file: a value error, not a type error
     "S105",                       # every hit is a false positive (a meta key name; a fake test token)
+    # ANN phase: pending (ann-phase.md; this block shrinks to nothing)
+    "ANN",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "PLR2004", "S311"]                  # pytest asserts; literal expectations and test data; seeded data
+"tests/**" = ["S101", "PLR2004", "S311", "ANN"]           # pytest asserts; literal expectations and test data; seeded data; tests are not annotated
 "tests/test_*.py" = ["D103"]                              # a test's name is its statement
 "tests/fakes/**" = ["D1"]                                 # a fake imitates a documented real class
 "manga_pipeline/{cli,smoke,status}.py" = ["T201"]         # printing is these modules' job: a command's own output
