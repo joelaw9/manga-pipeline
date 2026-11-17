@@ -223,39 +223,6 @@ def test_a_decimal_with_a_hyphen_part_has_no_number():
     assert it.number is None, "a decimal with a hyphen part has no single reading"
 
 
-@budget(load="pure")
-@pytest.mark.parametrize(
-    ("stem", "prefix"),
-    [
-        ("Easy Going Scans_Vol.1 Ch.3.1", "Easy Going Scans_Vol.1 Ch."),
-        ("Easy Going Scans_Vol.3 Ch.3.1", "Easy Going Scans_Vol.3 Ch."),
-        ("Chapter 10-1", "Chapter "),
-        ("Chapter 100-1", "Chapter "),
-        ("Ch.045-1", "Ch."),
-        ("Level 3 Hero_Ch.3.1", "Level 3 Hero_Ch."),
-        ("S1 - Chapter 3.1", "S1 - Chapter "),
-        ("  Chapter 3.1 ", "  Chapter "),
-        ("64.1. Title 64.1", ""),
-        ("The Beginning (1)", None),
-    ],
-    ids=[
-        "vol-ch-dot",
-        "vol-equals-chapter",
-        "two-digits",
-        "three-digits",
-        "ch-dot-padded",
-        "number-in-group",
-        "season-tag",
-        "spaces",
-        "num-dot-title",
-        "no-number",
-    ],
-)
-def test_number_start_is_where_the_parsed_number_starts(stem, prefix):
-    start = names.number_start(stem)
-    assert (stem[:start] if start is not None else None) == prefix, "the index where parse_name read the number"
-
-
 # helper rules
 
 
@@ -335,23 +302,6 @@ def test_rating_tags(title, want):
 )
 def test_normalize_title(title, want):
     assert names.normalize_title(title) == want, "lowercase words; bracketed markers dropped, rating tags kept"
-
-
-@budget(load="pure")
-@pytest.mark.parametrize(
-    ("a", "b", "want"),
-    [
-        ("", "", True),
-        ("", "Reunion", False),
-        ("Reunion [END]", "Reunion", True),
-        ("SP2 [R15]", "SP2 [R19]", False),
-        ("the duke returns home", "the duke returns again", True),
-        ("a perfect couple", "a perfect pair", False),
-    ],
-    ids=["both-untitled", "one-untitled", "end-marker-ignored", "rating-tags-differ", "overlap-60pct", "overlap-50pct"],
-)
-def test_similar_titles(a, b, want):
-    assert names.similar_titles(a, b) is want, "both untitled, equal, or token overlap >= 60%; rating tags count"
 
 
 @budget(load="pure")

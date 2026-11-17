@@ -77,7 +77,6 @@ MONTHS = {
     m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)
 }
 ADULT_AGE = 18  # a rating tag from this age up is uncensored
-SAME_TITLE_SHARE = 0.6  # shared words over all words from which 2 titles are the same
 
 
 @dataclass
@@ -190,20 +189,6 @@ def _match(body):
 def _numbered(body):
     hit = _match(body)
     return bool(hit) and hit[2] != "volume" and (hit[3].group("num") is not None)
-
-
-def number_start(stem):
-    """Return the index in `stem` where parse_name's chapter number starts ("Vol.1 Ch.3.1" -> the 3 after "Ch.").
-
-    None when the file name carries no number (ComicInfo numbers the item).
-    """
-    _, body = split_group(stem)
-    hit = _match(body)
-    if not hit or "num" not in hit[3].re.groupindex or hit[3].group("num") is None:
-        return None
-    stripped = body.strip()
-    rest = hit[3].string  # the suffix of `stripped` the shape regex matched
-    return len(stem) - len(body) + (len(body) - len(body.lstrip())) + len(stripped) - len(rest) + hit[3].start("num")
 
 
 def split_group(stem):
@@ -326,17 +311,6 @@ def normalize_title(t):
     t = RATING.sub(lambda m: " rated_" + ("adult" if m.group("adult") else "r" + m.group("age")) + " ", t or "")
     t = BRACKETS.sub(" ", t).lower().replace("\u2019", "'")  # right single quotation mark
     return re.sub(r"[^a-z0-9'_]+", " ", t).strip()
-
-
-def similar_titles(a, b):
-    """Both untitled, equal, or token overlap >= 60% (ignoring bracketed markers like [END], not rating tags)."""
-    na, nb = normalize_title(a), normalize_title(b)
-    if not na and not nb:
-        return True
-    if not na or not nb:
-        return False
-    ta, tb = set(na.split()), set(nb.split())
-    return na == nb or len(ta & tb) / len(ta | tb) >= SAME_TITLE_SHARE
 
 
 DATE_PARTS = (("Year", 1, 9999), ("Month", 1, 12), ("Day", 1, 31))
