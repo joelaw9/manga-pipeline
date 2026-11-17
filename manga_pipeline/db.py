@@ -61,7 +61,8 @@ class MissingRowError(LookupError):
     """A query returned no row where the caller's own data guarantees one (a row named by a stored id, an aggregate)."""
 
 
-class Row(tuple):
+# Any: a column's value is whatever type its column holds, which only the query knows (as __getitem__'s).
+class Row(tuple[Any, ...]):  # pyright: ignore[reportExplicitAny]
     """A row that reads as sqlite3.Row does.
 
     By position (negative and sliced too), by column name (case-insensitive, the first column of a repeated name), as a
@@ -83,10 +84,10 @@ class Row(tuple):
             folded = key.casefold()
             for i, name in enumerate(self._keys):
                 if name.casefold() == folded:
-                    return tuple.__getitem__(self, i)
+                    return super().__getitem__(i)
             msg = f"no column named {key!r}"
             raise IndexError(msg)
-        return tuple.__getitem__(self, key)
+        return super().__getitem__(key)
 
     def keys(self) -> list[str]:
         """Return the column names, in order."""
@@ -94,7 +95,7 @@ class Row(tuple):
 
     def __eq__(self, other: object) -> bool:
         """Return whether other is a Row of the same columns and values."""
-        return isinstance(other, Row) and self._keys == other._keys and tuple.__eq__(self, other)
+        return isinstance(other, Row) and self._keys == other._keys and super().__eq__(other)
 
     def __ne__(self, other: object) -> bool:
         """Return whether other is not a Row of the same columns and values."""
