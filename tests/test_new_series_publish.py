@@ -1,6 +1,7 @@
 """New-series publishing (SPEC "Publishing", "Metadata checks"): an admitted new series lands whole in its own folder
 under the run's 1 library scan, never while a scan is awaited; once Kavita lists it, its id is found by its name and
-folder, once per run, and it is an ordinary series."""
+folder, once per run, and it is an ordinary series.
+"""
 
 from types import SimpleNamespace
 

@@ -108,7 +108,8 @@ def package_name(spec):
 
 def _tools(cfg):
     """{tool: its version}: the first line each executable prints (jpegtran's build date left out) and the scorer
-    library's major.minor.patch and backend."""
+    library's major.minor.patch and backend.
+    """
     out = {}
     for name, flag in (
         ("avifenc", "--version"),

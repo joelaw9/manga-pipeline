@@ -45,7 +45,8 @@ def frame_of_small(small, aspect):
 
 def frame(im, size=None):
     """Frame of a PIL page. A JPEG not yet decoded is draft-decoded first, as the stored frames were (it changes the
-    pixels). `size` = (width, height) of the original page when `im` is already a draft decode; defaults to im.size."""
+    pixels). `size` = (width, height) of the original page when `im` is already a draft decode; defaults to im.size.
+    """
     w, h = size or im.size
     im.draft("RGB", (W * 4, H * 4))  # JPEG only, no-op once decoded
     return frame_of_small(np.asarray(im.convert("RGB").resize((W, H), Image.Resampling.BOX)), h / w)

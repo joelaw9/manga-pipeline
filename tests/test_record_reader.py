@@ -1,6 +1,7 @@
 """The bulk converter's series record, read only (convert.record_reader; SPEC "State", baseline): load from a series
 folder, parse (the stage rule) and check (the structural rules). Ported from the bulk converter's tests/test_record.py
-(its read path)."""
+(its read path).
+"""
 
 import copy
 import json

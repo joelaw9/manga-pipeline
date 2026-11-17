@@ -42,7 +42,8 @@ LOSSLESS_GRAY = (images.GRAY, images.GRAY_MARK)  # the lossless path drops their
 
 def pool(workers):
     """The page workers of 1 chapter: fresh processes (spawn: never a fork of a process holding the GPU context and
-    scorer threads)."""
+    scorer threads).
+    """
     return ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn"))
 
 
@@ -55,7 +56,8 @@ def encode_page(job):
     """Worker half of 1 AVIF page attempt (job: (task, q)): decode the page, write its score reference, encode at q at
     the planned chroma, decode the AVIF with avifdec. The reference is our decode (images.open_image), as a gray
     version for a 4:0:0 encode. jpeg_feed: avifenc reads the JPEG page itself, else the reference PNG. Returns {"ref",
-    "dec" (paths in task["tmp"]), "bytes_out", "sec"}."""
+    "dec" (paths in task["tmp"]), "bytes_out", "sec"}.
+    """
     task, q = job
     src, out, tmp = Path(task["src"]), Path(task["out"]), Path(task["tmp"])
     t0 = time.perf_counter()
@@ -123,7 +125,8 @@ def _page_record(task, tried, score, bytes_out, sec):
 
 class Encoder:
     """The page encodes of a run: its page workers (pool), the GPU scorer and the image tools' paths, which every encode
-    needs. A task names no tools: the Encoder gives each its own."""
+    needs. A task names no tools: the Encoder gives each its own.
+    """
 
     def __init__(self, pool, scorer, tool_paths):
         self.pool, self.scorer, self.tool_paths = pool, scorer, tool_paths
@@ -140,7 +143,8 @@ class Encoder:
         An exception cancels the rest, waits for the running work and is raised.
         task: {"src", "out", "tmp", "fmt", "cls", "yuv", "jpeg_feed", "q", "retry_q"}.
         Returns (the finished pages' records in task order, the failing page's record or None): {"name", "fmt",
-        "class", "yuv", "jpeg_feed", "bytes_in", "q", "score", "bytes_out", "ok", "retried", "sec"}."""
+        "class", "yuv", "jpeg_feed", "bytes_in", "q", "score", "bytes_out", "ok", "retried", "sec"}.
+        """
         jobs, recs, failed = {}, {}, None
         qs = [[] for _ in tasks]
         secs = [0.0] * len(tasks)
@@ -184,7 +188,8 @@ class Encoder:
 
     def cover(self, data, page_width, work_dir):
         """A volume cover's AVIF (covers) at page_width, through the AVIF gate at q80 (q90 retry), at its own class and
-        chroma. Returns {"path" (in work_dir; None when it failed), "score", "bytes", "ok", "class", "yuv"}."""
+        chroma. Returns {"path" (in work_dir; None when it failed), "score", "bytes", "ok", "class", "yuv"}.
+        """
         work_dir = Path(work_dir)
         work_dir.mkdir(parents=True)
         cls, yuv = covers.cover_class(data)
@@ -214,13 +219,15 @@ class Encoder:
 
     def lossless_pages(self, tasks):
         """Each page through lossless_page in the workers (task: lossless_page's, without "tools"); an exception cancels
-        the rest, waits for what runs and is raised."""
+        the rest, waits for what runs and is raised.
+        """
         return _run_all(self.pool, lossless_page, [t | {"tools": self.tool_paths} for t in tasks])
 
 
 def grays_losslessly(cls, entry):
     """Does the lossless path store this page gray? A gray or gray-mark PNG, or such a JPEG jpegtran can gray
-    (jpeg_gray); a CMYK, YCCK or RGB-coded JPEG stays exact, a lossless WebP passes through."""
+    (jpeg_gray); a CMYK, YCCK or RGB-coded JPEG stays exact, a lossless WebP passes through.
+    """
     fmt = entry["format"]
     return cls in LOSSLESS_GRAY and (fmt == images.PNG or (fmt == images.JPEG and entry["jpeg_gray"]))
 
@@ -229,7 +236,8 @@ def lossless_page(task):
     """jpegtran / oxipng; gray and gray-mark JPEG / PNG pages lose their colour channels (a JPEG only when jpeg_gray), a
     lossless WebP passes through. Verifies pixels; an output not smaller than its source keeps the source bytes.
     task: {"src", "out", "tmp", "fmt", "cls", "jpeg_gray", "tools"}. Returns the record, "grayed" telling whether the
-    page lost colour."""
+    page lost colour.
+    """
     src, out, tmp = Path(task["src"]), Path(task["out"]), Path(task["tmp"])
     im, alpha = images.open_image(src)
     with Image.open(src) as raw:
@@ -311,7 +319,8 @@ def blank_pages(chapter_plan, x_dir, out_dir):
 
 def sources(chapter_plan, x_dir, blanked, out_dir):
     """The folder a render reads the pages from: x_dir, or (with blanks) out_dir holding every kept page under its own
-    name, a blanked one as its blanked PNG (pages are decoded by content, not by extension)."""
+    name, a blanked one as its blanked PNG (pages are decoded by content, not by extension).
+    """
     if not blanked:
         return Path(x_dir)
     Path(out_dir).mkdir(parents=True)
@@ -329,7 +338,8 @@ def render(chapter_plan, x_dir, out_dir):
 @dataclass(frozen=True)
 class PageFiles:
     """A chapter's page sources: its extracted download, the plan's rendered PNGs (in order, made from the blanked
-    sources; [] when it renders nothing) and its blanked PNGs (blank_pages: {page name: blanked PNG})."""
+    sources; [] when it renders nothing) and its blanked PNGs (blank_pages: {page name: blanked PNG}).
+    """
 
     extracted: Path
     rendered: list[Path]
@@ -452,7 +462,8 @@ def output_gray(chapter_plan, outcome):
     """True when every page the outcome stores is gray, from the plan's page classes (no decode): ComicInfo
     BlackAndWhite. An AVIF page of a gray / tinted / gray-mark class is 4:0:0; the lossless path grays gray and
     gray-mark JPEG / PNG pages; untouched pages are stored as they are (only a gray page is gray). An inserted volume
-    cover is not counted, nor the page it replaces (BlackAndWhite describes the chapter's own pages)."""
+    cover is not counted, nor the page it replaces (BlackAndWhite describes the chapter's own pages).
+    """
     kind = outcome["outcome"]
 
     def replaced(name):
@@ -477,7 +488,8 @@ def process_chapter(pages: PageFiles, cover, out_dir, *, work_dir, encoder, chap
     "reshape"?, "blanked" (the pages blanked: an AVIF outcome's only), "cover" (the inserted cover {"name", "format",
     "score", "bytes"} or None), "quality", "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else
     None), "gray", "output": [{"name", "sha1"}], "scores": {output name: score}, "lossless": {output name: {"source",
-    "mode"}}}."""
+    "mode"}}}.
+    """
     out_dir, tmp = Path(out_dir), Path(work_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     tmp.mkdir(parents=True, exist_ok=True)

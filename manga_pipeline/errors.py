@@ -13,7 +13,8 @@ SHARE_WINERRORS = {53, 59, 64, 67, 121, 1231}
 
 class Unreachable(Exception):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """A service the work needs cannot be reached. From a stage: the chapter stays ready at no attempt, and the part
-    claims no chapter at that stage for the rest of the run; raised outside a stage, it ends the run."""
+    claims no chapter at that stage for the rest of the run; raised outside a stage, it ends the run.
+    """
 
     def __init__(self, service, reason=""):
         super().__init__(f"{service}: {reason}" if reason else service)
@@ -28,7 +29,8 @@ def dropped_share(error):
 
 def exists(path):
     """Whether a file exists on the share. Path.exists answers False for an SMB share that dropped (WinError 53, 67
-    come back as ENOENT); this raises it, so share_errors makes it Unreachable("share")."""
+    come back as ENOENT); this raises it, so share_errors makes it Unreachable("share").
+    """
     try:
         Path(path).stat()
     except FileNotFoundError as e:

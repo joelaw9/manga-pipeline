@@ -41,12 +41,14 @@ class SchemaError(RuntimeError):
 
 class CannotConnectError(RuntimeError):
     """The server cannot be reached, or refuses the login or the creation of the database (exit 4). The message never
-    holds the password."""
+    holds the password.
+    """
 
 
 class NoDatabaseError(RuntimeError):
     """The configured database does not exist on the server (or, for a caller that does not build it, holds no schema
-    record)."""
+    record).
+    """
 
 
 class MissingRowError(LookupError):
@@ -56,7 +58,8 @@ class MissingRowError(LookupError):
 class Row(tuple):
     """A row that reads as sqlite3.Row does: by position (negative and sliced too), by column name (case-insensitive,
     the first column of a repeated name), as a sequence of values, with keys(); equal to a row of the same columns
-    and values. Each column list has its own subclass (_row_class), whose _keys names the columns."""
+    and values. Each column list has its own subclass (_row_class), whose _keys names the columns.
+    """
 
     __slots__ = ()
     _keys: tuple[str, ...] = ()
@@ -124,7 +127,8 @@ def _login(cfg):
 
 def open_connection(cfg, dbname=None):
     """A connection whose host, port, database, user and password are the database settings; no password file is read
-    (a PG* variable can set only what these do not, SPEC "Config")."""
+    (a PG* variable can set only what these do not, SPEC "Config").
+    """
     login = _login(cfg)
     dbname = dbname or login["name"]
     try:
@@ -162,7 +166,8 @@ def _exists(cfg, dbname):
 def connect(cfg):
     """Open database.name, creating it if absent, and apply the schema steps it lacks. The connection is in
     autocommit mode (every write goes in an explicit transaction()) and returns Row rows. Raises SchemaError for a
-    database holding a step this program does not have."""
+    database holding a step this program does not have.
+    """
     conn = open_database(cfg, builds=True)
     try:
         apply_steps(conn)
@@ -174,7 +179,8 @@ def connect(cfg):
 
 def open_database(cfg, builds):
     """Open database.name and apply nothing (SPEC "State"). A caller that builds gets the database created when the
-    server has none; for any other caller, a database that is missing or holds no schema record is NoDatabaseError."""
+    server has none; for any other caller, a database that is missing or holds no schema record is NoDatabaseError.
+    """
     try:
         conn = open_connection(cfg)
     except NoDatabaseError:
@@ -196,7 +202,8 @@ def open_database(cfg, builds):
 def read_only(cfg):
     """Open the existing database for reading only: every transaction is read-only and repeatable-read, so 1
     transaction reads 1 snapshot. Raises NoDatabaseError when there is none, and SchemaError unless it holds exactly
-    this program's steps."""
+    this program's steps.
+    """
     conn = open_connection(cfg)
     try:
         conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
@@ -236,7 +243,8 @@ def built(cfg):
 
 def peek_id(cfg):
     """The id of the existing database, read without creating, applying or checking anything. Raises NoDatabaseError
-    when there is none, Error when the id cannot be read."""
+    when there is none, Error when the id cannot be read.
+    """
     with closing(open_connection(cfg)) as conn:
         return database_id(conn)
 
@@ -244,7 +252,8 @@ def peek_id(cfg):
 @contextmanager
 def transaction(conn):
     """1 write transaction: committed when the block ends, rolled back when it raises. It takes the database-wide
-    write lock first, so write transactions never overlap (SPEC "State")."""
+    write lock first, so write transactions never overlap (SPEC "State").
+    """
     if in_transaction(conn):
         msg = "a transaction is already open on this connection"
         raise RuntimeError(msg)
@@ -279,7 +288,8 @@ def database_id(conn):
 
 def _create(cfg):
     """Create database.name as UTF-8 with bytewise text order; another run creating it at the same time is fine.
-    CannotConnectError naming the database when the server refuses (a role that may not create one, for one)."""
+    CannotConnectError naming the database when the server refuses (a role that may not create one, for one).
+    """
     login = cfg["database"]
     name = login["name"]
     with closing(open_connection(cfg, MAINTENANCE_DATABASE)) as conn:
@@ -302,7 +312,8 @@ def _has_record(conn):
 
 def now(conn):
     """The server's clock as the program stores a time: ISO 8601 in UTC to the second ('2026-11-14T17:00:00+00:00'),
-    so times written from several machines compare (SPEC "State")."""
+    so times written from several machines compare (SPEC "State").
+    """
     return one_row(
         conn,
         """SELECT to_char(date_trunc('second', clock_timestamp()) AT TIME ZONE 'UTC',

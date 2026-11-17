@@ -1,5 +1,6 @@
 """workflow: claim by priority, outcomes, attempt limit, needs_human, share errors, guarded outcome writes, stale
-claims and run records (SPEC "Parts", "State", "Chapter stages")."""
+claims and run records (SPEC "Parts", "State", "Chapter stages").
+"""
 
 import errno
 from contextlib import closing
@@ -525,7 +526,8 @@ def test_charge_waits_skips_chapters_of_out_of_scope_and_needs_human_series(ctx)
 @pytest.mark.parametrize("old_scan", [False, True], ids=["current-scan", "scan-before-logos"])
 def test_a_scanned_junk_chapter_waits_while_another_of_its_series_is_unscanned(ctx, old_scan):
     """A scan without logos ("marks") is no current scan, so its chapter is claimed (to be scanned) before the
-    scanned one is decided."""
+    scanned one is decided.
+    """
     series = add_series(ctx.conn, "S")
     scanned = add_chapter(ctx.conn, series, "a", "junk", "2026-01-01T00:00:00+00:00", content_digest="d1")
     other = add_chapter(ctx.conn, series, "b", "junk", "2026-01-02T00:00:00+00:00", content_digest="d2")

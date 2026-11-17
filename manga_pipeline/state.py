@@ -1,5 +1,6 @@
 """The state commands (SPEC "State"): `state reset` clears the workflow state, `state adopt` makes this database the
-share's owner. Both run under every part's lock (cli command table)."""
+share's owner. Both run under every part's lock (cli command table).
+"""
 
 import logging
 import shutil
@@ -12,7 +13,8 @@ log = logging.getLogger(__name__)
 def reset(cfg, conn):
     """Empty the workflow tables and set every series ok, then empty the staging folder (keeping the owner file and
     the staged files of queued rewrites: SPEC "Retroactive updates"), the scratch folder and the junk candidates folder.
-    Downloads, the library, knowledge and sync records are never touched."""
+    Downloads, the library, knowledge and sync records are never touched.
+    """
     workflow.reset(conn)
     queued = {
         config.to_local(cfg, r[0])
@@ -36,7 +38,8 @@ def reset(cfg, conn):
 
 def adopt(cfg, conn):
     """Write this database's id to the owner file. The staging folder is never created (preflight requires it), so an
-    unmounted share is never written under its mount point."""
+    unmounted share is never written under its mount point.
+    """
     database_id = db.database_id(conn)
     path = preflight.owner_file(cfg)
     path.write_text(database_id, encoding="utf-8")
@@ -45,7 +48,8 @@ def adopt(cfg, conn):
 
 def version(cfg, conn):
     """Store this machine's digest as the fleet's version (SPEC "State"): run once per deploy or change of a shared
-    setting, while nothing else runs (the exclusive lock)."""
+    setting, while nothing else runs (the exclusive lock).
+    """
     with db.transaction(conn):
         fleet.store(conn, cfg)
     log.info("this machine's program, shared settings, packages and tools are now the fleet's version")

@@ -1,5 +1,6 @@
 """The person's commands: status, retry, state reset; and the share sentinel stopping a part before any work (SPEC
-"CLI", "Needs human", "State", "Preflight")."""
+"CLI", "Needs human", "State", "Preflight").
+"""
 
 import logging
 import shutil

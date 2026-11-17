@@ -1,6 +1,7 @@
 """Volume covers following MangaDex (SPEC "Retroactive updates"): each check of a series fetches again a stored volume
 image whose volume MangaDex now chooses another file for; a new image replaces the stored one, and the published files
-holding the old one take the new one (or drop it, outside its volume) through the cover rewrite."""
+holding the old one take the new one (or drop it, outside its volume) through the cover rewrite.
+"""
 
 from contextlib import closing
 
@@ -131,7 +132,8 @@ B = [{"volume": "2", "locale": "en", "fileName": "b.png"}]
 
 def check_keeps_a(world, monkeypatch, case):
     """With image a stored, MangaDex answers as case says and the check runs: it reads the list and refreshes, and
-    the stored image stays."""
+    the stored image stays.
+    """
     stored_a(world)
     before, lists, refreshed = stored(world), lists_read(world), []
     real = covers.refresh_volumes

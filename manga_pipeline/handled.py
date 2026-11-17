@@ -10,7 +10,8 @@ OUTCOMES = ("published", "rejected", "duplicate", "dropped")
 
 def put_aside(ctx: workflow.Context, chapter, digest):
     """When a handled chapter of the chapter's series has this content digest: move the download the retention way and
-    return why (the stage then drops the chapter); else None."""
+    return why (the stage then drops the chapter); else None.
+    """
     row = ctx.conn.execute(
         """SELECT identity, outcome FROM handled_chapter WHERE series_id = %s AND content_digest = %s
         ORDER BY id LIMIT 1""",
@@ -25,7 +26,8 @@ def put_aside(ctx: workflow.Context, chapter, digest):
 
 def record(conn, series_id, identity, outcome, digest):
     """Record a handled chapter (digest None for an archive that could not be read); inside the caller's
-    transaction."""
+    transaction.
+    """
     if outcome not in OUTCOMES:
         msg = f"handled chapter outcome must be one of {OUTCOMES}, got {outcome!r}"
         raise ValueError(msg)

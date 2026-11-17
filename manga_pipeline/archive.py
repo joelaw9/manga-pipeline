@@ -37,7 +37,8 @@ def is_cover_name(name):
 
 def natural_key(path):
     """Natural sort key over a full archive path (matches Kavita's page ordering).
-    The extension is compared last, so "1.jpg" < "1.5.jpg" < "2.jpg"."""
+    The extension is compared last, so "1.jpg" < "1.5.jpg" < "2.jpg".
+    """
     folder, _, name = path.rpartition("/")
     stem, dot, ext = name.rpartition(".")
     if not dot:
@@ -62,7 +63,8 @@ def _posix(name):
 def archive_pages(names):
     """An archive's page members (names as stored) in natural reading order: image extensions only; directories,
     junk (__MACOSX/, ._*, Thumbs.db) and ComicInfo.xml dropped. Every reader of an archive's pages uses this, so
-    page indexes agree everywhere."""
+    page indexes agree everywhere.
+    """
     pages = [
         n
         for n in names
@@ -73,7 +75,8 @@ def archive_pages(names):
 
 def comicinfo_member(names):
     """The archive's ComicInfo.xml member (exact basename, any case, not under junk like __MACOSX/), preferring one
-    at the root; None if absent."""
+    at the root; None if absent.
+    """
     hits = [n for n in names if PurePosixPath(_posix(n)).name.lower() == "comicinfo.xml" and not is_junk(n)]
     return next((n for n in hits if "/" not in _posix(n)), hits[0] if hits else None)
 
@@ -84,7 +87,8 @@ def sha1(data):
 
 def pages_digest(cbz):
     """The content digest (SPEC "Bad downloads"): sha256 of the ordered page sha1 list, "\\n"-joined. The bulk
-    converter's record.pages_digest exactly, so its records' `pages_digest` compare with it."""
+    converter's record.pages_digest exactly, so its records' `pages_digest` compare with it.
+    """
     with zipfile.ZipFile(cbz) as z:
         sha1s = [sha1(z.read(n)) for n in archive_pages(z.namelist())]
     return hashlib.sha256("\n".join(sha1s).encode()).hexdigest()
@@ -110,7 +114,8 @@ def read_comicinfo(cbz):
 def write(dest, members):
     """A store-mode CBZ of members ([(name, bytes)], stored in that order) at dest: fixed date, attributes and
     system, so the same members give byte-identical archives. Written as dest.part, renamed over dest, then tested;
-    a write that raises before the rename removes dest.part. Returns dest's size."""
+    a write that raises before the rename removes dest.part. Returns dest's size.
+    """
     dest = Path(dest)
     part = dest.with_name(dest.name + ".part")
     try:
@@ -139,7 +144,8 @@ def pages(cbz):
 def replace_member(cbz, name, data):
     """Rewrite cbz with member `name` (compared without case) stored last with data, replacing any member of that
     name; every other member keeps its bytes and order. Through write, so a crash leaves the old archive whole.
-    Returns the new size."""
+    Returns the new size.
+    """
     with zipfile.ZipFile(cbz) as z:
         members = [(n, z.read(n)) for n in z.namelist() if n.lower() != name.lower()]
     return write(cbz, [*members, (name, data)])

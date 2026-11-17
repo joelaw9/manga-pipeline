@@ -28,7 +28,8 @@ def tapas_ref(url):
 def webtoons_ref(url):
     """ "<type>:<title_no>" of a Webtoons series link, type "canvas" for a /canvas/ or /challenge/ path and "webtoon"
     otherwise (the same number is another series under each), or None. A link stored URL-encoded
-    (list%3Ftitle_no=N) reads the same."""
+    (list%3Ftitle_no=N) reads the same.
+    """
     parts = urllib.parse.urlsplit(urllib.parse.unquote(url or "").strip())
     host = parts.netloc.lower()
     if not (host == "webtoons.com" or host.endswith(".webtoons.com")):
@@ -68,7 +69,8 @@ def _english_path(platform, url):
 
 def candidates(kavita_links, anilist_links_, basis):
     """[(platform, ref)] to try in order (SPEC "Metadata", platform lists): the Kavita links, else the AniList links;
-    a recorded platform basis names its platform alone, else Tapas before Webtoons; 1 ref per platform."""
+    a recorded platform basis names its platform alone, else Tapas before Webtoons; 1 ref per platform.
+    """
     links = kavita_links if any(ref(u) for u in kavita_links for ref in REFS.values()) else anilist_links_
     order = [BASES[basis]] if basis in BASES else [TAPAS, WEBTOONS]
     out = []
@@ -81,14 +83,16 @@ def candidates(kavita_links, anilist_links_, basis):
 
 def tapas_record(ref, items, listed_total, series_id):
     """A stored Tapas list (record) from the site's items [(site number, title, date, id)], the number of episodes the
-    series says it has and its series id."""
+    series says it has and its series id.
+    """
     eps = episodes.build(items)
     return _record(TAPAS, ref, eps, episodes.coverage(eps, listed_total), series_id=series_id)
 
 
 def webtoons_record(ref, items, app_only):
     """A stored Webtoons list (record) from the site's items [(site number, title, date, id)] and whether the series
-    keeps episodes to its app (None: its page was not read)."""
+    keeps episodes to its app (None: its page was not read).
+    """
     eps = episodes.build(items)
     cover = episodes.coverage(eps, app_only=bool(app_only), list_page_read=app_only is not None)
     return _record(WEBTOONS, ref, eps, cover)
@@ -96,7 +100,8 @@ def webtoons_record(ref, items, app_only):
 
 def _record(platform, ref, eps, cover, **extra):
     """A stored platform list: {"name", "ref", "episodes", "coverage", "seasons"} (and extra, e.g. Tapas' series id)
-    from the site's episode records (episodes.build) and their coverage (episodes.coverage)."""
+    from the site's episode records (episodes.build) and their coverage (episodes.coverage).
+    """
     return {
         "name": platform,
         "ref": ref,
@@ -116,7 +121,8 @@ def volumes(platform, numbers):
     platform list's season ranges, matched by chapter number; empty when unusable: no ranges, or a list that is not
     complete while chapters lie outside its ranges. Volumes are 1..n in range order; a chapter in the range after "Main
     Story Finale", or past the last closed range of a list whose main story ended, is past the finale; another chapter
-    past the list goes in the next volume; one before the first range in volume 1."""
+    past the list goes in the next volume; one before the first range in volume 1.
+    """
     ranges = [b for b in (platform or {}).get("seasons") or [] if b.get("first") is not None]
     if not ranges or not numbers:
         return {}, set()
@@ -158,7 +164,8 @@ def chapter_titles(platform):
 
 def side_titles(platform, side_count):
     """{side-story number: title} from the list's specials in site order, only when the list has exactly as many
-    specials as the series has side stories (published and open)."""
+    specials as the series has side stories (published and open).
+    """
     specials = [e for e in (platform or {}).get("episodes") or [] if e["kind"] == episodes.SPECIAL]
     if not specials or len(specials) != side_count:
         return {}

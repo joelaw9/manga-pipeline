@@ -10,7 +10,8 @@ from manga_pipeline.metadata import ids, importer
 
 def run(cfg, kavita, suwayomi, clients, state=None):
     """Print the audit; clients: the metadata sources' clients; state: the old tool's state file as
-    importer.read_state gives it, or None."""
+    importer.read_state gives it, or None.
+    """
     listing = kavita.series_in_library(cfg["kavita"]["library_id"])
     manga = list(suwayomi.library_manga())
     by_title = {}

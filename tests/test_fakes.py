@@ -1,6 +1,7 @@
 """The fakes later phases test against behave like the services where it matters (SPEC "Tests", "Services"): the
 download flag and file names of Suwayomi, and Kavita's scans (name matching, deleted and recreated series, stale
-sizes, folderPath)."""
+sizes, folderPath).
+"""
 
 import os
 

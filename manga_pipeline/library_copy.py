@@ -44,7 +44,8 @@ def judge(ctx: workflow.Context, chapter):
     volume: chapter_names.same_chapter), when the chapter already names its file, or when the copy goes on to be judged
     after its junk is decided (after_junk); a copy of a higher edition rating takes its file now (None, or NeedsHuman
     for a busy file). Else the outcome: Dropped (a duplicate: a lower rating, or a page width or bits per pixel below
-    NOT_WORSE of the file's) or NeedsHuman (2 files, or not the same chapter)."""
+    NOT_WORSE of the file's) or NeedsHuman (2 files, or not the same chapter).
+    """
     if chapter["published_file_id"] is not None:
         return None
     found = _copy_of(ctx, chapter)
@@ -66,7 +67,8 @@ def after_junk(ctx: workflow.Context, chapter, edit):
     its file (or NeedsHuman for a busy file); else the duplicate's Dropped. Better: neither page width nor bits per
     pixel below NOT_WORSE of the file's, no more junk, and at least 1 of: width WIDER, bits per pixel BPP_BETTER, less
     junk. Bits per pixel and junk count only where the file's are known (a bulk-converted file has no original bits
-    per pixel)."""
+    per pixel).
+    """
     if chapter["published_file_id"] is not None:
         return None
     found = _copy_of(ctx, chapter)
@@ -94,7 +96,8 @@ def after_junk(ctx: workflow.Context, chapter, edit):
 
 def _copy_of(ctx: workflow.Context, chapter):
     """(the published file, our measures, its original measures) when the series has 1 confirmed published file of
-    the chapter, still in the library and the same chapter; None when it has none; NeedsHuman otherwise."""
+    the chapter, still in the library and the same chapter; None when it has none; NeedsHuman otherwise.
+    """
     key = validation.chapter_key(chapter["identity"])
     rows = [
         r
@@ -162,7 +165,8 @@ class Measures:
 
 def _measured(what, summary, bpp):
     """Measures from a measures.summary of a copy's pages (or a stored published row, which holds the same 3
-    measures) and its bits per pixel; ValueError for a summary of no pages."""
+    measures) and its bits per pixel; ValueError for a summary of no pages.
+    """
     pages_in, width, length = summary["pages_in"], summary["median_page_width"], summary["strip_length"]
     if pages_in is None or width is None or length is None:
         msg = f"{what}: no page measurements"
@@ -181,7 +185,8 @@ def _layout(ctx: workflow.Context, series_id):
 def published_junk(ctx: workflow.Context, published, layout, width):
     """The junk removed from the published file's download (measures.junk): stored when the pipeline published it,
     else from the bulk converter's record of its edits; None when unknown (a pipeline file published before it was
-    stored, or a record that no longer lists the file)."""
+    stored, or a record that no longer lists the file).
+    """
     if published["origin"] != "bulk":
         return published["junk"]
     series = db.one_row(ctx.conn, "SELECT folder FROM series WHERE id = %s", (published["series_id"],))
@@ -217,7 +222,8 @@ def _original(ctx: workflow.Context, published):
     """The published copy's original measurements: as stored when the pipeline published it, else measured from the
     library file (the bulk converter's, or published before they were stored). Each page is read whole and not
     decoded: an AVIF page gives no size from its first bytes. bpp: the original's bits per pixel, None when not stored
-    (a bulk file's pages are re-encoded)."""
+    (a bulk file's pages are re-encoded).
+    """
     if published["pages_in"] is not None:  # publish stores the 3 measures together
         return _measured(published["library_path"], published, published["bpp"])
     with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
@@ -234,7 +240,8 @@ def _original(ctx: workflow.Context, published):
 def _take(ctx: workflow.Context, chapter, published):
     """The better copy names its file (its 1 open chapter) and takes the file's volume cover: the series' stored image
     of that volume, else the old file's own cover page. Returns None (the copy goes on), or NeedsHuman for a busy
-    file."""
+    file.
+    """
     volume = rewrite_covers.cover_volume(published["cover_state"])  # an old image too: the copy takes the new one
     if published["cover_state"] is None:  # not read yet (export reads it): the file's own cover page says
         with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
@@ -266,7 +273,8 @@ def _take(ctx: workflow.Context, chapter, published):
 
 def _cover(ctx: workflow.Context, series_id, published, volume):
     """(path below paths.covers, sha256) of the cover the copy takes in place of its file's: the series' stored image
-    of that volume, else the file's own 000_cover page, stored content-addressed beside the fetched ones."""
+    of that volume, else the file's own 000_cover page, stored content-addressed beside the fetched ones.
+    """
     v = names.to_volume(volume)
     row = None
     if v is not None and v == int(v):  # stored images are of whole volumes

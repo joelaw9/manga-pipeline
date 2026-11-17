@@ -1,6 +1,7 @@
 """The convert stage (stages/convert.py; SPEC "Conversion", "Calibration"): its staged file and record, the program
 errors that need a human, scratch life, the post-check, and the calibration of a series arriving a few chapters at a
-time. Tools and scorer are the fakes; each test inserts its own chapter_edit row."""
+time. Tools and scorer are the fakes; each test inserts its own chapter_edit row.
+"""
 
 import errno
 import hashlib
@@ -673,7 +674,6 @@ def test_a_blanked_rendered_chapter_samples_its_unblanked_render_and_records_the
 
 def add_cover(site, chapter_id, data, rel="vol/1.jpg", sha256=None):
     """Hand chapter_id a volume cover as intake does: the file under paths.covers and its volume_cover row."""
-
     path = config.abs_path(site.cfg["paths"]["covers"]) / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)

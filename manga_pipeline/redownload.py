@@ -38,7 +38,8 @@ def save(ctx: workflow.Context, chapter, state):
 
 def save_in(ctx: workflow.Context, chapter, state, **columns):
     """Write the state (None clears it) and other chapter columns inside the caller's transaction, while this part
-    holds the chapter's claim; raises when a person changed the row meanwhile."""
+    holds the chapter's claim; raises when a person changed the row meanwhile.
+    """
     sets = sql.SQL("").join(sql.SQL(", {} = %s").format(sql.Identifier(name)) for name in columns)
     changed = ctx.conn.execute(
         sql.SQL(
@@ -60,7 +61,8 @@ def save_in(ctx: workflow.Context, chapter, state, **columns):
 
 def new_state(ctx: workflow.Context, chapter, state):
     """The state of a chapter rejected for the first time (state: what a person set, e.g. chosen, or {}). A hand-placed
-    chapter (no Suwayomi chapter) has no original source."""
+    chapter (no Suwayomi chapter) has no original source.
+    """
     found = None if chapter["suwayomi_chapter_id"] is None else target(ctx, chapter["suwayomi_chapter_id"])
     original = {
         # by Suwayomi's display name, which sources.ranking uses (chapter.source may hold a source id)
@@ -83,7 +85,8 @@ def new_state(ctx: workflow.Context, chapter, state):
 
 def remove(ctx: workflow.Context, chapter, state):
     """Remove the copies the state lists: off the queue when queued, the file the retention way, then Suwayomi's
-    downloaded mark when it has a Suwayomi chapter (a file already gone is no error to Suwayomi). Safe to run again."""
+    downloaded mark when it has a Suwayomi chapter (a file already gone is no error to Suwayomi). Safe to run again.
+    """
     for item in state["remove"]:
         workflow.holds_claim(ctx, chapter)  # before each removal: it cannot be undone
         if item.get("dequeue"):
@@ -98,7 +101,8 @@ def remove(ctx: workflow.Context, chapter, state):
 
 def target(ctx: workflow.Context, chapter_id):
     """{source, manga_id, chapter_id, path, url} of a Suwayomi chapter of any manga; None when Suwayomi has no such
-    chapter or no source for it."""
+    chapter or no source for it.
+    """
     row = ctx.suwayomi.chapter(chapter_id)
     if row is None:
         return None
@@ -126,7 +130,8 @@ def pick(ctx: workflow.Context, chapter, series, state):
     """The next download to queue: the original chapter once, then the best-ranked installed source not tried that
     matches the chapter. Records each source tried as it goes. Returns a target, or an outcome when none is left:
     Failed when every remaining source could not answer, else NeedsHuman. A hand-placed chapter has no original
-    chapter; its numbering is checked against the series' reference manga, found again on every pick."""
+    chapter; its numbering is checked against the series' reference manga, found again on every pick.
+    """
     original = state["original"]
     hand_placed = original["chapter_id"] is None
     if not state["same_source_done"] and not hand_placed:
@@ -175,7 +180,8 @@ def held_elsewhere(ctx: workflow.Context, chapter, found):
 
 def reference_manga(ctx: workflow.Context, series_id):
     """The Suwayomi manga linked to the series that a hand-placed chapter's numbering is checked against: of those
-    Suwayomi still holds with an installed source, the best ranked by sources.ranking, then the lowest id; else None."""
+    Suwayomi still holds with an installed source, the best ranked by sources.ranking, then the lowest id; else None.
+    """
     ranking = ctx.cfg["sources"]["ranking"]
     best = None
     rows = ctx.conn.execute("SELECT manga_id FROM suwayomi_manga WHERE series_id = %s ORDER BY manga_id", (series_id,))
@@ -192,7 +198,8 @@ def reference_manga(ctx: workflow.Context, series_id):
 
 def _match(ctx: workflow.Context, chapter, series, reference, source_id):
     """The target on another source matching the chapter (SPEC "Bad downloads"), or None; reference is the manga whose
-    chapters the source's numbering must agree with (None: no source agrees)."""
+    chapters the source's numbering must agree with (None: no source agrees).
+    """
     known = [series["name"], series["localized_name"], series["original_name"]]
     manga = reference and ctx.suwayomi.manga(reference)
     if manga:
@@ -213,7 +220,8 @@ def _match(ctx: workflow.Context, chapter, series, reference, source_id):
 
 def pick_manga(hits, known):
     """The 1 search hit that is the series: the only one whose title equals a known name by names.key, else the only
-    one at a fuzzy ratio of EXACT_TITLE_MIN or more with every other hit TITLE_MARGIN below it; else None."""
+    one at a fuzzy ratio of EXACT_TITLE_MIN or more with every other hit TITLE_MARGIN below it; else None.
+    """
     keys = {names.key(n) for n in known}
     exact = [h for h in hits if names.key(h["title"]) in keys]
     if exact:
@@ -234,7 +242,8 @@ def _parsed(row):
 
 def pick_chapter(identity, ours, other):
     """The row of `other` (the other source's chapters) that is our chapter (identity: names.identity JSON), checked
-    against `ours` (the original source's chapters) for numbering that agrees; None when not confident."""
+    against `ours` (the original source's chapters) for numbering that agrees; None when not confident.
+    """
     me = json.loads(identity)
     key = tuple(me[1:4])
     parsed = [(row, *_parsed(row)) for row in other]
@@ -289,7 +298,8 @@ def queue(ctx: workflow.Context, found):
 
 def download_state(ctx: workflow.Context, expected):
     """ "complete" (flagged, file present), "waiting" (queued or downloading), "lost" (neither queued nor downloaded)
-    or "failed" (in error, gone from Suwayomi, flagged without its file, or not complete after the timeout)."""
+    or "failed" (in error, gone from Suwayomi, flagged without its file, or not complete after the timeout).
+    """
     row = ctx.suwayomi.chapter(expected["chapter_id"])
     if row is None:
         return "failed"

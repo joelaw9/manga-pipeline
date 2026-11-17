@@ -1,7 +1,8 @@
 """Per-page reads the convert stage needs beyond images.measure_pages (SPEC "Conversion"): whether avifenc may read a
 JPEG itself, whether jpegtran can gray it, the lossless pixel check, and the names pages are extracted under. Copied
 from the bulk converter's optimizer/image.py (jpeg_feed) and optimizer/integrity.py (grayscale_jpeg, pixels_match,
-_target_names)."""
+_target_names).
+"""
 
 import io
 from collections import Counter
@@ -23,7 +24,8 @@ def jpeg_feed(data):
     """Can avifenc be fed this JPEG itself instead of our decoded PNG? Only when it reads the pixels open_image decodes:
     a YCbCr or RGB-coded JPEG (Pillow mode RGB) with no colour profile or an sRGB one and no EXIF rotation (avifenc
     1.4.2 refuses CMYK, applies an EXIF orientation as irot, and carries a non-sRGB profile into the AVIF). Header
-    only."""
+    only.
+    """
     with Image.open(io.BytesIO(data)) as im:
         return (
             im.mode == "RGB"
@@ -34,7 +36,8 @@ def jpeg_feed(data):
 
 def _jpeg_kind(im):
     """'ycc' for a 3-component YCbCr JPEG, 'gray' for a 1-component one, else None (CMYK, RGB-coded: an Adobe transform
-    0, or no JFIF / Adobe marker and component ids 'R', 'G', 'B', as libjpeg's colour-space guess reads them)."""
+    0, or no JFIF / Adobe marker and component ids 'R', 'G', 'B', as libjpeg's colour-space guess reads them).
+    """
     if im.format not in ("JPEG", "MPO"):
         return None
     if im.mode == "L" and getattr(im, "layers", 1) == 1:
@@ -56,7 +59,8 @@ def _jpeg_kind(im):
 
 def jpeg_gray(data):
     """True for a JPEG `jpegtran -grayscale` grays by keeping its stored Y plane: YCbCr or 1-component (it refuses
-    CMYK, YCCK and RGB-coded ones). Header only."""
+    CMYK, YCCK and RGB-coded ones). Header only.
+    """
     with Image.open(io.BytesIO(data)) as im:
         return _jpeg_kind(im) is not None
 
@@ -84,13 +88,15 @@ class Page:
 
 def _pixels(page, mode):
     """Pixels for comparison: RGBA (exact) or LA (luma), so a changed alpha channel does not match (beyond
-    LUMA_TOLERANCE in luma mode) and a dropped fully-opaque one still does."""
+    LUMA_TOLERANCE in luma mode) and a dropped fully-opaque one still does.
+    """
     return np.asarray(page.image()[0].convert("LA" if mode == "luma" else "RGBA"))
 
 
 def _native_luma(page):
     """The Y plane exactly as stored, for a YCbCr or 1-component JPEG; None for anything else. jpegtran -grayscale
-    keeps Y untouched, while RGB->L of the decoded colour page can differ by a few levels where YCbCr->RGB clipped."""
+    keeps Y untouched, while RGB->L of the decoded colour page can differ by a few levels where YCbCr->RGB clipped.
+    """
     with Image.open(io.BytesIO(page.data)) as im:
         kind = _jpeg_kind(im)
         if kind == "gray":
@@ -105,7 +111,8 @@ def pixels_match(original, output, mode):
     """Lossless check of 1 page (bytes or Page): exact (RGBA) or luma. Luma of a YCbCr JPEG source against a JPEG
     output compares the stored Y planes exactly; other luma comparisons go through RGB->L, alpha kept, within
     LUMA_TOLERANCE.
-    Returns (match, max difference or None on a shape mismatch)."""
+    Returns (match, max difference or None on a shape mismatch).
+    """
     original = original if isinstance(original, Page) else Page(original)
     output = output if isinstance(output, Page) else Page(output)
     a = b = None
@@ -127,7 +134,8 @@ def pixels_match(original, output, mode):
 
 def has_colour(page):
     """Colour the luma comparison cannot ignore: the colour page class (images.classify, judged on the page composited
-    onto white); a gray-mark page (1 compact badge) counts as gray."""
+    onto white); a gray-mark page (1 compact badge) counts as gray.
+    """
     rgb = np.asarray(images.flatten(*page.image())[0].convert("RGB"))
     return images.classify(rgb, images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)[0] == images.COLOUR
 
@@ -144,7 +152,8 @@ def target_names(names_formats):
     """The page file names the bulk converter extracts to ([(archive member name, format)] in reading order): 001,
     002, ... (at least 3 digits) in reading order. Cover-named pages (archive.is_cover_name) keep their names when that
     keeps every page at its place in natural order; else each one but 000_cover gets the number of the numbered pages
-    before it in front (Ch1_cover.jpg first -> 000-Ch1_cover.jpg, still a cover name)."""
+    before it in front (Ch1_cover.jpg first -> 000-Ch1_cover.jpg, still a cover name).
+    """
     width = max(3, len(str(sum(not archive.is_cover_name(n) for n, _ in names_formats))))
 
     def names(prefix):
@@ -170,7 +179,8 @@ def _order_kept(names):
 def name_problems(names):
     """Why target names cannot stand for the pages ([] when they can): 2 stems equal ignoring case (their outputs would
     share 1 name), an order the names do not keep, or names whose natural and plain orders differ (a cover inside the
-    chapter, 001-Ch1_cover after 001: the post-check would refuse the output)."""
+    chapter, 001-Ch1_cover after 001: the post-check would refuse the output).
+    """
     stems = Counter(PurePosixPath(n).stem.lower() for n in names)
     out = []
     dup = sorted(n for n in names if stems[PurePosixPath(n).stem.lower()] > 1)
@@ -185,7 +195,8 @@ def name_problems(names):
 
 def extract(cbz, x_dir):
     """Write a CBZ's pages (archive.archive_pages order) into x_dir under target_names. Returns (their paths, the
-    name_problems); with a problem nothing is written."""
+    name_problems); with a problem nothing is written.
+    """
     members = archive.pages(cbz)
     names = target_names([(n, images.detect(d)) for n, d in members])
     problems = name_problems(names)

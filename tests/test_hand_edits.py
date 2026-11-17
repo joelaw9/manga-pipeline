@@ -1,6 +1,7 @@
 """Hand edits (SPEC "Retroactive updates", hand edits): `series edit` stores a person's chapter titles and volumes,
 checked whole; they win over every source, are written into published files by 7e's rewrite (progress carried), are
-never reverted by a later check, and their removal brings the sources' values back."""
+never reverted by a later check, and their removal brings the sources' values back.
+"""
 
 import dataclasses
 import zipfile

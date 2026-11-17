@@ -1,6 +1,7 @@
 """The post-check of a staged chapter (SPEC "Conversion"), copied from the bulk converter's integrity.check_post without
 its ComicInfo checks (export adds ComicInfo.xml) and with page bytes, not archive sizes, in the size rule (the
-download is deflated, the staged file stored)."""
+download is deflated, the staged file stored).
+"""
 
 import zipfile
 from collections import Counter
@@ -18,7 +19,8 @@ def _extensions(fmt):
 @dataclass
 class _Read:
     """The page pass's outputs: its failures, the pages' formats, the decodable pages ({"name", "sha1"}) and the
-    bytes of every page read."""
+    bytes of every page read.
+    """
 
     fails: list = field(default_factory=list)
     fmts: Counter = field(default_factory=Counter)
@@ -28,7 +30,8 @@ class _Read:
 
 def check(cbz, rec, x_dir, kept):
     """The post-check's failures ([] when the staged CBZ passes). rec: image.process_chapter's record; x_dir: the
-    extracted source pages; kept: the plan's kept pages ([{"name", "bytes"}])."""
+    extracted source pages; kept: the plan's kept pages ([{"name", "bytes"}]).
+    """
     with zipfile.ZipFile(cbz) as z:
         bad = z.testzip()
         if bad is not None:
@@ -62,7 +65,8 @@ def _entry_fails(infos, extra):
 
 def _read_pages(z, names, rec, x_dir):
     """Each page entry read in order and checked: its extension, that it decodes, then (a decodable page) its lossless
-    match and its AVIF score."""
+    match and its AVIF score.
+    """
     read = _Read()
     for name in names:
         data = z.read(name)

@@ -1,5 +1,6 @@
 """Source ids (SPEC "Source ids"): 1 form per source, read from each origin, judged for agreement; and the search
-acceptance rules."""
+acceptance rules.
+"""
 
 import pytest
 

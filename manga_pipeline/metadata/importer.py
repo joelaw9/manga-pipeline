@@ -33,7 +33,8 @@ def read_state(path):
 
 def read_overrides(path):
     """{Kavita series name: Suwayomi manga id or title}: the config's `overrides`, then its `map` file's (a path
-    relative to the config's folder)."""
+    relative to the config's folder).
+    """
     try:
         old = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as e:

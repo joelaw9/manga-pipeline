@@ -1,5 +1,6 @@
 """The junk stage end to end on a world of fakes (SPEC "Junk decisions", "Chapter stages", "Needs human"): candidates,
-the junk_decision wait, the junk commands, cleanup and state reset."""
+the junk_decision wait, the junk commands, cleanup and state reset.
+"""
 
 import io
 import json
@@ -67,7 +68,8 @@ def noise(seed, size=(16, 24)):
 
 def banner_cbz(seed):
     """8 pages of the fake page size, the last a noisy banner page shared by every chapter (same bytes): no size or
-    text rule offers it, only recurrence."""
+    text rule offers it, only recurrence.
+    """
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:
         for n in range(1, 8):
@@ -78,7 +80,8 @@ def banner_cbz(seed):
 
 def strip_cbz(seed):
     """3 tall white pages of a long strip, each with 2 noisy panels: the chapter's own panels, but the last panel is
-    the same credit panel in every chapter."""
+    the same credit panel in every chapter.
+    """
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:
         for n in range(1, 4):
@@ -418,7 +421,8 @@ def test_a_scan_made_before_logos_is_scanned_again(site):
 
 def strip_logo_cbz(seed):
     """4 white strip pages of 1200 x 1800, each with a gray noisy panel of its own (a gray chapter: a coloured panel
-    would make the badge page colour), the third also with the badge."""
+    would make the badge page colour), the third also with the badge.
+    """
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:
         for n in range(1, 5):
@@ -449,7 +453,6 @@ def test_a_badge_in_a_strip_chapter_is_offered_and_blanked_on_its_page(site, mon
 
 def jpeg_logo_cbz(seed):
     """6 gray JPEG pages of 1200 x 1800 (AVIF outcome: a blank applies), the third a white page with the badge."""
-
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:
         for n in range(6):
@@ -496,8 +499,8 @@ def test_a_badge_is_painted_over_in_the_published_chapter_only_when_junk(site, v
 def band_cbz(seed, on, pages=8):
     """A page-format chapter of 600 x 852 art pages; page `on` (a download index) has the same WARNING band stacked
     over it behind a gutter in every chapter (as tests/test_junk_page.banded_chapter). 8 pages: 3 middle pages, so the
-    edge pages have middle pages of their size beside them."""
-
+    edge pages have middle pages of their size beside them.
+    """
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:
         for n in range(pages):
@@ -543,7 +546,8 @@ def test_an_edge_page_decided_junk_frees_its_chapter_though_its_band_is_unsure(s
 @budget(load="pool", seconds=60)
 def test_a_candidate_deleted_under_a_waiting_chapter_ends_its_wait(site):
     """Schema step 0042 deletes candidates on unsignable keys: a chapter waiting on one and on another, still
-    undecided, is decided again at once, and waits on what is undecided then."""
+    undecided, is decided again at once, and waits on what is undecided then.
+    """
     site.download("Alpha", 2, band_cbz("g2", on=0))
     site.parts()
     ((before,),) = site.rows("SELECT candidates FROM junk_scan")
@@ -562,7 +566,8 @@ def test_a_candidate_deleted_under_a_waiting_chapter_ends_its_wait(site):
 
 def panels_cbz(panels):
     """3 tall white pages of a long strip with 2 noisy panels each; `panels` names the 6 panels' noise in reading
-    order (the same name is the same panel)."""
+    order (the same name is the same panel).
+    """
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:
         for n in range(3):
@@ -579,7 +584,8 @@ def panels_cbz(panels):
 def test_a_watermark_1_chapter_shows_is_known_to_the_series_next_chapters(site, monkeypatch):
     """Chapter 2 ends with the band twice: a watermark. Chapter 3 has it once at its tail, before a story panel: known
     as a watermark it starts no credit block, so the panel after it is no tail piece. The memory is by key: an
-    import that rebuilds the decision under a new id changes nothing. Without the memory the panel is a tail piece."""
+    import that rebuilds the decision under a new id changes nothing. Without the memory the panel is a tail piece.
+    """
     monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")

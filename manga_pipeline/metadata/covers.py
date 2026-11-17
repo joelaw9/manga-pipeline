@@ -77,7 +77,8 @@ def _gone_is_none(fetch, *args):
 
 def mangadex_choice(manga, covers):
     """The MangaDex cover file name: English volume 1, the lowest English volume, volume 1 in the original language,
-    volume 1 in any language, else the series' main cover; None when it has none."""
+    volume 1 in any language, else the series' main cover; None when it has none.
+    """
 
     def volume(c):
         try:
@@ -106,7 +107,8 @@ def mangadex_choice(manga, covers):
 
 def _image(source_url, data):
     """(source url, bytes, (width, file extension)), or None for no bytes or bytes that are not an image Pillow reads
-    (an error page served as the image): that candidate is skipped."""
+    (an error page served as the image): that candidate is skipped.
+    """
     if not data:
         return None
     try:
@@ -141,7 +143,8 @@ def volume_cover(ctx: workflow.Context, series_id, volume):
     again when its file is missing or holds other bytes, and again when MangaDex's choice for the volume is another
     file than the stored one's (SPEC "Retroactive updates": a new image replaces the stored one, and the published
     files holding the old one are marked stale); None when MangaDex has no cover of that volume or the series has no
-    MangaDex record, and nothing is stored."""
+    MangaDex record, and nothing is stored.
+    """
     row = ctx.conn.execute(
         "SELECT source_url, path, sha256 FROM series_volume_cover WHERE series_id = %s AND volume = %s",
         (series_id, volume),
@@ -200,7 +203,8 @@ def refresh_volumes(ctx: workflow.Context, series_id):
     """Each stored volume cover image of the series again, where MangaDex's best choice for the volume no longer
     includes the stored file (volume_cover), after the series' check stored its cover list. A file MangaDex refuses
     (4xx) or serves as no image is logged and asked for again by the next check; MangaDex unreachable, timing out or
-    failing on its side ends the refresh and leaves the series' check due now (among the capped checks, not urgent)."""
+    failing on its side ends the refresh and leaves the series' check due now (among the capped checks, not urgent).
+    """
     for (volume,) in ctx.conn.execute(
         "SELECT volume FROM series_volume_cover WHERE series_id = %s ORDER BY volume", (series_id,)
     ).fetchall():
@@ -223,7 +227,8 @@ def fetch_wanted(ctx: workflow.Context):
     """Fetch the volume cover images the retroactive comparison wants (SPEC "Retroactive updates"): each row below
     workflow.attempt_limit attempts, of an in-scope ok series, goes once it is fetched or MangaDex has none; a fetch
     whose answer is wrong counts 1 attempt and records its error. A share or database error, or MangaDex down,
-    timing out or failing on its side (5xx), is raised: the caller's problem, no attempt spent."""
+    timing out or failing on its side (5xx), is raised: the caller's problem, no attempt spent.
+    """
     rows = ctx.conn.execute(
         sql.SQL("""SELECT w.series_id, w.volume FROM volume_cover_wanted w JOIN series s ON s.id = w.series_id
         WHERE w.attempts < %(limit)s AND s.status = 'ok' AND {scope} ORDER BY w.series_id, w.volume""").format(
@@ -261,7 +266,8 @@ def fetch_wanted(ctx: workflow.Context):
 
 def store_volume_image(cfg, data):
     """(path below paths.covers, sha256) of a volume cover image stored content-addressed under VOLUME_FOLDER, as a
-    fetched one is (a better copy taking its file's own cover page: SPEC "Retroactive updates")."""
+    fetched one is (a better copy taking its file's own cover page: SPEC "Retroactive updates").
+    """
     sha256 = hashlib.sha256(data).hexdigest()
     rel = f"{VOLUME_FOLDER}/{sha256}{images.EXTENSION[images.detect(data)]}"
     _put(config.abs_path(cfg["paths"]["covers"]) / rel, data, sha256)
@@ -270,7 +276,8 @@ def store_volume_image(cfg, data):
 
 def volume_choice(manga, covers, volume):
     """The MangaDex cover file name of exactly `volume`: English, else the manga's original language, else any
-    locale (the first listed wins a tie); None when MangaDex has none of that volume."""
+    locale (the first listed wins a tie); None when MangaDex has none of that volume.
+    """
     choices = volume_choices(manga, covers, volume)
     return choices[0] if choices else None
 
@@ -278,7 +285,8 @@ def volume_choice(manga, covers, volume):
 def volume_choices(manga, covers, volume):
     """The MangaDex cover file names of exactly `volume` at the best rank (English, else the manga's original
     language, else any locale), in list order; [] when MangaDex has none of that volume. MangaDex lists a volume's
-    covers in no fixed order: a stored file still among them is kept, so a tie never flips the image."""
+    covers in no fixed order: a stored file still among them is kept, so a tie never flips the image.
+    """
     original = (manga.get("attributes") or {}).get("originalLanguage")
     ranked = [
         (0 if c.get("locale") == "en" else 1 if c.get("locale") == original else 2, c["fileName"])
@@ -310,7 +318,8 @@ def _put(path, data, sha256=None):
 def clean(ctx: workflow.Context):
     """Delete a cover file under paths.covers/series that no series names, and under paths.covers/volume that no
     series volume cover nor chapter names, once it is a day old (a check or validate that did not complete, a dropped
-    chapter or a state reset may have left one)."""
+    chapter or a state reset may have left one).
+    """
     covers = config.abs_path(ctx.cfg["paths"]["covers"])
     series = {row[0] for row in ctx.conn.execute("SELECT path FROM series_cover")}
     volume = {

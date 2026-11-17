@@ -127,7 +127,8 @@ class Process:
 
     def _take(self):
         """The lowest-numbered pool database no process holds, made right: created if missing, its orphaned
-        connections ended, emptied or rebuilt. A database that cannot be made right stays held, unused."""
+        connections ended, emptied or rebuilt. A database that cannot be made right stays held, unused.
+        """
         n, failures = 0, []
         while True:
             n += 1
@@ -173,7 +174,8 @@ class Process:
 
     def end_test(self):
         """Empty every database the test used. Raises LeakedConnectionError after the reset when the test left a
-        connection open; a database whose reset fails is retired (held, unused) and its slot takes another."""
+        connection open; a database whose reset fails is retired (held, unused) and its slot takes another.
+        """
         used, unbuilt = sorted(set(self.used.values())), self.unbuilt
         self.used, self.unbuilt = {}, set()
         leaks, failed = [], None
@@ -195,7 +197,8 @@ class Process:
     def _end_leaks(self, name):
         """End and return the test's connections still open: a connection dropped but not yet collected closes with
         a collection, and a closed one's server process may outlive it for a moment, so only those still there after
-        both count."""
+        both count.
+        """
         if not self._others(name):
             return []
         gc.collect()
@@ -217,7 +220,8 @@ class Process:
 
     def reset(self, name, rebuild):
         """Empty database `name`: its rows deleted and ids restarted, or rebuilt from the step files when `rebuild`
-        or it is not intact."""
+        or it is not intact.
+        """
         with closing(connect(name)) as conn:
             if rebuild or not self._intact(conn, name):
                 conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")

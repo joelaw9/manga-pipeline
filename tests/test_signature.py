@@ -2,7 +2,8 @@
 chroma, measure_pages; contracts section 1). The signature texts and pHashes pinned here were computed by the bulk
 converter's own optimizer.junk.signature and optimizer.integrity.phash on the real pages in tests/fixtures_pages/: the
 stored junk decisions compare only while these stay equal. Ported from the bulk converter's tests/test_restitch.py
-(text round trip), tests/test_junk_single.py (near rule) and tests/test_image.py (chroma)."""
+(text round trip), tests/test_junk_single.py (near rule) and tests/test_image.py (chroma).
+"""
 
 import io
 import zipfile
@@ -144,7 +145,8 @@ def test_the_live_rule_matches_up_to_6_bits_per_tile(bits, want):
 @pytest.mark.parametrize(("aspect", "want"), [(1.0309, True), (1.031, False)], ids=["within-3%", "over-3%"])
 def test_the_live_rule_allows_3_percent_aspect_of_the_larger(aspect, want):
     """matches' default rule: aspect difference within ASPECT_TOLERANCE 3 % of the larger aspect (1 / 0.97 =
-    1.03093 is the limit above 1.0)."""
+    1.03093 is the limit above 1.0).
+    """
     assert images.matches(((1,), 1.0), ((1,), aspect)) is want, "ASPECT_TOLERANCE 3 % of the larger aspect"
 
 
@@ -158,7 +160,8 @@ def test_signatures_of_other_tile_counts_never_match():
 @pytest.mark.parametrize("drift", [0.04, 0.06, 0.09])
 def test_a_credit_variant_at_another_aspect_is_near_but_not_live(drift):
     """Bring The Love: the Daeva credit re-uploaded 4-9 % taller matches no row at the live 3 % aspect gate, but is
-    near (d <= NEAR_THRESHOLD 8, aspect <= NEAR_ASPECT_TOLERANCE 10 %)."""
+    near (d <= NEAR_THRESHOLD 8, aspect <= NEAR_ASPECT_TOLERANCE 10 %).
+    """
     credit = fx.credit((300, 600))
     sig, variant = images.signature(credit), images.signature(stretched(credit, drift))
     assert not images.matches(sig, variant), "the live rule misses the variant"
@@ -238,7 +241,8 @@ def test_chroma_follows_the_source(data, fmt, want):
 
 def chapter(path):
     """A CBZ stored out of reading order with a ComicInfo.xml and a junk member: 10.png (gray art), 2.jpg (a real
-    page), 1.png (white), __MACOSX/._1.png."""
+    page), 1.png (white), __MACOSX/._1.png.
+    """
     pages = {
         "10.png": fx.png(fx.manga_page((200, 300))),
         "2.jpg": (fx.PAGE_FIX / "endpage_akuyaku_ch17_p39.jpg").read_bytes(),
@@ -289,7 +293,8 @@ def test_a_colour_page_is_classed_colour(tmp_path):
 @budget(load="fs")
 def test_known_fields_are_kept_and_a_fully_known_page_is_not_decoded(tmp_path):
     """A page whose fields are all known is not decoded; a page missing one decoded field is decoded and gets only
-    the missing ones."""
+    the missing ones.
+    """
     cbz = chapter(tmp_path / "c.cbz")
     first = images.measure_pages(cbz)
     decoded, by_sha1 = [], {p["sha1"]: p for p in first}

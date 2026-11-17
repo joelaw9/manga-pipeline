@@ -27,7 +27,8 @@ LAYOUTS = ("strip", "pages")
 
 def needed(conn, series):
     """Whether the series must have a baseline before its chapters go on: a series Kavita holds that has none, or
-    whose bulk rows were recorded before their source name, kind and volume source were kept (schema step 0054)."""
+    whose bulk rows were recorded before their source name, kind and volume source were kept (schema step 0054).
+    """
     if series["origin"] != "kavita":
         return False
     if series["baseline_at"] is None:
@@ -60,7 +61,8 @@ def record_problem(cfg, series):
 def take(ctx: workflow.Context, series):
     """Take the series' baseline from its record. Returns None once the series has one; else why not (the chapter
     waits). A record whose series name is not one of the series' Kavita names records nothing and makes the series
-    needs_human."""
+    needs_human.
+    """
     problem = record_problem(ctx.cfg, series)
     if problem:
         return problem
@@ -95,7 +97,8 @@ def _load(cfg, series):
 def _fill_naming(conn, series, record):
     """Source name, kind and volume source of the series' bulk rows that lack them, from the record by output file
     name (the series' folder may have moved since); a row the record no longer lists gets its kind from its
-    identity's side label and no source name or volume source."""
+    identity's side label and no source name or volume source.
+    """
     chapters = {c["output"]: c for c in record["chapters"]}
     rows = conn.execute(
         "SELECT id, library_path, identity FROM published_file WHERE series_id = %s AND origin = 'bulk'"

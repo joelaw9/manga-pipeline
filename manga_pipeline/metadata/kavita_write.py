@@ -58,7 +58,8 @@ def inputs(version, rules):
 
 def due(ctx: workflow.Context, rules):
     """Ids of the in-scope Kavita series with a completed check whose written fields or cover are out of date, or
-    written to another Kavita series (Kavita recreated it)."""
+    written to another Kavita series (Kavita recreated it).
+    """
     rows = ctx.conn.execute(
         sql.SQL("""SELECT s.id FROM series s JOIN series_check k ON k.series_id = s.id
         LEFT JOIN series_written w ON w.series_id = s.id LEFT JOIN series_cover c ON c.series_id = s.id
@@ -73,7 +74,8 @@ def due(ctx: workflow.Context, rules):
 
 def run(ctx: workflow.Context):
     """Write every due series' fields; a series Kavita refuses, or whose cover file cannot be read, is logged and stays
-    due. Kavita unreachable ends the step (and the run, as everything after it needs Kavita)."""
+    due. Kavita unreachable ends the step (and the run, as everything after it needs Kavita).
+    """
     rules = tags.load()
     previous = workflow.get_meta(ctx.conn, FINGERPRINT)
     if previous != rules.fingerprint:
@@ -118,7 +120,8 @@ def write(ctx: workflow.Context, series_id, rules):
 
 def _state(conn, series_id, kid):
     """What the pipeline wrote to Kavita series kid before: {"written": {field: value}, "kept": {field a person's
-    locked edit keeps}, "cover": sha256 or None}; nothing when it wrote to a Kavita series that is gone."""
+    locked edit keeps}, "cover": sha256 or None}; nothing when it wrote to a Kavita series that is gone.
+    """
     before = conn.execute("SELECT * FROM series_written WHERE series_id = %s", (series_id,)).fetchone()
     if before is None or before["kavita_series_id"] != kid:
         return {"written": {}, "kept": set(), "cover": None}
@@ -127,7 +130,8 @@ def _state(conn, series_id, kid):
 
 def _write_scalars(kv, kid, fields, guard):
     """Write the scalar fields that differ from Kavita's or are unlocked, in 1 update, where the guard lets them;
-    each one written goes in the guard's state."""
+    each one written goes in the guard's state.
+    """
     meta = kv.metadata(kid)
     changed = False
     for name, (key, lock) in SCALARS.items():
@@ -144,7 +148,8 @@ def _write_scalars(kv, kid, fields, guard):
 
 def _write_lists(kv, kid, fields, guard, record):
     """Write each list field the sources give, where the guard lets it (_set_list); recorded after its add step and
-    once it is whole. A source that gives nothing never clears a list."""
+    once it is whole. A source that gives nothing never clears a list.
+    """
     written = guard.state["written"]
     for name, (key, lock, label) in LISTS.items():
         values = getattr(fields, name)
@@ -193,7 +198,8 @@ class _Guard:
 
     def held_cover(self):
         """The sha256 of the cover Kavita holds from the pipeline, or before its first upload from the old tool (None:
-        neither)."""
+        neither).
+        """
         return self.state["cover"] or (self.imported["cover_sha256"] if self.imported else None)
 
 
@@ -213,7 +219,8 @@ def _list_key(entries, label):
 def _set_list(kv, kid, name, values, *, added_step):
     """Add the missing entries of list field name (LISTS) in the sources' spelling, then drop the others, in 2
     updates of this list alone; lock it. added_step(key) is told what Kavita holds after the add step, before the
-    prune can fail."""
+    prune can fail.
+    """
     key, lock, label = LISTS[name]
     wanted = {normalize(v) for v in values}
     meta = kv.metadata(kid)
@@ -260,7 +267,8 @@ def _links_and_ids(kv, kid, fields):
 def _cover(ctx: workflow.Context, kid, guard, record):
     """Upload the series' cover when Kavita does not hold it from the pipeline; the sha256 Kavita now holds from it.
     A cover uploaded to Kavita before the pipeline's first upload, and not by the old tool, is a person's: kept.
-    (Kavita names every upload alike, so a person's upload after the pipeline's is not told apart.)"""
+    (Kavita names every upload alike, so a person's upload after the pipeline's is not told apart.)
+    """
     series, state = guard.series, guard.state
     row = ctx.conn.execute("SELECT path, sha256 FROM series_cover WHERE series_id = %s", (series["id"],)).fetchone()
     if row is None:

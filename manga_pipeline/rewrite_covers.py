@@ -27,7 +27,8 @@ def held(state):
 
 def cover_volume(state):
     """The volume (as text, "" for a file with no volume) whose cover page a cover_state says the file holds, the
-    volume's current image (volume:V) or an old one (stale:V: MangaDex had a new one since); None for none or unfit."""
+    volume's current image (volume:V) or an old one (stale:V: MangaDex had a new one since); None for none or unfit.
+    """
     for prefix in ("volume:", "stale:"):
         if state and state.startswith(prefix):
             return state.removeprefix(prefix)
@@ -37,7 +38,8 @@ def cover_volume(state):
 def current_state(conn, chapter_id, series_id, state):
     """A published chapter's cover_state (state: "volume:<V>" when it took volume V's cover): "stale:<V>" when the
     image it took is no longer the series' stored image of V (MangaDex had a new one since). Read in the caller's
-    transaction, so a refresh marking the files of V is either before it or sees its file."""
+    transaction, so a refresh marking the files of V is either before it or sees its file.
+    """
     volume = held(state)
     v = names.to_volume(volume)
     if v is None or v != int(v):  # no volume, or not a whole one: no stored image to follow
@@ -60,7 +62,8 @@ def fill_states(ctx: workflow.Context, series):
     """Fill the cover_state of the series' published files that have none: a bulk file's from its series' record (the
     output covers.volumes names for each volume), a pipeline file's from its member list (a page 000_cover is the cover
     of its volume). Returns whether every state is known; a record or file that cannot be read leaves them unknown and
-    is logged (a share error raises Unreachable)."""
+    is logged (a share error raises Unreachable).
+    """
     conn, cfg = ctx.conn, ctx.cfg
     rows = conn.execute(
         """SELECT id, library_path, origin, comicinfo_volume FROM published_file
@@ -106,7 +109,8 @@ def _read_states(cfg, series, rows):
 def convert_run(ctx: workflow.Context, chapter):
     """The library file's members copied in order byte for byte to staging, the cover it holds left out, a new cover
     put in first (encoded as a new chapter's is). An insert that cannot be made into a file that holds no cover and
-    keeps its volume drops the chapter and records the image unfit."""
+    keeps its volume drops the chapter and records the image unfit.
+    """
     cfg, conn = ctx.cfg, ctx.conn
     file = db.one_row(conn, "SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],))
     source = config.to_local(cfg, file["library_path"])
@@ -171,7 +175,8 @@ def _set_state(conn, file_id, state):
 
 def _encode(cfg, data, kept, scratch):
     """(the cover page {name, data, format, score, width, height, bytes}, None) for the file's pages, or (None, why).
-    Scaled to the most common width of the pages, in the format they share; AVIF only through its gate."""
+    Scaled to the most common width of the pages, in the format they share; AVIF only through its gate.
+    """
     data_of = {n: d for n, d, _ in kept}
     pages = [(images.detect(data_of[n]), _size(data_of[n])[0]) for n in archive.archive_pages(list(data_of))]
     if not pages:
@@ -217,7 +222,8 @@ def _check(staged, kept, inserted):
 def shift_pages(entries, result):
     """The old file's Page entries after convert's cover change (result: its convert_result): a dropped cover's entry
     goes and those after it take 1 off; an inserted cover adds a FrontCover entry at its place in reading order and 1 to
-    every index from there. An old file with no entries gets none."""
+    every index from there. An old file with no entries gets none.
+    """
     if not entries:
         return []
     out = [dict(e) for e in entries]

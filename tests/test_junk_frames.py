@@ -9,7 +9,8 @@ fixtures_pages/frames_pages.npz holds the 48x72 RGB shrunk pages (and original s
   akuyaku_ch24_p1 / blacksmith_ch16_p63                Silas commission page across the same two series
   ennead_ch150_p1 / _p17                               MangaBuddy / MangaJinx banners, ENNEAD
   neverland_ch1_p2                                     white-margin official page, The Promised Neverland
-  yumekui_ch7_p17                                      near-black page, Yumekui Merry"""
+  yumekui_ch7_p17                                      near-black page, Yumekui Merry
+"""
 
 import re
 

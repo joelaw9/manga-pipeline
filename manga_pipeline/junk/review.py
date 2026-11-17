@@ -15,7 +15,8 @@ class Refused(ValueError):  # noqa: N818  # a signal, not an error (PEP 8: the E
 
 def listable(conn, cfg):
     """The open candidates Claude may be shown: neither unsure nor stuck, fewest reviews first, at most
-    junk.review_batch."""
+    junk.review_batch.
+    """
     limit = cfg["junk"]["review_limit"]
     rows = [r for r in candidates.open_rows(conn) if r["verdict"] is None and r["reviews"] < limit]
     return rows[: cfg["junk"]["review_batch"]]
@@ -23,7 +24,8 @@ def listable(conn, cfg):
 
 def listing(conn, cfg, review_id=None, *, everything=False):
     """The candidates `junk list` prints: listable ones, or (everything) every open candidate. With a review id, each
-    listed candidate records it (counted once when that review ends). `everything` is refused under a review id."""
+    listed candidate records it (counted once when that review ends). `everything` is refused under a review id.
+    """
     if everything and review_id:
         msg = "junk list --all is for a person; it is refused inside a review"
         raise Refused(msg)
@@ -56,7 +58,8 @@ def get_open(conn, candidate_id):
 
 def decide(conn, candidate_id, verdict, decider, at):
     """Record a verdict on an open candidate: junk / keep become a series-scoped decision on its key; unsure marks it
-    (its chapters become needs_human at the next process run)."""
+    (its chapters become needs_human at the next process run).
+    """
     if verdict not in VERDICTS:
         msg = f"verdict must be one of {VERDICTS}, got {verdict!r}"
         raise Refused(msg)

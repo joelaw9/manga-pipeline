@@ -22,7 +22,8 @@ from tests.fakes.http import NoNetwork
 
 def page(number, seed=""):
     """A small real page image (PNG bytes, 16 x 24) of 1 colour, set by its number and seed: no junk unit (it has no
-    signature), not white, and other number or seed = other bytes."""
+    signature), not white, and other number or seed = other bytes.
+    """
     shade = 40 + (zlib.crc32(f"{number} {seed}".encode()) % 160)
     out = io.BytesIO()
     Image.new("RGB", (16, 24), (shade, shade, 255 - shade)).save(out, "PNG")
@@ -81,7 +82,8 @@ class FakeSuwayomi(suwayomi.Suwayomi):
 
     def add_chapter(self, manga_id, name, scanlator=None, number=None, *, listed=True):
         """A chapter of the manga, not downloaded. number defaults to its place in the manga. listed=False: the
-        source has it, and Suwayomi lists it only after fetch_manga_and_chapters."""
+        source has it, and Suwayomi lists it only after fetch_manga_and_chapters.
+        """
         chapter_id = self._new_id()
         rows = [*self.chapter_rows.values(), *self.unlisted.values()]
         order = 1 + sum(c["mangaId"] == manga_id for c in rows)
@@ -176,7 +178,8 @@ class FakeSuwayomi(suwayomi.Suwayomi):
 
     def enqueue(self, chapter_ids):
         """As Suwayomi: a chapter already queued is skipped; so is one flagged with its file in place; one flagged
-        whose file is gone is queued again."""
+        whose file is gone is queued again.
+        """
         self.writes.append(("enqueue", list(chapter_ids)))
         for chapter_id in chapter_ids:
             queued = any(e["chapter"] == chapter_id for e in self.queue)

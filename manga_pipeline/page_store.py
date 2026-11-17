@@ -1,6 +1,7 @@
 """A chapter's page rows (SPEC "Parts", hand-off between parts): the measurements images.measure_pages takes of the
 download's pages, stored so a later stage passes them back as measure_pages(cbz, known=load(...)). The page table holds
-the download's pages only; convert's output pages are chapter.output_pages."""
+the download's pages only; convert's output pages are chapter.output_pages.
+"""
 
 from manga_pipeline import db, images
 from manga_pipeline.db import sql
@@ -15,7 +16,8 @@ def _columns():
 
 def save(conn, chapter_id, pages):
     """Replace the chapter's page rows with pages, a complete measure_pages result. Runs in the caller's transaction:
-    raises RuntimeError when none is open, ValueError when a page lacks a field."""
+    raises RuntimeError when none is open, ValueError when a page lacks a field.
+    """
     if not db.in_transaction(conn):
         msg = "page_store.save needs an open transaction (db.transaction)"
         raise RuntimeError(msg)

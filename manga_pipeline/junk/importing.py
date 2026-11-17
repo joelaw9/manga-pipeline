@@ -55,7 +55,8 @@ def bulk_time(added):
 
 def winners(rows):
     """Of several source rows on 1 (series key, kind, key), the one the bulk converter obeyed: a keep before a junk,
-    then the newest. rows: dicts as upsert takes; returns them in input order, 1 per key."""
+    then the newest. rows: dicts as upsert takes; returns them in input order, 1 per key.
+    """
     best = {}
     for r in rows:
         k = (r["series_key"], r["kind"], r["key"])
@@ -74,7 +75,8 @@ def signable(rows):
 def bulk_rows(src, name):
     """(rows to upsert, counts of what is not imported) of a bulk-converter store. A block or probe approve with a
     chain comes over as a plain decision on its signature (the old tool removed the unit by it before trying the
-    chain); only the chain is left out (counted)."""
+    chain); only the chain is left out (counted).
+    """
     rows = []
     junk = src.execute(
         "SELECT id, series, decision, origin, tiles, aspect, chain, added FROM junk WHERE superseded IS NULL"
@@ -107,7 +109,8 @@ def bulk_rows(src, name):
 
 def logo_key(png, size, source):
     """A logo decision's key from a bulk-converter template PNG (marks.Template.key_text); SourceError when it is no
-    template or its size is not the recorded (w, h)."""
+    template or its size is not the recorded (w, h).
+    """
     try:
         template = marks.Template.from_png(png)
     except (OSError, ValueError) as e:
@@ -138,7 +141,8 @@ def record_rows(record):
     """Rows to upsert from a bulk-converter series record: schema 4 carries the decision rows its runs used
     (series.decisions.rows; a marks row names its template in series.decisions.templates); a schema-3 record carries
     none it can give (its decisions are in the store). Cut rows are left out and chains dropped, as in the store
-    import. RecordError on a malformed row."""
+    import. RecordError on a malformed row.
+    """
     if record["schema"] != record_reader.SCHEMA:
         return []
     block = record["series"]["decisions"]
@@ -172,7 +176,8 @@ def record_rows(record):
 
 def read_database(cfg, name):
     """(rows, skipped, seen) of another pipeline database on the server: its decisions with their deciders, times and
-    sources; its sightings are not read (seen None)."""
+    sources; its sightings are not read (seen None).
+    """
     if name == cfg["database"]["name"]:
         msg = f"{name} is this pipeline's own database"
         raise SourceError(msg)
@@ -194,7 +199,8 @@ IMPORTED_SEEN_AT = "1970-01-01T00:00:00+00:00"  # the bulk converter saw them be
 def bulk_seen(src):
     """junk_seen rows of a bulk-converter store's sightings of edge blocks, pages and bands: (series key, kind, key,
     chapter identity, IMPORTED_SEEN_AT, 'import'). The chapter is the identity of its archive name, as the baseline
-    names sources."""
+    names sources.
+    """
     rows = src.execute(  # an SQLite query: the kinds as 1 JSON array parameter
         """SELECT DISTINCT series, chapter, kind, tiles, aspect FROM junk_seen
         WHERE kind IN (SELECT value FROM json_each(?))""",
@@ -220,7 +226,8 @@ PLACES = sql.SQL(", ").join([sql.Placeholder()] * len(DECISION_COLUMNS))
 
 def read_store(path):
     """(rows, skipped, seen) of the bulk converter's junk store at `path`: its decisions, the rows not imported by
-    what, and its sightings."""
+    what, and its sightings.
+    """
     path = Path(path).resolve()
     with closing(snapshot(path)) as src:
         if not {"junk", "frames", "marks", "junk_seen"} <= tables(src):
@@ -238,7 +245,8 @@ def run(conn, source):
     """Rebuild the imported rows from source, (rows, skipped, seen) of read_store or read_database (module docstring).
     Returns {"added", "removed", "changed", "unchanged" (decisions, compared by key with the rows before),
     "pipeline_kept" (source rows left out because the pipeline decided their key), "seen" (imported sightings now),
-    "skipped": {what: count, "unsignable": rows on an unsignable key}}."""
+    "skipped": {what: count, "unsignable": rows on an unsignable key}}.
+    """
     rows, skipped, seen = source
     rows, unsignable = signable(winners(rows))
     skipped = {**skipped, "unsignable": unsignable}

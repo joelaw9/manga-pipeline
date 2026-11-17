@@ -11,7 +11,8 @@ Fixtures are tiny PNG crops of the real marks in "Akuyaku Kizoku to shite Hitsuy
   marks_scan_org                RESET-SCAN.ORG (ch15 p3)
   marks_screentone              RESET-SCAN.ORG on dark screentone (ch15 p11; ring refused)
 Each crop is pasted on a white 1200 x 1723 canvas (the pilot's page size), so the page is gray except for the badge.
-Synthetic pages (a solid badge on a 200 x 200 white page) pin the documented thresholds by hand calculation."""
+Synthetic pages (a solid badge on a 200 x 200 white page) pin the documented thresholds by hand calculation.
+"""
 
 import re
 
@@ -90,7 +91,8 @@ def solid(rgb, h=20, w=40, mask=None):
 @pytest.fixture(scope="module")
 def templates():
     """The templates of the 7 pilot crops, in NAMES order (immutable, shared by the module). Measuring the 7
-    1200x1723 pages takes ~0.1 s, charged to the first test that uses it: those tests carry a 0.5 s budget."""
+    1200x1723 pages takes ~0.1 s, charged to the first test that uses it: those tests carry a 0.5 s budget.
+    """
     return [mark_of(n)[1].template for n in NAMES]
 
 
@@ -429,7 +431,8 @@ K, GK = row(3, "keep", AK), row(4, "keep", "")
 )
 def test_a_keep_on_any_representative_wins(ds, keep):
     """A keep on any representative decides the variant, a global one too (plan L5: a candidate a decision covers
-    never leaves its variant undecided)."""
+    never leaves its variant undecided).
+    """
     assert marks.resolve(ds) == keep
 
 

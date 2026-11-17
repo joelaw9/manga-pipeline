@@ -111,7 +111,8 @@ def _gutters(uniform, step):
 
 def _nearest_gutter(gutters, naive, reach, h):
     """(the point nearest the naive cut, the gutter's rows rounded) of the gutters overlapping naive +- reach, or
-    None. A page's own top or bottom margin (a gutter at row 0 or the page end h) is no seam."""
+    None. A page's own top or bottom margin (a gutter at row 0 or the page end h) is no seam.
+    """
     lo, hi = naive - reach, naive + reach
     best = None
     for ys, ye in gutters:
@@ -124,7 +125,8 @@ def _nearest_gutter(gutters, naive, reach, h):
 
 def _nearest_seam(a, step, naive, reach, max_seam_score):
     """The analysis row within naive +- reach nearest the naive cut whose discontinuity (seam_score) is at least
-    max_seam_score, the higher score on a tie; None when there is none."""
+    max_seam_score, the higher score on a tie; None when there is none.
+    """
     lo, hi = naive - reach, naive + reach
     best = None
     for k in range(max(strip.SEAM_ROWS, int(lo / step)), min(len(a) - strip.SEAM_ROWS, int(hi / step) + 1) + 1):
@@ -137,7 +139,8 @@ def _nearest_seam(a, step, naive, reach, max_seam_score):
 def _band_cut(im, page_h, where, cfg):
     """Where to cut a band at `where` off a page whose own part is page_h tall: the gutter point nearest the naive
     cut within band_search of page_h (moved to the gutter edge's sharpest row when it is not the naive cut itself),
-    else the seam nearest it at full resolution; None when neither (never cut through art)."""
+    else the seam nearest it at full resolution; None when neither (never cut through art).
+    """
     w, h = im.size
     aw = cfg["analysis_width"]
     n = max(2 * strip.SEAM_ROWS + 2, round(h * aw / w))
@@ -163,7 +166,8 @@ def _band_cut(im, page_h, where, cfg):
 def _band(im, where, cut, cfg):
     """The band `cut` makes at `where`: {"where", "cut", "height", "how", "sig" (text), "box"}, or None when it is no
     band (it or what it leaves under band_min_px, a seam band under band_seam_min_px, its content without the
-    gutter rows uniform or without ink). Its signature is of its ink box."""
+    gutter rows uniform or without ink). Its signature is of its ink box.
+    """
     w, h = im.size
     box = (0, 0, w, cut.at) if where == "top" else (0, cut.at, w, h)
     height = box[3] - box[1]
@@ -187,7 +191,8 @@ def find_band(im, aspect, where, cfg: Mapping[str, float] = BAND):
     the naive cut within band_search of the page height, else at the strongest seam (seam_score >= max_seam_score)
     nearest it; none -> None (never cut through art). The band is at least band_min_px and not uniform; one under
     band_seam_min_px counts only when cut on a gutter. Its signature is of its ink box, without the gutter rows.
-    Returns {"where", "cut", "height", "how": "gap" | "seam", "sig" (text), "box"} or None (source px)."""
+    Returns {"where", "cut", "height", "how": "gap" | "seam", "sig" (text), "box"} or None (source px).
+    """
     w, h = im.size
     page_h = w * aspect
     if h <= page_h * (1 + cfg["band_tolerance"]):
@@ -232,7 +237,8 @@ def _unpack_edges(packed):
 def page_candidates(sizes, aspects, banded, joined, cfg=BAND):
     """Edge pages (of the content pages, `sizes` in order) whose size no middle page of the chapter has: another width
     ("width") or an aspect outside the middle pages' range ("tall" / "short"). Never: band pages, joined pages,
-    spreads. Returns [(content index, why)]."""
+    spreads. Returns [(content index, why)].
+    """
     if not sizes:
         return []
     shape = strip.series_shape(aspects)
@@ -265,7 +271,8 @@ def page_candidates(sizes, aspects, banded, joined, cfg=BAND):
 
 def end_text_page(sizes, texts, cfg=END_PAGES):
     """Content index of the last page when it is a credit page of the modal size, mostly plain, little mid-tone, some
-    colour, in a gray chapter (every other tail page under gray_chroma); else None. texts: {content index: features}."""
+    colour, in a gray chapter (every other tail page under gray_chroma); else None. texts: {content index: features}.
+    """
     n = len(sizes)
     if n < CREDIT_MIN_PAGES:
         return None
@@ -307,7 +314,8 @@ class _OnePage:
 
 def _edge_unit(i, im, uniform, *, tail):
     """An edge page's unit: {"page", "sig" (whole page; None when uniform), "frame" (None when uniform or the frame
-    has no content), "text" (text_features; tail pages only)}."""
+    has no content), "text" (text_features; tail pages only)}.
+    """
     f = frames.frame(im)
     unit = {
         "page": i,
@@ -321,7 +329,8 @@ def _edge_unit(i, im, uniform, *, tail):
 
 def _band_pages(names, content, csizes, shape, page):
     """{download index (text): page_bands} of the content pages with a band (strip.band_pages); csizes: the content
-    pages' sizes; page(i) decodes."""
+    pages' sizes; page(i) decodes.
+    """
     bands = {}
     for k in strip.band_pages([names[i] for i in content], csizes, shape):
         i = content[k]
@@ -333,7 +342,8 @@ def _band_pages(names, content, csizes, shape, page):
 
 def _page_rows(i, im, found, size):
     """{_box_key: packed edge rows} of a content page, whole and as each crop of its bands `found` leaves it: slice
-    repair runs on the pages decisions keep, cropped where cropped."""
+    repair runs on the pages decisions keep, cropped where cropped.
+    """
     rows = {_box_key(i, None): _pack_edges(strip.edge_rows(im))}
     for box in _crop_boxes(found, size):
         rows[_box_key(i, box)] = _pack_edges(strip.edge_rows(im.crop(tuple(box))))
@@ -343,7 +353,8 @@ def _page_rows(i, im, found, size):
 def scan(paths, names, sizes, uniform, aspects):
     """The scan of a page-format chapter. paths, names, sizes: every page of the download in archive order;
     uniform: per page, True when it has no junk signature (images.measure_pages); aspects: the series' page aspect
-    candidates (strip.page_aspect). Returns a JSON-able dict; page indexes are download indexes."""
+    candidates (strip.page_aspect). Returns a JSON-able dict; page indexes are download indexes.
+    """
     content = strip.content_indexes(names)
     csizes = [sizes[i] for i in content]
     if strip.is_stitched(csizes, aspects):
@@ -400,7 +411,8 @@ def _crop_boxes(found, size):
 
 def page_decision(unit, decide_unit):
     """The row deciding an edge page from its whole-page signature (page decisions) and its frame (frame decisions):
-    the first in lookup order (store.in_lookup_order), the page's on a tie; None when neither decides."""
+    the first in lookup order (store.in_lookup_order), the page's on a tie; None when neither decides.
+    """
     page = decide_unit("page", unit["sig"]) if unit["sig"] else None
     frame = decide_unit("frame", unit["frame"]) if unit["frame"] else None
     hits = [r for r in (page, frame) if r is not None]
@@ -409,7 +421,8 @@ def page_decision(unit, decide_unit):
 
 class _EdgePass(NamedTuple):
     """What decisions make of the edge pages: the pages dropped as junk, the pages a frame decision covers, and
-    {page: edge unit} of the signed ones no decision covers."""
+    {page: edge unit} of the signed ones no decision covers.
+    """
 
     drops: set[int]
     framed: set[int]
@@ -442,7 +455,8 @@ def _white_ends(rest, white):
 
 class _BandPass(NamedTuple):
     """What band decisions make of the band pages: {page: kept box} of the cropped ones, the undecided band units,
-    the pages with a signable band, and the pages whose junk bands would leave almost nothing (kept whole)."""
+    the pages with a signable band, and the pages whose junk bands would leave almost nothing (kept whole).
+    """
 
     crops: dict[int, list[int]]
     units: list[dict]
@@ -463,7 +477,8 @@ def _band_unit(i, b):
 
 def _band_pass(bands, sizes, skip, decide_unit):
     """The band decisions on the band pages (scan "bands") but those in `skip` (dropped or framed). An unsignable
-    band is no band (no decision could be written on it): the page is judged as a page."""
+    band is no band (no decision could be written on it): the page is judged as a page.
+    """
     crops, units, banded, too_much = {}, [], set(), set()
     for key, listed in bands.items():
         i = int(key)
@@ -490,7 +505,8 @@ def _band_pass(bands, sizes, skip, decide_unit):
 
 def _joins(keep, sizes, crops, rows):
     """Slice repair over the kept pages (in order), cropped where cropped: [[page, sliver]] of the joins it makes.
-    rows: the scan's packed edge rows."""
+    rows: the scan's packed edge rows.
+    """
     ksizes = [(crops[i][2] - crops[i][0], crops[i][3] - crops[i][1]) if i in crops else sizes[i] for i in keep]
     edges = {
         j: _unpack_edges(rows[_box_key(keep[j], crops.get(keep[j]))])
@@ -502,7 +518,8 @@ def _joins(keep, sizes, crops, rows):
 
 def _reasons(sc, banded, joined):
     """{page: [reason]}: the per-chapter candidate reasons of a scan's edge pages (SPEC "Junk decisions",
-    candidates): size, else text (end_text_page; never a banded or joined page)."""
+    candidates): size, else text (end_text_page; never a banded or joined page).
+    """
     content = sc["content"]
     position = {i: k for k, i in enumerate(content)}
     csizes = [tuple(sc["sizes"][i]) for i in content]
@@ -522,7 +539,8 @@ def _reasons(sc, banded, joined):
 
 def decide(sc, decide_unit):
     """Apply decisions to a page-format scan. decide_unit(kind, key text) -> the deciding row or None. Returns
-    {"edit": the page-layout keys of the chapter edit, "undecided": [{"kind", "key", "page", "where"?, "reasons"}]}."""
+    {"edit": the page-layout keys of the chapter edit, "undecided": [{"kind", "key", "page", "where"?, "reasons"}]}.
+    """
     if sc["split"]:
         return {"edit": {"split": True, "drop_pages": [], "bands": [], "join": []}, "undecided": []}
     content, sizes = sc["content"], [tuple(s) for s in sc["sizes"]]

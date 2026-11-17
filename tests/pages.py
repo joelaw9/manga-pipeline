@@ -1,5 +1,6 @@
 """Page, CBZ and ComicInfo builders: synthetic stand-ins for what the library holds (no real pages are copied).
-Copied from the bulk converter's tests/fixtures.py; PAGE_FIX holds tiny ICC profiles taken from real pages."""
+Copied from the bulk converter's tests/fixtures.py; PAGE_FIX holds tiny ICC profiles taken from real pages.
+"""
 
 import io
 import zipfile
@@ -29,7 +30,8 @@ def webtoon_page(size=(800, 2400), seed=0):
 
 def manga_page(size=(900, 1300), seed=0, noise=0.0):
     """B&W manga page: halftone screentone, ink lines, white gutters; optional scan noise. RGB-encoded like most
-    scans."""
+    scans.
+    """
     y, x = np.ogrid[0 : size[1], 0 : size[0]]
     dots = ((x % 6 - 3) ** 2 + (y % 6 - 3) ** 2) < 5
     a = np.where(dots, 30, 245).astype(np.float32)
@@ -126,7 +128,8 @@ def credit(size=(200, 150)):
 
 def warning_banner(width=600, height=240):
     """Scanlator WARNING band (Thunder Scans style): dark block with yellow text bars, identical in every chapter.
-    Shaded across x so no row of it is uniform: where it meets the art directly there is no gutter to find."""
+    Shaded across x so no row of it is uniform: where it meets the art directly there is no gutter to find.
+    """
     a = np.empty((height, width, 3), np.uint8)
     a[:] = np.linspace(20, 90, width).astype(np.uint8)[None, :, None]
     for k, y in enumerate(range(20, height - 20, 36)):

@@ -24,7 +24,8 @@ class LockHeld(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: th
 def held(conn, cfg, names, idle=None):
     """Hold the named locks, and IDLE in mode idle (SHARED, EXCLUSIVE or None), for the block when lock.enabled.
     All or nothing: when another session holds one, the ones already taken are freed and LockHeld names the held
-    one, at once."""
+    one, at once.
+    """
     if idle not in (None, SHARED, EXCLUSIVE):
         msg = f"idle must be {SHARED!r}, {EXCLUSIVE!r} or None, got {idle!r}"
         raise ValueError(msg)
@@ -53,7 +54,8 @@ def held(conn, cfg, names, idle=None):
 
 def held_sql(name):
     """Whether some session holds the run lock `name` exclusive in this database, in SQL; name is the SQL expression
-    (a Composable) giving the lock's name: sql.Placeholder() for a parameter, sql.Identifier for a column."""
+    (a Composable) giving the lock's name: sql.Placeholder() for a parameter, sql.Identifier for a column.
+    """
     return sql.SQL("""EXISTS (SELECT 1 FROM pg_locks l
     WHERE l.locktype = 'advisory' AND l.granted AND l.mode = 'ExclusiveLock' AND l.objsubid = 2
         AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())

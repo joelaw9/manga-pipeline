@@ -1,5 +1,6 @@
 """The junk stage's library-copy check (SPEC "Library copies"): a chapter the series already has published is a
-duplicate, a better copy (which takes its file: test_better_copies), or doubtful."""
+duplicate, a better copy (which takes its file: test_better_copies), or doubtful.
+"""
 
 import io
 import json

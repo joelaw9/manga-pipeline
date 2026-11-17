@@ -1,5 +1,6 @@
 """A test world for the passthrough: an adopted site, a FakeSuwayomi over its downloads, a FakeKavita over its library,
-and builders for bulk-converted series, Suwayomi manga and complete downloads."""
+and builders for bulk-converted series, Suwayomi manga and complete downloads.
+"""
 
 import hashlib
 import io
@@ -27,7 +28,8 @@ LIBRARY_ID = 4  # tests/test_config.yaml kavita.library_id
 
 def credit_page(seed=""):
     """A noisy page wider than fake pages, but no spread (PNG bytes): in a page-format chapter it is a junk candidate
-    by its size, so the chapter waits on junk_decision until the candidate is decided."""
+    by its size, so the chapter waits on junk_decision until the candidate is decided.
+    """
     rng = np.random.default_rng(zlib.crc32(f"credit {seed}".encode()))
     out = io.BytesIO()
     Image.fromarray(rng.integers(0, 256, (24, 28, 3), dtype=np.uint8)).save(out, "PNG")
@@ -36,7 +38,8 @@ def credit_page(seed=""):
 
 def cbz(pages=3, comicinfo=None, seed="", *, credit=False):
     """A small CBZ: `pages` small page images whose colour carries seed (other seed = other content), then a credit
-    page when `credit` (credit_page: the same in every chapter), and a ComicInfo.xml when given (bytes or str)."""
+    page when `credit` (credit_page: the same in every chapter), and a ComicInfo.xml when given (bytes or str).
+    """
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
         for n in range(1, pages + 1):
@@ -50,8 +53,8 @@ def cbz(pages=3, comicinfo=None, seed="", *, credit=False):
 
 def logo_page(badge="marks_scans_plain.png", size=(1200, 1800), at=(100, 100)):
     """A white page (PNG bytes) with a real scanlator badge crop (tests/fixtures_pages) pasted at `at`: a gray-mark
-    page. 1200 x 1800 has the fake pages' aspect, so it is no other page size."""
-
+    page. 1200 x 1800 has the fake pages' aspect, so it is no other page size.
+    """
     im = Image.new("RGB", size, "white")
     im.paste(Image.open(PAGE_FIX / badge).convert("RGB"), at)
     out = io.BytesIO()
@@ -61,7 +64,8 @@ def logo_page(badge="marks_scans_plain.png", size=(1200, 1800), at=(100, 100)):
 
 def logo_cbz(seed="", badge="marks_scans_plain.png", pages=8, at=3):
     """A page-format CBZ of `pages` fake pages whose download page `at` is a logo_page: a middle page, its badge away
-    from the page's top and bottom (there it would also be a band), so the badge is the chapter's only junk unit."""
+    from the page's top and bottom (there it would also be a band), so the badge is the chapter's only junk unit.
+    """
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
         for n in range(pages):
@@ -95,7 +99,8 @@ BULK = (("Ch.1.cbz", "Grp_Chapter 1", "1"),)  # a Kavita series' bulk chapters u
 
 def bulk_record(series_name, kavita_id, chapters, layout="pages", basis="none", *, covers=None):  # noqa: PLR0913  # 1 record's varied fields
     """A valid finished .optimizer.json: chapters = [(output, source file, number, source bytes[, volume])]; basis:
-    its series.naming.basis (where a new chapter's volume comes from); covers: {volume: output holding its cover}."""
+    its series.naming.basis (where a new chapter's volume comes from); covers: {volume: output holding its cover}.
+    """
     volume_covers = {str(v): {"chapter": o, "url": f"https://covers/{v}", "sha256": "0" * 64}
                      for v, o in (covers or {}).items()}  # fmt: skip
     sources, rows = [], []
@@ -167,7 +172,8 @@ class World:
 
     def run(self, part_module):
         """Run a part (intake, process or export module) as cli.main and its run() do: under its run lock and the
-        shared idle lock, with the world's fakes."""
+        shared idle lock, with the world's fakes.
+        """
         part = part_module.__name__.rsplit(".", 1)[1]
         with closing(db.connect(self.cfg)) as conn, lock.held(conn, self.cfg, [workflow.owner(part)], lock.SHARED):
             workflow.run_part(self.context(conn, part), part_module.work)
@@ -175,7 +181,8 @@ class World:
     def kavita_series(self, name, folder=None, *, bulk=BULK, basis="none", layout="pages", **names):
         """A series Kavita holds in <library>/<folder or name> with bulk-converted chapters [(output, source file
         stem, number[, volume])] and its .optimizer.json (bulk_record's basis and layout). Returns the Kavita series
-        id."""
+        id.
+        """
         folder = folder or name
         series_id, chapters = self._library_series(name, folder, bulk, names)
         self.write_record(folder, bulk_record(name, series_id, chapters, layout=layout, basis=basis))
@@ -187,7 +194,8 @@ class World:
 
     def _library_series(self, name, folder, bulk, names):
         """The bulk chapters written into <library>/<folder> and the series added to Kavita: (Kavita series id,
-        [(output, source file, number, bytes[, volume])])."""
+        [(output, source file, number, bytes[, volume])]).
+        """
         path = self.library / folder
         path.mkdir(parents=True, exist_ok=True)
         chapters = []
@@ -208,7 +216,8 @@ class World:
 
     def download(self, manga_id, name, scanlator=None, data=None, *, settled=True):
         """A chapter of the manga whose CBZ is in the downloads folder, flagged downloaded; settled (modified long
-        enough ago for intake to take it) unless settled=False. Returns (Suwayomi chapter id, path)."""
+        enough ago for intake to take it) unless settled=False. Returns (Suwayomi chapter id, path).
+        """
         chapter_id = self.suwayomi.add_chapter(manga_id, name, scanlator)
         path = self.suwayomi.path(chapter_id)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -238,7 +247,8 @@ class World:
 
 def fakes_from(path):
     """(FakeSuwayomi, FakeKavita) of a dumped world. The FakeKavita indexes every CBZ now in each series' folder: a
-    process started later sees the scans of the runs before it as done."""
+    process started later sees the scans of the runs before it as done.
+    """
     world = json.loads(path.read_text(encoding="utf-8"))
     suwayomi = FakeSuwayomi(world["mangas_root"])
     suwayomi.source_rows = world["suwayomi"]["sources"]

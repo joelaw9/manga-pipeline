@@ -95,7 +95,8 @@ def same_variant(a, b):
 
 def cluster(templates):
     """Group templates into variants (single link: a template joins every group holding a match). Each group is a
-    sorted list of indices into `templates`; groups are ordered by their first index."""
+    sorted list of indices into `templates`; groups are ordered by their first index.
+    """
     groups = []
     for i, t in enumerate(templates):
         joined = [g for g in groups if any(same_variant(templates[k], t) for k in g)]
@@ -107,7 +108,8 @@ def cluster(templates):
 def representatives(templates):
     """A covering subset of one variant's templates, in order: every template matches at least one of them
     (same_variant(representative, template), the direction Library.decision tests). What a review decision records:
-    deciding these decides every member, in a few rows instead of one per page."""
+    deciding these decides every member, in a few rows instead of one per page.
+    """
     reps = []
     for t in templates:
         if not any(same_variant(r, t) for r in reps):
@@ -124,7 +126,8 @@ def _pad(box, shape, n):
 
 def ring_stats(rgb, box):
     """(fill, frac) of the RING px frame around `box`: its per-channel median colour and the share of its pixels
-    within RING_TOL of that median on every channel. A frame with no pixels gives frac 0."""
+    within RING_TOL of that median on every channel. A frame with no pixels gives frac 0.
+    """
     a = np.asarray(rgb)
     x0, y0, x1, y1 = _pad(box, a.shape, RING)
     inside = np.ones((y1 - y0, x1 - x0), dtype=bool)
@@ -152,7 +155,8 @@ class Mark:
 
 def _solid(counts):
     """(start, stop) of the profile entries holding at least EDGE_FRAC of the peak: JPEG chroma noise leaves sparse
-    strong pixels outside the badge, which would otherwise stretch its box."""
+    strong pixels outside the badge, which would otherwise stretch its box.
+    """
     keep = np.nonzero(counts >= EDGE_FRAC * counts.max())[0]
     return int(keep[0]), int(keep[-1]) + 1
 
@@ -161,7 +165,8 @@ def measure(rgb, bbox):
     """The Mark inside Part B's gray-mark box (formats.gray_mark_box), or None when no pixel in it is strongly
     coloured, or none is left inside the solid rows x solid columns (a faint mark: nothing to template or blank; it
     only goes gray). The rows and columns are trimmed separately, so scattered specks can leave an empty overlap
-    (Before the Real Heroine Steps In, Eva_Chapter 52 p031)."""
+    (Before the Real Heroine Steps In, Eva_Chapter 52 p031).
+    """
     a = np.asarray(rgb)
     x0, y0, x1, y1 = bbox
     sub = a[y0:y1, x0:x1].astype(np.int16)
@@ -184,7 +189,8 @@ def measure(rgb, bbox):
 def resolve(rows):
     """A logo variant's deciding row from its representatives' deciding rows (store lookups; None = undecided): a keep
     on any representative wins, else a junk on any, else None (undecided). The bulk converter counted only series
-    keeps; a global keep counts here too, so a candidate a decision covers never leaves its variant undecided."""
+    keeps; a global keep counts here too, so a candidate a decision covers never leaves its variant undecided.
+    """
     keeps = [r for r in rows if r is not None and r["verdict"] == "keep"]
     if keeps:
         return keeps[0]

@@ -1,5 +1,6 @@
 """`junk review` with a fake claude (SPEC "Junk decisions", review; "CLI" exit codes): what Claude's process gets,
-when Claude is started at all, and how reviews are counted."""
+when Claude is started at all, and how reviews are counted.
+"""
 
 import json
 import os
@@ -179,7 +180,8 @@ def test_review_checks_need_claude_and_its_token(tmp_path):
 
 def _review_hiding_the_token(world, tmp_path, capsys, monkeypatch, reply):
     """Run a review whose Claude replies `reply`; assert the token is in neither the log nor the output; its exit
-    code."""
+    code.
+    """
     monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "DEBUG")
     token = "tok-SECRET-4711"
     cfg = {**world.cfg, "junk": {**world.cfg["junk"], "claude_token": token}}

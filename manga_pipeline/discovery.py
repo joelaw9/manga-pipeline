@@ -21,7 +21,8 @@ def scan(ctx: workflow.Context):
     """Record each new settled download as a chapter. A manga folder that cannot be listed is not taken (`_list`);
     any other folder that cannot be read raises its OSError (the caller
     decides whether the share is unreachable); an unreachable service raises Unreachable before anything is written
-    but the series rows identification settled."""
+    but the series rows identification settled.
+    """
     root = config.abs_path(ctx.cfg["paths"]["downloads"]) / suwayomi.MANGAS_FOLDER
     held = _held(ctx)
     listed, unlistable = _list(root)
@@ -61,7 +62,8 @@ def scan(ctx: workflow.Context):
 
 def _settled(path, settled_by):
     """Whether the file was last modified at or before settled_by (SPEC "Suwayomi": a file still being written is
-    skipped); a file gone since the listing is not."""
+    skipped); a file gone since the listing is not.
+    """
     try:
         return path.stat().st_mtime <= settled_by
     except FileNotFoundError as e:
@@ -72,7 +74,8 @@ def _settled(path, settled_by):
 
 def _held(ctx: workflow.Context):
     """The paths open chapters hold: their downloads, the re-downloads they expect and the rejected copies they are
-    still removing (SPEC "Bad downloads"). Such a file is never a new chapter and never listed as not taken."""
+    still removing (SPEC "Bad downloads"). Such a file is never a new chapter and never listed as not taken.
+    """
     rows = ctx.conn.execute(
         """SELECT download_path FROM chapter WHERE status != 'done' AND download_path IS NOT NULL
         UNION SELECT redownload::jsonb #>> '{expected,path}' FROM chapter
@@ -89,7 +92,8 @@ def _list(root):
     A manga folder that cannot be listed (a name Samba cannot show Windows, e.g. one holding "?") is not taken, and the
     rest is listed; a manga folder gone since its source was listed is skipped. Any other folder that cannot be read
     raises, as does a manga folder's share error (SHARE_ERRNOS) or any error once the root itself cannot be read.
-    Never Path.glob: it swallows the OSError of a folder it cannot read."""
+    Never Path.glob: it swallows the OSError of a folder it cannot read.
+    """
     folders, unlistable = {}, []
     for source in _entries(root, dirs=True):
         for title in _entries(Path(root, source), dirs=True):

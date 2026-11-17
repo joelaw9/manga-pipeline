@@ -1,6 +1,7 @@
 """The entry point runs each command in its row of the command table: config (with env and --set), its locks, its log
 file, its preflight checks, its handler; a bad config is a usage error, a held lock exits 3, a hard preflight problem
-exits 4 (SPEC "CLI", "Run lock", "Logging", "Preflight")."""
+exits 4 (SPEC "CLI", "Run lock", "Logging", "Preflight").
+"""
 
 import dataclasses
 import errno
@@ -88,7 +89,8 @@ def reset_logging():
 @pytest.fixture
 def site(tmp_path):
     """--set items giving a run its own folders under tmp_path, with the staging folder present (the share is
-    mounted) and no owner file yet."""
+    mounted) and no owner file yet.
+    """
     (tmp_path / "share" / "staging").mkdir(parents=True)
     (tmp_path / "share" / "downloads" / "mangas").mkdir(parents=True)
     (tmp_path / "share" / "retention").mkdir()

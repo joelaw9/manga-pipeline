@@ -36,7 +36,8 @@ def normalize(name):
     else (spaces, punctuation, combining marks, other digits), then lower-case. No Unicode folding (NFKC, casefold). As
     .NET does: a letter above U+FFFF is a UTF-16 surrogate pair, not \\p{L}, so it is dropped; each character is lowered
     on its own (never the whole string: Python lowers a final capital sigma to "ς" by context), and what lowering adds
-    is filtered again ("İ" lowers to "i" + a combining dot: "i")."""
+    is filtered again ("İ" lowers to "i" + a combining dot: "i").
+    """
     return "".join(low for c in name or "" if _kept(c) for low in c.lower() if _kept(low))
 
 
@@ -53,7 +54,8 @@ def off_names(series_values, kavita_names):
 
 def series_values(comicinfos):
     """The values the name guard (off_names) checks in these ComicInfo field dicts: every Series (a missing one as
-    None, so it is caught) and every LocalizedSeries written (Kavita's scanner matches on both)."""
+    None, so it is caught) and every LocalizedSeries written (Kavita's scanner matches on both).
+    """
     return [ci.get("Series") for ci in comicinfos] + [
         ci["LocalizedSeries"] for ci in comicinfos if ci.get("LocalizedSeries")
     ]
@@ -62,7 +64,8 @@ def series_values(comicinfos):
 def series_titles(kseries):
     """(ComicInfo Series, LocalizedSeries) of a series: Kavita's Name, and its LocalizedName when that normalizes
     (normalize) to another name, else None. Kavita is the master: the files' own Series is never kept.
-    A series without a Kavita Name (unmatched: the plan skips it at S0 before naming) raises."""
+    A series without a Kavita Name (unmatched: the plan skips it at S0 before naming) raises.
+    """
     name = (kseries or {}).get("name")
     if not name:
         msg = "naming: no Kavita series Name: ComicInfo Series follows Kavita's Name"
@@ -79,7 +82,8 @@ def is_archive(name):
 
 def relevant(series, root):
     """Series that can hold files under `root`: lowestFolderPath inside it, or an ancestor of it
-    (a series spanning folders has the common parent, up to the library root)."""
+    (a series spanning folders has the common parent, up to the library root).
+    """
     low = (series.get("lowestFolderPath") or "").rstrip("/")
     return bool(low) and (low == root or low.startswith(root + "/") or root.startswith(low + "/"))
 
@@ -95,7 +99,8 @@ def match_folders(root, folder_files, series, volumes_by_series, comicinfo_serie
     series: every Kavita series of the library (names for candidates);
     volumes_by_series: {series id: /api/Series/volumes result}, needed for the `relevant` ones only.
     comicinfo_series: {folder name: set of ComicInfo Series values}, used for unmatched candidates.
-    Returns {folder name: record}; folder paths in it are Kavita paths."""
+    Returns {folder name: record}; folder paths in it are Kavita paths.
+    """
     root = root.rstrip("/")
     by_id = {s["id"]: s for s in series}
     owner = {}  # Kavita file path -> series id

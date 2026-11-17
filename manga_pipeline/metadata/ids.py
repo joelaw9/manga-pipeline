@@ -82,7 +82,8 @@ def _pair(source, value):
 
 def suwayomi_ids(manga):
     """Ids of a Suwayomi manga: its AniList and MangaUpdates tracker records, and the MangaDex id of a MangaDex
-    source's manga URL ("/title/<uuid>")."""
+    source's manga URL ("/title/<uuid>").
+    """
     found = []
     for record in manga["trackRecords"]["nodes"]:
         source = {TRACKER_ANILIST: "anilist", TRACKER_MANGAUPDATES: "mangaupdates"}.get(record["trackerId"])
@@ -140,7 +141,8 @@ def anilist_ids(media):
 
 def resolve(rows):
     """rows: (source, origin, id) of 1 series. Returns ({source: id}, problem): the agreed id per source, and None,
-    or the disagreement as text. A `human` id is the source's id whatever the other origins hold."""
+    or the disagreement as text. A `human` id is the source's id whatever the other origins hold.
+    """
     by_source = {}
     for source, origin, value in dict.fromkeys(rows):
         by_source.setdefault(source, []).append((origin, value))

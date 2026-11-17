@@ -62,7 +62,8 @@ def row(test_id, seconds, tag):
 
 def report(rows, out, path, *, check_budgets=True):
     """Print the slowest tests, over-budget tests and untagged tests; write all rows to path as JSON. Budgets are set
-    for a serial run: with check_budgets False (a parallel run) the over-budget list is not printed."""
+    for a serial run: with check_budgets False (a parallel run) the over-budget list is not printed.
+    """
     rows = sorted(rows, key=lambda r: r["seconds"], reverse=True)
     total = sum(r["seconds"] for r in rows)
     out.write(f"\nTiming: {len(rows)} tests, {total:.1f}s total\n")

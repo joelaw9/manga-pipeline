@@ -91,7 +91,8 @@ def test_newest_decision_wins_within_its_rank(conn):
 @pytest.mark.parametrize("decider", ["claude", "import"])
 def test_a_newer_junk_of_one_key_does_not_beat_an_older_keep_of_another(conn, decider):
     """Unit x is within the match distance of both b and a (b and a are not of each other): keep b, then junk a:
-    x stays kept (matching is not transitive; keeps first, the bulk converter's rule)."""
+    x stays kept (matching is not transitive; keeps first, the bulk converter's rule).
+    """
     bits = (1 << images.PHASH_THRESHOLD) - 1
     b, x, a = T, T ^ bits, T ^ bits ^ (bits << images.PHASH_THRESHOLD)
     put(
@@ -317,7 +318,8 @@ def test_a_decision_the_bulk_converter_deleted_or_changed_is_followed(conn, tmp_
 @budget(load="db")
 def test_the_logo_import_is_rebuilt_and_leaves_pipeline_logo_decisions(conn, tmp_path):
     """A mark the bulk converter deleted disappears, a changed one changes, a logo decision the pipeline made on a
-    store mark's key survives every rebuild (the source row is left out)."""
+    store mark's key survives every rebuild (the source row is left out).
+    """
     store_path = tmp_path / "junk.sqlite3"
     bulk_store(store_path).close()
     importing.run(conn, importing.read_store(store_path))
@@ -628,7 +630,8 @@ def test_the_rest_of_a_block_whose_edge_piece_is_junk_is_offered(conn):
 @budget(load="db")
 def test_a_band_on_page_2_recurs_with_page_1_bands_of_other_chapters(conn):
     """Akuyaku ch12/13 carry a band on page 2, ch14/15 on page 1: sightings name no page, so 1 band candidate for
-    its recurrence in 4 chapters."""
+    its recurrence in 4 chapters.
+    """
     band = sig((flip(T, 33),), 3.2)
     with db.transaction(conn):
         candidates.write_seen(
@@ -705,7 +708,8 @@ FLAT = 0  # the pHash tile of a uniform image (images.uniform_tiles)
 @budget(load="db")
 def test_a_unit_with_an_unsignable_key_matches_no_decision_and_is_near_none(conn):
     """A junk decision within the match tolerance of a flat image decides a signable unit as near, never a flat
-    one: that key would stand for any blank or flat rows."""
+    one: that key would stand for any blank or flat rows.
+    """
     put(conn, decision("S", "block", sig((flip(FLAT, 3),)), "junk"))
     decisions = store.Decisions(conn, "S")
     assert decisions.decide("block", ((flip(FLAT, 4),), 1.0)) is not None, "a signable unit within reach is decided"
@@ -746,7 +750,8 @@ def test_an_unsignable_unit_is_never_offered_nor_a_blocks_unsignable_probe(conn)
 def test_a_unit_matching_a_decided_candidate_but_no_decision_gets_its_own_candidate(conn):
     """Matching is not transitive: candidate T is covered by a decision 6 bits away on one side, the unit is 6 bits
     away on the other (12 from the decision). Joining the closed candidate would end the chapter's wait at once and
-    start it again, for ever."""
+    start it again, for ever.
+    """
     unit = sig((T ^ (0b111111 << 6),))
     pick = {"kind": "block", "key": sig(), "reason": "r", "folder": "f-old"}
     with db.transaction(conn):
@@ -759,7 +764,6 @@ def test_a_unit_matching_a_decided_candidate_but_no_decision_gets_its_own_candid
 
 def schema_without(tmp_path, monkeypatch, step):
     """db.SCHEMA replaced by a copy without `step` (monkeypatch.undo() brings the program's back)."""
-
     before = tmp_path / "schema"
     shutil.copytree(db.SCHEMA, before)
     (before / step).unlink()

@@ -1,6 +1,7 @@
 """db: the login and its settings, schema steps applied once each in name order, an unknown step refused, the write
 lock, read_only's 1 snapshot, rows that read as sqlite3.Row does (SPEC "State", "Config"); and the test harness's
-databases (SPEC "Tests")."""
+databases (SPEC "Tests").
+"""
 
 import os
 import secrets

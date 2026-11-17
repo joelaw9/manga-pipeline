@@ -1,5 +1,6 @@
 """Test pages and chapters for the convert tests: synthetic colour and gray pages as JPEG / PNG / WebP bytes, a CBZ of
-them, its extraction and measurement, and a plan of it (convert.plan.build)."""
+them, its extraction and measurement, and a plan of it (convert.plan.build).
+"""
 
 import io
 from concurrent.futures import ThreadPoolExecutor

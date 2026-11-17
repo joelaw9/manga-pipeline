@@ -77,7 +77,8 @@ FAKE_TOOL_VERSIONS = {"avifenc": "fake", "avifdec": "fake", "jpegtran": "fake", 
 
 def install(patch):
     """Put the fakes in place (patch(target, name, value), e.g. monkeypatch.setattr) and create the tool files the
-    config names, so the "image tools" preflight check passes."""
+    config names, so the "image tools" preflight check passes.
+    """
     for name in (*tools.NAMES, "vship"):
         path = config.abs_path(config.cached()["tools"][name])
         path.parent.mkdir(parents=True, exist_ok=True)

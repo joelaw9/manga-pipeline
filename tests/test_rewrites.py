@@ -1,6 +1,7 @@
 """Retroactive rewrites (SPEC "Retroactive updates"): a published file whose volume should change is rewritten in
 place (renamed when its name holds the volume), never re-encoded, with the Kavita series id and the reader's progress
-kept; queued on its file's row, finished step by step by export, restored once Kavita has re-read it."""
+kept; queued on its file's row, finished step by step by export, restored once Kavita has re-read it.
+"""
 
 import io
 import os
@@ -27,7 +28,8 @@ def world(tmp_path):
 
 def library(world):
     """A Kavita series with 2 bulk chapters (Vol.1 Ch.1, Vol.1 Ch.2, their ComicInfo as the bulk converter wrote it)
-    and chapter 3 published by the pipeline with no volume (Ch.3.cbz), all confirmed. Returns the Kavita id."""
+    and chapter 3 published by the pipeline with no volume (Ch.3.cbz), all confirmed. Returns the Kavita id.
+    """
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", "1"))
     kid = world.kavita_series(SERIES, bulk=bulk, basis="filename")
     for name, number in (("Vol.1 Ch.1.cbz", 1), ("Vol.1 Ch.2.cbz", 2)):
@@ -59,7 +61,8 @@ def override(world, volumes):
 
 def scan(world):
     """The next export requests a library scan (the last request older than kavita.rescan_after_minutes, SPEC
-    "Publishing"), and Kavita runs it."""
+    "Publishing"), and Kavita runs it.
+    """
     world.rows("UPDATE meta SET value = '2000-01-01T00:00:00+00:00' WHERE key = %s RETURNING key", export.REQUESTED_AT)
     world.run(export)
     world.kavita.run_scans()

@@ -1,5 +1,6 @@
 """The status command (SPEC "CLI", "Needs human"): what is where, what waits and on what, and what needs a human.
-Read-only: it never creates, migrates or writes the database."""
+Read-only: it never creates, migrates or writes the database.
+"""
 
 import json
 from contextlib import closing

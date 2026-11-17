@@ -1,6 +1,7 @@
 """ComicInfo v2.1 (comicinfo; SPEC "Metadata", "Publishing"): what Suwayomi writes vs what the metadata stage writes,
 every violation kind the validator reports, the value types, `field_ok`, `read_fields`, `read_all` and `build`. Ported
-from the bulk converter's tests/test_comicinfo.py."""
+from the bulk converter's tests/test_comicinfo.py.
+"""
 
 import xml.etree.ElementTree as ET
 
@@ -22,7 +23,8 @@ def doc(body):
 @pytest.fixture
 def part_one():
     """A built ComicInfo with Kavita's LocalizedSeries extension, BlackAndWhite, ScanInformation and full Page
-    entries (A Fairytale for the Demon Lord, part 1)."""
+    entries (A Fairytale for the Demon Lord, part 1).
+    """
     fields = {
         "Series": "A Fairytale for the Demon Lord",
         "LocalizedSeries": "Mawangeul Wihan Donghwa",

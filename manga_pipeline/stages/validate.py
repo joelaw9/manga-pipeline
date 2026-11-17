@@ -57,7 +57,8 @@ def run(ctx: workflow.Context, chapter):
 
 def _prerequisites(ctx: workflow.Context, chapter):
     """The wait of a chapter whose series lacks what its names and covers need, else None: the baseline of a series
-    Kavita holds (bulk_conversion while its record cannot be read), then a completed metadata check."""
+    Kavita holds (bulk_conversion while its record cannot be read), then a completed metadata check.
+    """
     series = _series(ctx, chapter)
     if baseline.needed(ctx.conn, series):
         why = baseline.take(ctx, series)
@@ -79,7 +80,8 @@ def _first_choice(ctx: workflow.Context, chapter, state):
 
 def _next_download(ctx: workflow.Context, chapter, state):
     """Queue the next download, the one chosen with chapter use else the next pick, and wait on it; the pick's outcome
-    when it gives none, needs_human for a refused choice."""
+    when it gives none, needs_human for a refused choice.
+    """
     if state["chosen"] is not None:
         found = _chosen(ctx, chapter, state["chosen"])
     else:
@@ -93,7 +95,8 @@ def _next_download(ctx: workflow.Context, chapter, state):
 def _chosen(ctx: workflow.Context, chapter, chapter_id):
     """The Suwayomi chapter chosen with chapter use as a target, marked chosen; needs_human when it does not exist or
     is another open chapter's download (a refused choice stays recorded: retry clears it, another chapter use replaces
-    it)."""
+    it).
+    """
     found = redownload.target(ctx, chapter_id)
     if found is None:
         return workflow.NeedsHuman("the Suwayomi chapter chosen with chapter use does not exist")
@@ -147,7 +150,8 @@ def _check(ctx: workflow.Context, chapter, path):
 
 def _file_key(path):
     """(season, side label, number) of a download as discover reads it: its name, numbered by its ComicInfo Number
-    when the name has none."""
+    when the name has none.
+    """
     return validation.chapter_key(names.identity(names.parse(Path(path).stem, comicinfo.download_number(path))))
 
 
@@ -157,7 +161,8 @@ def _series(ctx: workflow.Context, chapter):
 
 def _reject(ctx: workflow.Context, chapter, state, copy, why):
     """Record a rejected copy (a target: {source, chapter_id, path}) and queue its removal; the state and the handled
-    chapter land in 1 transaction."""
+    chapter land in 1 transaction.
+    """
     digest = archive.digest_or_none(config.to_local(ctx.cfg, copy["path"]))
     queued = copy["path"] != chapter["download_path"]  # an expected download, not the file discovered
     state["defect"] = state["defect"] or why
@@ -207,7 +212,8 @@ def _candidate(ctx: workflow.Context, chapter, state):
 
 def _done(ctx: workflow.Context, chapter, verdict, adopted=None):
     """Done with the verdict's pages and notes (and the adopted re-download), and the volume cover of a chapter that
-    opens a covered volume (SPEC "Metadata", Volume covers)."""
+    opens a covered volume (SPEC "Metadata", Volume covers).
+    """
     download = (adopted or {}).get("download_path", chapter["download_path"])
     try:
         series = _series(ctx, chapter)
@@ -243,14 +249,16 @@ def _done(ctx: workflow.Context, chapter, verdict, adopted=None):
 
 def bulk_conversion_over(ctx: workflow.Context, chapter):
     """The bulk_conversion wait ends once the series has its baseline (taken here when its record can be read, so a
-    chapter waiting past validate, left by an older version, goes on with one)."""
+    chapter waiting past validate, left by an older version, goes on with one).
+    """
     series = _series(ctx, chapter)
     return not baseline.needed(ctx.conn, series) or baseline.take(ctx, series) is None
 
 
 def _volume_cover(ctx: workflow.Context, chapter, download):
     """(path, sha256, volume) of the cover the chapter takes when it opens a covered volume and MangaDex has that
-    volume's cover; else None. A chapter that already has its cover keeps it."""
+    volume's cover; else None. A chapter that already has its cover keeps it.
+    """
     if ctx.conn.execute("SELECT 1 FROM volume_cover WHERE chapter_id = %s", (chapter["id"],)).fetchone():
         return None
     named = chapter_names.resolve(ctx, _series(ctx, chapter), {chapter["id"]: download}).get(chapter["id"])

@@ -1,5 +1,6 @@
 """A new chapter's name next to its series' published chapters (metadata/naming; SPEC "Publishing"): the bulk
-converter's settled path per rule, its MangaDex aggregate reading, and real bulk records resolved back."""
+converter's settled path per rule, its MangaDex aggregate reading, and real bulk records resolved back.
+"""
 
 import dataclasses
 import json
@@ -163,7 +164,8 @@ def test_a_season_end_and_the_next_chapter_resolve_together():
 )
 def test_recorded_season_volumes_are_season_ends_when_their_markers_are_gone(new_rows, want):
     """User decision 2026-11-15: markers only a download's ComicInfo Title held are not in the record; each recorded
-    volume but the highest ends at its highest chapter, and the highest stays open until a marker closes it."""
+    volume but the highest ends at its highest chapter, and the highest stays open until a marker closes it.
+    """
     rows = [settled(n, v, "season markers") for n, v in ((1, 1), (2, 1), (3, 2), (4, 2))] + new_rows
     got = {n: volume_of("season markers", rows, n)[0] for n in want}
     assert got == want
@@ -172,7 +174,8 @@ def test_recorded_season_volumes_are_season_ends_when_their_markers_are_gone(new
 @budget(load="pure")
 def test_a_season_tag_after_a_recorded_closed_volume_invents_no_second_end():
     """Review 7c-3: volume 1 recorded closed at 50, 51 recorded in volume 2; a season-2 tag at 52 keeps volume 2,
-    since season 1's end is known."""
+    since season 1's end is known.
+    """
     rows = [settled(n, 1, "season markers") for n in (49, 50)] + [settled(51, 2, "season markers")]
     rows += [new(52, season=2)]
     assert volume_of("season markers", rows, 52)[0] == 2
@@ -184,7 +187,8 @@ def test_a_season_tag_after_a_recorded_closed_volume_invents_no_second_end():
 @budget(load="pure")
 def test_a_none_series_with_an_override_file_takes_its_volumes():
     """User 2026-11-15: a `none` series whose override file re-volumed its recorded chapters gives a new chapter the
-    override's volume, in order with its neighbours; MangaDex never fills it."""
+    override's volume, in order with its neighbours; MangaDex never fills it.
+    """
     rows = [settled(1, 1, "override"), settled(2, 2, "override"), new(3), new(9)]
     overrides = {"volumes": {1: "1", 2: "2-5"}}
     got = named("none", rows, overrides, {"9": "4"})

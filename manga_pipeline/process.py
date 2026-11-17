@@ -39,7 +39,8 @@ def work(ctx: workflow.Context):
 
 def clean_scratch(cfg):
     """Remove the chapter folders (<id>-<count>) in this machine's scratch folder and nothing else there (junk review
-    keeps its own folder in it). Not with lock.enabled false: another run may be using them."""
+    keeps its own folder in it). Not with lock.enabled false: another run may be using them.
+    """
     if not cfg["lock"]["enabled"]:
         return
     root = config.abs_path(cfg["paths"]["scratch"])
@@ -53,7 +54,8 @@ def clean_scratch(cfg):
 def clean_staging(ctx: workflow.Context):
     """Delete a staged .cbz no chapter names, or a .cbz.part (a killed archive write's), once it is a day old (a run
     whose claim was freed may have left one); the owner file and anything else in the staging folder are kept. A file
-    another machine's process start deleted first is skipped."""
+    another machine's process start deleted first is skipped.
+    """
     root = config.abs_path(ctx.cfg["paths"]["staging"])
     named = {row[0] for row in ctx.conn.execute("SELECT staged_path FROM chapter WHERE staged_path IS NOT NULL")}
     # a queued rewrite's staged file belongs to its published file's row, whatever became of its chapter

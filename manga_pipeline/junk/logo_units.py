@@ -40,7 +40,8 @@ def measure(index, rgb):
 
 def page_survives(edit):
     """Whether a logo survives a page-layout edit: its page is not dropped, and any of its tight box lies inside the
-    page's kept band crop."""
+    page's kept band crop.
+    """
     drops = set(edit["drop_pages"])
     crops = {b["page"]: b["box"] for b in edit["bands"]}
 
@@ -72,7 +73,8 @@ def strip_survives(removed):
 def decide(found, survives, decide_unit):
     """found: the scan's logos; survives(logo) -> bool; decide_unit(kind, key text) -> the deciding row or None.
     Returns {"blank": the edit's blank entries, "undecided": [{"kind": "logo", "key", "keys", "page", "logo",
-    "reasons"}]}, 1 undecided unit per undecided variant (its first member's page and logo)."""
+    "reasons"}]}, 1 undecided unit per undecided variant (its first member's page and logo).
+    """
     live = [g for g in found if g["ring_frac"] >= marks.RING_FRAC and survives(g)]
     templates = [marks.Template.from_key(g["template"]) for g in live]
     blank, undecided = [], []
@@ -91,7 +93,8 @@ def decide(found, survives, decide_unit):
 
 def review_images(page, logo):
     """(unit image, context image) of a logo candidate: the badge's surroundings before and after the blank, side by
-    side; the page. page: the source page (PIL RGB)."""
+    side; the page. page: the source page (PIL RGB).
+    """
     a = np.asarray(page)
     x0, y0, x1, y1 = logo["box"]
     pad = y1 - y0

@@ -78,7 +78,8 @@ def _below(wanted, want, key):
 
 def folder_layout(cfg):
     """The folders `state reset` empties (paths.staging, paths.scratch, paths.candidates) must hold nothing else the
-    pipeline keeps."""
+    pipeline keeps.
+    """
     try:
         paths = {
             key: config.abs_path(cfg["paths"][key]).resolve()
@@ -338,7 +339,8 @@ LONG_PATHS = Check("long paths", HARD, long_paths)
 
 def run(cfg, checks):
     """Run every check. Logs each soft problem as a warning and returns them; when any check is hard and failed,
-    logs each and raises PreflightError naming all of them."""
+    logs each and raises PreflightError naming all of them.
+    """
     unknown = [c.name for c in checks if c.level not in (HARD, SOFT)]
     if unknown:
         msg = f"preflight check level must be HARD or SOFT: {', '.join(unknown)}"

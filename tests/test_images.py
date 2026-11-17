@@ -1,7 +1,8 @@
 """Page images (images; contracts section 1): the formats present in the library (JPEG, PNG, lossy/lossless WebP,
 AVIF, GIF), header-only dimensions, open_image's decode rules, real alpha (open_flat, may_have_alpha), to_gray,
 save_png and the page classes (gray-mark included). Ported from the bulk converter's tests/test_formats.py and
-tests/test_alpha_pages.py."""
+tests/test_alpha_pages.py.
+"""
 
 import io
 from pathlib import Path
@@ -562,7 +563,8 @@ def test_wide_or_tall_mark_is_colour(box):
 def test_mark_size_limits(box, want):
     """Tile-aligned marks dilate by 3 tiles (48 px) per axis: width 416 is within 35% of 1200 (420), 424 is not;
     height 136 is within 8% of 1723 (137.84), 144 is not; a 16 px square dilates to 64 x 64 (4096 px2 < 5000) and
-    stays colour, a 32 px one to 80 x 80 (6400 px2) is gray-mark."""
+    stays colour, a 32 px one to 80 x 80 (6400 px2) is gray-mark.
+    """
     assert page_class(badge_page(box)) == want, "the mark's dilated box is held to the width, height and area caps"
 
 

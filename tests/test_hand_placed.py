@@ -1,5 +1,6 @@
 """Downloads Suwayomi did not make, placed by hand (SPEC "Suwayomi", "Series identification", "Bad downloads"):
-taken once settled, matched by their folder, and re-downloaded from ranked sources when bad."""
+taken once settled, matched by their folder, and re-downloaded from ranked sources when bad.
+"""
 
 import errno
 import json

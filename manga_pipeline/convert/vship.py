@@ -139,7 +139,8 @@ class _Handle:
 class Scorer:
     """The loaded, GPU-checked library, its scoring threads (`threads`, SCORE_THREADS of them, made once) and their
     handles. A thread's handle lives as long as the thread, so the threads live as long as the Scorer: a thread that
-    ended would leave its handle's GPU memory allocated."""
+    ended would leave its handle's GPU memory allocated.
+    """
 
     def __init__(self, path, *, loader=load):
         """loader(path): the Vship library at path (load by default)."""
@@ -190,7 +191,8 @@ class Scorer:
 
     def score_files(self, reference, distorted):
         """SSIMULACRA2 of 2 image files (8-bit PNGs: the pipeline's reference and avifdec's decode; gray ones are
-        scored as RGB). With alpha on either side: the lower score over a dark and a light backdrop."""
+        scored as RGB). With alpha on either side: the lower score over a dark and a light backdrop.
+        """
         t0 = time.perf_counter()
         with Image.open(reference) as a, Image.open(distorted) as b:
             a.load()

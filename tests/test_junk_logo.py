@@ -1,6 +1,7 @@
 """Logo units (SPEC "Junk decisions": units, candidates, the chapter edit's blank): a page's logo measured at the
 scan, which logos survive the rest of the edit, variants decided by their representatives, the blanks, the review
-images (junk/logo_units.py)."""
+images (junk/logo_units.py).
+"""
 
 import io
 

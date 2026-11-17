@@ -1,5 +1,6 @@
 """Better copies (SPEC "Library copies", "Retroactive updates"): a download that is a better copy of a published file
-replaces it under its name, with its naming, cover and the reader's progress kept, the download put aside at publish."""
+replaces it under its name, with its naming, cover and the reader's progress kept, the download put aside at publish.
+"""
 
 import argparse
 import io
@@ -25,7 +26,8 @@ def world(tmp_path):
 
 def library(world, cover=()):
     """Bulk Vol.1 Ch.1 and Vol.1 Ch.2 (4 PNG pages of 16 px each; cover: outputs holding a 000_cover page), confirmed
-    and their covers read. Returns the Kavita id."""
+    and their covers read. Returns the Kavita id.
+    """
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", "1"))
     kid = world.kavita_series(SERIES, bulk=bulk, basis="filename")
     for name, number in (("Vol.1 Ch.1.cbz", 1), ("Vol.1 Ch.2.cbz", 2)):

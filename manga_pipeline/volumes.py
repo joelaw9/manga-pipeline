@@ -25,7 +25,8 @@ class OverrideError(VolumeError):
 
 def layout(data):
     """`layout:` of an overrides mapping as the bulk converter reads it (case-folded, trimmed): "strip", "pages" or
-    None. ValueError for any other value."""
+    None. ValueError for any other value.
+    """
     v = data.get("layout")
     v = str(v).strip().lower() if v is not None else None
     if v not in (None, *LAYOUTS):
@@ -36,13 +37,15 @@ def layout(data):
 
 def override_layout(overrides, folder_name):
     """The layout the series' override file names, None without the file or the key. OverrideError when the file is
-    malformed."""
+    malformed.
+    """
     return layout(override_file(overrides, folder_name) or {})
 
 
 def series_group(overrides, folder_name):
     """ComicInfo SeriesGroup from the series' override file's `series_group` (a name, or a list joined with ", "),
-    None without the file or the key. OverrideError when the file is malformed."""
+    None without the file or the key. OverrideError when the file is malformed.
+    """
     data = override_file(overrides, folder_name) or {}
     return data.get("series_group") and ", ".join(_group_names(data["series_group"]))
 
@@ -74,7 +77,8 @@ def override_file(overrides, folder_name):
 
 def _group_names(value):
     """series_group's names: a non-empty name or a non-empty list of them, none holding a comma (Kavita splits
-    SeriesGroup on commas, 1 collection each). ValueError otherwise."""
+    SeriesGroup on commas, 1 collection each). ValueError otherwise.
+    """
     items = [value] if isinstance(value, str) else value
     if not isinstance(items, list) or not items:
         msg = f"series_group must be a name or a non-empty list of names, not {value!r}"
@@ -91,7 +95,8 @@ def _group_names(value):
 
 def check_volumes(volumes):
     """`volumes: {volume: range}`: each volume a whole number (ComicInfo Volume is an xs:int), each range one _range
-    reads ("1-53", "54", "94-", "-53") and that does not run backwards. Raises ValueError otherwise."""
+    reads ("1-53", "54", "94-", "-53") and that does not run backwards. Raises ValueError otherwise.
+    """
     if volumes is None:
         return
     if not isinstance(volumes, dict):
@@ -117,7 +122,8 @@ def check_volumes(volumes):
 
 def override_volume(volumes, num):
     """The volume whose range holds chapter number num (the last such volume, as the bulk converter's loop leaves
-    it), or None."""
+    it), or None.
+    """
     found = None
     for vol, rng in volumes.items():
         lo, hi = _range(rng)

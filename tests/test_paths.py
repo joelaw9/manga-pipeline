@@ -1,6 +1,7 @@
 """Stored paths (SPEC "State", "Config"): every path the database holds is <share root>/<path below it> with /
 separators, and each machine maps it by its own configured roots, so a database one machine filled is worked by
-another that mounts the share elsewhere and writes its roots otherwise."""
+another that mounts the share elsewhere and writes its roots otherwise.
+"""
 
 import json
 import sys

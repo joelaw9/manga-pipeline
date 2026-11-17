@@ -1,6 +1,7 @@
 """The external image tools (SPEC "Conversion"): run one, its stderr in the error. Paths come from config `tools.*`
 through the caller; nothing is searched on PATH. Copied from the bulk converter's optimizer/tools.py without its
-config read, WinGet search and version listing."""
+config read, WinGet search and version listing.
+"""
 
 import logging
 import subprocess
@@ -21,7 +22,8 @@ class ToolError(subprocess.CalledProcessError):
 
 def run(*args):
     """Run a tool (output captured) and return its CompletedProcess; raises ToolError on a non-zero exit. Logs the
-    command, exit and seconds at DEBUG."""
+    command, exit and seconds at DEBUG.
+    """
     args = [str(a) for a in args]
     t0 = time.perf_counter()
     p = subprocess.run(args, capture_output=True, check=False)  # the exit is checked below

@@ -1,6 +1,7 @@
 """pytest wiring (SPEC "Tests"): the no-network guard, a fresh process config per test and the per-test timing report
 (tests/timing.py). Under pytest-xdist each worker tags its tests' reports with their budgets (user_properties) and the
-controller, which receives every report, writes the 1 report."""
+controller, which receives every report, writes the 1 report.
+"""
 
 import socket
 from pathlib import Path
@@ -74,7 +75,8 @@ def test_databases():
 @pytest.fixture(autouse=True)
 def fake_image_tools(request, monkeypatch):
     """The convert stage's tools and scorer are fakes (tests/fakes/convert.py), except in a gpu test, which runs only
-    with --vship and gets the real scorer."""
+    with --vship and gets the real scorer.
+    """
     if request.node.get_closest_marker("gpu"):
         if request.config.getoption("--vship") is None:
             pytest.skip("gpu test: run with --vship PATH")

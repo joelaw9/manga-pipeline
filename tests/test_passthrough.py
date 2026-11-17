@@ -1,5 +1,6 @@
 """A download of a series Kavita holds, through intake, process and export into its series folder, indexed and
-confirmed (SPEC "Publishing", "Chapter stages", "Bad downloads"); PLAN Phase 3 "Done when" on the fakes."""
+confirmed (SPEC "Publishing", "Chapter stages", "Bad downloads"); PLAN Phase 3 "Done when" on the fakes.
+"""
 
 import os
 import time

@@ -15,7 +15,8 @@ def sync(ctx: workflow.Context, listing):
     """Store each listed series (the library's listing, `Kavita.series_in_library`) the database does not hold. A
     listed series no row holds the id of takes the row of a series Kavita no longer lists whose names match and whose
     folder is the listed one's (Kavita recreated the series); else it is a new row, its folder fetched when first
-    needed."""
+    needed.
+    """
     conn, cfg = ctx.conn, ctx.cfg
     # A published new series is matched first; a listed series named as one still unmatched gets no row of its own
     claimed = kavita_link.attach_all(ctx, listing)
@@ -62,7 +63,8 @@ def sync(ctx: workflow.Context, listing):
 
 def _recreated(ctx: workflow.Context, kseries, gone):
     """A row of gone matching the listed series: by names, and by folder when the row has one; a row with no folder
-    (nothing published or downloaded) matches by names alone, when exactly 1 does."""
+    (nothing published or downloaded) matches by names alone, when exactly 1 does.
+    """
     keys = {normalize(n) for n in series_names(kseries)}
     names = ("name", "localized_name", "original_name", "comicinfo_series")
     named = [r for r in gone if keys & {normalize(r[n]) for n in names if r[n]}]

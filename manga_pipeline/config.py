@@ -1,5 +1,6 @@
 """Load config.yaml from the project root, overridden by environment variables and --set, checked against
-config.yaml.example (SPEC "Config")."""
+config.yaml.example (SPEC "Config").
+"""
 
 import os
 import re
@@ -30,7 +31,8 @@ _process = _Process()
 def load(path=None, example=None, env=None, sets=()):
     """The config file overridden by env (None = os.environ) and then by sets ("key=value" strings), refused unless
     the merged keys and value types match the example's: a null example value allows any type, an empty example
-    mapping allows any keys, an int stands in for a float and a bool for nothing else."""
+    mapping allows any keys, an int stands in for a float and a bool for nothing else.
+    """
     path = Path(path or ROOT / "config.yaml")
     schema = _read(Path(example or EXAMPLE))
     cfg = _read(path, allow_empty=True)
@@ -56,7 +58,8 @@ def reset():
 
 def cached():
     """The process config: init's, else config.yaml + the environment, loaded once. Read-only: callers must not
-    modify it."""
+    modify it.
+    """
     if _process.cfg is None:
         _process.cfg = load()
     return _process.cfg
@@ -84,7 +87,8 @@ class PathError(ValueError):
 def to_stored(cfg, path):
     """The stored form of a path on this machine: the share root it lies under (paths.<root>, compared as configured:
     no link, drive letter or UNC name is resolved) and the path below it, with / separators. PathError when it lies
-    under no root."""
+    under no root.
+    """
     path = Path(path)
     if ".." in path.parts:  # compared as written: a .. would pass for a path under the root it leaves
         msg = f"{path} holds '..': a stored path names no parent folder"

@@ -1,5 +1,6 @@
 """clients.kavita: the token and the 401 rule, the reads, the scan requests, path mapping and a series' folder
-(SPEC "Services")."""
+(SPEC "Services").
+"""
 
 import logging
 from pathlib import Path

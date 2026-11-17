@@ -65,7 +65,8 @@ def in_lookup_order(rows):
     signature it covers, their keeps before their junk; then the imported ones in the bulk converter's order: the
     series' keeps, its junk, global keeps, global junk; newest first within each. Keeps go first because matching is
     not transitive: a unit within reach of a kept and a junk key stays kept, whichever is newer (the bulk converter's
-    rule). Equal rows keep their given order."""
+    rule). Equal rows keep their given order.
+    """
     newest = sorted(rows, key=lambda r: r["decided_at"], reverse=True)
     return sorted(
         newest,
@@ -117,7 +118,8 @@ def near(conn, series_key_, sig, threshold=images.NEAR_THRESHOLD, aspect_tol=ima
     signature `sig`: same tile count, every tile within `threshold`, aspect difference within `aspect_tol`; smallest
     distance, then aspect difference, then the oldest. None when none is that near, or when such a decision that
     applies to the series (its own or global) matches `sig` at the live rule (it decides; near is for the undecided),
-    or when `sig` is unsignable."""
+    or when `sig` is unsignable.
+    """
     tiles, aspect = sig
     if images.unsignable(sig):
         return None
@@ -146,7 +148,8 @@ def upsert(conn, rows):
     """Write decisions (dicts: series_key, kind, key, verdict, decider, decided_at, source) inside the caller's
     transaction. A new key is inserted. An existing row is replaced only when its decider is 'import' and the new one
     is a pipeline decision or at least as new; a pipeline-made row ('claude', 'human') is never touched. ValueError for
-    a row that is no junk decision, or on an unsignable key. Returns {"inserted", "updated", "unchanged"} counts."""
+    a row that is no junk decision, or on an unsignable key. Returns {"inserted", "updated", "unchanged"} counts.
+    """
     if not db.in_transaction(conn):
         msg = "upsert runs inside the caller's transaction"
         raise RuntimeError(msg)

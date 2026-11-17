@@ -56,7 +56,8 @@ LIST_TYPES = {"ComicPageType"}  # a space-separated list of its enumeration's va
 
 def _type_ok(value, xsd_type, enums):
     """Whether value is valid for a schema type: a type with a value check, then a list of an enumeration, then an
-    enumeration; any other type is text (xs:string)."""
+    enumeration; any other type is text (xs:string).
+    """
     if xsd_type in VALUE_CHECKS:
         return VALUE_CHECKS[xsd_type](value)
     if xsd_type in LIST_TYPES:
@@ -107,7 +108,8 @@ def validate(xml_bytes):
 
 def _page_errors(pages, page_attrs, enums):
     """The schema violations of the Pages element: an element other than Page, a Page without Image, an unknown
-    Page attribute or one whose value its type refuses."""
+    Page attribute or one whose value its type refuses.
+    """
     errors = []
     for page in pages:
         if page.tag != "Page":
@@ -130,7 +132,8 @@ def read_fields(xml_bytes, names=("Series", "Title", "Number", "Volume", "Count"
 
 def read_all(xml_bytes):
     """{element: text} of every non-empty top-level element but Pages, as written (unknown elements included).
-    ET.ParseError for XML that does not parse."""
+    ET.ParseError for XML that does not parse.
+    """
     root = ET.fromstring(xml_bytes)
     return {
         child.tag: (child.text or "").strip() for child in root if child.tag != "Pages" and (child.text or "").strip()
@@ -139,14 +142,16 @@ def read_all(xml_bytes):
 
 def read_pages(xml_bytes):
     """The Page entries of the Pages element ([{attribute: value}] in order; [] when there is none), as build takes
-    them. ET.ParseError for XML that does not parse."""
+    them. ET.ParseError for XML that does not parse.
+    """
     pages = ET.fromstring(xml_bytes).find("Pages")
     return [] if pages is None else [dict(page.attrib) for page in pages.findall("Page")]
 
 
 def build(fields, pages=None):
     """ComicInfo.xml bytes with elements in schema order. `fields` maps element -> value (str/int);
-    empty values are skipped; `pages` is [{"Image": 0, "Type": "FrontCover", ...}]. Raises if invalid."""
+    empty values are skipped; `pages` is [{"Image": 0, "Type": "FrontCover", ...}]. Raises if invalid.
+    """
     elements, _, _ = schema()
     root = ET.Element(
         "ComicInfo",
@@ -188,7 +193,8 @@ def download_number(path):
 def read_download(path):
     """(fields, item) of a download as the comicinfo stage reads it: the ComicInfo.xml fields valid for the schema
     ({} without one), and its name's parse, numbered by that Number when the name has none. Raises
-    archive.UNREADABLE or ET.ParseError for an archive or a ComicInfo.xml that cannot be read."""
+    archive.UNREADABLE or ET.ParseError for an archive or a ComicInfo.xml that cannot be read.
+    """
     path = Path(path)
     xml = archive.read_comicinfo(path)
     fields = {k: v for k, v in read_all(xml).items() if field_ok(k, v)} if xml else {}

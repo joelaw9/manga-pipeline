@@ -1,5 +1,6 @@
 """process on several machines against 1 database (SPEC "Parts", "State", "Chapter stages", "Run lock"): each
-machine here is its own connection holding its own run lock, with its own claim owner."""
+machine here is its own connection holding its own run lock, with its own claim owner.
+"""
 
 import ast
 import dataclasses
@@ -271,7 +272,8 @@ def test_every_stored_time_comes_from_the_servers_clock(fleet):
 def machine_clock_reads(source):
     """The lines of source that read the machine's clock as a datetime: datetime.now / utcnow / today or date.today,
     whether the class is imported (from datetime import datetime [as x]) or reached through the module (import
-    datetime [as x])."""
+    datetime [as x]).
+    """
     tree = ast.parse(source)
     classes, modules = set(), set()
     for node in ast.walk(tree):

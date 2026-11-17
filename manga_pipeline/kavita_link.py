@@ -1,6 +1,7 @@
 """Kavita series folders in stored form, and a published new series' Kavita id (SPEC "Publishing"): once Kavita lists
 it, the listed series no row holds that is named as its ComicInfo Series under Kavita's name normalising and whose
-folder is the series' folder. Each series is looked for at most once per run."""
+folder is the series' folder. Each series is looked for at most once per run.
+"""
 
 import logging
 
@@ -35,7 +36,8 @@ def listing(ctx: workflow.Context):
 
 def attach(ctx: workflow.Context, series_id, rows):
     """The series' Kavita id: the stored one, else the one found among rows (the library's listing) and stored, else
-    None (not an unattached series, or Kavita does not list it yet)."""
+    None (not an unattached series, or Kavita does not list it yet).
+    """
     conn = ctx.conn
     query = sql.SQL("SELECT s.*, {} AS unattached FROM series s WHERE s.id = %s").format(UNATTACHED)
     series = db.one_row(conn, query, (series_id,))
@@ -60,7 +62,8 @@ def attach(ctx: workflow.Context, series_id, rows):
 
 def attach_all(ctx: workflow.Context, rows):
     """attach every unattached series in scope; returns the normalised names of those still unattached: a listed
-    series so named may be one of them, and is not a series of its own."""
+    series so named may be one of them, and is not a series of its own.
+    """
     ids = ctx.conn.execute(
         sql.SQL("SELECT s.id FROM series s WHERE {unattached} AND {scope} ORDER BY s.id").format(
             unattached=UNATTACHED, scope=workflow.SCOPE

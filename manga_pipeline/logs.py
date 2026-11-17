@@ -1,5 +1,6 @@
 """Logging setup (SPEC "Logging"): console, plus <logging.dir>/<command>.log for a command that runs under its own
-lock, a new file each midnight."""
+lock, a new file each midnight.
+"""
 
 import logging
 from logging.handlers import TimedRotatingFileHandler
@@ -12,7 +13,8 @@ LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 
 def setup(cfg, command):
     """Configure the package logger from cfg["logging"], replacing any earlier setup: the console, plus the log file
-    <command>.log unless command is None. Returns the log file path, or None."""
+    <command>.log unless command is None. Returns the log file path, or None.
+    """
     settings = cfg["logging"]
     if settings["level"] not in LEVELS:
         msg = f"logging.level must be one of {', '.join(LEVELS)}, got {settings['level']!r}"

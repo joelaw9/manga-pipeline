@@ -65,7 +65,8 @@ def baseline_pass(ctx: workflow.Context):
     """Once a day: take the baseline of every in-scope ok series Kavita holds that has none (or lacks its naming
     fields) and whose folder holds a bulk-converter record, so a series no download reaches has published files to
     compare. A series whose folder Kavita gives no usable form, or that holds no record, is left as it is; a record
-    that does not parse is logged (validate holds the series' downloads, as before)."""
+    that does not parse is logged (validate holds the series' downloads, as before).
+    """
     conn = ctx.conn
     last = workflow.get_meta(conn, BASELINE_PASS_AT)
     now = workflow.now(conn)
@@ -108,7 +109,8 @@ def _with_folder(ctx: workflow.Context, series):
 
 def _take(ctx: workflow.Context, series):
     """Take the series' baseline; whether it was taken (why not logged). The database, the share or a service down
-    raises: the run's problem (the pass is tried again); any other failure is this series' (logged)."""
+    raises: the run's problem (the pass is tried again); any other failure is this series' (logged).
+    """
     try:
         why = baseline.take(ctx, series)
     except Exception as e:

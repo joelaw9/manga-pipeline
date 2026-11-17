@@ -1,5 +1,6 @@
 """junk review's clean-up of junk candidates (SPEC "Junk decisions"): closed for an hour, then deleted with their
-folders; a folder no row names stays a day; a candidate a running review listed is left alone."""
+folders; a folder no row names stays a day; a candidate a running review listed is left alone.
+"""
 
 import os
 import time

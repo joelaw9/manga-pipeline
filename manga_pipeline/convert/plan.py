@@ -38,7 +38,8 @@ class NeedsHuman(ValueError):  # noqa: N818  # a signal, not an error (PEP 8: th
 @dataclass(frozen=True)
 class SeriesLayout:
     """A series' conversion layout (series_conversion): its kind, "strip" or "pages", and its page aspects (a list)
-    or None."""
+    or None.
+    """
 
     kind: str
     page_aspect: list | None
@@ -64,7 +65,8 @@ class ChapterPlan:
 def check_edit(text):
     """The chapter_edit row's edit (JSON text) as a dict, checked: exactly EDIT_KEYS with their types, indexes ints,
     no page dropped twice, ranges ({start, end, why}, 0 <= start < end) and boxes of ints. Raises EditError naming
-    what is wrong."""
+    what is wrong.
+    """
     try:
         edit = json.loads(text)
     except (TypeError, ValueError) as e:
@@ -157,7 +159,8 @@ def _check_blanks(blanks):
 
 def page_entry(page, path):
     """A measured page (images.measure_pages) with what the plan adds from its file: jpeg_feed, jpeg_gray (JPEG only),
-    size, cover-named. Raises NeedsHuman for an EXIF orientation of 2-8 (a rotation or mirror readers apply)."""
+    size, cover-named. Raises NeedsHuman for an EXIF orientation of 2-8 (a rotation or mirror readers apply).
+    """
     data = Path(path).read_bytes()
     fmt = page["format"]
     if fmt in (images.JPEG, images.PNG, images.WEBP_LOSSY, images.WEBP_LOSSLESS):
@@ -187,7 +190,8 @@ def yuv_for(cls, source_chroma):
 
 def feeds_jpeg(entry, yuv):
     """Does the AVIF encode of this page at this --yuv feed avifenc the JPEG itself? A colour (not 4:0:0) encode of a
-    JPEG jpeg_feed allows; every other encode feeds the decoded PNG."""
+    JPEG jpeg_feed allows; every other encode feeds the decoded PNG.
+    """
     return entry["format"] == images.JPEG and yuv != "400" and entry["jpeg_feed"]
 
 
@@ -212,7 +216,8 @@ def _edits(entries, edit, layout, x_dir):
     """The edit in page names (the bulk converter's planned-edit shape): drops and bands first, then join and split
     (page layout); a strip chapter's strip spec over its non-cover pages with the edit's removed rows taken out.
     Raises EditError for an edit the junk stage never writes (SPEC "The chapter edit"), NeedsHuman for removed rows
-    that leave nothing of the strip."""
+    that leave nothing of the strip.
+    """
     by_index = {q["index"]: q for q in entries}
 
     def name(i, what):
@@ -242,7 +247,8 @@ def _edits(entries, edit, layout, x_dir):
 def _strip_spec(content, edit, x_dir):
     """A strip chapter's strip spec ({"width", "pages", "kept", "cuts"}) over its non-cover pages, the edit's removed
     rows taken out; None when it has no such pages. Raises EditError for another edit or rows past the strip,
-    NeedsHuman when nothing is kept."""
+    NeedsHuman when nothing is kept.
+    """
     if edit["drop_pages"] or edit["bands"] or edit["join"] or edit["split"]:
         msg = "chapter_edit of a strip chapter may hold strip_removed only"
         raise EditError(msg)
@@ -305,7 +311,8 @@ def _check_joined(entries, edit):
 
 def _split_spec(content, edit, drops, page_aspect):
     """A split chapter's spec ({"width", "pages", "kept", "cuts"}): its non-cover pages not dropped, cut at the
-    series' page aspect. Raises EditError when the edit holds another page-layout edit."""
+    series' page aspect. Raises EditError when the edit holds another page-layout edit.
+    """
     if edit["drop_pages"] or edit["bands"] or edit["join"]:
         msg = "chapter_edit of a split chapter holds another page-layout edit"
         raise EditError(msg)
@@ -322,7 +329,8 @@ def _split_spec(content, edit, drops, page_aspect):
 
 def _blanks(entries, edit, name):
     """The edit's logo blanks in page names: at most 1 per page, never on a dropped or cover-named page, the box inside
-    its page (end-exclusive) and the fill 1 RGB colour."""
+    its page (end-exclusive) and the fill 1 RGB colour.
+    """
     by_index = {q["index"]: q for q in entries}
     out, seen = [], set()
     for b in edit["blank"]:
@@ -348,7 +356,8 @@ def render_pages(plan):
     cover-named pages first under their own stems, then 001, 002, ... (strip / split rows in kept coordinates, or
     page-format pages with their crop boxes and joined slivers). Each gets the class of the source pages it is made of
     (the most colourful), its avifenc yuv (a colour page: the fullest chroma of its colour sources) and its source
-    page names ("src")."""
+    page names ("src").
+    """
     e = plan.edits
     dropped = {d["page"] for d in e["drop"]}
     by_name = {q["name"]: q for q in plan.pages}
@@ -389,14 +398,16 @@ def render_pages(plan):
 
 def needs_conversion(fmts):
     """True when a volume cover cannot match every page of these formats: a format with no cover encoding, or more
-    than 1 format."""
+    than 1 format.
+    """
     fmts = set(fmts)
     return bool(fmts - set(COVER_FORMATS)) or len(fmts) > 1
 
 
 def cover_format(fmts):
     """The volume cover's encoding for pages of these formats: the 1 format they share, or None (needs_conversion).
-    No pages count as AVIF."""
+    No pages count as AVIF.
+    """
     fmts = set(fmts)
     if needs_conversion(fmts):
         return None
@@ -408,7 +419,8 @@ def routes(plan, cover=None):
     with the volume cover's format in it ("cover": None when it takes none) and its expected pages ("pages_out", the
     cover included). cover: None (the chapter takes no volume cover), else whether its AVIF passed. A rendered plan:
     AVIF under the floor, else the original pages minus drops. A plan that is not rendered, whose AVIF cover passed and
-    whose non-cover pages share no cover format: AVIF under the floor, else untouched (force_avif)."""
+    whose non-cover pages share no cover format: AVIF under the floor, else untouched (force_avif).
+    """
     kept = plan.kept()
     all_fmts = sorted({q["format"] for q in kept})
     src = sorted({q["format"] for q in kept if not q["cover"]})
@@ -455,7 +467,8 @@ def build(name, measured, files, edit, layout):
     (pages.extract), in the same order; edit: check_edit's dict; layout: the series' SeriesLayout. Raises NeedsHuman
     (an EXIF rotation, a strip edit that removes every row) and EditError.
     Route and outcomes are set after, by routes: they depend on the volume cover's AVIF encode; the quality is set by
-    the caller once calibration chose it."""
+    the caller once calibration chose it.
+    """
     files = [Path(f) for f in files]
     entries = [page_entry(p, f) for p, f in zip(measured, files, strict=True)]
     plan = ChapterPlan(

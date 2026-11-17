@@ -1,5 +1,6 @@
 """clients.kavita_match: folder to Kavita series matching by file path (folder statuses, the record fields of each
-status), `relevant`, `normalize` (Kavita's own rule), `series_names`, `chapter_files` (SPEC "Services")."""
+status), `relevant`, `normalize` (Kavita's own rule), `series_names`, `chapter_files` (SPEC "Services").
+"""
 
 import pytest
 
@@ -33,7 +34,8 @@ def vols(*paths):
 @pytest.fixture
 def library():
     """match_folders over one folder of every status. Twice spans Local and the Weeb source (lowest = library root);
-    Liz lives outside Local, so its volumes are not fetched but it is still a candidate by its localized name."""
+    Liz lives outside Local, so its volumes are not fetched but it is still a candidate by its localized name.
+    """
     ss = [
         series(1, "Alone", f"{ROOT}/Alone"),
         series(2, "Twice", LIB),
@@ -119,7 +121,8 @@ def test_partial_folder_counts_archives_kavita_lacks(library):
 @budget(load="pure")
 def test_unmatched_candidate_by_localized_name(library):
     """Rize's ComicInfo Series "Rize Shop" is Liz's localized name; Liz's volumes were not fetched, so its folder
-    is its lowestFolderPath."""
+    is its lowestFolderPath.
+    """
     assert library["Rize"]["candidates"] == [{"id": 4, "name": "Liz", "folders": [f"{LIB}/Violet/Liz"]}]
 
 
@@ -154,7 +157,8 @@ def test_split_folder_lists_the_chosen_series_chapters(library):
 @budget(load="pure")
 def test_candidate_folders_come_from_its_files_when_fetched():
     """A candidate whose volumes were fetched lists the Kavita folders holding its files, sorted; a ComicInfo Series
-    matches the original name too, whatever its case and punctuation."""
+    matches the original name too, whatever its case and punctuation.
+    """
     ss = [series(7, "Nine", LIB, original="Kyuu-Bi")]
     vs = {7: vols(f"{ROOT}/Nine B/c1.cbz", f"{ROOT}/Nine A/c1.cbz")}
     m = match_folders(ROOT + "/", {"Loose": ["x.CBZ"]}, ss, vs, {"Loose": {"kyuu bi", ""}})
@@ -197,7 +201,8 @@ def test_archive_extensions_ignore_case():
 )
 def test_relevant(low, want):
     """A series can hold Local files when its lowestFolderPath is inside Local or an ancestor of it (a series spanning
-    sources has the common parent); a folder that only shares Local's name prefix is neither."""
+    sources has the common parent); a folder that only shares Local's name prefix is neither.
+    """
     assert relevant(series(1, "x", low), ROOT) is want
 
 
@@ -220,7 +225,8 @@ def test_relevant(low, want):
 )
 def test_normalize_same_key(a, b):
     """Names differing only in spaces, punctuation (straight / curly apostrophes, &, :), case or a combining mark get
-    the same key: Kavita drops all of them."""
+    the same key: Kavita drops all of them.
+    """
     assert normalize(a) == normalize(b)
 
 
@@ -247,7 +253,8 @@ def test_normalize_same_key(a, b):
 )
 def test_normalize_different_key(a, b):
     """Kavita keeps "!" (I Failed to Oust the Villain!, Trash Belongs in the Trash Can!), fullwidth forms as they
-    are, and precomposed letters; a ComicInfo Series differing there parses to another Kavita series."""
+    are, and precomposed letters; a ComicInfo Series differing there parses to another Kavita series.
+    """
     assert normalize(a) != normalize(b)
 
 
@@ -281,7 +288,8 @@ def test_normalize_value(name, want):
     """The key is letters, ASCII digits, + ! and full-width * ! +, lower-cased (not case-folded: ß stays); a missing
     name is the empty key. Like .NET, each character is lowered on its own ("İ" gives "i", a final capital sigma
     "\u03c3", never the context-sensitive "ς"), and a letter above U+FFFF (a UTF-16 surrogate pair, not \\p{L} to .NET)
-    is dropped."""
+    is dropped.
+    """
     assert normalize(name) == want
 
 

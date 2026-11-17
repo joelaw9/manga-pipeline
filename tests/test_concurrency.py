@@ -1,5 +1,6 @@
 """The parts as real processes: run at once on 1 database, and killed mid-stage (SPEC "Parts", "State", "Run lock").
-The processes reach the world's fakes through tests/world_run.py."""
+The processes reach the world's fakes through tests/world_run.py.
+"""
 
 import os
 import subprocess

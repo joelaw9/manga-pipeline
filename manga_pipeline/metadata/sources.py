@@ -72,7 +72,8 @@ class MangaBaka:
 
     def by_source(self, source, source_id):
         """The 1 active series MangaBaka holds for an AniList ("anilist") or MangaUpdates ("manga-updates") id; None
-        for none or several."""
+        for none or several.
+        """
         data = _unless_gone(lambda: self._get(self._service, f"/source/{source}/{source_id}")) or {}
         active = [s for s in data.get("series") or [] if s.get("state") == "active"]
         return active[0] if len(active) == 1 else None
@@ -179,7 +180,8 @@ class Tapas:
 
     def series_id(self, slug):
         """The numeric series id from the series' /info page (its `tapastic://series/<id>` meta; the page carries it
-        only when asked for HTML), or None when the page is gone or carries none."""
+        only when asked for HTML), or None when the page is gone or carries none.
+        """
         url = f"{TAPAS}/series/{urllib.parse.quote(slug)}/info"
         reply = _gone(lambda: self._get(url, "text/html"), self.GONE)
         if reply is None:
@@ -190,7 +192,8 @@ class Tapas:
 
     def episodes(self, series_id):
         """([(site number, title, date, id)] in site order, the count Tapas says it has), or None when the list is
-        gone. Episodes are kept once each, by id."""
+        gone. Episodes are kept once each, by id.
+        """
         items, seen, total, page = [], set(), 0, 1
         while True:
             url = f"{TAPAS}/series/{series_id}/episodes?page={page}&sort=OLDEST&max_limit={TAPAS_PAGE}"
@@ -229,7 +232,8 @@ class Webtoons:
 
     def episodes(self, ref):
         """[(site number, title, date, None)] in site order, or None when Webtoons has no such series
-        (`success` false, or a page that is gone)."""
+        (`success` false, or a page that is gone).
+        """
         kind, number = ref.split(":")
         items, cursor = [], None
         while True:
@@ -259,7 +263,8 @@ class Webtoons:
 
     def app_only(self, ref):
         """Whether the web list page says episodes are only on the app (its `detail_install_app` block); None when the
-        page cannot be read."""
+        page cannot be read.
+        """
         kind, number = ref.split(":")
         path = "/challenge/episodeList" if kind == "canvas" else "/episodeList"
         try:

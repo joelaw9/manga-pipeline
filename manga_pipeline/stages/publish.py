@@ -13,7 +13,8 @@ from manga_pipeline.db import sql
 def row_values(conn, chapter):
     """{published_file column: value} of a chapter's download as publish records it (a better copy's are applied to
     its file's row: SPEC "Retroactive updates"): its identity, source, names and the original measurements a later copy
-    of the chapter is judged against (SPEC "Library copies": none for a chapter with no page rows)."""
+    of the chapter is judged against (SPEC "Library copies": none for a chapter with no page rows).
+    """
     pages = list(page_store.load(conn, chapter["id"]).values())
     m = measures.summary(pages)
     cover = json.loads(chapter["convert_result"])["cover"]

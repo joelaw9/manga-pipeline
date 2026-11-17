@@ -1,7 +1,8 @@
 """A fake `claude` for junk review tests: dumps its arguments, environment, prompt and the child config it was given,
 runs the canned junk commands of its plan, and prints a canned JSON result. Its plan is plan.json beside it: {"dump":
 folder, "scratch": the run's paths.scratch, "actions": ["list" | "decide:<verdict>" | "crash"], "exit": code, "reply":
-result dict or null}."""
+result dict or null}.
+"""
 
 import json
 import os

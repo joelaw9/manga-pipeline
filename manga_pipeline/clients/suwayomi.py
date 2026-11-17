@@ -57,7 +57,8 @@ class Suwayomi:
     def library_manga(self):
         """Every manga of the library, PAGE_SIZE per query, in id order; each query starts after the last id read,
         so a manga added or removed while the caller works shifts nothing. `source` is None for a manga whose
-        extension is not installed."""
+        extension is not installed.
+        """
         query = (
             "query ($first: Int!, $after: Int!) { mangas(condition: {inLibrary: true},"
             " filter: {id: {greaterThan: $after}}, order: [{by: ID}], first: $first)"
@@ -94,7 +95,8 @@ class Suwayomi:
     def thumbnail(self, manga_id):
         """The manga's thumbnail image, or None when Suwayomi cannot serve it: a 500 (the source's image is gone) or a
         timeout (Suwayomi fetches it from the source's site, which hangs). Sent once: a retry would wait for the same
-        answer, and a timeout here never marks Suwayomi unreachable."""
+        answer, and a timeout here never marks Suwayomi unreachable.
+        """
         try:
             reply = self._service.request(
                 "GET",
@@ -115,7 +117,8 @@ class Suwayomi:
     def download_queue(self):
         """{state, queue}: the downloader's state (STARTED, STOPPED) and its entries, each with its state (QUEUED,
         DOWNLOADING, FINISHED, ERROR), tries, progress and chapter {id mangaId}. A finished download has left the
-        queue."""
+        queue.
+        """
         query = "{ downloadStatus { state queue { state tries progress position chapter { id mangaId } } } }"
         return self.graphql(query)["downloadStatus"]
 
@@ -146,7 +149,8 @@ class Suwayomi:
 
     def search_source(self, source_id, title):
         """The first page of a source's search for a title. Suwayomi stores each hit as a manga outside the library.
-        SourceUnavailableError when the source cannot serve it."""
+        SourceUnavailableError when the source cannot serve it.
+        """
         query = (
             "mutation ($source: LongString!, $query: String!) { fetchSourceManga(input:"
             f" {{source: $source, type: SEARCH, page: 1, query: $query}}) {{ mangas {{ {MANGA} }} }} }}"
@@ -155,7 +159,8 @@ class Suwayomi:
 
     def fetch_manga_and_chapters(self, manga_id):
         """Refresh 1 manga's chapter list from its source (any manga, in the library or not; none of the updater's
-        filters apply) and return {manga, chapters}. SourceUnavailableError when the source cannot serve it."""
+        filters apply) and return {manga, chapters}. SourceUnavailableError when the source cannot serve it.
+        """
         query = (
             "mutation ($id: Int!) { fetchMangaAndChapters(input: {id: $id, fetchManga: false, fetchChapters: true})"
             f" {{ manga {{ {MANGA} }} chapters {{ {CHAPTER} }} }} }}"
@@ -165,7 +170,8 @@ class Suwayomi:
     def _source_call(self, query, variables):
         """A call Suwayomi answers from a source's site. An error raised while the query ran (it carries a `path`)
         is the source's; one without a path (the query is wrong) is a GraphQLError. A timeout is not retried: when
-        Suwayomi still answers a ping, the source is what hangs."""
+        Suwayomi still answers a ping, the source is what hangs.
+        """
         try:
             reply = self._service.request(
                 "POST",
@@ -221,7 +227,8 @@ def download_folders(manga):
 
 def chapter_file(scanlator, name):
     """The CBZ of a chapter: "<scanlator>_<name>" when the chapter has a scanlator (an empty one counts), else its
-    name."""
+    name.
+    """
     return valid_filename(name if scanlator is None else f"{scanlator}_{name}") + ".cbz"
 
 
@@ -229,7 +236,8 @@ def valid_filename(name):
     """Suwayomi's SafePath.buildValidFilename (v2.4.2366), exactly: trim dots and spaces at both ends (nothing left
     is "(invalid)"); control characters and REPLACED become "_"; then whole characters are kept while the next fits
     in MAX_NAME_BYTES UTF-8 bytes. Nothing is trimmed after the cut. (Suwayomi also stops at 240 UTF-16 units; a
-    character never takes fewer bytes than units, so the byte cap always cuts first.)"""
+    character never takes fewer bytes than units, so the byte cap always cuts first.)
+    """
     name = name.strip(". ")
     if not name:
         return "(invalid)"

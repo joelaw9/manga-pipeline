@@ -42,7 +42,8 @@ _serial = threading.Lock()
 
 def provider_problem(device):
     """Why `device` cannot run OCR here, or None: unknown device, no onnxruntime, or a session on the device's
-    provider that falls back to another (listing a provider is no proof it loads)."""
+    provider that falls back to another (listing a provider is no proof it loads).
+    """
     if device not in PROVIDERS:
         return f"junk.ocr_device {device!r} is not one of {sorted(PROVIDERS)}"
     try:
@@ -124,7 +125,8 @@ def normalize(s):
 
 def word_list_problem(words):
     """What is wrong with config `junk`'s word lists, or None: a weak or a paired term only restricts when a keyword
-    counts, so each must be a keyword."""
+    counts, so each must be a keyword.
+    """
     stray = {key: sorted(set(words[key]) - set(words["keywords"])) for key in ("weak", "paired")}
     return "; ".join(f"junk.{key} terms not in junk.keywords: {terms}" for key, terms in stray.items() if terms) or None
 
@@ -133,7 +135,8 @@ def text_hits(text_, height, words):
     """The keywords found in a unit's OCR text, in list order: each a case-insensitive substring of the normalized
     text; a weak term counts only on a unit at most MAX_WEAK_PX tall; a paired term only beside a hit of a keyword
     that is not paired; none at all when a suppress term is found. words: config `junk` (keywords, weak, paired,
-    suppress)."""
+    suppress).
+    """
     problem = word_list_problem(words)
     if problem:
         raise ValueError(problem)

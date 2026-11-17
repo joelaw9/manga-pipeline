@@ -118,7 +118,8 @@ def test_without_a_volume_the_downloads_volume_is_dropped_and_the_title_falls_ba
 )
 def test_2_volumes_from_the_files_tell_chapters_apart(ours, theirs, source, same):
     """D7.21 (user 2026-11-15): a download's own volume and a published file's volume from its file name must not
-    differ; a volume a source or rule assigned never splits a chapter (MangaDex may move it later)."""
+    differ; a volume a source or rule assigned never splits a chapter (MangaDex may move it later).
+    """
     assert chapter_names.same_chapter(lambda: ours, theirs, source) is same
 
 

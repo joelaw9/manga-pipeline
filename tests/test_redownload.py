@@ -1,5 +1,6 @@
 """The re-download of a bad download through intake (SPEC "Bad downloads"): validate's state machine and the
-suwayomi_download wait, against FakeSuwayomi."""
+suwayomi_download wait, against FakeSuwayomi.
+"""
 
 import argparse
 import io
@@ -499,7 +500,6 @@ def test_status_lists_re_downloads_notes_and_the_commands_that_settle_a_chapter(
 
 def _cbz_with_pages(*cbzs):
     """A CBZ whose pages are the first page of each of cbzs."""
-
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         for i, data in enumerate(cbzs, 1):
@@ -547,7 +547,6 @@ def _target(world, chapter_id):
 
 def _textured_cbz(seed, pages=3):
     """A CBZ of noise pages (16 x 24): unlike the world's 1-colour pages, they have pHashes."""
-
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         for n in range(1, pages + 1):

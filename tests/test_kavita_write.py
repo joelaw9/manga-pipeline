@@ -1,6 +1,7 @@
 """Series fields to Kavita (SPEC "Metadata"; decisions D7.10, D7.11, D7.22): written locked by export from stored
 records, only what differs, never over a person's locked edit; a tag-rule change reaches Kavita with no source
-request."""
+request.
+"""
 
 import io
 from contextlib import closing

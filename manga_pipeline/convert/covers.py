@@ -30,7 +30,8 @@ class CoverError(RuntimeError):
 def load(cfg, row):
     """The cover file's bytes of a volume_cover row, checked: its path relative to paths.covers and inside it, the file
     there, its sha256 the row's. Raises CoverError naming the path; a dropped share's FileNotFoundError
-    (errors.dropped_share) is raised as it is."""
+    (errors.dropped_share) is raised as it is.
+    """
     rel = Path(row["path"])
     root = config.abs_path(cfg["paths"]["covers"]).resolve()
     path = (root / rel).resolve()
@@ -52,7 +53,8 @@ def load(cfg, row):
 
 def width(chapter_plan):
     """The chapter's page width: the most common width of its non-cover pages (of all its pages when it has none),
-    the first seen winning a tie."""
+    the first seen winning a tie.
+    """
     pages = [q for q in chapter_plan.pages if not q["cover"]] or chapter_plan.pages
     return Counter(q["size"][0] for q in pages).most_common(1)[0][0]
 
@@ -76,7 +78,8 @@ def scaled(data, page_width):
 def insert(out_dir, data, fmt, page_width, avif):
     """Write 000_cover.<ext> in format fmt into out_dir, in place of any page of that stem there. AVIF: the encoded
     cover (avif: image.Encoder.cover's result), copied; JPEG (q92), PNG, lossy WebP (q90): encoded here from the cover
-    scaled to page_width. Returns {"name", "format", "score" (AVIF only), "bytes"}."""
+    scaled to page_width. Returns {"name", "format", "score" (AVIF only), "bytes"}.
+    """
     if fmt not in plan.COVER_FORMATS:
         msg = f"no volume cover encoding for {fmt}"
         raise ValueError(msg)

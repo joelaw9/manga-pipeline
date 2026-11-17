@@ -142,7 +142,8 @@ def series_fields(ctx: workflow.Context, series, chapter, group):
 def page_entries(pages, cover, spreads):
     """ComicInfo Page entries of convert's output pages ([{index, name, width, height, bytes}] in archive order):
     FrontCover on the inserted volume cover (cover: one was inserted), DoublePage on a page wider than tall in a page
-    series (spreads)."""
+    series (spreads).
+    """
     out = []
     for page in pages:
         entry = {"Image": page["index"]}

@@ -16,7 +16,8 @@ ROOT = "/kavita/library"
 @pytest.fixture
 def services(tmp_path, monkeypatch):
     """A fake Suwayomi (1 library manga, 2 chapters, 1 downloaded) and a fake Kavita (library 4, 1 series, 1 file),
-    given to smoke in place of the clients built from config."""
+    given to smoke in place of the clients built from config.
+    """
     suw = FakeSuwayomi(tmp_path / "mangas")
     manga = suw.add_manga("Re:Zero", suw.add_source("MangaDex"))
     first = suw.add_chapter(manga, "Ch.1: Start", "Group")

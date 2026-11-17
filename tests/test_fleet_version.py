@@ -1,5 +1,6 @@
 """The fleet's version (SPEC "State", "Config", "Preflight"): a part or junk review runs only when its program, shared
-settings, packages and tools are the fleet's; machine-local keys may differ."""
+settings, packages and tools are the fleet's; machine-local keys may differ.
+"""
 
 from contextlib import closing
 

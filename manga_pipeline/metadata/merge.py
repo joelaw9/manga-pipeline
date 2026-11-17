@@ -89,7 +89,8 @@ def _edges(al):
 
 def _summary(al, md_attr, mb, mu):
     """The first non-empty of AniList (HTML), MangaDex English (Markdown), MangaBaka (Markdown and HTML), MangaUpdates
-    (HTML)."""
+    (HTML).
+    """
     found = [
         html_text((al or {}).get("description")),
         markdown_text((md_attr.get("description") or {}).get("en")),
@@ -154,7 +155,8 @@ class _Text(html.parser.HTMLParser):
 
 def html_text(text):
     """Plain text of an HTML summary: paragraphs kept (at most 1 blank line between), a trailing "(Source: ...)"
-    note dropped."""
+    note dropped.
+    """
     if not text:
         return None
     parser = _Text()
@@ -168,7 +170,8 @@ def html_text(text):
 
 def markdown_text(text):
     """Plain text of a Markdown summary, cut at its first horizontal rule (MangaDex appends links and credits under
-    one); links keep their text, emphasis marks go."""
+    one); links keep their text, emphasis marks go.
+    """
     if not text:
         return None
     md = MarkdownIt("commonmark")

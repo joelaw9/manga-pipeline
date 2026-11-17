@@ -52,7 +52,8 @@ def child_config(cfg):
 
 def child_env(token, review_id, environ=None):
     """Claude's environment: the OS variables present, the project root as PYTHONPATH, the token, the review id;
-    nothing else."""
+    nothing else.
+    """
     environ = os.environ if environ is None else environ
     names = OS_VARIABLES + (WINDOWS_VARIABLES if os.name == "nt" else ())
     env = {n: environ[n] for n in names if n in environ}
@@ -64,13 +65,15 @@ def child_env(token, review_id, environ=None):
 
 def join_command(parts):
     """A command line as Claude's Bash tool reads it: a POSIX shell on every platform (Git Bash on Windows, which drops
-    backslashes), so paths go in forward slashes (Claude's Bash rules compare this text)."""
+    backslashes), so paths go in forward slashes (Claude's Bash rules compare this text).
+    """
     return shlex.join(p.replace("\\", "/") for p in parts)
 
 
 def rule_path(path):
     """An absolute path as a Claude Code permission rule writes it: `//` and its POSIX form, a Windows drive as its
-    lower-case letter (F: -> //f/...). A single leading `/` would anchor to Claude's working directory."""
+    lower-case letter (F: -> //f/...). A single leading `/` would anchor to Claude's working directory.
+    """
     p = path if isinstance(path, PurePath) else Path(path)
     if p.drive:
         return "//" + p.drive[0].lower() + p.as_posix()[len(p.drive) :]

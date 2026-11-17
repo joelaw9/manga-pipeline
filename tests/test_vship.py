@@ -1,5 +1,6 @@
 """The Vship binding (convert.vship; SPEC "Conversion"): synthetic manga and webtoon pages scored on the real GPU
-(marked gpu: run with --vship PATH), and the fail-fast paths. Ported from the bulk converter's tests/test_vship.py."""
+(marked gpu: run with --vship PATH), and the fail-fast paths. Ported from the bulk converter's tests/test_vship.py.
+"""
 
 import io
 from concurrent.futures import ThreadPoolExecutor
@@ -143,7 +144,8 @@ def test_arrays_of_different_sizes_are_refused():
 @budget(load="pure")
 def test_a_handle_vship_fails_to_free_raises_with_vships_message():
     """A non-zero code from Vship_FreeHandler raises instead of leaking GPU memory (stubbed: a real double free
-    crashes the process). A score at a new size frees the thread's handle of the old size."""
+    crashes the process). A score at a new size frees the thread's handle of the old size.
+    """
     lib = type(
         "Lib",
         (),

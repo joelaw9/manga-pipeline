@@ -136,7 +136,8 @@ def test_free_space_measures_the_drive_of_a_log_folder_not_made_yet(tmp_path):
 
 def site(tmp_path, database=pg.UNASSIGNED):
     """Config with the share folders under tmp_path/share and the database named database (default: one never
-    built, for checks that open none)."""
+    built, for checks that open none).
+    """
     share = tmp_path / "share"
     paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {
         "scratch": str(tmp_path / "scratch"),

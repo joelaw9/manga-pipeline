@@ -1,6 +1,7 @@
 """Official platform lists (SPEC "Metadata", platform lists; "Publishing"): which page a series' links name, the Tapas
 and Webtoons clients on replies recorded from the sites, and the platform-seasons basis and titles against the bulk
-converter's records."""
+converter's records.
+"""
 
 import json
 from contextlib import closing

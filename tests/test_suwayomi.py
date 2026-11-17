@@ -1,6 +1,7 @@
 """clients.suwayomi: GraphQL errors, paging, the reads, the writes' requests, the source-call rules and the download
 file names (SPEC "Services"). Replies under tests/fixtures_api were recorded from a real Suwayomi v2.4.2366 by reads
-only; the replies of the calls that write are written by hand from its schema."""
+only; the replies of the calls that write are written by hand from its schema.
+"""
 
 import copy
 import json

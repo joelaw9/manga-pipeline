@@ -130,7 +130,8 @@ def chapter_use(cfg, args):
 
 def chapter_drop(cfg, args):
     """The download goes the retention way first, then the chapter is done: a crash between leaves it needs_human,
-    and the next drop finds its download already gone."""
+    and the next drop finds its download already gone.
+    """
     with _database(cfg, "drop") as conn:
         row = workflow.droppable(conn, args.chapter)
         if row["kind"] == "rewrite":  # no download, nothing handled: its staged file goes; the file stays as it is
@@ -192,7 +193,8 @@ def series_edit(cfg, args):
 
 def naming_diff(cfg, args):
     """Read-only: what the comparison would rewrite, and the differences 7e never applies (SPEC "Retroactive
-    updates")."""
+    updates").
+    """
     with db.read_only(cfg) as conn:
         ctx = workflow.context(cfg, conn, "export")
         where = sql.SQL("s.id = %(series)s") if args.series_id else sql.SQL("s.kavita_series_id IS NOT NULL")
@@ -514,7 +516,8 @@ def main(argv=None):
     """Exit code: 0 done, 1 an unexpected error (logged with its traceback), a failed smoke check or a failed junk
     review, 2 usage or config error or a refused command, 3 another run holds a lock the command takes, 4 a hard
     preflight check failed, the database server cannot be used, a command with locks finds no database, or the
-    database is not one this version can use."""
+    database is not one this version can use.
+    """
     p = parser()
     args = p.parse_args(argv)
     command = COMMANDS[args.command]
@@ -541,7 +544,8 @@ def main(argv=None):
 
 def _under_locks(p, cfg, command, args, conn):
     """Run the command under its locks (SPEC "Run lock"), its log set up there; its exit code (3 when another run holds
-    a lock it takes)."""
+    a lock it takes).
+    """
     names = tuple(workflow.owner(name) for name in command.locks)
     try:
         with lock.held(conn, cfg, names, command.idle) if command.locked else nullcontext():
@@ -586,7 +590,8 @@ def _run(p, cfg, command, args, conn):
 
 def _open(cfg, command):
     """The command's 1 connection, opened before its locks (SPEC "Run lock"): a command that builds creates a missing
-    database; for any other, a database missing or holding no schema record is NoDatabaseError."""
+    database; for any other, a database missing or holding no schema record is NoDatabaseError.
+    """
     return db.open_database(cfg, builds=command.builds)
 
 

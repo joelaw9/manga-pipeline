@@ -44,7 +44,8 @@ class HttpTimeoutError(Exception):
 
 class NotJsonError(HttpError):
     """A reply read as JSON is not JSON (SPEC "Services"): a bot check's HTML page, say. A failure of the request, as
-    an HttpError is; its status is the reply's own."""
+    an HttpError is; its status is the reply's own.
+    """
 
     def __init__(self, service, status, content_type, body):
         Exception.__init__(self, f"{service}: HTTP {status} reply is not JSON (Content-Type {content_type})")
@@ -69,7 +70,8 @@ class Response:
 
 def redact_url(url):
     """The URL without credentials: user info dropped, and the value of every query parameter whose name contains a
-    SECRET_WORDS word (in any case) replaced."""
+    SECRET_WORDS word (in any case) replaced.
+    """
     parts = urllib.parse.urlsplit(url)
     query = [
         (name, "REDACTED" if any(word in name.lower() for word in SECRET_WORDS) else value)
@@ -81,7 +83,8 @@ def redact_url(url):
 
 class Service:
     """1 service as 1 run sees it: its name (what Unreachable carries), its minimum gap between requests in seconds,
-    the User-Agent it sends, when it was last asked, and whether it was found unreachable."""
+    the User-Agent it sends, when it was last asked, and whether it was found unreachable.
+    """
 
     def __init__(self, name, min_gap=0.0, user_agent=USER_AGENT):
         self.name = name
@@ -101,7 +104,8 @@ class Service:
         """Send 1 request, retried as SPEC "Services" says, and return its Response. Raises Unreachable (and marks
         the service), HttpError, or HttpTimeoutError for a timeout when retry_timeout is false. retries=0 sends it
         once: a 5xx reply other than UNREACHABLE_STATUS is then an HttpError. ValueError for a URL that is
-        not http or https: a wrong setting, never retried."""
+        not http or https: a wrong setting, never retried.
+        """
         if self._down is not None:
             raise Unreachable(self.name, self._down)
         shown = redact_url(url)
@@ -141,7 +145,8 @@ class Service:
     def _asked_wait(self, error, url, body, shown):
         """The seconds a retried HTTP failure's Retry-After asks for, None when it names none. HttpError for a status
         that is the request's failure (below 500, 429 aside); Unreachable (and the service marked) for a Retry-After
-        above MAX_RETRY_AFTER."""
+        above MAX_RETRY_AFTER.
+        """
         if error.code != HTTPStatus.TOO_MANY_REQUESTS and error.code < HTTPStatus.INTERNAL_SERVER_ERROR:
             raise HttpError(error.code, url, body) from None
         asked = _retry_after(error.headers)
@@ -160,7 +165,8 @@ class Service:
 
 def _network_problem(error, sent, timeout, *, retry_timeout):
     """How the log names a network failure of the request sent ("METHOD shown URL"); HttpTimeoutError for a timeout
-    when retry_timeout is false."""
+    when retry_timeout is false.
+    """
     timed_out = isinstance(error, TimeoutError) or isinstance(getattr(error, "reason", None), TimeoutError)
     if timed_out and not retry_timeout:
         msg = f"{sent} timed out after {timeout} s"

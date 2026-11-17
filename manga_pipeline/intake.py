@@ -1,5 +1,6 @@
 """Part intake (SPEC "Parts"): discovers new downloads, then per series takes its chapters through discover and
-validate."""
+validate.
+"""
 
 from manga_pipeline import discovery, redownload, workflow
 from manga_pipeline.metadata import check, step

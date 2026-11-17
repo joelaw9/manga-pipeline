@@ -1,5 +1,6 @@
 """page_store and chapter_edit: the page measurements and the junk edit the stage phases share (SPEC "Parts",
-hand-off between parts)."""
+hand-off between parts).
+"""
 
 import shutil
 

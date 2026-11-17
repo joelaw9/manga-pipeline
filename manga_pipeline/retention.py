@@ -18,7 +18,8 @@ DAY = 86400
 
 def put(cfg, download):
     """Remove a download (a Path under <paths.downloads>/mangas) the retention way. A download already gone counts as
-    removed (a crash after the move, before its outcome was recorded)."""
+    removed (a crash after the move, before its outcome was recorded).
+    """
     if not errors.exists(download):
         log.info("retention: %s is already gone", download)
         return
@@ -41,7 +42,8 @@ def put_library(cfg, file):
     """Keep a library file about to be replaced (SPEC "Retroactive updates") the retention way: a hard link to it
     under <paths.retention>/library-files/<its folder below the library root>/ (a free "(n)" name, as put picks),
     its retention period starting now; the library keeps the file until the replace. Nothing when
-    export.retention_days is 0."""
+    export.retention_days is 0.
+    """
     if cfg["export"]["retention_days"] == 0:
         return
     root = config.abs_path(cfg["paths"]["library"])
@@ -58,7 +60,8 @@ def put_library(cfg, file):
 
 def purge(cfg, now=None):
     """Delete retained files older than export.retention_days by modification time, and the folders that leaves
-    empty. Returns how many files were deleted. A folder that cannot be read raises."""
+    empty. Returns how many files were deleted. A folder that cannot be read raises.
+    """
     root = config.abs_path(cfg["paths"]["retention"])
     cutoff = (time.time() if now is None else now) - cfg["export"]["retention_days"] * DAY
     deleted = 0

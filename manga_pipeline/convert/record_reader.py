@@ -62,7 +62,8 @@ def parse(rec):
 def check(rec):
     """The structural validation of a record: schema 3 or 4, every top key and series block, runs, folders, the
     naming restart flag, the calibration groups' shape, unique outputs and chapter files, and sources that name
-    existing outputs. Raises RecordError."""
+    existing outputs. Raises RecordError.
+    """
     _check_top(rec)
     _check_blocks(rec)
     _check_naming(rec["series"]["naming"])

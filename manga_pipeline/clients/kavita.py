@@ -66,7 +66,8 @@ class Kavita:
 
     def series_in_library(self, library_id):
         """POST /api/Series/all-v2, filtered to 1 library and sorted by name (pages of an unsorted list can repeat
-        or miss a series): every series DTO of it."""
+        or miss a series): every series DTO of it.
+        """
         body = {
             "statements": [{"comparison": 0, "field": LIBRARY_FILTER_FIELD, "value": str(library_id)}],
             "combination": 1,
@@ -83,7 +84,8 @@ class Kavita:
 
     def series(self, series_id):
         """GET /api/Series/{id}: the series DTO, or None when Kavita no longer holds it (404, or an empty reply for a
-        series deleted since it was listed)."""
+        series deleted since it was listed).
+        """
         try:
             reply = self._call("GET", f"/api/Series/{int(series_id)}")
         except http.HttpError as e:
@@ -103,14 +105,16 @@ class Kavita:
     def update_series(self, series, **changes):
         """POST /api/Series/update: Kavita applies every field it is sent and resets those left out (an omitted
         aniListId becomes 0, an omitted coverImageLocked unlocks the cover), so the series as just read is resent
-        whole with the changes."""
+        whole with the changes.
+        """
         body = {name: series[name] for name in UPDATE_SERIES_FIELDS if name in series}
         body.update(changes, id=series["id"])
         self._call("POST", "/api/Series/update", body)
 
     def upload_cover(self, series_id, image):
         """POST /api/Upload/series, then check Kavita serves it: Kavita has answered 200 while failing to write the
-        file. CoverError when it does not."""
+        file. CoverError when it does not.
+        """
         self._call("POST", "/api/Upload/series", {"id": int(series_id), "url": base64.b64encode(image).decode()})
         if not self.has_uploaded_cover(series_id):
             msg = f"Kavita accepted the cover of series {series_id} but does not serve it"
@@ -118,7 +122,8 @@ class Kavita:
 
     def has_uploaded_cover(self, series_id):
         """Whether the series' cover is one uploaded through the API: Kavita names those series<id>.<ext> (a scan
-        names its own after a volume), and serves its image."""
+        names its own after a volume), and serves its image.
+        """
         series = self.series(series_id) or {}
         if not (series.get("coverImage") or "").startswith(f"series{int(series_id)}."):
             return False
@@ -136,7 +141,8 @@ class Kavita:
     def series_files(self, series_id):
         """Every file Kavita holds for the series: its local path, bytes, pages, file id, chapter id, volume id, the
         chapter's pagesRead (of the API key's user) and its lastModifiedUtc (moved by every scan that re-reads the
-        file: local library kavita-scanning.md)."""
+        file: local library kavita-scanning.md).
+        """
         return [
             {
                 "path": self.local_path(file["filePath"]),
@@ -155,7 +161,8 @@ class Kavita:
 
     def save_progress(self, series_id, volume_id, chapter_id, page):
         """The API key's user has read `page` pages of the chapter (POST /api/reader/progress; Kavita caps it at the
-        chapter's page count)."""
+        chapter's page count).
+        """
         series = self.series(series_id)
         if series is None:
             msg = f"Kavita series {series_id} is gone: progress not saved"
@@ -182,14 +189,16 @@ class Kavita:
 
     def refresh_covers(self, library_id, series_id):
         """Kavita regenerates the series' chapter and volume cover images (POST /api/Series/refresh-metadata, forced):
-        a library scan keeps a re-read chapter's old one. The series' locked cover stays."""
+        a library scan keeps a re-read chapter's old one. The series' locked cover stays.
+        """
         body = {"libraryId": library_id, "seriesId": series_id, "forceUpdate": True}
         self._call("POST", "/api/Series/refresh-metadata", json=body)
 
     def series_folder(self, series_id):
         """The single folder holding the series' files, as a local path. FolderError when its files lie in no folder,
         in 2 or more, or directly in one of a library's own folders. Never Kavita's folderPath: for a series under a
-        shared top folder that is the top folder."""
+        shared top folder that is the top folder.
+        """
         folders = sorted(
             {
                 file["filePath"].rpartition("/")[0]
@@ -211,7 +220,8 @@ class Kavita:
 
     def local_path(self, kavita_path):
         """A path as Kavita reports it, as a local path: the longest prefix of paths.kavita_path_map that ends on a
-        path boundary is replaced; case counts. ValueError for a path under no prefix."""
+        path boundary is replaced; case counts. ValueError for a path under no prefix.
+        """
         for prefix, local in self._path_map:
             if kavita_path == prefix or kavita_path.startswith(prefix + "/"):
                 return Path(local, *kavita_path[len(prefix) :].split("/"))
@@ -224,7 +234,8 @@ class Kavita:
         """POST /api/Library/scan (not forced): Kavita's own library scan, which matches files to series by their
         ComicInfo Series against each series' names and keeps their ids. The pipeline's only scan: a series scan
         deletes a series whose files no longer parse back to it, and any scan requested while one runs does not work.
-        (POST /api/Library/scan-folder is never used: it rewrites a series' folderPath to the top folder.)"""
+        (POST /api/Library/scan-folder is never used: it rewrites a series' folderPath to the top folder.)
+        """
         self._call("POST", f"/api/Library/scan?libraryId={int(library_id)}&force=false")
 
     # --- transport

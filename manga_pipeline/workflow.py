@@ -54,13 +54,15 @@ WINDOWS_UNUSABLE = r"""([<>:"|?*]|[. ](/|$))"""
 
 def owner(part):
     """Who a part's claims and run lock name (SPEC "State", "Run lock"): process runs once per machine, so its owner
-    carries the host name; intake and export run once in the fleet."""
+    carries the host name; intake and export run once in the fleet.
+    """
     return f"{part}@{socket.gethostname()}" if part == "process" else part
 
 
 def claim_name(chapter):
     """<chapter id>-<claim count>: the name a claimed chapter's scratch folder and staged file carry, so 2 claims of 1
-    chapter never share a file (SPEC "State")."""
+    chapter never share a file (SPEC "State").
+    """
     return f"{chapter['id']}-{chapter['claim_count']}"
 
 
@@ -69,13 +71,15 @@ CLAIM_NAME = r"\d+-\d+"  # what claim_name gives, for the start-of-run clean-ups
 
 class ClaimLost(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """The run no longer holds the chapter's claim (it was freed while the run slept or lost its connection): the
-    chapter ends with no outcome and no attempt (SPEC "State")."""
+    chapter ends with no outcome and no attempt (SPEC "State").
+    """
 
 
 @dataclass(frozen=True)
 class Context:
     """A run's state: context builds it from the config; a caller that holds its clients (a test's fakes) gives
-    every field."""
+    every field.
+    """
 
     cfg: dict
     conn: db.Connection  # the command's connection (cli.main), holding its run lock
@@ -125,7 +129,8 @@ class Waiting:
 @dataclass(frozen=True)
 class Ready:
     """The chapter stays ready at its stage, with no attempt, and may be claimed again in this run (the junk stage
-    after a scan, SPEC "Chapter stages")."""
+    after a scan, SPEC "Chapter stages").
+    """
 
     record: Callable[[db.Connection], object] | None = None  # its result is ignored
 
@@ -158,7 +163,8 @@ RECORDED = Done | Dropped | Waiting | Ready | NeedsHuman  # outcomes that may ca
 def in_scope(cfg, series_names, kavita_library_id):
     """Whether a series is worked: Kavita holds it in the library kavita.library_id or does not hold it yet
     (kavita_library_id None: a new series), and series.only is empty or names it by any of series_names. SQL's form
-    is SCOPE."""
+    is SCOPE.
+    """
     if kavita_library_id is not None and kavita_library_id != cfg["kavita"]["library_id"]:
         return False
     only = cfg["series"]["only"]
@@ -167,7 +173,8 @@ def in_scope(cfg, series_names, kavita_library_id):
 
 def row_names(row):
     """The names series.only may give a series row by (SCOPE's columns): its name, a hand-placed folder's ComicInfo
-    Series, its ComicInfo Series name and its Kavita localized and original names."""
+    Series, its ComicInfo Series name and its Kavita localized and original names.
+    """
     names = ("name", "alt_name", "comicinfo_series", "localized_name", "original_name")
     return [row[n] for n in names if row[n]]
 
@@ -240,7 +247,8 @@ def claim(ctx: Context, stages, series_id=None):
     which any chapter is claimed at this part's stages, or of a series sharing that series' rules key (machines work
     different series), nor one that failed less than RETRY_PAUSE ago. In the same transaction the claims of every
     other owner of this part whose run lock is no longer held are freed first (SPEC "State"). Returns the claimed row
-    (its claim_count is this claim's), or None when nothing is ready."""
+    (its claim_count is this claim's), or None when nothing is ready.
+    """
     stages = [s for s in stages if s not in ctx.unreachable]
     with db.transaction(ctx.conn):
         _free_dead_claims(ctx)
@@ -308,7 +316,8 @@ def claim(ctx: Context, stages, series_id=None):
 
 def _free_dead_claims(ctx: Context):
     """Inside the claim's transaction: the claims of every other owner of this part whose run lock is not held go
-    back to ready, attempts unchanged. None with lock.enabled false: no run holds a lock then (SPEC "State")."""
+    back to ready, attempts unchanged. None with lock.enabled false: no run holds a lock then (SPEC "State").
+    """
     if not ctx.cfg["lock"]["enabled"]:
         return
     freed = ctx.conn.execute(
@@ -343,7 +352,8 @@ def work(ctx: Context, chapter, stage):
     Failed, except Unreachable (and an OSError with a SHARE_ERRNOS errno, which is Unreachable("share")): that leaves
     the chapter ready with its attempts unchanged, and the chapter's stage is not claimed again in this run. Returns
     the outcome (the Unreachable for that case). An outcome dropped because a person changed the row meanwhile is
-    neither logged as an outcome nor counted."""
+    neither logged as an outcome nor counted.
+    """
     if db.in_transaction(ctx.conn):
         msg = "a stage must run with no transaction open"
         raise RuntimeError(msg)
@@ -377,7 +387,8 @@ def work(ctx: Context, chapter, stage):
 
 def _record_outcome(ctx: Context, chapter, outcome):
     """(the outcome recorded, whether it was: false when dropped). An outcome whose own writes fail is recorded as
-    Failed in its place."""
+    Failed in its place.
+    """
     try:
         return outcome, _finish(ctx, chapter, outcome)
     except Exception as e:
@@ -416,7 +427,8 @@ def _name(chapter):
 
 def drain(ctx: Context, stages, series_id=None):
     """Work chapters until none is ready at the stages of `stages` ({stage: stage function}), claiming again by
-    priority after each one. Returns how many ended Done."""
+    priority after each one. Returns how many ended Done.
+    """
     done = 0
     while chapter := claim(ctx, tuple(stages), series_id):
         done += isinstance(work(ctx, chapter, stages[chapter["stage"]]), Done)
@@ -426,7 +438,8 @@ def drain(ctx: Context, stages, series_id=None):
 def end_waits(ctx: Context, on, holds):
     """Make every in-scope chapter waiting on `on` ready again at its stage when holds(ctx, chapter) is true, or
     needs_human when it returns a NeedsHuman (no further wait can help). The chapters of a needs_human series keep
-    waiting."""
+    waiting.
+    """
     rows = ctx.conn.execute(
         sql.SQL("""SELECT c.* FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status = 'waiting' AND c.waiting_on = %(on)s AND s.status = 'ok' AND {scope} ORDER BY c.id""").format(
@@ -464,7 +477,8 @@ def charge_waits(ctx: Context, on, reason, waited_since, at):
     """1 attempt for each in-scope chapter of an ok series waiting on `on` whose wait was recorded at or before
     waited_since (a wait renewed at a cost, SPEC "Publishing"); the charge stamps updated_at with `at`, so a charged
     chapter's wait counts from then. A chapter reaching the attempt limit becomes needs_human. Runs inside the caller's
-    transaction; returns how many were charged."""
+    transaction; returns how many were charged.
+    """
     if not db.in_transaction(ctx.conn):
         msg = "charge_waits runs inside the caller's transaction"
         raise RuntimeError(msg)
@@ -485,7 +499,8 @@ def charge_waits(ctx: Context, on, reason, waited_since, at):
 def release_own_claims(ctx: Context):
     """Free the claims a killed run of this owner left, in scope or not: back to ready at their stage, attempts
     unchanged (this run holds the owner's lock, so they are dead). Not when lock.enabled is false: another live run
-    of the owner may hold them."""
+    of the owner may hold them.
+    """
     if not ctx.cfg["lock"]["enabled"]:
         return
     with db.transaction(ctx.conn):
@@ -500,7 +515,8 @@ def release_own_claims(ctx: Context):
 
 def holds_claim(ctx: Context, chapter):
     """Raise ClaimLost unless this run still holds the chapter's claim; inside the caller's transaction or alone.
-    Called immediately before an act that cannot be undone outside the database (SPEC "State")."""
+    Called immediately before an act that cannot be undone outside the database (SPEC "State").
+    """
     held = ctx.conn.execute(
         "SELECT 1 FROM chapter WHERE id = %s AND status = 'claimed' AND claimed_by = %s AND claim_count = %s",
         (chapter["id"], ctx.owner, chapter["claim_count"]),
@@ -512,7 +528,8 @@ def holds_claim(ctx: Context, chapter):
 
 def needs_human(conn, kind, item_id, reason):
     """The single place a chapter or a series becomes needs_human (kind "chapter" or "series"); runs inside the
-    caller's transaction."""
+    caller's transaction.
+    """
     if not db.in_transaction(conn):
         msg = "needs_human runs inside the caller's transaction"
         raise RuntimeError(msg)
@@ -551,7 +568,8 @@ def retry_chapter(conn, chapter_id):
 def retry_series(conn, series_id):
     """A series becomes ok (reason cleared), and its needs_human chapters ready again at their stages, attempts 0.
     Refused when neither the series nor any of its chapters is needs_human, and for a new series not yet admitted
-    (SPEC "Series identification": `series link` or `series new` settles it)."""
+    (SPEC "Series identification": `series link` or `series new` settles it).
+    """
     with db.transaction(conn):
         row = conn.execute("SELECT status, origin, admitted_at FROM series WHERE id = %s", (series_id,)).fetchone()
         if row is None:
@@ -573,7 +591,8 @@ def retry_series(conn, series_id):
 def move_chapters(conn, from_series, to_series):
     """Move a series' chapters to another (series link merging a held row; inside the caller's transaction). An open
     chapter past junk goes back to junk, ready, attempts 0, so the new series' baseline and handled-digest check
-    apply; a part holding its claim then drops its outcome."""
+    apply; a part holding its claim then drops its outcome.
+    """
     junk = STAGES.index("junk")
     later = STAGES[junk + 1 :]
     conn.execute(
@@ -589,7 +608,8 @@ def move_chapters(conn, from_series, to_series):
 def reset(conn):
     """Empty the workflow state (SPEC "State"): every WORKFLOW_TABLES table, and every series back to ok but one held
     for want of a Kavita series or a folder, which only `series link` (or `series new` for a new series not yet
-    admitted) settles (identification never runs again)."""
+    admitted) settles (identification never runs again).
+    """
     with db.transaction(conn):
         for table in db.WORKFLOW_TABLES:
             conn.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
@@ -601,7 +621,8 @@ def reset(conn):
 
 def _ready_again(conn, where, value):
     """Ready again at its stage, attempts 0; a re-download's source search starts again from the top, and a person's
-    choice (chapter use) is forgotten (SPEC "Bad downloads")."""
+    choice (chapter use) is forgotten (SPEC "Bad downloads").
+    """
     return conn.execute(
         sql.SQL("""UPDATE chapter SET status = 'ready', attempts = 0, retry_after = NULL, updated_at = %s,
             redownload = CASE WHEN redownload::jsonb ->> 'original' IS NULL THEN NULL
@@ -618,7 +639,8 @@ DROPPABLE = ("discover", "validate", "junk")
 
 def use_chapter(conn, chapter_id, suwayomi_chapter_id):
     """A person's chosen replacement (chapter use): a needs_human chapter at validate becomes ready with the Suwayomi
-    chapter to download as its replacement (SPEC "Bad downloads")."""
+    chapter to download as its replacement (SPEC "Bad downloads").
+    """
     with db.transaction(conn):
         _refuse_unless_human(conn, chapter_id, ("validate",))
         conn.execute(
@@ -631,7 +653,8 @@ def use_chapter(conn, chapter_id, suwayomi_chapter_id):
 
 def droppable(conn, chapter_id):
     """The row of a chapter a person may drop (needs_human at a DROPPABLE stage, with no removal or download of its
-    re-download outstanding); Refused otherwise."""
+    re-download outstanding); Refused otherwise.
+    """
     with db.transaction(conn):
         row = _refuse_unless_human(conn, chapter_id, _droppable_stages(conn, chapter_id))
         state = json.loads(row["redownload"] or "{}")
@@ -649,7 +672,8 @@ def droppable(conn, chapter_id):
 
 def drop_chapter(conn, chapter_id, record):
     """A person gives a needs_human chapter up (chapter drop): done where it stands, with record(conn) (its handled
-    row) in the same transaction. The caller removes its download first."""
+    row) in the same transaction. The caller removes its download first.
+    """
     with db.transaction(conn):
         _refuse_unless_human(conn, chapter_id, _droppable_stages(conn, chapter_id))
         conn.execute(
@@ -662,7 +686,8 @@ def drop_chapter(conn, chapter_id, record):
 
 def _droppable_stages(conn, chapter_id):
     """DROPPABLE, or every stage for a chapter naming its file (a rewrite, or a better copy: SPEC "Retroactive
-    updates"): it holds the file's 1 open-chapter place."""
+    updates"): it holds the file's 1 open-chapter place.
+    """
     row = conn.execute("SELECT published_file_id FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
     return STAGES if row is not None and row["published_file_id"] is not None else DROPPABLE
 
@@ -682,7 +707,8 @@ def run_part(ctx: Context, body):
     """A part's run (SPEC "Parts"): record its start, release its own stale claims, run body(ctx), record its end and
     result ("ok", "unreachable: <service>, …" or "error"), and its last success when the result is ok. Unreachable
     raised outside a stage (discovery, a wait check) ends the run; either way the exit code stays 0. Any other
-    exception is recorded as "error" and left to the caller, unlogged."""
+    exception is recorded as "error" and left to the caller, unlogged.
+    """
     _set_meta(ctx, "last_start", now(ctx.conn))
     result = "error"
     services = set()
@@ -711,7 +737,8 @@ def run_part(ctx: Context, body):
 
 def _finish(ctx: Context, chapter, outcome):
     """Record outcome for a chapter this run claimed (its owner and claim count), unless a person changed the row
-    meanwhile or the claim was freed. Returns whether it was recorded."""
+    meanwhile or the claim was freed. Returns whether it was recorded.
+    """
     limit = ctx.cfg["workflow"]["attempt_limit"]
     with db.transaction(ctx.conn):
         stamp = now(ctx.conn)
@@ -741,7 +768,8 @@ def _finish(ctx: Context, chapter, outcome):
 
 def _outcome_columns(chapter, outcome, limit, stamp):
     """(SET clause, its values, whether the attempt limit is reached) for an outcome recorded at stamp. Only a
-    failure sets retry_after; every other outcome clears it."""
+    failure sets retry_after; every other outcome clears it.
+    """
     if isinstance(outcome, Failed):
         attempts = chapter["attempts"] + 1
         return (
@@ -771,7 +799,8 @@ def _outcome_columns(chapter, outcome, limit, stamp):
 @contextmanager
 def share_errors():
     """An OSError with a SHARE_ERRNOS errno, or on Windows a SHARE_WINERRORS winerror, becomes Unreachable("share");
-    other errors pass unchanged."""
+    other errors pass unchanged.
+    """
     try:
         yield
     except OSError as e:
