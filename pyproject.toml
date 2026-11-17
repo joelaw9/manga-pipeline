@@ -179,6 +179,13 @@ ignore_names = [
     "external_attr",
     "MAX_IMAGE_PIXELS",  # Pillow's module setting (images.py)
     "row_factory",  # sqlite3.Connection's attribute (junk/importing.py)
+    # config.py's TypedDict fields that are read only by key (cfg["logging"]["dir"]), which vulture cannot see;
+    # approved by the user 2026-11-16
+    "dir", "keep_days", "enabled", "min_free_mb", "user", "password", "staging", "kavita_path_map", "attempt_limit",
+    "settle_minutes", "rescan_after_minutes", "checks_per_run", "recent_months", "complete_months", "recent_days",
+    "quiet_days", "complete_days", "retention_days", "rewrites_open", "avifenc", "avifdec", "jpegtran", "oxipng",
+    "min_scratch_free_mb", "download_timeout_hours", "claude_token", "claude_path", "review_limit", "review_batch",
+    "keywords", "weak", "paired", "suppress",
 ]
 
 [tool.coverage.run]
