@@ -1,9 +1,16 @@
-# The check main's ruleset requires on every PR (.github/rulesets/main.json): lint, format, types, the full test suite.
+# The check main's ruleset requires on every PR (.github/rulesets/main.json), the tests job: lint, format, types, import
+# contracts (lint-imports), dead code (vulture), the full test suite. The audit job (pip-audit: known vulnerabilities in
+# the installed packages) is not required, so an advisory-service outage blocks no merge; it also runs weekly, since
+# advisories land against pins already merged.
 name: tests
-on: pull_request
+on:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
 jobs:
   tests:
     name: tests
+    if: github.event_name == 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -34,4 +41,17 @@ jobs:
       - run: python -m ruff format --check .
       - run: python -m basedpyright --warnings
       - run: python -m basedpyright --warnings --pythonplatform Linux
+      - run: lint-imports --no-cache
+      - run: python -m vulture manga_pipeline
       - run: python -m pytest -q -n auto
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install --group dev
+      - run: python -m pip_audit --strict

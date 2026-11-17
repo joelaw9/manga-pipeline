@@ -56,6 +56,24 @@ python -m basedpyright --warnings
 python -m basedpyright --warnings --pythonplatform Linux
 ```
 
+Import contracts (import-linter, `[tool.importlinter]` in `pyproject.toml`: each contract encodes a rule of this file or SPEC; all must be kept; a new contract or `ignore_imports` entry needs the user's approval first):
+
+```bash
+lint-imports --no-cache
+```
+
+Dead code (vulture over the program only, `[tool.vulture]`: program code must be used by the program; must report nothing; a new `ignore_names` entry needs the user's approval first):
+
+```bash
+python -m vulture manga_pipeline
+```
+
+Known vulnerabilities (pip-audit; CI's non-required `audit` job runs it on every PR and weekly; a `--ignore-vuln` needs the user's approval first):
+
+```bash
+python -m pip_audit --strict
+```
+
 Run:
 
 ```bash
@@ -126,8 +144,8 @@ python -m manga_pipeline.cli --help
 
 ## Merging
 
-- `main` changes only through a pull request; its required `tests` check runs lint, format, types and the full test suite (`.github/workflows/tests.yml`; the rule is `.github/rulesets/main.json`, applied as README "Merging" says).
-- Local merge commits and squash commits run lint, the format check, the type check and the full test suite first: `.githooks/pre-merge-commit`, and `.githooks/pre-commit` for a commit that concludes a merge or a squash, both run `.githooks/full-suite`. A fast-forward runs no hook: merge with a plain `git merge BRANCH`, never `--ff` / `--ff-only` or `git pull` of another branch into it. Never skip the hooks with `--no-verify`; fix the failing test instead.
+- `main` changes only through a pull request; its required `tests` check runs lint, format, types, import contracts, dead code and the full test suite (`.github/workflows/tests.yml`, whose `audit` job, pip-audit, is not required; the rule is `.github/rulesets/main.json`, applied as README "Merging" says).
+- Local merge commits and squash commits run lint, the format check, the type check, the import contracts, the dead-code check and the full test suite first: `.githooks/pre-merge-commit`, and `.githooks/pre-commit` for a commit that concludes a merge or a squash, both run `.githooks/full-suite`. A fast-forward runs no hook: merge with a plain `git merge BRANCH`, never `--ff` / `--ff-only` or `git pull` of another branch into it. Never skip the hooks with `--no-verify`; fix the failing test instead.
 
 ## Known gotchas
 
