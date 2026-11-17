@@ -11,7 +11,7 @@ import pytest
 
 from manga_pipeline import config
 
-from tests import TMP, LiveConfigReadError, real_load
+from tests import TMP, LiveConfigReadError, builders, real_load
 from tests.timing import budget
 
 EXAMPLE = """\
@@ -278,3 +278,9 @@ def test_the_config_types_name_every_key_of_the_example_with_its_type():
             assert set(typing.get_args(hint)) == {str, types.NoneType}, f"{parts}: a null example leaf is str | None"
         else:
             assert (typing.get_origin(hint) or hint) is type(value), f"{parts}: typed as the example value's type"
+
+
+@budget(load="pure")
+def test_the_sections_a_test_may_replace_are_config_sections():
+    sections = typing.get_type_hints(builders.ConfigChanges).keys()
+    assert sections == typing.get_type_hints(config.Config).keys(), "ConfigChanges names every Config section, no other"

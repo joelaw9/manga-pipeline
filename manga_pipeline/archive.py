@@ -164,7 +164,7 @@ def replace_member(cbz: Path, name: str, data: bytes) -> int:
 
 def test(cbz: Path, size: int) -> None:
     """Raise when cbz is not `size` bytes or fails the zip test (a CRC or a member it cannot read)."""
-    actual = Path(cbz).stat().st_size
+    actual = cbz.stat().st_size
     if actual != size:
         msg = f"{cbz} is {actual} bytes, expected {size}"
         raise OSError(msg)
