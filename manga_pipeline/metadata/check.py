@@ -28,13 +28,14 @@ KINDS = {
 
 
 class Disagree(Exception):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
-    pass
+    """2 ids of a source differ; the message is ids.resolve's problem text, which the check stores (needs_human)."""
 
 
 def completed(ctx: workflow.Context, chapter):
-    """Whether the chapter's series has completed a metadata check (found or not): the end of a metadata_check
-    wait. A series on a platform basis also needs the check its new chapter made due to complete, so the chapter is
-    never named from a list older than its arrival (SPEC "Metadata", platform lists).
+    """Return whether the chapter's series has completed a metadata check (found or not).
+
+    The end of a metadata_check wait. A series on a platform basis also needs the check its new chapter made due to
+    complete, so the chapter is never named from a list older than its arrival (SPEC "Metadata", platform lists).
     """
     row = ctx.conn.execute(
         """SELECT k.data_version, k.urgent, s.naming_basis FROM series s
@@ -47,9 +48,10 @@ def completed(ctx: workflow.Context, chapter):
 
 
 def due(ctx: workflow.Context):
-    """Ids of the in-scope, not needs_human series whose check runs this run: every urgent or never completed one,
-    then at most metadata.checks_per_run others, the longest due first. A series is checked when Kavita holds it, or
-    when it is a new series Kavita does not hold yet (admitted or not).
+    """Return the ids of the in-scope, not needs_human series whose check runs this run.
+
+    Every urgent or never completed one, then at most metadata.checks_per_run others, the longest due first. A series
+    is checked when Kavita holds it, or when it is a new series Kavita does not hold yet (admitted or not).
     """
     rows = ctx.conn.execute(
         sql.SQL("""SELECT s.id, k.series_id IS NULL OR k.urgent OR k.data_version = 0 AS always
@@ -65,7 +67,7 @@ def due(ctx: workflow.Context):
 
 
 def make_urgent(conn, series_id):
-    """A new chapter makes its series' check due at once; inside the caller's transaction."""
+    """Make the series' check due at once, for a new chapter; inside the caller's transaction."""
     conn.execute(
         """INSERT INTO series_check (series_id, urgent) VALUES (%s, true)
         ON CONFLICT (series_id) DO UPDATE SET urgent = true""",
@@ -74,8 +76,10 @@ def make_urgent(conn, series_id):
 
 
 def run(ctx: workflow.Context, clients, series_id):
-    """Check 1 series. Returns True when it completed. Unreachable, HttpError and SourceError from a service end the
-    check (nothing stored) and propagate. A new series Kavita does not hold yet has no Kavita record or ids.
+    """Check 1 series. Returns True when it completed.
+
+    Unreachable, HttpError and SourceError from a service end the check (nothing stored) and propagate. A new series
+    Kavita does not hold yet has no Kavita record or ids.
     """
     conn = ctx.conn
     series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series_id,))
@@ -150,8 +154,10 @@ def run(ctx: workflow.Context, clients, series_id):
 
 
 def _names(series):
-    """The names a source is searched by: the series' Kavita names; a new series' names it arrived under (its manga's
-    title or title folder, a folder's ComicInfo Series) and, once admitted, its name.
+    """Return the names a source is searched by.
+
+    The series' Kavita names; a new series' names it arrived under (its manga's title or title folder, a folder's
+    ComicInfo Series) and, once admitted, its name.
     """
     names = (
         series["name"],
@@ -164,7 +170,7 @@ def _names(series):
 
 
 def _stored_ids(conn, series_id):
-    """The ids no fetch replaces: found by search, imported, set by a person."""
+    """Return the ids no fetch replaces: found by search, imported, set by a person."""
     rows = conn.execute(
         """SELECT source, origin, source_id FROM series_source_id
         WHERE series_id = %s AND origin IN ('search', 'import', 'human')""",
@@ -190,8 +196,10 @@ def _stored_platform(conn, series_id):
 
 
 def _platform(clients, series, kavita_meta, records, stored):
-    """The series' platform episode list (SPEC "Metadata", platform lists), or None: the first candidate page that
-    has a list. Unreachable (Tapas blocking included) and other HTTP errors end the check, as for any source.
+    """Return the series' platform episode list (SPEC "Metadata", platform lists), or None.
+
+    The first candidate page that has a list. Unreachable (Tapas blocking included) and other HTTP errors end the
+    check, as for any source.
     """
     kavita_links = [u.strip() for u in ((kavita_meta or {}).get("webLinks") or "").split(",") if u.strip()]
     anilist_links = platforms.anilist_links(records[("anilist", "media")])
@@ -210,9 +218,10 @@ def _platform(clients, series, kavita_meta, records, stored):
 
 
 def _store_platform(conn, series_id, platform, now):
-    """Store the series' platform list (outside the data hash: a new episode is not a data change). A list with fewer
-    main episodes than the stored one of the same page does not replace it (a Webtoons Original cut back to its
-    web episodes); no list removes the stored one.
+    """Store the series' platform list (outside the data hash: a new episode is not a data change).
+
+    A list with fewer main episodes than the stored one of the same page does not replace it (a Webtoons Original cut
+    back to its web episodes); no list removes the stored one.
     """
     stored = conn.execute(
         "SELECT source, payload FROM fetched WHERE series_id = %s AND kind = %s", (series_id, platforms.KIND)
@@ -235,8 +244,10 @@ def _store_platform(conn, series_id, platform, now):
 
 
 def _fetch(clients, names, known):
-    """Every source's records, {(source, kind): payload or None}; known grows with each search hit (origin search)
-    and each record's cross-links. Disagree as soon as 2 ids of a source differ.
+    """Fetch every source's records, {(source, kind): payload or None}.
+
+    known grows with each search hit (origin search) and each record's cross-links. Disagree as soon as 2 ids of a
+    source differ.
     """
     records = {(source, kind): None for source, kinds in KINDS.items() for kind in kinds}
     mb_id = _id_for(known, "mangabaka", lambda: search.mangabaka(clients.mangabaka, names, _agreed(known)))
@@ -269,8 +280,9 @@ def _agreed(known):
 
 
 def _id_for(known, source, searcher):
-    """The source's agreed id, else the id searcher() finds (then known as a search hit, and checked to agree), else
-    None.
+    """Return the source's agreed id, else the id searcher() finds, else None.
+
+    A found id is then known as a search hit, and checked to agree.
     """
     value = _agreed(known).get(source)
     if value is None:
@@ -282,13 +294,14 @@ def _id_for(known, source, searcher):
 
 
 def _learn(known, source, pairs):
-    """A source's record's cross-links (other sources' ids, by that source's origin) join known."""
+    """Add a source's record's cross-links (other sources' ids, by that source's origin) to known."""
     known.extend((s, source, v) for s, v in pairs if s != source)
 
 
 def _comic(record, field, novel, source_id):
-    """The record, or None when it is a novel's (an id that led to a manga's light novel): the library is comics. A
-    dropped record is logged; a person fixes the id with `series set-id`.
+    """Return the record, or None when it is a novel's (an id that led to a manga's light novel).
+
+    The library is comics. A dropped record is logged; a person fixes the id with `series set-id`.
     """
     if record is not None and (record.get(field) or "").lower() == novel:
         log.warning("record %s is a novel's: not used (fix the series' id with `series set-id`)", source_id)
@@ -344,7 +357,7 @@ def _hash(payload):
 
 
 def _last_update(ctx: workflow.Context, clients, manga_rows, records):
-    """The series' last published update (SPEC "Metadata checks") as an aware datetime, or None."""
+    """Return the series' last published update (SPEC "Metadata checks") as an aware datetime, or None."""
     dates = []
     for manga in manga_rows:
         dates += [int(c["uploadDate"]) for c in ctx.suwayomi.chapters(manga["id"]) if c.get("uploadDate")]
@@ -358,8 +371,10 @@ def _last_update(ctx: workflow.Context, clients, manga_rows, records):
 
 
 def next_check(cfg, now, last, complete):
-    """When a series checked at `now` (ISO) is next due: recent_days while its last chapter (`last`) is recent,
-    complete_days for a complete series quiet long enough, else quiet_days.
+    """Return when a series checked at `now` (ISO) is next due.
+
+    recent_days while its last chapter (`last`) is recent, complete_days for a complete series quiet long enough, else
+    quiet_days.
     """
     m = cfg["metadata"]
     now = datetime.fromisoformat(now)

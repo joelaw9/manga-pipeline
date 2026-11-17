@@ -19,6 +19,11 @@ MANGAUPDATES_ASSOCIATED_CHECKED = 3
 
 
 def close(a, b):
+    """Return whether 2 titles are close under the lenient key.
+
+    Close: 1 key of at least PREFIX_LENGTH starts the other (a cut-off title), or their rapidfuzz ratio is at least
+    CLOSE_RATIO. An empty key is never close.
+    """
     ka, kb = names.key(a), names.key(b)
     if not ka or not kb:
         return False
@@ -37,6 +42,7 @@ def _wanted(series_names):
 
 
 def mangabaka_titles(record):
+    """Return a MangaBaka record's titles: its title, romanized and native titles, then its secondary titles."""
     titles = [record.get("title"), record.get("romanized_title"), record.get("native_title")]
     for group in (record.get("secondary_titles") or {}).values():
         titles += [t.get("title") for t in group or []]
@@ -44,16 +50,20 @@ def mangabaka_titles(record):
 
 
 def mangabaka(client, series_names, agreed):
-    """By the series' AniList id, else its MangaUpdates id; a title search only when it holds neither, or when they
-    lead to a novel (a manga's ids pointing at its light novel).
+    """Find the series' MangaBaka id: by the series' AniList id, else its MangaUpdates id.
+
+    A title search only when it holds neither, or when they lead to a novel (a manga's ids pointing at its light
+    novel).
     """
     found, search = _mangabaka_by_ids(client, agreed)
     return _mangabaka_by_title(client, series_names) if search else found
 
 
 def _mangabaka_by_ids(client, agreed):
-    """(the MangaBaka id the series' AniList id, else its MangaUpdates id, leads to, or None; whether to search by
-    title instead): a search when the series holds neither id, or they lead only to novels.
+    """Return (the MangaBaka id the series' ids lead to, or None; whether to search by title instead).
+
+    The id is the one the series' AniList id, else its MangaUpdates id, leads to. A search when the series holds
+    neither id, or they lead only to novels.
     """
     lookups = []
     if "anilist" in agreed:
@@ -70,8 +80,9 @@ def _mangabaka_by_ids(client, agreed):
 
 
 def _mangabaka_by_title(client, series_names):
-    """The 1 result whose title is a name, searched name by name; else the first name's top result when it is close
-    and no other result is.
+    """Return the 1 result whose title is a name, searched name by name.
+
+    Else the first name's top result when it is close and no other result is.
     """
     wanted, first = _wanted(series_names), None
     for name in series_names[:NAMES_TRIED]:
@@ -89,6 +100,11 @@ def _mangabaka_by_title(client, series_names):
 
 
 def mangaupdates(client, series_names):
+    """Find the series' MangaUpdates id by title search, name by name.
+
+    Exactly 1 series whose title or hit title is a name; else, when no result's title matches, 1 of the top
+    MANGAUPDATES_ASSOCIATED_CHECKED results whose associated names hold a name. Novels are left out.
+    """
     wanted, checked = _wanted(series_names), set()
     for name in series_names[:NAMES_TRIED]:
         results = [r for r in client.search(name) if (r["record"].get("type") or "").lower() != "novel"]
@@ -114,7 +130,7 @@ def mangaupdates(client, series_names):
 
 
 def mangadex(client, series_names, agreed):
-    """The MangaDex entry whose MangaUpdates link is the series' MangaUpdates id; none without one."""
+    """Return the MangaDex entry whose MangaUpdates link is the series' MangaUpdates id; none without one."""
     if "mangaupdates" not in agreed:
         return None
     for name in list(dict.fromkeys(series_names))[:MANGADEX_NAMES_TRIED]:
@@ -125,10 +141,12 @@ def mangadex(client, series_names, agreed):
 
 
 def anilist_titles(media):
+    """Return an AniList record's titles: each of its title forms, then its synonyms."""
     return [*(media.get("title") or {}).values(), *(media.get("synonyms") or [])]
 
 
 def anilist(client, series_names):
+    """Find the series' AniList id by title search: the 1 non-novel result whose title or synonym is a name."""
     wanted = _wanted(series_names)
     for name in series_names[:NAMES_TRIED]:
         results = [m for m in client.search(name) if m.get("format") != "NOVEL"]
@@ -143,7 +161,7 @@ def _novel(record):
 
 
 def _base36(number):
-    """A MangaUpdates id as the 7 base-36 digits MangaBaka and MangaDex keep ("04gtb06")."""
+    """Return a MangaUpdates id as the 7 base-36 digits MangaBaka and MangaDex keep ("04gtb06")."""
     digits = "0123456789abcdefghijklmnopqrstuvwxyz"
     out = ""
     while number:

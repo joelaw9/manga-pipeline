@@ -1,4 +1,5 @@
 """The status command (SPEC "CLI", "Needs human"): what is where, what waits and on what, and what needs a human.
+
 Read-only: it never creates, migrates or writes the database.
 """
 
@@ -11,6 +12,7 @@ from manga_pipeline.db import sql
 
 
 def run(cfg):
+    """Print the status report; with no database built yet, say so."""
     if not db.built(cfg):
         print(f"no database {cfg['database']['name']}: no run has built it yet")
         return
@@ -19,13 +21,13 @@ def run(cfg):
 
 
 def report(conn):
-    """The status report as lines, read in 1 read transaction so its sections agree while a part runs."""
+    """Return the status report as lines, read in 1 read transaction so its sections agree while a part runs."""
     with conn.transaction():  # read_only's transactions are repeatable-read: 1 snapshot
         return _report(conn)
 
 
 def _settle(row):
-    """The other commands that settle a needs_human chapter at its stage (SPEC "Bad downloads")."""
+    """Return the other commands that settle a needs_human chapter at its stage (SPEC "Bad downloads")."""
     hint = ""
     if row["stage"] == "validate":
         hint += f", chapter use {row['id']} SUWAYOMI_CHAPTER_ID"

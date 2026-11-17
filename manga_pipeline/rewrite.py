@@ -1,7 +1,8 @@
-"""Retroactive rewrites of published files (SPEC "Retroactive updates"): `export`'s comparison, a rewrite chapter's
-comicinfo and publish (which only queues the rewrite on its file's row; its convert, for a cover, is
-rewrite_covers'), `finish` (the file acts, recorded step by step
-on the row), and the progress restore once Kavita has re-read the file.
+"""Retroactive rewrites of published files (SPEC "Retroactive updates"): compare, comicinfo, publish, finish, restore.
+
+`export`'s comparison, a rewrite chapter's comicinfo and publish (which only queues the rewrite on its file's row; its
+convert, for a cover, is rewrite_covers'), `finish` (the file acts, recorded step by step on the row), and the progress
+restore once Kavita has re-read the file.
 
 A rewrite never re-encodes pages, and the library never lacks the chapter's file. Only `export` (1 at a time
 fleet-wide: its run lock) acts on a queued row.
@@ -72,10 +73,11 @@ def _set_null(columns):
 
 
 def compare(ctx: workflow.Context):
-    """Compare every in-scope ok series with a Kavita id and its baseline taken whose naming inputs changed: queue a
-    rewrite chapter for each published file whose volume or cover should change, while fewer than export.rewrites_open
-    are open, and record the cover images wanted. A series compared whole stores the hash it was compared with; one cut
-    short, or whose files' covers could not be read, is compared again next run.
+    """Compare every in-scope ok series with a Kavita id and its baseline taken whose naming inputs changed.
+
+    Queue a rewrite chapter for each published file whose volume or cover should change, while fewer than
+    export.rewrites_open are open, and record the cover images wanted. A series compared whole stores the hash it was
+    compared with; one cut short, or whose files' covers could not be read, is compared again next run.
     """
     conn, cap = ctx.conn, ctx.cfg["export"]["rewrites_open"]
     candidates = conn.execute(
@@ -96,9 +98,10 @@ def compare(ctx: workflow.Context):
 
 
 def _compare_series(ctx: workflow.Context, series, room):
-    """Compare 1 series whose naming inputs changed since its stored hash: record the cover images wanted and queue
-    up to room rewrite chapters; store the hash once every change is queued. 1 transaction (the database-wide write
-    lock): the hash and the comparison read the same inputs once.
+    """Compare 1 series whose naming inputs changed since its stored hash.
+
+    Record the cover images wanted and queue up to room rewrite chapters; store the hash once every change is queued. 1
+    transaction (the database-wide write lock): the hash and the comparison read the same inputs once.
     """
     conn = ctx.conn
     # ponytail: it reads the series' open downloads' ComicInfo.xml under the lock, only when the hash changed
@@ -144,9 +147,10 @@ def _queue(ctx: workflow.Context, series, todo, room):
 
 
 class Change(NamedTuple):
-    """The change a rewrite chapter makes to 1 published file (_plan): its volume and volume source, its cover (None,
-    ("insert", volume, its series_volume_cover row) or ("drop",)), its title ("" = untitled) and the unedited values
-    it keeps afterwards (rewrite_plan.edit_changes).
+    """The change a rewrite chapter makes to 1 published file (_plan).
+
+    Its volume and volume source, its cover (None, ("insert", volume, its series_volume_cover row) or ("drop",)), its
+    title ("" = untitled) and the unedited values it keeps afterwards (rewrite_plan.edit_changes).
     """
 
     volume: float | None
@@ -157,10 +161,11 @@ class Change(NamedTuple):
 
 
 def _plan(ctx: workflow.Context, series):
-    """(todo, wants, unknown) of 1 series. todo: {published file id: Change} of the files whose volume, cover or (by a
-    hand edit) title should change, in id order; wants: the volumes whose cover image intake should fetch (that file's
-    cover is then left for later); unknown: some file's cover is not known yet (covers are then left out). VolumeError
-    as naming.resolve raises it.
+    """Return (todo, wants, unknown) of 1 series.
+
+    todo: {published file id: Change} of the files whose volume, cover or (by a hand edit) title should change, in id
+    order; wants: the volumes whose cover image intake should fetch (that file's cover is then left for later); unknown:
+    some file's cover is not known yet (covers are then left out). VolumeError as naming.resolve raises it.
     """
     conn, sid = ctx.conn, series["id"]
     rows, overrides, mangadex, platform = chapter_names.inputs(ctx, series)
@@ -240,9 +245,11 @@ def _stored_hash(conn, series_id):
 
 
 def _hash(ctx: workflow.Context, series):
-    """The series' naming inputs: its basis, override file, hand edits, stored MangaDex aggregate, cover list and
-    platform list, its stored cover images, the naming code, its published files' rows, its open downloads and the
-    covers they took, and its open rewrites. VolumeError for a malformed override file.
+    """Return the hash of the series' naming inputs. VolumeError for a malformed override file.
+
+    The inputs: its basis, override file, hand edits, stored MangaDex aggregate, cover list and platform list, its
+    stored cover images, the naming code, its published files' rows, its open downloads and the covers they took, and
+    its open rewrites.
     """
     conn, sid = ctx.conn, series["id"]
     overrides = volumes.override_file(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
@@ -291,9 +298,11 @@ def _hash(ctx: workflow.Context, series):
 
 
 def _queue_chapter(ctx: workflow.Context, series, file_id, change):
-    """1 rewrite chapter for a confirmed published file with no open chapter and nothing queued or awaited, at convert
-    when its cover changes (an insert's cover handed over as a volume_cover row), else at comicinfo; it carries the
-    file's title and unedited values afterwards (title "" = untitled). Returns 1 when made, else 0.
+    """Make 1 rewrite chapter for a confirmed published file with no open chapter and nothing queued or awaited.
+
+    It starts at convert when its cover changes (an insert's cover handed over as a volume_cover row), else at
+    comicinfo; it carries the file's title and unedited values afterwards (title "" = untitled). Returns 1 when made,
+    else 0.
     """
     conn = ctx.conn
     row = conn.execute(
@@ -356,8 +365,9 @@ def _cover_text(cover):
 
 
 def _target(row, volume, title):
-    """The stored path the rewritten file takes (D7.8): a pipeline file named for its new volume and title; a bulk file
-    keeps its name.
+    """Return the stored path the rewritten file takes (D7.8).
+
+    A pipeline file is named for its new volume and title; a bulk file keeps its name.
     """
     if row["origin"] != "pipeline":
         return row["library_path"]
@@ -369,8 +379,9 @@ def _target(row, volume, title):
 
 
 def comicinfo_run(ctx: workflow.Context, chapter):
-    """Copy the library file to staging with a new ComicInfo.xml (the series-level fields now, the new volume, the
-    old file's own fields and pages); every other member copied byte for byte.
+    """Copy the library file to staging with a new ComicInfo.xml; every other member copied byte for byte.
+
+    The new ComicInfo.xml holds the series-level fields now, the new volume, the old file's own fields and pages.
     """
     conn = ctx.conn
     series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
@@ -427,9 +438,10 @@ def page_count(cbz):
 
 
 def copy_replacing(source, dest, name, data):
-    """dest: source's members in order, member `name` (compared without case) replaced by data (stored last when the
-    source had none); every other member's bytes copied unchanged, checked by CRC against the source. Returns dest's
-    size.
+    """Write dest: source's members in order, member `name` (compared without case) replaced by data.
+
+    data is stored last when the source had none; every other member's bytes copied unchanged, checked by CRC against
+    the source. Returns dest's size.
     """
     with zipfile.ZipFile(source) as z:
         members = [(i.filename, z.read(i), i.CRC) for i in z.infolist() if i.filename.lower() != name.lower()]
@@ -444,8 +456,9 @@ def copy_replacing(source, dest, name, data):
 
 
 def publish_run(ctx: workflow.Context, chapter):
-    """Queue the rewrite, or a better copy's replacement, on its file's row with the API key's user's progress (SPEC
-    "Retroactive updates"); the chapter is then done. A copy also queues its values (publish.row_values), puts its
+    """Queue the rewrite, or a better copy's replacement, on its file's row with the API key's user's progress.
+
+    SPEC "Retroactive updates". The chapter is then done. A copy also queues its values (publish.row_values), puts its
     download aside the retention way and is recorded as a handled chapter `published`. A publish run again finds its
     rewrite queued or finished and is done.
     """
@@ -520,16 +533,18 @@ def _json(value):
 
 
 def copy_shift(read, old_pages, new_pages):
-    """The page shift a better copy's progress takes: the pages read scaled to its page count, as a shift from the
-    read page (the restore clamps it).
+    """Return the page shift a better copy's progress takes.
+
+    The pages read scaled to its page count, as a shift from the read page (the restore clamps it).
     """
     return round(read * new_pages / old_pages) - read if old_pages else 0
 
 
 def finish_all(ctx: workflow.Context):
-    """Finish every queued rewrite that has failed fewer than workflow.attempt_limit times; a row whose act fails
-    records its error and 1 attempt and resumes at its next step on the next run; the others go on (a share error
-    ends the run). At the limit it waits for `rewrite retry` (or, before its rename, `rewrite drop`).
+    """Finish every queued rewrite that has failed fewer than workflow.attempt_limit times.
+
+    A row whose act fails records its error and 1 attempt and resumes at its next step on the next run; the others go
+    on (a share error ends the run). At the limit it waits for `rewrite retry` (or, before its rename, `rewrite drop`).
     """
     rows = ctx.conn.execute(
         "SELECT * FROM published_file WHERE pending_path IS NOT NULL AND pending_attempts < %s ORDER BY id",
@@ -552,9 +567,11 @@ def finish_all(ctx: workflow.Context):
 
 
 def finish(ctx: workflow.Context, row):
-    """The file acts of 1 queued rewrite, each recorded on the row once done (pending_step), so a retry starts at the
-    next: 1 the staged file's time set to now; 2 the old file hard-linked into retention; 3 the staged file renamed over
-    the target; 4 a renamed file's old name removed; 5 the row takes the new path, size and volume.
+    """Do the file acts of 1 queued rewrite, each recorded on the row once done (pending_step).
+
+    So a retry starts at the next: 1 the staged file's time set to now; 2 the old file hard-linked into retention; 3 the
+    staged file renamed over the target; 4 a renamed file's old name removed; 5 the row takes the new path, size and
+    volume.
     """
     cfg, conn = ctx.cfg, ctx.conn
     staged = config.to_local(cfg, row["pending_staged"])
@@ -588,8 +605,9 @@ def finish(ctx: workflow.Context, row):
 
 
 def _renamed(row, target, old):
-    """Whether a queued rewrite whose staged file is gone was renamed over its target before a crash recorded it: a
-    new name holds a file of the queued size, or the same name holds the rewritten file (is_new).
+    """Return whether a queued rewrite whose staged file is gone was renamed over its target before a crash recorded it.
+
+    It was when a new name holds a file of the queued size, or the same name holds the rewritten file (is_new).
     """
     if target != old:
         return errors.exists(target) and target.stat().st_size == row["pending_size"]
@@ -597,8 +615,9 @@ def _renamed(row, target, old):
 
 
 def _settle(conn, row):
-    """finish's last act: the row takes the new path, size, volume, title and cover (a better copy's values too),
-    its pending fields cleared; the series is due a scan.
+    """Do finish's last act: the row takes the new path, size, volume, title and cover (a better copy's values too).
+
+    Its pending fields are cleared; the series is due a scan.
     """
     with db.transaction(conn):
         if row["pending_copy"]:  # a better copy: the row describes it now (SPEC "Retroactive updates")
@@ -623,8 +642,9 @@ def _settle(conn, row):
 
 
 def is_new(path, row):
-    """Whether a same-name target already holds the rewritten file (a crash after the rename): its size and its
-    ComicInfo Volume are the queued ones, and its Title too when the rewrite changes it.
+    """Return whether a same-name target already holds the rewritten file (a crash after the rename).
+
+    It does when its size and its ComicInfo Volume are the queued ones, and its Title too when the rewrite changes it.
     """
     if not errors.exists(path) or path.stat().st_size != row["pending_size"]:
         return False
@@ -647,8 +667,10 @@ def record_step(conn, file_id, step):
 
 
 def _give_up_copy(conn, row):
-    """A better copy's queued replacement given up (its staged file gone, or `rewrite drop`): the copy's handled record
-    says dropped, not published; its download stays in retention. Inside the caller's transaction.
+    """Give up a better copy's queued replacement (its staged file gone, or `rewrite drop`).
+
+    The copy's handled record says dropped, not published; its download stays in retention. Inside the caller's
+    transaction.
     """
     if row["pending_copy"] is None:
         return
@@ -672,10 +694,11 @@ def _clear(conn, file_id):
 
 
 def drop(conn, file_id, limit):
-    """`rewrite drop FILE_ID`: clear a stuck rewrite (its attempts at workflow.attempt_limit, or its progress wait
-    failed) that has not renamed its file in, with its progress carry; the caller removes the staged file it names;
-    the next comparison of its series starts again. workflow.Refused otherwise: a rewrite export is still working on,
-    or one past its rename (`rewrite retry` finishes it).
+    """`rewrite drop FILE_ID`: clear a stuck rewrite that has not renamed its file in, with its progress carry.
+
+    Stuck: its attempts at workflow.attempt_limit, or its progress wait failed. The caller removes the staged file it
+    names; the next comparison of its series starts again. workflow.Refused otherwise: a rewrite export is still working
+    on, or one past its rename (`rewrite retry` finishes it).
     """
     row = conn.execute("SELECT * FROM published_file WHERE id = %s", (file_id,)).fetchone()
     if row is None or not (
@@ -701,6 +724,7 @@ def drop(conn, file_id, limit):
 
 def retry(conn, file_id):
     """`rewrite retry FILE_ID`: a failed rewrite tries again from its next step, or its progress wait starts again.
+
     workflow.Refused when the row holds no error.
     """
     row = conn.execute("SELECT * FROM published_file WHERE id = %s", (file_id,)).fetchone()
@@ -720,8 +744,10 @@ def retry(conn, file_id):
 
 
 def restore_all(ctx: workflow.Context):
-    """For every rewritten file Kavita has re-read (listed at its size, its chapter modified after the snapshot),
-    restore the API key's user's progress where Kavita lost it, and end the wait; then refresh the covers.
+    """Restore progress for every rewritten file Kavita has re-read and end its wait; then refresh the covers.
+
+    Re-read: listed at its size, its chapter modified after the snapshot. The API key's user's progress is restored
+    where Kavita lost it.
     """
     rows = ctx.conn.execute(
         """SELECT p.*, s.kavita_series_id AS kid FROM published_file p JOIN series s ON s.id = p.series_id
@@ -758,8 +784,9 @@ def restore_all(ctx: workflow.Context):
 
 
 def refresh_covers(ctx: workflow.Context):
-    """Ask Kavita to regenerate the cover images of each series holding a re-read file whose cover a rewrite changed (a
-    library scan keeps a re-read chapter's old one): 1 request per series per run; a request that fails is logged and
+    """Ask Kavita to regenerate the cover images of each series holding a re-read file whose cover a rewrite changed.
+
+    A library scan keeps a re-read chapter's old one. 1 request per series per run; a request that fails is logged and
     asked again by the next run.
     """
     rows = ctx.conn.execute(
@@ -786,9 +813,11 @@ def _later(now, before):
 
 
 def _restore(ctx: workflow.Context, row, seen):
-    """The carried progress, written only when higher than what Kavita now holds: unread stays unread; fully read is
-    marked read; else the pages read, shifted by an added or dropped cover, at least 1, at most the new page count
-    (written lower too when Kavita still holds exactly the snapshot's page: a same-name file keeps it unshifted).
+    """Write the carried progress, only when higher than what Kavita now holds.
+
+    Unread stays unread; fully read is marked read; else the pages read, shifted by an added or dropped cover, at least
+    1, at most the new page count (written lower too when Kavita still holds exactly the snapshot's page: a same-name
+    file keeps it unshifted).
     """
     read, old_pages = row["carry_pages_read"] or 0, row["carry_old_pages"] or 0
     if read <= 0:
@@ -805,9 +834,10 @@ def _restore(ctx: workflow.Context, row, seen):
 
 
 def charge_waits(ctx: workflow.Context, waited_since, at):
-    """1 charge for each rewritten file still not re-read whose wait began at or before waited_since (a repeated
-    library scan request); at workflow.attempt_limit charges its row records the error. Inside the caller's
-    transaction; returns how many were charged.
+    """Add 1 charge to each rewritten file still not re-read whose wait began at or before waited_since.
+
+    A charge is a repeated library scan request; at workflow.attempt_limit charges its row records the error. Inside
+    the caller's transaction; returns how many were charged.
     """
     limit = ctx.cfg["workflow"]["attempt_limit"]
     rows = ctx.conn.execute(
@@ -835,10 +865,12 @@ def waiting(conn):
 
 
 def diff(ctx: workflow.Context, series):
-    """(rewrites the comparison would queue: [(path, old volume, new volume, new path, cover, new title or None)],
-    cover images it would want: [volume], whether some file's cover is not known yet (covers then left out),
-    differences not applied: [(path, stored volume, sources' volume)], the series' hand edits: [(chapter, title,
-    volume)]) of 1 series; reads no library file. VolumeError for a malformed override file.
+    """Return what the comparison of 1 series would do and the differences it leaves; reads no library file.
+
+    (rewrites the comparison would queue: [(path, old volume, new volume, new path, cover, new title or None)], cover
+    images it would want: [volume], whether some file's cover is not known yet (covers then left out), differences not
+    applied: [(path, stored volume, sources' volume)], the series' hand edits: [(chapter, title, volume)]). VolumeError
+    for a malformed override file.
     """
     rows, overrides, mangadex, platform = chapter_names.inputs(ctx, series)
     basis = series["naming_basis"]

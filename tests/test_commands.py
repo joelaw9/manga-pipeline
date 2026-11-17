@@ -1,5 +1,6 @@
-"""The person's commands: status, retry, state reset; and the share sentinel stopping a part before any work (SPEC
-"CLI", "Needs human", "State", "Preflight").
+"""The person's commands: status, retry, state reset; and the share sentinel stopping a part before any work.
+
+SPEC "CLI", "Needs human", "State", "Preflight".
 """
 
 import logging
@@ -47,7 +48,7 @@ def rows(cfg, sql, *params):
 
 @pytest.fixture
 def seeded(tmp_path):
-    """An adopted site with a needs_human series, a needs_human chapter, a waiting chapter and 2 ready ones."""
+    """Provide an adopted site with a needs_human series, a needs_human chapter, a waiting chapter and 2 ready ones."""
     cfg = adopted(tmp_path)
     with closing(db.connect(cfg)) as conn:
         ok = add_series(conn, "Alpha")
@@ -221,7 +222,7 @@ def test_share_sentinel_stops_a_part_before_any_work(tmp_path, owner):
 
 
 def dir_link(link, target):
-    """A link to a folder that needs no privilege: a junction on Windows, a symlink elsewhere."""
+    """Make a link to a folder that needs no privilege: a junction on Windows, a symlink elsewhere."""
     if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:
@@ -397,7 +398,7 @@ def test_state_reset_on_a_bad_folder_layout_exits_4_and_deletes_nothing(tmp_path
 
 
 def steps_with(tmp_path, monkeypatch, name):
-    """The program's schema steps plus an empty step `name`."""
+    """Provide the program's schema steps plus an empty step `name`."""
     folder = tmp_path / "schema"
     shutil.copytree(db.SCHEMA, folder)
     (folder / f"{name}.sql").write_text("SELECT 1;", encoding="utf-8")

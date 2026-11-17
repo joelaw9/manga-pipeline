@@ -1,5 +1,6 @@
-"""The re-download of a bad download through intake (SPEC "Bad downloads"): validate's state machine and the
-suwayomi_download wait, against FakeSuwayomi.
+"""The re-download of a bad download through intake (SPEC "Bad downloads").
+
+Validate's state machine and the suwayomi_download wait, against FakeSuwayomi.
 """
 
 import argparse
@@ -212,7 +213,7 @@ def test_a_replacement_of_an_unknown_format_becomes_the_chapters_download_and_ne
 
 
 def exhausted(world):
-    """A chapter needs_human at validate with no source left; returns its Suwayomi chapter id."""
+    """Make a chapter needs_human at validate with no source left; return its Suwayomi chapter id."""
     world.suwayomi.chapter_rows.pop(world.other_chapters[12])
     chapter_id, _ = bad_download(world)
     world.suwayomi.fail_download(chapter_id)
@@ -499,7 +500,7 @@ def test_status_lists_re_downloads_notes_and_the_commands_that_settle_a_chapter(
 
 
 def _cbz_with_pages(*cbzs):
-    """A CBZ whose pages are the first page of each of cbzs."""
+    """Return a CBZ whose pages are the first page of each of cbzs."""
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         for i, data in enumerate(cbzs, 1):
@@ -546,7 +547,7 @@ def _target(world, chapter_id):
 
 
 def _textured_cbz(seed, pages=3):
-    """A CBZ of noise pages (16 x 24): unlike the world's 1-colour pages, they have pHashes."""
+    """Return a CBZ of noise pages (16 x 24): unlike the world's 1-colour pages, they have pHashes."""
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         for n in range(1, pages + 1):
@@ -568,13 +569,16 @@ class WorldConn:
     """A connection with an open transaction, for a test's direct changes."""
 
     def __init__(self, world):
+        """Open a connection to the world's database; the transaction starts on enter."""
         self.conn = db.connect(world.cfg)
         self.tx = db.transaction(self.conn)
 
     def __enter__(self):
+        """Start the transaction and return the connection."""
         self.tx.__enter__()
         return self.conn
 
     def __exit__(self, *exc):
+        """End the transaction and close the connection."""
         self.tx.__exit__(*exc)
         self.conn.close()

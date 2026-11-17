@@ -1,8 +1,10 @@
-"""Notice titles (SPEC "Chapter stages": discover and junk): a download whose title is a notice or hiatus page
-(validate.non_chapter_names). An unnumbered one is dropped at discover. A numbered one is judged once at junk, where the
-series has its baseline and the chapter its page rows, by the bulk converter's rule (its optimizer/structure.py
-`settle_non_chapters`): kept as a chapter with a note when it has an end marker, at least the series' median page
-count, or no known median; else dropped as a notice. A chapter carrying the note is not judged again.
+"""Notice titles (SPEC "Chapter stages": discover and junk): a download whose title is a notice or hiatus page.
+
+Notice titles are validate.non_chapter_names. An unnumbered one is dropped at discover. A numbered one is judged once
+at junk, where the series has its baseline and the chapter its page rows, by the bulk converter's rule (its
+optimizer/structure.py `settle_non_chapters`): kept as a chapter with a note when it has an end marker, at least the
+series' median page count, or no known median; else dropped as a notice. A chapter carrying the note is not judged
+again.
 """
 
 import json
@@ -16,16 +18,18 @@ KEPT = "a numbered notice title kept as a chapter"
 
 
 def title(cfg, download, number):
-    """The parse of a download's name (numbered by its ComicInfo Number when the name has none) against
-    validate.non_chapter_names: kind NON_CHAPTER for a notice title.
+    """Parse a download's name against validate.non_chapter_names: kind NON_CHAPTER for a notice title.
+
+    Its ComicInfo Number numbers it when the name has none.
     """
     ci = {"Number": number} if number else None
     return names.parse_name(Path(download).stem, ci, cfg["validate"]["non_chapter_names"])
 
 
 def keep(pages, title_text, median):
-    """Why a numbered notice title is a chapter (the bulk converter's rule), or None: it is a notice. median: the
-    series' median page count, None when unknown (a drop needs a known one).
+    """Return why a numbered notice title is a chapter (the bulk converter's rule), or None: it is a notice.
+
+    median: the series' median page count, None when unknown (a drop needs a known one).
     """
     why = []
     if names.END_MARKER.search(title_text):
@@ -38,9 +42,10 @@ def keep(pages, title_text, median):
 
 
 def median(conn, series_id):
-    """The series' median page count like with like, or None with fewer than validation.MIN_PUBLISHED files: in a
-    page-layout series over every published file's source page count (its output's for a bulk-converter file); in a
-    strip series over the files the pipeline published (a bulk-converter strip file holds re-cut pages).
+    """Return the series' median page count like with like, or None with fewer than validation.MIN_PUBLISHED files.
+
+    In a page-layout series over every published file's source page count (its output's for a bulk-converter file); in
+    a strip series over the files the pipeline published (a bulk-converter strip file holds re-cut pages).
     """
     row = conn.execute("SELECT layout FROM series_conversion WHERE series_id = %s", (series_id,)).fetchone()
     if row is None and not conn.execute("SELECT 1 FROM published_file WHERE series_id = %s", (series_id,)).fetchone():
@@ -63,8 +68,9 @@ def median(conn, series_id):
 
 
 def judge(ctx: workflow.Context, chapter):
-    """At junk: None to go on (no notice title, or one judged a chapter: its note is written now, in its own
-    transaction); Dropped for a notice.
+    """Judge a chapter's notice title at junk: return None to go on, Dropped for a notice.
+
+    None is no notice title, or one judged a chapter: its note is written now, in its own transaction.
     """
     notes = json.loads(chapter["notes"] or "[]")
     if any(n.startswith(KEPT) for n in notes):
@@ -88,7 +94,7 @@ def judge(ctx: workflow.Context, chapter):
 
 
 def drop(ctx: workflow.Context, chapter, download):
-    """A notice: its download removed the retention way, and recorded as a dropped handled chapter."""
+    """Drop a notice: remove its download the retention way; the outcome records it as a dropped handled chapter."""
     digest = archive.digest_or_none(download)
     workflow.holds_claim(ctx, chapter)
     retention.put(ctx.cfg, download)

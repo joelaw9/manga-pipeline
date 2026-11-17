@@ -1,5 +1,6 @@
-"""The fakes later phases test against behave like the services where it matters (SPEC "Tests", "Services"): the
-download flag and file names of Suwayomi, and Kavita's scans (name matching, deleted and recreated series, stale
+"""The fakes later phases test against behave like the services where it matters (SPEC "Tests", "Services").
+
+The download flag and file names of Suwayomi, and Kavita's scans (name matching, deleted and recreated series, stale
 sizes, folderPath).
 """
 
@@ -147,7 +148,7 @@ def kav(tmp_path):
 
 
 def put(tmp_path, relative, series=None, localized=None, pages=3):
-    """A CBZ at <tmp>/library/<relative>, with a ComicInfo Series when given."""
+    """Write a CBZ at <tmp>/library/<relative>, with a ComicInfo Series when given."""
     path = tmp_path / "library" / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(cbz(pages, comicinfo(series, localized) if series else None))

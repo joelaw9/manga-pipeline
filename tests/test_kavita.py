@@ -1,5 +1,6 @@
-"""clients.kavita: the token and the 401 rule, the reads, the scan requests, path mapping and a series' folder
-(SPEC "Services").
+"""clients.kavita: the token and the 401 rule, the reads, the scan requests, path mapping and a series' folder.
+
+SPEC "Services".
 """
 
 import logging
@@ -24,7 +25,10 @@ def failure(status, body=b""):
 
 
 def client(answers=None, path_map=None):
-    """A client whose requests are answered from `answers`; authenticate answers a token unless `answers` says more."""
+    """Return a client whose requests are answered from `answers`.
+
+    authenticate answers a token unless `answers` says more.
+    """
     service = CannedService(
         "kavita", {**(answers or {}), **({} if AUTH in (answers or {}) else {AUTH: {"token": "t1"}})}
     )
@@ -34,7 +38,7 @@ def client(answers=None, path_map=None):
 
 
 def volumes(*paths, read=0):
-    """A volumes reply: 1 volume, 1 chapter per file path."""
+    """Return a volumes reply: 1 volume, 1 chapter per file path."""
     chapters = [
         {
             "id": 100 + i,

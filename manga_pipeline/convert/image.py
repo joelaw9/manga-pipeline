@@ -1,6 +1,7 @@
-"""Execute a chapter plan (SPEC "Conversion"). Copied from the bulk converter's optimizer/image.py without the
-post-check fallback; settings are constants (they must not drift from the bulk converter's), the page workers, the
-scorer and the tool paths are the caller's Encoder.
+"""Execute a chapter plan (SPEC "Conversion").
+
+Copied from the bulk converter's optimizer/image.py without the post-check fallback; settings are constants (they must
+not drift from the bulk converter's), the page workers, the scorer and the tool paths are the caller's Encoder.
 
 process_chapter tries the plan's outcomes in order; a measured failure (the SSIMULACRA2 floor after the q90 retry, the
 AVIF size gate) moves to the next:
@@ -41,8 +42,9 @@ LOSSLESS_GRAY = (images.GRAY, images.GRAY_MARK)  # the lossless path drops their
 
 
 def pool(workers):
-    """The page workers of 1 chapter: fresh processes (spawn: never a fork of a process holding the GPU context and
-    scorer threads).
+    """Return the page workers of 1 chapter: fresh processes.
+
+    Spawned: never a fork of a process holding the GPU context and scorer threads.
     """
     return ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn"))
 
@@ -53,10 +55,11 @@ def _tmp(tmp, src, tag, ext="png"):
 
 
 def encode_page(job):
-    """Worker half of 1 AVIF page attempt (job: (task, q)): decode the page, write its score reference, encode at q at
-    the planned chroma, decode the AVIF with avifdec. The reference is our decode (images.open_image), as a gray
-    version for a 4:0:0 encode. jpeg_feed: avifenc reads the JPEG page itself, else the reference PNG. Returns {"ref",
-    "dec" (paths in task["tmp"]), "bytes_out", "sec"}.
+    """Run the worker half of 1 AVIF page attempt (job: (task, q)).
+
+    Decode the page, write its score reference, encode at q at the planned chroma, decode the AVIF with avifdec. The
+    reference is our decode (images.open_image), as a gray version for a 4:0:0 encode. jpeg_feed: avifenc reads the JPEG
+    page itself, else the reference PNG. Returns {"ref", "dec" (paths in task["tmp"]), "bytes_out", "sec"}.
     """
     task, q = job
     src, out, tmp = Path(task["src"]), Path(task["out"]), Path(task["tmp"])
@@ -94,7 +97,10 @@ def _cancel(jobs):
 
 
 def _retries(task, score, tried):
-    """Is a page scored under SCORE_FLOOR at its first quality (tried: the qualities encoded) encoded once more?"""
+    """Return whether a page scored under SCORE_FLOOR at its first quality is encoded once more.
+
+    tried: the qualities encoded.
+    """
     return score < SCORE_FLOOR and task["retry_q"] is not None and len(tried) == 1
 
 
@@ -105,7 +111,7 @@ def _drop_queued(jobs):
 
 
 def _page_record(task, tried, score, bytes_out, sec):
-    """A finished AVIF page's record; tried: the qualities encoded, the last the one scored."""
+    """Return a finished AVIF page's record; tried: the qualities encoded, the last the one scored."""
     src = Path(task["src"])
     return {
         "name": src.name,
@@ -124,11 +130,14 @@ def _page_record(task, tried, score, bytes_out, sec):
 
 
 class Encoder:
-    """The page encodes of a run: its page workers (pool), the GPU scorer and the image tools' paths, which every encode
-    needs. A task names no tools: the Encoder gives each its own.
+    """The page encodes of a run.
+
+    Its page workers (pool), the GPU scorer and the image tools' paths, which every encode needs. A task names no
+    tools: the Encoder gives each its own.
     """
 
     def __init__(self, pool, scorer, tool_paths):
+        """Store the run's page workers (pool), the GPU scorer and the image tools' paths."""
         self.pool, self.scorer, self.tool_paths = pool, scorer, tool_paths
 
     def _score(self, ref, dec):
@@ -136,10 +145,12 @@ class Encoder:
         return self.scorer.score_files(ref, dec), time.perf_counter() - t0
 
     def avif_pages(self, tasks, *, stop_on_fail=False):
-        """Encode and score AVIF pages. Workers in the pool encode and decode each page (encode_page); scorer threads in
-        this process score each decode against its reference (scorer.score_files); a page under SCORE_FLOOR (its score
-        rounded to 2 decimals) is encoded once more at task["retry_q"] (None: no retry, a calibration probe). With
-        stop_on_fail, once a page fails after its retry the queued work is cancelled and the running work waited for.
+        """Encode and score AVIF pages.
+
+        Workers in the pool encode and decode each page (encode_page); scorer threads in this process score each decode
+        against its reference (scorer.score_files); a page under SCORE_FLOOR (its score rounded to 2 decimals) is
+        encoded once more at task["retry_q"] (None: no retry, a calibration probe). With stop_on_fail, once a page fails
+        after its retry the queued work is cancelled and the running work waited for.
         An exception cancels the rest, waits for the running work and is raised.
         task: {"src", "out", "tmp", "fmt", "cls", "yuv", "jpeg_feed", "q", "retry_q"}.
         Returns (the finished pages' records in task order, the failing page's record or None): {"name", "fmt",
@@ -187,8 +198,10 @@ class Encoder:
         return [recs[i] for i in sorted(recs)], failed
 
     def cover(self, data, page_width, work_dir):
-        """A volume cover's AVIF (covers) at page_width, through the AVIF gate at q80 (q90 retry), at its own class and
-        chroma. Returns {"path" (in work_dir; None when it failed), "score", "bytes", "ok", "class", "yuv"}.
+        """Encode a volume cover's AVIF (covers) at page_width, through the AVIF gate at q80 (q90 retry).
+
+        At its own class and chroma. Returns {"path" (in work_dir; None when it failed), "score", "bytes", "ok",
+        "class", "yuv"}.
         """
         work_dir = Path(work_dir)
         work_dir.mkdir(parents=True)
@@ -218,23 +231,28 @@ class Encoder:
         }
 
     def lossless_pages(self, tasks):
-        """Each page through lossless_page in the workers (task: lossless_page's, without "tools"); an exception cancels
-        the rest, waits for what runs and is raised.
+        """Run each page through lossless_page in the workers (task: lossless_page's, without "tools").
+
+        An exception cancels the rest, waits for what runs and is raised.
         """
         return _run_all(self.pool, lossless_page, [t | {"tools": self.tool_paths} for t in tasks])
 
 
 def grays_losslessly(cls, entry):
-    """Does the lossless path store this page gray? A gray or gray-mark PNG, or such a JPEG jpegtran can gray
-    (jpeg_gray); a CMYK, YCCK or RGB-coded JPEG stays exact, a lossless WebP passes through.
+    """Return whether the lossless path stores this page gray.
+
+    It does for a gray or gray-mark PNG, or such a JPEG jpegtran can gray (jpeg_gray); a CMYK, YCCK or RGB-coded JPEG
+    stays exact, a lossless WebP passes through.
     """
     fmt = entry["format"]
     return cls in LOSSLESS_GRAY and (fmt == images.PNG or (fmt == images.JPEG and entry["jpeg_gray"]))
 
 
 def lossless_page(task):
-    """jpegtran / oxipng; gray and gray-mark JPEG / PNG pages lose their colour channels (a JPEG only when jpeg_gray), a
-    lossless WebP passes through. Verifies pixels; an output not smaller than its source keeps the source bytes.
+    """Store 1 page on the lossless path with jpegtran / oxipng.
+
+    Gray and gray-mark JPEG / PNG pages lose their colour channels (a JPEG only when jpeg_gray), a lossless WebP passes
+    through. Verifies pixels; an output not smaller than its source keeps the source bytes.
     task: {"src", "out", "tmp", "fmt", "cls", "jpeg_gray", "tools"}. Returns the record, "grayed" telling whether the
     page lost colour.
     """
@@ -298,12 +316,12 @@ def _run_all(pool, fn, tasks):
 
 
 def reshape_kind(edits):
-    """A rendered chapter's reshape: restitch (long strip), split (stitched pages) or rejoin (crops, joins)."""
+    """Return a rendered chapter's reshape: restitch (long strip), split (stitched pages) or rejoin (crops, joins)."""
     return "restitch" if edits["strip"] else "split" if edits["split"] else "rejoin"
 
 
 def blank_pages(chapter_plan, x_dir, out_dir):
-    """The plan's logo blanks applied: {page name: its blanked PNG in out_dir}, alpha kept ({} when it has none)."""
+    """Apply the plan's logo blanks: {page name: its blanked PNG in out_dir}, alpha kept ({} when it has none)."""
     out = {}
     for b in chapter_plan.edits["blank"]:
         im, alpha = images.open_image(Path(x_dir) / b["page"])
@@ -318,8 +336,10 @@ def blank_pages(chapter_plan, x_dir, out_dir):
 
 
 def sources(chapter_plan, x_dir, blanked, out_dir):
-    """The folder a render reads the pages from: x_dir, or (with blanks) out_dir holding every kept page under its own
-    name, a blanked one as its blanked PNG (pages are decoded by content, not by extension).
+    """Return the folder a render reads the pages from.
+
+    x_dir, or (with blanks) out_dir holding every kept page under its own name, a blanked one as its blanked PNG (pages
+    are decoded by content, not by extension).
     """
     if not blanked:
         return Path(x_dir)
@@ -330,15 +350,17 @@ def sources(chapter_plan, x_dir, blanked, out_dir):
 
 
 def render(chapter_plan, x_dir, out_dir):
-    """The plan's rendered pages as PNGs in out_dir (strip.render), in order."""
+    """Render the plan's pages as PNGs in out_dir (strip.render), in order."""
     st = chapter_plan.edits["strip"] or chapter_plan.edits["split"]
     return strip.render(chapter_plan.render, x_dir, out_dir, st)
 
 
 @dataclass(frozen=True)
 class PageFiles:
-    """A chapter's page sources: its extracted download, the plan's rendered PNGs (in order, made from the blanked
-    sources; [] when it renders nothing) and its blanked PNGs (blank_pages: {page name: blanked PNG}).
+    """A chapter's page sources.
+
+    Its extracted download, the plan's rendered PNGs (in order, made from the blanked sources; [] when it renders
+    nothing) and its blanked PNGs (blank_pages: {page name: blanked PNG}).
     """
 
     extracted: Path
@@ -347,14 +369,15 @@ class PageFiles:
 
     @classmethod
     def of(cls, extracted, rendered, blanked):
-        """The PageFiles of the folder, rendered paths and blanked mapping as the plan's steps give them."""
+        """Build the PageFiles of the folder, rendered paths and blanked mapping as the plan's steps give them."""
         return cls(Path(extracted), [Path(p) for p in rendered], {name: Path(p) for name, p in blanked.items()})
 
     def original(self, name):
-        """The page as downloaded."""
+        """Return the page as downloaded."""
         return self.extracted / name
 
     def is_blanked(self, name):
+        """Return whether the page has a blanked PNG."""
         return name in self.blanked
 
 
@@ -459,10 +482,11 @@ def _clear(d):
 
 
 def output_gray(chapter_plan, outcome):
-    """True when every page the outcome stores is gray, from the plan's page classes (no decode): ComicInfo
-    BlackAndWhite. An AVIF page of a gray / tinted / gray-mark class is 4:0:0; the lossless path grays gray and
-    gray-mark JPEG / PNG pages; untouched pages are stored as they are (only a gray page is gray). An inserted volume
-    cover is not counted, nor the page it replaces (BlackAndWhite describes the chapter's own pages).
+    """Return whether every page the outcome stores is gray, from the plan's page classes (no decode).
+
+    ComicInfo BlackAndWhite. An AVIF page of a gray / tinted / gray-mark class is 4:0:0; the lossless path grays gray
+    and gray-mark JPEG / PNG pages; untouched pages are stored as they are (only a gray page is gray). An inserted
+    volume cover is not counted, nor the page it replaces (BlackAndWhite describes the chapter's own pages).
     """
     kind = outcome["outcome"]
 
@@ -480,10 +504,12 @@ def output_gray(chapter_plan, outcome):
 
 
 def process_chapter(pages: PageFiles, cover, out_dir, *, work_dir, encoder, chapter_plan):  # noqa: PLR0913  # each a distinct input: PageFiles, cover, out_dir, work_dir, encoder, plan
-    """Execute a chapter plan: pages (its PageFiles), cover (the volume cover: None, or {"data", "width", "avif":
-    Encoder.cover's result}), output pages in out_dir, work files in work_dir; encoder: the run's Encoder. Tries the
-    outcomes in order; the last one (untouched or lossless) always stands, and gets the cover in its planned format, in
-    place of a page named 000_cover. Returns the record: {"outcome", "edits", "route", "pages", "formats", "dropped",
+    """Execute a chapter plan and return its record.
+
+    pages (its PageFiles), cover (the volume cover: None, or {"data", "width", "avif": Encoder.cover's result}), output
+    pages in out_dir, work files in work_dir; encoder: the run's Encoder. Tries the outcomes in order; the last one
+    (untouched or lossless) always stands, and gets the cover in its planned format, in place of a page named
+    000_cover. Returns the record: {"outcome", "edits", "route", "pages", "formats", "dropped",
     "bytes_in", "bytes_out", "avif_rejected"? (why the first AVIF attempt failed), "avif_pages"?, "lossless_pages"?,
     "reshape"?, "blanked" (the pages blanked: an AVIF outcome's only), "cover" (the inserted cover {"name", "format",
     "score", "bytes"} or None), "quality", "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else

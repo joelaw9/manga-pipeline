@@ -1,5 +1,7 @@
-"""A series' baseline (SPEC "State", "Publishing", "Calibration"): what a series Kavita already holds is taken from its
-bulk-converter record before anything is published into it. Taken at validate (`intake`); no library file is opened.
+"""A series' baseline (SPEC "State", "Publishing", "Calibration").
+
+What a series Kavita already holds is taken from its bulk-converter record before anything is published into it. Taken
+at validate (`intake`); no library file is opened.
 """
 
 import json
@@ -26,8 +28,10 @@ LAYOUTS = ("strip", "pages")
 
 
 def needed(conn, series):
-    """Whether the series must have a baseline before its chapters go on: a series Kavita holds that has none, or
-    whose bulk rows were recorded before their source name, kind and volume source were kept (schema step 0054).
+    """Return whether the series must have a baseline before its chapters go on.
+
+    True for a series Kavita holds that has none, or whose bulk rows were recorded before their source name, kind and
+    volume source were kept (schema step 0054).
     """
     if series["origin"] != "kavita":
         return False
@@ -59,9 +63,10 @@ def record_problem(cfg, series):
 
 
 def take(ctx: workflow.Context, series):
-    """Take the series' baseline from its record. Returns None once the series has one; else why not (the chapter
-    waits). A record whose series name is not one of the series' Kavita names records nothing and makes the series
-    needs_human.
+    """Take the series' baseline from its record.
+
+    Returns None once the series has one; else why not (the chapter waits). A record whose series name is not one of the
+    series' Kavita names records nothing and makes the series needs_human.
     """
     problem = record_problem(ctx.cfg, series)
     if problem:
@@ -95,9 +100,10 @@ def _load(cfg, series):
 
 
 def _fill_naming(conn, series, record):
-    """Source name, kind and volume source of the series' bulk rows that lack them, from the record by output file
-    name (the series' folder may have moved since); a row the record no longer lists gets its kind from its
-    identity's side label and no source name or volume source.
+    """Fill in the source name, kind and volume source of the series' bulk rows that lack them, from the record.
+
+    Rows are matched by output file name (the series' folder may have moved since); a row the record no longer lists
+    gets its kind from its identity's side label and no source name or volume source.
     """
     chapters = {c["output"]: c for c in record["chapters"]}
     rows = conn.execute(

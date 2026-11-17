@@ -1,5 +1,6 @@
-"""The HTTP layer of every service call (SPEC "Services"): retries, the per-service minimum gap, what counts as
-unreachable, and logging without secrets.
+"""The HTTP layer of every service call (SPEC "Services").
+
+Retries, the per-service minimum gap, what counts as unreachable, and logging without secrets.
 
 A client owns 1 Service per run. The Service remembers that it was found unreachable, so the run asks it no more.
 """
@@ -32,6 +33,7 @@ class HttpError(Exception):
     """The service answered with a status that is a failure of the request (SPEC "Services")."""
 
     def __init__(self, status, url, body):
+        """Store the reply's status and body; the message names the status, the redacted URL and the body's start."""
         text = body.decode("utf-8", "replace").strip()[:BODY_SHOWN]
         super().__init__(f"HTTP {status} from {redact_url(url)}" + (f": {text}" if text else ""))
         self.status = status
@@ -43,11 +45,13 @@ class HttpTimeoutError(Exception):
 
 
 class NotJsonError(HttpError):
-    """A reply read as JSON is not JSON (SPEC "Services"): a bot check's HTML page, say. A failure of the request, as
-    an HttpError is; its status is the reply's own.
+    """A reply read as JSON is not JSON (SPEC "Services"): a bot check's HTML page, say.
+
+    A failure of the request, as an HttpError is; its status is the reply's own.
     """
 
     def __init__(self, service, status, content_type, body):
+        """Store the reply's status and body; the message names the service, the status and the content type."""
         Exception.__init__(self, f"{service}: HTTP {status} reply is not JSON (Content-Type {content_type})")
         self.status = status
         self.body = body
@@ -55,13 +59,15 @@ class NotJsonError(HttpError):
 
 @dataclass(frozen=True)
 class Response:
+    """A service's reply to 1 request: the service's name, the status, the headers and the body."""
+
     service: str  # the name of the Service that got it
     status: int
     headers: email.message.Message  # the reply's headers: get(name) ignores case
     body: bytes
 
     def json(self):
-        """The body as JSON; NotJsonError naming the service, status and content type when it is not."""
+        """Return the body as JSON; NotJsonError naming the service, status and content type when it is not."""
         try:
             return jsonlib.loads(self.body)
         except ValueError:
@@ -69,8 +75,10 @@ class Response:
 
 
 def redact_url(url):
-    """The URL without credentials: user info dropped, and the value of every query parameter whose name contains a
-    SECRET_WORDS word (in any case) replaced.
+    """Return the URL without credentials.
+
+    User info is dropped, and the value of every query parameter whose name contains a SECRET_WORDS word (in any case)
+    replaced.
     """
     parts = urllib.parse.urlsplit(url)
     query = [
@@ -82,11 +90,14 @@ def redact_url(url):
 
 
 class Service:
-    """1 service as 1 run sees it: its name (what Unreachable carries), its minimum gap between requests in seconds,
-    the User-Agent it sends, when it was last asked, and whether it was found unreachable.
+    """1 service as 1 run sees it.
+
+    Its name (what Unreachable carries), its minimum gap between requests in seconds, the User-Agent it sends, when it
+    was last asked, and whether it was found unreachable.
     """
 
     def __init__(self, name, min_gap=0.0, user_agent=USER_AGENT):
+        """Store the service's name, minimum gap and User-Agent; it starts never asked and not found unreachable."""
         self.name = name
         self.min_gap = min_gap
         self.user_agent = user_agent
@@ -101,10 +112,11 @@ class Service:
     def request(  # noqa: PLR0913  # a request's own options, each passed by some caller
         self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True, retries=RETRIES
     ):
-        """Send 1 request, retried as SPEC "Services" says, and return its Response. Raises Unreachable (and marks
-        the service), HttpError, or HttpTimeoutError for a timeout when retry_timeout is false. retries=0 sends it
-        once: a 5xx reply other than UNREACHABLE_STATUS is then an HttpError. ValueError for a URL that is
-        not http or https: a wrong setting, never retried.
+        """Send 1 request, retried as SPEC "Services" says, and return its Response.
+
+        Raises Unreachable (and marks the service), HttpError, or HttpTimeoutError for a timeout when retry_timeout is
+        false. retries=0 sends it once: a 5xx reply other than UNREACHABLE_STATUS is then an HttpError. ValueError for
+        a URL that is not http or https: a wrong setting, never retried.
         """
         if self._down is not None:
             raise Unreachable(self.name, self._down)
@@ -143,9 +155,10 @@ class Service:
         raise self.mark_unreachable(msg)
 
     def _asked_wait(self, error, url, body, shown):
-        """The seconds a retried HTTP failure's Retry-After asks for, None when it names none. HttpError for a status
-        that is the request's failure (below 500, 429 aside); Unreachable (and the service marked) for a Retry-After
-        above MAX_RETRY_AFTER.
+        """Return the seconds a retried HTTP failure's Retry-After asks for, None when it names none.
+
+        HttpError for a status that is the request's failure (below 500, 429 aside); Unreachable (and the service
+        marked) for a Retry-After above MAX_RETRY_AFTER.
         """
         if error.code != HTTPStatus.TOO_MANY_REQUESTS and error.code < HTTPStatus.INTERNAL_SERVER_ERROR:
             raise HttpError(error.code, url, body) from None
@@ -164,8 +177,9 @@ class Service:
 
 
 def _network_problem(error, sent, timeout, *, retry_timeout):
-    """How the log names a network failure of the request sent ("METHOD shown URL"); HttpTimeoutError for a timeout
-    when retry_timeout is false.
+    """Return how the log names a network failure of the request sent ("METHOD shown URL").
+
+    HttpTimeoutError for a timeout when retry_timeout is false.
     """
     timed_out = isinstance(error, TimeoutError) or isinstance(getattr(error, "reason", None), TimeoutError)
     if timed_out and not retry_timeout:
@@ -194,7 +208,10 @@ def _send(service, request, shown, timeout):
 
 
 def _error_body(error):
-    """The body of an error reply, for the message only: empty when it cannot be read (the status is the answer)."""
+    """Return the body of an error reply, for the message only.
+
+    Empty when it cannot be read (the status is the answer).
+    """
     try:
         return error.read()
     except (OSError, http.client.HTTPException):
@@ -202,6 +219,6 @@ def _error_body(error):
 
 
 def _retry_after(headers):
-    """The seconds a Retry-After header names; None when it is absent or a date."""
+    """Return the seconds a Retry-After header names; None when it is absent or a date."""
     value = (headers.get("Retry-After") or "").strip() if headers is not None else ""
     return int(value) if value.isdigit() else None

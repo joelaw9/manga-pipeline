@@ -1,6 +1,8 @@
-"""Rules added by the Phase 6d code reviews (SPEC "State", "Parts"): a database holding old-form paths is refused,
-a series folder outside paths.library needs a human, a Windows machine skips names Windows cannot use, a dropped SMB
-share is not "a file already gone", and junk review records an unreachable share.
+"""Rules added by the Phase 6d code reviews (SPEC "State", "Parts").
+
+A database holding old-form paths is refused, a series folder outside paths.library needs a human, a Windows machine
+skips names Windows cannot use, a dropped SMB share is not "a file already gone", and junk review records an
+unreachable share.
 """
 
 import errno

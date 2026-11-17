@@ -1,6 +1,8 @@
-"""Stored paths (SPEC "State", "Config"): every path the database holds is <share root>/<path below it> with /
-separators, and each machine maps it by its own configured roots, so a database one machine filled is worked by
-another that mounts the share elsewhere and writes its roots otherwise.
+"""Stored paths (SPEC "State", "Config").
+
+Every path the database holds is <share root>/<path below it> with / separators, and each machine maps it by its own
+configured roots, so a database one machine filled is worked by another that mounts the share elsewhere and writes its
+roots otherwise.
 """
 
 import json
@@ -73,7 +75,7 @@ def test_a_path_under_no_root_and_a_stored_text_naming_none_are_refused(tmp_path
 
 
 def mount(target, link):
-    """A second name for the share, as another machine mounts it."""
+    """Make a second name for the share, as another machine mounts it."""
     if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:

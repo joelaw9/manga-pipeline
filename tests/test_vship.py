@@ -1,5 +1,7 @@
-"""The Vship binding (convert.vship; SPEC "Conversion"): synthetic manga and webtoon pages scored on the real GPU
-(marked gpu: run with --vship PATH), and the fail-fast paths. Ported from the bulk converter's tests/test_vship.py.
+"""The Vship binding (convert.vship; SPEC "Conversion").
+
+Synthetic manga and webtoon pages scored on the real GPU (marked gpu: run with --vship PATH), and the fail-fast paths.
+Ported from the bulk converter's tests/test_vship.py.
 """
 
 import io
@@ -16,7 +18,7 @@ from tests.timing import budget
 
 
 def manga_page(size, seed):
-    """A gray page: white paper, black panel borders and strokes, scan noise."""
+    """Draw a gray page: white paper, black panel borders and strokes, scan noise."""
     rng = np.random.default_rng(seed)
     im = Image.new("L", size, 255)
     d = ImageDraw.Draw(im)
@@ -30,7 +32,7 @@ def manga_page(size, seed):
 
 
 def webtoon_page(size, seed):
-    """A colour panel: gradient sky and filled shapes."""
+    """Draw a colour panel: gradient sky and filled shapes."""
     rng = np.random.default_rng(seed)
     w, h = size
     grad = np.linspace(0, 255, h, dtype=np.uint8)[:, None]
@@ -143,8 +145,9 @@ def test_arrays_of_different_sizes_are_refused():
 
 @budget(load="pure")
 def test_a_handle_vship_fails_to_free_raises_with_vships_message():
-    """A non-zero code from Vship_FreeHandler raises instead of leaking GPU memory (stubbed: a real double free
-    crashes the process). A score at a new size frees the thread's handle of the old size.
+    """A non-zero code from Vship_FreeHandler raises instead of leaking GPU memory.
+
+    Stubbed: a real double free crashes the process. A score at a new size frees the thread's handle of the old size.
     """
     lib = type(
         "Lib",

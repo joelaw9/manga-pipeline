@@ -1,6 +1,8 @@
-"""Volume covers following MangaDex (SPEC "Retroactive updates"): each check of a series fetches again a stored volume
-image whose volume MangaDex now chooses another file for; a new image replaces the stored one, and the published files
-holding the old one take the new one (or drop it, outside its volume) through the cover rewrite.
+"""Volume covers following MangaDex (SPEC "Retroactive updates").
+
+Each check of a series fetches again a stored volume image whose volume MangaDex now chooses another file for; a new
+image replaces the stored one, and the published files holding the old one take the new one (or drop it, outside its
+volume) through the cover rewrite.
 """
 
 from contextlib import closing
@@ -92,7 +94,7 @@ def test_a_new_image_at_mangadex_replaces_the_stored_one_and_the_files_cover(wor
 
 
 def stored_a(world, locale="en"):
-    """The series' volume 2 image stored from MangaDex's a.png (listed under locale)."""
+    """Store the series' volume 2 image from MangaDex's a.png (listed under locale)."""
     library(world)
     with closing(db.connect(world.cfg)) as conn:
         human.set_id(conn, series_id(world), "mangadex", MD)
@@ -131,8 +133,9 @@ B = [{"volume": "2", "locale": "en", "fileName": "b.png"}]
 
 
 def check_keeps_a(world, monkeypatch, case):
-    """With image a stored, MangaDex answers as case says and the check runs: it reads the list and refreshes, and
-    the stored image stays.
+    """Check that the stored image a stays whatever MangaDex answers as case says.
+
+    MangaDex answers as case says and the check runs: it reads the list and refreshes, and the stored image stays.
     """
     stored_a(world)
     before, lists, refreshed = stored(world), lists_read(world), []

@@ -1,7 +1,9 @@
-"""Strip model, gaps, cuts, layout, slices (contracts section 1/5): restitch long-strip chapters and repair sliced
-pages in page-format chapters. Copied from the bulk converter's optimizer/restitch.py; reads no config: its settings
-are the frozen RESTITCH and SLICE_REPAIR values (the bulk converter's config.yaml.example), and every function that
-took a config section takes it as an optional argument defaulting to them.
+"""Strip model, gaps, cuts, layout, slices (contracts section 1/5): restitch strips and repair sliced pages.
+
+Restitch long-strip chapters and repair sliced pages in page-format chapters. Copied from the bulk converter's
+optimizer/restitch.py; reads no config: its settings are the frozen RESTITCH and SLICE_REPAIR values (the bulk
+converter's config.yaml.example), and every function that took a config section takes it as an optional argument
+defaulting to them.
 
 Everything is planned with the whole chapter known first (all page sizes, every gap, every junk
 block); only then are output pages rendered, one at a time, from the source rows they need.
@@ -73,9 +75,10 @@ ASPECT_MIN_PAGES = 3  # pages a shape needs to be a candidate
 
 
 def open_page(path, mode="RGB"):
-    """Decode fully (8-bit, sRGB, see images.open_image) and close the file; pages are read many times. A page with
-    transparency is composited onto white (images.open_flat, as the plan's page scan reads it), the canvas rendered
-    pages are built on (a plain convert would show the colour stored under transparent pixels, often black).
+    """Decode fully (8-bit, sRGB, see images.open_image) and close the file; pages are read many times.
+
+    A page with transparency is composited onto white (images.open_flat, as the plan's page scan reads it), the canvas
+    rendered pages are built on (a plain convert would show the colour stored under transparent pixels, often black).
     """
     return images.open_flat(path)[0].convert(mode)
 
@@ -98,9 +101,10 @@ def seam_score(bottom_rows, top_rows):
 
 
 def geometry_share(chapter_pages, cfg=CONFIG):
-    """Median share of continuous page joins (webtoon slices) over the sampled chapters' first SAMPLE_PAGES pages:
-    both edge rows blank (restitch.gap_row_std) or a seam as smooth as a slice (slice_repair.max_seam_score).
-    cfg: {"restitch", "slice_repair"} sections.
+    """Return the median share of continuous page joins (webtoon slices) over the sampled chapters' first pages.
+
+    Over the first SAMPLE_PAGES pages; a join is continuous with both edge rows blank (restitch.gap_row_std) or a seam
+    as smooth as a slice (slice_repair.max_seam_score). cfg: {"restitch", "slice_repair"} sections.
     """
     gap_std, max_seam = cfg["restitch"]["gap_row_std"], cfg["slice_repair"]["max_seam_score"]
     shares = []
@@ -121,8 +125,9 @@ def override_layout(override):
 
 
 def _claims(kavita_genres):
-    """[(source, claim, value)] of Kavita's layout claims (metadata check): a long-strip genre claims strip; exactly
-    one origin genre claims pages (Manga) or strip (Manhwa / Manhua).
+    """Return [(source, claim, value)] of Kavita's layout claims (metadata check).
+
+    A long-strip genre claims strip; exactly one origin genre claims pages (Manga) or strip (Manhwa / Manhua).
     """
     titles = [g.strip() for g in kavita_genres or ()]
     out = []
@@ -136,10 +141,12 @@ def _claims(kavita_genres):
 
 
 def classify_layout(chapter_pages, override=None, kavita_genres=None, cfg=CONFIG):
-    """Series layout: (layout, why, flags). An override `layout:` decides; else the geometry check alone: continuous
-    share >= STRIP_SHARE -> "strip", else "pages". flags: one `layout-metadata` flag per Kavita claim (kavita_genres:
-    Kavita's genre titles) that disagrees with the geometry's verdict, the override included. chapter_pages: the
-    sampled chapters' page paths (required). cfg: {"restitch", "slice_repair"} sections.
+    """Classify the series layout: return (layout, why, flags).
+
+    An override `layout:` decides; else the geometry check alone: continuous share >= STRIP_SHARE -> "strip", else
+    "pages". flags: one `layout-metadata` flag per Kavita claim (kavita_genres: Kavita's genre titles) that disagrees
+    with the geometry's verdict, the override included. chapter_pages: the sampled chapters' page paths (required).
+    cfg: {"restitch", "slice_repair"} sections.
     """
     o = override_layout(override or {})
     share = geometry_share(chapter_pages, cfg)
@@ -159,8 +166,10 @@ def classify_layout(chapter_pages, override=None, kavita_genres=None, cfg=CONFIG
 
 
 def strip_layout(sizes, width=None):
-    """(width, [{"w", "h", "top", "th"}], height) of pages laid one below the other at the target width (the chapter's
-    most common page width unless given): th = page height at that width, top = its offset. Sizes only, no decode.
+    """Return (width, [{"w", "h", "top", "th"}], height) of pages laid one below the other at the target width.
+
+    The target width is the chapter's most common page width unless given: th = page height at that width, top = its
+    offset. Sizes only, no decode.
     """
     width = width or Counter(w for w, _ in sizes).most_common(1)[0][0]
     pages, top = [], 0
@@ -172,15 +181,18 @@ def strip_layout(sizes, width=None):
 
 
 def blank_rows(a, cfg: Mapping[str, float] = RESTITCH):
-    """The one gap-row classifier: per row of a grayscale array at analysis width, True for a blank row (std <
-    gap_row_std and range < gap_row_range, any background colour). page_rows.
+    """Return per row of a grayscale array at analysis width whether it is blank: the one gap-row classifier.
+
+    Blank: std < gap_row_std and range < gap_row_range, any background colour. page_rows.
     """
     return (a.std(axis=1) < cfg["gap_row_std"]) & (np.ptp(a, axis=1) < cfg["gap_row_range"])
 
 
 def page_rows(im, cfg=RESTITCH):
-    """A page's blank-row profile for gap detection: per analysis row (page scaled to cfg analysis_width), True where
-    the row is blank (blank_rows). Computed once per page by the plan scan.
+    """Return a page's blank-row profile for gap detection.
+
+    Per analysis row (page scaled to cfg analysis_width), True where the row is blank (blank_rows). Computed once per
+    page by the plan scan.
     """
     w, h = im.size
     n = max(1, round(h * cfg["analysis_width"] / w))
@@ -189,6 +201,8 @@ def page_rows(im, cfg=RESTITCH):
 
 @dataclass
 class Strip:
+    """A chapter's pages laid as 1 strip at the target width, with its per-analysis-row gap profile."""
+
     pages: list  # [{"path", "w", "h", "top", "th"}] th = height at target width, top = offset
     width: int  # target width (chapter's most common page width)
     height: int  # total strip height at target width
@@ -198,7 +212,7 @@ class Strip:
 
 
 def make_strip(paths, sizes, rows):
-    """A chapter's Strip from its page sizes and each page's page_rows profile (no decode)."""
+    """Make a chapter's Strip from its page sizes and each page's page_rows profile (no decode)."""
     width, pages, height = strip_layout(sizes)
     starts = []
     for p, path, r in zip(pages, paths, rows, strict=True):
@@ -239,10 +253,11 @@ def find_gaps(strip, cfg=RESTITCH):
 
 
 def spans(strip):
-    """[(start, end)] in target px of the strip's spans: maximal runs of rows between walkable runs of at least
-    SPAN_BREAK_PX, starting and ending on a non-blank row. Lines glued with no blank row (or a walkable run shorter
-    than SPAN_BREAK_PX) between them are one span (I Stole the Female Lead's First Love c0006: the D&C logo, (c) line
-    and bunny watermark). An all-blank strip has none.
+    """Return [(start, end)] in target px of the strip's spans.
+
+    Spans are maximal runs of rows between walkable runs of at least SPAN_BREAK_PX, starting and ending on a non-blank
+    row. Lines glued with no blank row (or a walkable run shorter than SPAN_BREAK_PX) between them are one span (I Stole
+    the Female Lead's First Love c0006: the D&C logo, (c) line and bunny watermark). An all-blank strip has none.
     """
     out, pos = [], 0
     for s, e in [*walkable_runs(strip), (strip.height, strip.height)]:
@@ -256,8 +271,9 @@ def spans(strip):
 
 
 def edge_region(start, end, height, edge_px):
-    """'head' for a unit wholly in the first edge_px rows of a strip of `height`, 'tail' wholly in the last, None
-    otherwise; one in both (a strip shorter than 2 x edge_px) takes the half its middle lies in, a tie 'head'.
+    """Return 'head' for a unit wholly in the first edge_px rows of a strip of `height`, 'tail' wholly in the last.
+
+    None otherwise; one in both (a strip shorter than 2 x edge_px) takes the half its middle lies in, a tie 'head'.
     """
     head, tail = end <= edge_px, start >= height - edge_px
     if head and tail:
@@ -278,7 +294,8 @@ def content_blocks(strip, gaps):
 
 
 def render_rows(pages, width, start, end, cache=None):
-    """Image of strip rows [start, end) at target width, built from only the source pages it covers.
+    """Render the image of strip rows [start, end) at target width, built from only the source pages it covers.
+
     pages: [{"path", "top", "th"}].
     """
     cache = {} if cache is None else cache
@@ -297,15 +314,17 @@ def render_rows(pages, width, start, end, cache=None):
 
 
 def _usable(q, length, lo):
-    """A cut point the next page can start at: the strip end, or at least min_page (lo) before it (a point closer is
-    a dead end: the page after it would be short).
+    """Return whether the next page can start at cut point q: the strip end, or at least min_page (lo) before it.
+
+    A point closer is a dead end: the page after it would be short.
     """
     return q == length or length - q >= lo
 
 
 def _run_cuts(p, nxt, cfg):
-    """The forced cuts splitting the gapless run [p, nxt) into pages of at most max_page: max_page apart, or evenly
-    when that would strand a remainder under min_page.
+    """Return the forced cuts splitting the gapless run [p, nxt) into pages of at most max_page.
+
+    max_page apart, or evenly when that would strand a remainder under min_page.
     """
     lo, hi = cfg["min_page"], cfg["max_page"]
     run = nxt - p
@@ -316,9 +335,10 @@ def _run_cuts(p, nxt, cfg):
 
 
 def _reachable(pts, length, cfg):
-    """(the cut points, sorted; the forced ones among them) once every point of `pts` (sorted, 0 and length
-    included) can reach a usable next point within [min_page, max_page]: each gapless run that cannot gets its
-    _run_cuts.
+    """Return (the cut points, sorted; the forced ones among them) once every point can reach a usable next point.
+
+    Every point of `pts` (sorted, 0 and length included) must reach one within [min_page, max_page]: each gapless run
+    that cannot gets its _run_cuts.
     """
     lo, hi = cfg["min_page"], cfg["max_page"]
     forced = set()
@@ -340,9 +360,10 @@ def _reachable(pts, length, cfg):
 
 
 def _cheapest_links(pts, forced, strength, cfg):
-    """{point: (cost, previous point)} of the cheapest run of pages from 0 to each point it can reach: each page
-    within [min_page, max_page] costs its squared distance from the middle length (in spans), plus 5 when it ends on
-    a forced cut, less 0.3 x its end gap's strength over the strongest gap's.
+    """Return {point: (cost, previous point)} of the cheapest run of pages from 0 to each point it can reach.
+
+    Each page within [min_page, max_page] costs its squared distance from the middle length (in spans), plus 5 when it
+    ends on a forced cut, less 0.3 x its end gap's strength over the strongest gap's.
     """
     lo, hi = cfg["min_page"], cfg["max_page"]
     mid, span = (lo + hi) / 2, hi - lo
@@ -365,6 +386,7 @@ def _cheapest_links(pts, forced, strength, cfg):
 
 def plan_cuts(length, gaps, cfg: Mapping[str, float] = RESTITCH):
     """Choose page boundaries over a strip of `length` px with gap candidates [(center, strength)].
+
     Every page within [min_page, max_page]; prefer lengths near the middle and stronger gaps; where no
     gap fits, cut through the art at exactly max_page — unless that would leave a remainder under min_page,
     in which case that gapless run is split evenly. Returns (cuts, forced) — cuts include 0 and length.
@@ -382,9 +404,10 @@ def plan_cuts(length, gaps, cfg: Mapping[str, float] = RESTITCH):
 
 
 def cut_strip(height, gaps, removed, cfg: Mapping[str, float] = RESTITCH):
-    """{"kept", "cuts", "forced", "length"} of a strip of `height` px with the removed ranges ([{"start", "end"}])
-    taken out and the rest cut into pages on its gaps (plan_cuts). Also run again once a tail pass drops more
-    pieces.
+    """Return {"kept", "cuts", "forced", "length"} of a strip of `height` px, cut into pages after removals.
+
+    The removed ranges ([{"start", "end"}]) are taken out and the rest cut into pages on its gaps (plan_cuts). Also run
+    again once a tail pass drops more pieces.
     """
     kept, pos = [], 0
     for r in sorted(removed, key=lambda r: r["start"]):
@@ -402,10 +425,12 @@ def cut_strip(height, gaps, removed, cfg: Mapping[str, float] = RESTITCH):
 
 
 def hard_joins(im, max_seam):
-    """Rows of an image's hard joins, in order: seam_score (SEAM_ROWS rows each side) at least max_seam and the highest
-    within SEAM_ROWS rows (one row per seam), at least MIN_EDGE_BLOCK_PX from either end. Scanned at the image's own
-    rows, not an analysis width: that resize smears a 1-row seam over 2 analysis rows (Bring The Love ch87: the banner
-    join scores 3.04 there, 10.26 at strip width).
+    """Return the rows of an image's hard joins, in order.
+
+    A hard join has seam_score (SEAM_ROWS rows each side) at least max_seam and the highest within SEAM_ROWS rows (one
+    row per seam), at least MIN_EDGE_BLOCK_PX from either end. Scanned at the image's own rows, not an analysis width:
+    that resize smears a 1-row seam over 2 analysis rows (Bring The Love ch87: the banner join scores 3.04 there, 10.26
+    at strip width).
     """
     a = np.asarray(im.convert("L"), np.float32)
     lo, hi = MIN_EDGE_BLOCK_PX, len(a) - MIN_EDGE_BLOCK_PX
@@ -422,8 +447,9 @@ def hard_joins(im, max_seam):
 
 
 def edge_pieces(im, where, max_seam):
-    """[(row, piece)] of an edge block's chapter-edge pieces, one per hard join (hard_joins) walked from the chapter
-    edge inward: rows [0, row) of a head block, [row, end) of a tail block.
+    """Return [(row, piece)] of an edge block's chapter-edge pieces, one per hard join (hard_joins).
+
+    Walked from the chapter edge inward: rows [0, row) of a head block, [row, end) of a tail block.
     """
     joins = hard_joins(im, max_seam)
     return [
@@ -456,17 +482,19 @@ def kept_ranges(kept, a, b):
 
 
 def composited(o):
-    """Is a planned output page (a render spec) composited onto white by render? Strip rows and cropped or joined parts
-    are; a single uncropped part passes through with its mode (alpha kept).
+    """Return whether render composites a planned output page (a render spec) onto white.
+
+    Strip rows and cropped or joined parts are; a single uncropped part passes through with its mode (alpha kept).
     """
     return "rows" in o or not (len(o["parts"]) == 1 and o["parts"][0][1] is None)
 
 
 def render(outputs, x_dir, out_dir, strip=None):
-    """Write the planned output pages as PNG (lossless intermediates for the AVIF encoder), in order. outputs:
-    [{"name": stem, "parts": [[page name, box or None], ...]}] (pages stacked top to bottom, each cropped to its box) or
-    [{"name": stem, "rows": [a, b]}] (strip rows in kept coordinates; strip: {"width", "pages": [{"name", "top", "th"}],
-    "kept"}). A single uncropped part keeps its mode (a cover passes through). Returns the PNG paths.
+    """Write the planned output pages as PNG (lossless intermediates for the AVIF encoder), in order.
+
+    outputs: [{"name": stem, "parts": [[page name, box or None], ...]}] (pages stacked top to bottom, each cropped to
+    its box) or [{"name": stem, "rows": [a, b]}] (strip rows in kept coordinates; strip: {"width", "pages": [{"name",
+    "top", "th"}], "kept"}). A single uncropped part keeps its mode (a cover passes through). Returns the PNG paths.
     """
     x_dir, out_dir = Path(x_dir), Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -507,9 +535,10 @@ def output_name(n):
 
 
 def page_aspect(chapter_pages, stitched_ratio=SLICE_REPAIR["stitched_ratio"]):
-    """Candidate series page shapes (h/w), most common first, from ordinary page-format pages; None when
-    there are none. Several candidates because sliced chapters add a false one (Little Lord: 1500/1125
-    top halves outnumber the true 1600/1125 pages). Pages: (w, h) tuples (the plan inventory).
+    """Return candidate series page shapes (h/w), most common first, from ordinary page-format pages.
+
+    None when there are none. Several candidates because sliced chapters add a false one (Little Lord: 1500/1125 top
+    halves outnumber the true 1600/1125 pages). Pages: (w, h) tuples (the plan inventory).
     """
     aspects = Counter()
     for pages in chapter_pages:
@@ -521,8 +550,10 @@ def page_aspect(chapter_pages, stitched_ratio=SLICE_REPAIR["stitched_ratio"]):
 
 
 def _best_page_height(heights, width, aspects, cfg):
-    """Page height under which the stitched images split into whole pages best: the series' candidate shapes,
-    or, when the series has none, heights implied by the images (smallest image = 1, 2 or 3 pages).
+    """Return the page height under which the stitched images split into whole pages best.
+
+    Tried: the series' candidate shapes, or, when the series has none, heights implied by the images (smallest image =
+    1, 2 or 3 pages).
     """
     smallest = min(heights)
     # image-derived heights can explain any single image, so only use them when the series shape is unknown
@@ -549,6 +580,7 @@ def is_stitched(pages, aspects, cfg=SLICE_REPAIR):
 
 def plan_pages(names, sizes, aspects, cfg=SLICE_REPAIR):
     """Cut a stitched page-format chapter back into pages of the series' shape (sizes only, no decode).
+
     Stitchers join whole pages, so each source image holds a whole number of pages: an image of height H
     is split into k = round(H / page_h) equal pages. (Snapping to white rows is wrong here: panel gutters
     inside a page are white too.) Images not within snap_window of a whole number of pages are reported
@@ -578,8 +610,9 @@ def plan_pages(names, sizes, aspects, cfg=SLICE_REPAIR):
 
 
 def slice_pairs(sizes, cfg=SLICE_REPAIR):
-    """Indexes i where page i could be a sliver cut off the bottom of page i - 1 (same width, at most max_sliver_ratio
-    of its height): find_slices needs the edge rows of pages i - 1 and i.
+    """Return indexes i where page i could be a sliver cut off the bottom of page i - 1.
+
+    Same width, at most max_sliver_ratio of its height: find_slices needs the edge rows of pages i - 1 and i.
     """
     return [
         i
@@ -589,8 +622,9 @@ def slice_pairs(sizes, cfg=SLICE_REPAIR):
 
 
 def find_slices(sizes, edges, cfg=SLICE_REPAIR):
-    """Pairs (i, i+1) where page i+1 is a sliver cut off the bottom of page i: same width, short,
-    continuous seam, and actual art on both sides of the cut (blank margins don't count).
+    """Return pairs (i, i+1) where page i+1 is a sliver cut off the bottom of page i.
+
+    Same width, short, continuous seam, and actual art on both sides of the cut (blank margins don't count).
     sizes: [(w, h)]; edges: {index: edge_rows(page)} for both pages of every slice_pairs pair.
     """
     joins = []
@@ -629,7 +663,8 @@ SEAM_ROWS = 6  # analysis rows each side of a candidate seam (as edge_rows)
 
 
 def series_shape(aspects, cfg=SLICE_REPAIR):
-    """The page shape (h/w) bands are measured against: page_aspect's most common candidate, else the fallback.
+    """Return the page shape (h/w) bands are measured against: page_aspect's most common candidate, else the fallback.
+
     Not max(): banded pages themselves can be a candidate (My Noble Family ch7-10: 1125x2019, h/w 1.795).
     """
     return aspects[0] if aspects else cfg["fallback_page_aspect"]
@@ -641,9 +676,11 @@ def content_indexes(pages):
 
 
 def band_pages(pages, sizes, shape, cfg: Mapping[str, float] = SLICE_REPAIR):
-    """Indexes of the pages a credit band can sit on, the pages the band scan decodes: non-cover pages taller than the
-    series shape (h > w * shape * (1 + band_tolerance)), anywhere in the chapter (Akuyaku Kizoku ch12/13: a Reset Scans
-    ad on page 2). Sizes only; a page becomes a band page only when the scan finds a band on it.
+    """Return indexes of the pages a credit band can sit on, the pages the band scan decodes.
+
+    Non-cover pages taller than the series shape (h > w * shape * (1 + band_tolerance)), anywhere in the chapter
+    (Akuyaku Kizoku ch12/13: a Reset Scans ad on page 2). Sizes only; a page becomes a band page only when the scan
+    finds a band on it.
     """
     return [i for i in content_indexes(pages) if sizes[i][1] > sizes[i][0] * shape * (1 + cfg["band_tolerance"])]
 
@@ -660,9 +697,11 @@ def edge_indexes(n):
 
 
 def ensure_series_layout(conn, series_id, chapter_pages):
-    """The series' layout ("strip" or "pages", contracts section 5): the stored one (from the bulk converter's record
-    at the baseline, or computed earlier), else classify_layout over chapter_pages (the sampled chapters' extracted
-    page paths), stored with origin "computed". The caller holds no transaction.
+    """Return the series' layout ("strip" or "pages", contracts section 5), computing and storing it when missing.
+
+    The stored one (from the bulk converter's record at the baseline, or computed earlier), else classify_layout over
+    chapter_pages (the sampled chapters' extracted page paths), stored with origin "computed". The caller holds no
+    transaction.
     """
     row = conn.execute("SELECT layout FROM series_conversion WHERE series_id = %s", (series_id,)).fetchone()
     if row is not None:

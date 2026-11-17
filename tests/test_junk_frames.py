@@ -1,6 +1,7 @@
-"""Template frames (SPEC "Junk decisions", units; manga_pipeline/junk/frames.py): the frame signature, the content
-filter and the match rule. Ported from the bulk converter's tests/test_frames.py (its cluster, decision table and
-cross-series index tests are not: that code is not ported).
+"""Template frames (SPEC "Junk decisions", units; manga_pipeline/junk/frames.py).
+
+The frame signature, the content filter and the match rule. Ported from the bulk converter's tests/test_frames.py
+(its cluster, decision table and cross-series index tests are not: that code is not ported).
 
 fixtures_pages/frames_pages.npz holds the 48x72 RGB shrunk pages (and original sizes) of real edge pages:
   akuyaku_ch17_p39 / ch18_p37 / ch22_p34 / ch23_p39   Nerissa sign-offs, "Akuyaku Kizoku to shite Hitsuyou na Sore"
@@ -35,12 +36,12 @@ def frame(name):
 
 
 def tone(v, aspect=1.4):
-    """A frame whose every cell is the gray tone v (distances between two tones are exactly their difference)."""
+    """Return a frame whose every cell is the gray tone v (distances between two tones are exactly their difference)."""
     return frames.Frame(np.full(frames.CELLS * 3, v, np.uint8), aspect)
 
 
 def cells(*runs, aspect=1.4):
-    """A frame built from (rgb, count) runs of cells; the counts add up to frames.CELLS (1,056)."""
+    """Return a frame built from (rgb, count) runs of cells; the counts add up to frames.CELLS (1,056)."""
     return frames.Frame(np.concatenate([np.tile(np.array(rgb, np.uint8), n) for rgb, n in runs]), aspect)
 
 
@@ -129,7 +130,7 @@ def test_plain_tone_has_no_content(v):
 @budget(load="pure")
 @pytest.mark.parametrize(("n", "want"), [(897, True), (898, False)], ids=["84.9pct-not-plain", "85.0pct-plain"])
 def test_plain_share_at_85_percent_makes_a_frame_plain(n, want):
-    """n of 1,056 cells at luma 128, the rest at 60 (all mid-tone ink): 898 / 1,056 >= 85% is one plain tone."""
+    """With n of 1,056 cells at luma 128, the rest at 60 (all mid-tone ink): 898 / 1,056 >= 85% is one plain tone."""
     assert frames.has_content(cells(((128,) * 3, n), ((60,) * 3, 1056 - n))) is want, "plain from 85% of the cells"
 
 

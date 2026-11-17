@@ -26,7 +26,7 @@ def sig(tiles=(T,), aspect=1.0):
 
 
 def flip(t, bits):
-    """t with its lowest `bits` bits inverted (Hamming distance `bits`)."""
+    """Return t with its lowest `bits` bits inverted (Hamming distance `bits`)."""
     return t ^ ((1 << bits) - 1)
 
 
@@ -90,8 +90,9 @@ def test_newest_decision_wins_within_its_rank(conn):
 @budget(load="db")
 @pytest.mark.parametrize("decider", ["claude", "import"])
 def test_a_newer_junk_of_one_key_does_not_beat_an_older_keep_of_another(conn, decider):
-    """Unit x is within the match distance of both b and a (b and a are not of each other): keep b, then junk a:
-    x stays kept (matching is not transitive; keeps first, the bulk converter's rule).
+    """Unit x is within the match distance of both b and a (b and a are not of each other).
+
+    Keep b, then junk a: x stays kept (matching is not transitive; keeps first, the bulk converter's rule).
     """
     bits = (1 << images.PHASH_THRESHOLD) - 1
     b, x, a = T, T ^ bits, T ^ bits ^ (bits << images.PHASH_THRESHOLD)
@@ -175,12 +176,12 @@ BULK_SCHEMA = (
 
 
 def logo(grey=200, w=40):
-    """A logo template: a solid block of 1 colour (marks.Template), w x 20."""
+    """Return a logo template: a solid block of 1 colour (marks.Template), w x 20."""
     return marks.Template(np.full((20, w, 3), grey, np.uint8), np.ones((20, w), bool))
 
 
 def bulk_store(path):
-    """A small bulk-converter store in WAL mode whose rows stay in the WAL (the open connection is returned)."""
+    """Write a small bulk-converter store in WAL mode whose rows stay in the WAL (the open connection is returned)."""
     c = sqlite3.connect(path, autocommit=True)
     c.execute("PRAGMA journal_mode = WAL")
     c.execute("PRAGMA wal_autocheckpoint = 0")
@@ -317,8 +318,9 @@ def test_a_decision_the_bulk_converter_deleted_or_changed_is_followed(conn, tmp_
 
 @budget(load="db")
 def test_the_logo_import_is_rebuilt_and_leaves_pipeline_logo_decisions(conn, tmp_path):
-    """A mark the bulk converter deleted disappears, a changed one changes, a logo decision the pipeline made on a
-    store mark's key survives every rebuild (the source row is left out).
+    """A mark the bulk converter deleted disappears, a changed one changes.
+
+    A logo decision the pipeline made on a store mark's key survives every rebuild (the source row is left out).
     """
     store_path = tmp_path / "junk.sqlite3"
     bulk_store(store_path).close()
@@ -629,8 +631,9 @@ def test_the_rest_of_a_block_whose_edge_piece_is_junk_is_offered(conn):
 
 @budget(load="db")
 def test_a_band_on_page_2_recurs_with_page_1_bands_of_other_chapters(conn):
-    """Akuyaku ch12/13 carry a band on page 2, ch14/15 on page 1: sightings name no page, so 1 band candidate for
-    its recurrence in 4 chapters.
+    """Akuyaku ch12/13 carry a band on page 2, ch14/15 on page 1.
+
+    Sightings name no page, so 1 band candidate for its recurrence in 4 chapters.
     """
     band = sig((flip(T, 33),), 3.2)
     with db.transaction(conn):
@@ -707,8 +710,9 @@ FLAT = 0  # the pHash tile of a uniform image (images.uniform_tiles)
 
 @budget(load="db")
 def test_a_unit_with_an_unsignable_key_matches_no_decision_and_is_near_none(conn):
-    """A junk decision within the match tolerance of a flat image decides a signable unit as near, never a flat
-    one: that key would stand for any blank or flat rows.
+    """A junk decision within the match tolerance of a flat image decides a signable unit as near, never a flat one.
+
+    That key would stand for any blank or flat rows.
     """
     put(conn, decision("S", "block", sig((flip(FLAT, 3),)), "junk"))
     decisions = store.Decisions(conn, "S")
@@ -748,9 +752,10 @@ def test_an_unsignable_unit_is_never_offered_nor_a_blocks_unsignable_probe(conn)
 
 @budget(load="db")
 def test_a_unit_matching_a_decided_candidate_but_no_decision_gets_its_own_candidate(conn):
-    """Matching is not transitive: candidate T is covered by a decision 6 bits away on one side, the unit is 6 bits
-    away on the other (12 from the decision). Joining the closed candidate would end the chapter's wait at once and
-    start it again, for ever.
+    """Matching is not transitive.
+
+    Candidate T is covered by a decision 6 bits away on one side, the unit is 6 bits away on the other (12 from the
+    decision). Joining the closed candidate would end the chapter's wait at once and start it again, for ever.
     """
     unit = sig((T ^ (0b111111 << 6),))
     pick = {"kind": "block", "key": sig(), "reason": "r", "folder": "f-old"}

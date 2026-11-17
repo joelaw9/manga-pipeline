@@ -1,7 +1,8 @@
-"""A fake `claude` for junk review tests: dumps its arguments, environment, prompt and the child config it was given,
-runs the canned junk commands of its plan, and prints a canned JSON result. Its plan is plan.json beside it: {"dump":
-folder, "scratch": the run's paths.scratch, "actions": ["list" | "decide:<verdict>" | "crash"], "exit": code, "reply":
-result dict or null}.
+"""A fake `claude` for junk review tests.
+
+Dumps its arguments, environment, prompt and the child config it was given, runs the canned junk commands of its plan,
+and prints a canned JSON result. Its plan is plan.json beside it: {"dump": folder, "scratch": the run's paths.scratch,
+"actions": ["list" | "decide:<verdict>" | "crash"], "exit": code, "reply": result dict or null}.
 """
 
 import json
@@ -14,6 +15,7 @@ HERE = Path(__file__).resolve().parent
 
 
 def junk(child_config, *args):
+    """Run the junk command `args` under the child config; return its (exit code, stdout)."""
     done = subprocess.run(
         [sys.executable, "-m", "manga_pipeline.cli", "--config", str(child_config), "junk", *args],
         capture_output=True,
@@ -24,6 +26,7 @@ def junk(child_config, *args):
 
 
 def main():
+    """Dump this run's arguments, environment, prompt and child config, run the plan's actions, reply and exit."""
     plan = json.loads((HERE / "plan.json").read_text(encoding="utf-8"))
     dump = Path(plan["dump"])
     dump.mkdir(parents=True, exist_ok=True)

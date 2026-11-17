@@ -55,8 +55,10 @@ def http_error(status, body=b"", header_values=None):
 
 
 class Urlopen:
-    """Stands in for urllib.request.urlopen: answers each call with the next scripted item (a Reply to return or an
-    exception to raise) and records the requests.
+    """Stands in for urllib.request.urlopen.
+
+    Answers each call with the next scripted item (a Reply to return or an exception to raise) and records the
+    requests.
     """
 
     def __init__(self, *script):
@@ -74,7 +76,7 @@ class Urlopen:
 
 
 def reply(value, header_values=None, service="canned"):
-    """An http.Response of service carrying value: bytes as they are, anything else as JSON."""
+    """Return an http.Response of service carrying value: bytes as they are, anything else as JSON."""
     body = value if isinstance(value, bytes) else json.dumps(value).encode()
     content_type = "application/octet-stream" if isinstance(value, bytes) else "application/json"
     return http.Response(service, 200, headers({"Content-Type": content_type, **(header_values or {})}), body)
@@ -85,10 +87,12 @@ class Each(list):
 
 
 class CannedService(http.Service):
-    """A Service that sends nothing: each request is recorded in `sent` as (method, path with query, json) and
-    answered by the first entry of `answers` ({path prefix: value}) its path starts with. A value is the reply's JSON,
-    bytes for a raw body, an http.Response, an exception to raise, or a callable(method, path, json) returning one of
-    those; an Each is used up 1 item per request. No entry = AssertionError.
+    """A Service that sends nothing.
+
+    Each request is recorded in `sent` as (method, path with query, json) and answered by the first entry of `answers`
+    ({path prefix: value}) its path starts with. A value is the reply's JSON, bytes for a raw body, an http.Response, an
+    exception to raise, or a callable(method, path, json) returning one of those; an Each is used up 1 item per request.
+    No entry = AssertionError.
     """
 
     def __init__(self, name, answers=None):

@@ -1,6 +1,8 @@
-"""A person's settlements of a series: `series set-id SERIES_ID SOURCE ID` (SPEC "Source ids"), an id for a source
-that wins over every other origin; `series new SERIES_ID [--name NAME]` (SPEC "Series identification"), a held new
-series made ready to be admitted; `series refetch-covers SERIES_ID`, its check made due now.
+"""A person's settlements of a series: `series set-id`, `series new` and `series refetch-covers`.
+
+`series set-id SERIES_ID SOURCE ID` (SPEC "Source ids"), an id for a source that wins over every other origin;
+`series new SERIES_ID [--name NAME]` (SPEC "Series identification"), a held new series made ready to be admitted;
+`series refetch-covers SERIES_ID`, its check made due now.
 """
 
 from manga_pipeline import db, workflow
@@ -8,8 +10,9 @@ from manga_pipeline.metadata import check, ids
 
 
 def set_id(conn, series_id, source, value):
-    """Store the id (replacing the series' earlier human id for that source); Refused for an unknown series or source,
-    or an id not in the source's form.
+    """Store the id, replacing the series' earlier human id for that source.
+
+    Refused for an unknown series or source, or an id not in the source's form.
     """
     if source not in ids.SOURCES:
         msg = f"unknown source {source!r}: one of {', '.join(ids.SOURCES)}"
@@ -31,9 +34,10 @@ def set_id(conn, series_id, source, value):
 
 
 def refetch_covers(conn, series_id):
-    """`series refetch-covers SERIES_ID`: the series' check made due at once, so the next intake fetches its MangaDex
-    cover list and refreshes every stored volume cover image MangaDex now chooses another file for (SPEC "Retroactive
-    updates"). Refused for a series that does not exist.
+    """Make the series' check due at once (`series refetch-covers SERIES_ID`).
+
+    The next intake then fetches its MangaDex cover list and refreshes every stored volume cover image MangaDex now
+    chooses another file for (SPEC "Retroactive updates"). Refused for a series that does not exist.
     """
     with db.transaction(conn):
         if conn.execute("SELECT 1 FROM series WHERE id = %s", (series_id,)).fetchone() is None:
@@ -43,9 +47,10 @@ def refetch_covers(conn, series_id):
 
 
 def new_series(conn, series_id, name=None):
-    """A held new series not yet admitted becomes pending again (status ok), under name when given, and its check is
-    made due at once: the next intake checks it and admits it (metadata/admit.py). Refused for any other series, and
-    for a name with nothing in it.
+    """Make a held new series not yet admitted pending again (status ok), under name when given.
+
+    Its check is made due at once: the next intake checks it and admits it (metadata/admit.py). Refused for any other
+    series, and for a name with nothing in it.
     """
     if name is not None and not name.strip():
         msg = "--name is empty"

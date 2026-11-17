@@ -1,5 +1,6 @@
-"""Discovery, series identification and the discover stage (SPEC "Suwayomi", "Series identification", "Bad
-downloads").
+"""Discovery, series identification and the discover stage.
+
+SPEC "Suwayomi", "Series identification", "Bad downloads".
 """
 
 import errno
@@ -112,7 +113,8 @@ def test_a_title_no_kavita_series_matches_is_a_new_series_listed_and_not_taken(w
 
 
 def _unlistable(monkeypatch, *folders, error=(22, "An unexpected network error occurred"), root=None):
-    """os.scandir fails on these folders as Windows fails on a Samba name it cannot show (WinError 59, errno 22);
+    """Make os.scandir fail on these folders as Windows fails on a Samba name it cannot show (WinError 59, errno 22).
+
     root, if given, lists once and then fails (the share gone while discovery lists it).
     """
     real = discovery.os.scandir

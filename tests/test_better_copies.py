@@ -1,5 +1,7 @@
-"""Better copies (SPEC "Library copies", "Retroactive updates"): a download that is a better copy of a published file
-replaces it under its name, with its naming, cover and the reader's progress kept, the download put aside at publish.
+"""Better copies (SPEC "Library copies", "Retroactive updates").
+
+A download that is a better copy of a published file replaces it under its name, with its naming, cover and the
+reader's progress kept, the download put aside at publish.
 """
 
 import argparse
@@ -25,8 +27,9 @@ def world(tmp_path):
 
 
 def library(world, cover=()):
-    """Bulk Vol.1 Ch.1 and Vol.1 Ch.2 (4 PNG pages of 16 px each; cover: outputs holding a 000_cover page), confirmed
-    and their covers read. Returns the Kavita id.
+    """Add bulk Vol.1 Ch.1 and Vol.1 Ch.2, confirmed and their covers read.
+
+    4 PNG pages of 16 px each; cover: outputs holding a 000_cover page. Returns the Kavita id.
     """
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", "1"))
     kid = world.kavita_series(SERIES, bulk=bulk, basis="filename")
@@ -41,7 +44,7 @@ def library(world, cover=()):
 
 
 def pages(width, n=4, seed=""):
-    """A CBZ of n PNG pages `width` px wide (1.5 times as tall), each its own colour."""
+    """Return a CBZ of n PNG pages `width` px wide (1.5 times as tall), each its own colour."""
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:
         for i in range(1, n + 1):
@@ -52,7 +55,7 @@ def pages(width, n=4, seed=""):
 
 
 def copy(world, name="Chapter 2", width=20, n=4):
-    """A download of the series' manga; returns its path."""
+    """Add a download of the series' manga; return its path."""
     manga = next((i for i, m in world.suwayomi.manga_rows.items() if m["title"] == SERIES), None)
     manga = manga or world.manga(SERIES)
     return world.download(manga, name, data=pages(width, n, name))[1]

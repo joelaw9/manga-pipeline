@@ -1,7 +1,8 @@
-"""Library copies (SPEC "Library copies"): a chapter whose season, side label and number the series already has
-published is a duplicate (dropped), a better copy (it takes the file: SPEC "Retroactive updates"), or held for a
-person (a doubtful one, or a better copy of a busy file). Judged at junk, once the series' baseline has recorded what
-the library holds.
+"""Library copies (SPEC "Library copies"): a chapter the series already has published dropped, swapped in or held.
+
+A chapter whose season, side label and number the series already has published is a duplicate (dropped), a better
+copy (it takes the file: SPEC "Retroactive updates"), or held for a person (a doubtful one, or a better copy of a busy
+file). Judged at junk, once the series' baseline has recorded what the library holds.
 """
 
 import functools
@@ -40,10 +41,12 @@ RATINGS = {"censored": 0, None: 1, "uncensored": 2}  # edition ratings (names.ra
 
 
 def judge(ctx: workflow.Context, chapter):
-    """At junk's start: None when the series has no confirmed published file of the chapter (its key, and its resolved
-    volume: chapter_names.same_chapter), when the chapter already names its file, or when the copy goes on to be judged
-    after its junk is decided (after_junk); a copy of a higher edition rating takes its file now (None, or NeedsHuman
-    for a busy file). Else the outcome: Dropped (a duplicate: a lower rating, or a page width or bits per pixel below
+    """Judge the chapter as a library copy at junk's start; return None or the outcome.
+
+    None when the series has no confirmed published file of the chapter (its key, and its resolved volume:
+    chapter_names.same_chapter), when the chapter already names its file, or when the copy goes on to be judged after
+    its junk is decided (after_junk); a copy of a higher edition rating takes its file now (None, or NeedsHuman for a
+    busy file). Else the outcome: Dropped (a duplicate: a lower rating, or a page width or bits per pixel below
     NOT_WORSE of the file's) or NeedsHuman (2 files, or not the same chapter).
     """
     if chapter["published_file_id"] is not None:
@@ -62,12 +65,13 @@ def judge(ctx: workflow.Context, chapter):
 
 
 def after_junk(ctx: workflow.Context, chapter, edit):
-    """Once junk has decided the chapter (edit: its chapter_edit), the rest of the better-copy rule at the same rating
-    (SPEC "Library copies"): None when it is no copy (or named its file already), or a better copy, which then takes
-    its file (or NeedsHuman for a busy file); else the duplicate's Dropped. Better: neither page width nor bits per
-    pixel below NOT_WORSE of the file's, no more junk, and at least 1 of: width WIDER, bits per pixel BPP_BETTER, less
-    junk. Bits per pixel and junk count only where the file's are known (a bulk-converted file has no original bits
-    per pixel).
+    """Apply the rest of the better-copy rule at the same rating, once junk has decided the chapter.
+
+    edit: its chapter_edit (SPEC "Library copies"). None when it is no copy (or named its file already), or a better
+    copy, which then takes its file (or NeedsHuman for a busy file); else the duplicate's Dropped. Better: neither page
+    width nor bits per pixel below NOT_WORSE of the file's, no more junk, and at least 1 of: width WIDER, bits per
+    pixel BPP_BETTER, less junk. Bits per pixel and junk count only where the file's are known (a bulk-converted file
+    has no original bits per pixel).
     """
     if chapter["published_file_id"] is not None:
         return None
@@ -95,8 +99,10 @@ def after_junk(ctx: workflow.Context, chapter, edit):
 
 
 def _copy_of(ctx: workflow.Context, chapter):
-    """(the published file, our measures, its original measures) when the series has 1 confirmed published file of
-    the chapter, still in the library and the same chapter; None when it has none; NeedsHuman otherwise.
+    """Return (the published file, our measures, its original measures) of the chapter's published copy.
+
+    Returned when the series has 1 confirmed published file of the chapter, still in the library and the same chapter;
+    None when it has none; NeedsHuman otherwise.
     """
     key = validation.chapter_key(chapter["identity"])
     rows = [
@@ -139,7 +145,7 @@ def _copy_of(ctx: workflow.Context, chapter):
 
 
 def _worse(ours, theirs):
-    """A page width, or bits per pixel where the file's is known, below NOT_WORSE of the published file's."""
+    """Return whether a page width, or bits per pixel where the file's is known, is below NOT_WORSE of the file's."""
     return ours.median_page_width < NOT_WORSE * theirs.median_page_width or _bpp_compared(
         ours, theirs, lambda a, b: a < NOT_WORSE * b
     )
@@ -164,8 +170,10 @@ class Measures:
 
 
 def _measured(what, summary, bpp):
-    """Measures from a measures.summary of a copy's pages (or a stored published row, which holds the same 3
-    measures) and its bits per pixel; ValueError for a summary of no pages.
+    """Build the measures from a measures.summary of a copy's pages and its bits per pixel.
+
+    The summary may instead be a stored published row, which holds the same 3 measures. ValueError for a summary of no
+    pages.
     """
     pages_in, width, length = summary["pages_in"], summary["median_page_width"], summary["strip_length"]
     if pages_in is None or width is None or length is None:
@@ -183,9 +191,10 @@ def _layout(ctx: workflow.Context, series_id):
 
 
 def published_junk(ctx: workflow.Context, published, layout, width):
-    """The junk removed from the published file's download (measures.junk): stored when the pipeline published it,
-    else from the bulk converter's record of its edits; None when unknown (a pipeline file published before it was
-    stored, or a record that no longer lists the file).
+    """Return the junk removed from the published file's download (measures.junk).
+
+    Stored when the pipeline published it, else from the bulk converter's record of its edits; None when unknown (a
+    pipeline file published before it was stored, or a record that no longer lists the file).
     """
     if published["origin"] != "bulk":
         return published["junk"]
@@ -219,10 +228,11 @@ def _duplicate(ctx: workflow.Context, chapter, published):
 
 
 def _original(ctx: workflow.Context, published):
-    """The published copy's original measurements: as stored when the pipeline published it, else measured from the
-    library file (the bulk converter's, or published before they were stored). Each page is read whole and not
-    decoded: an AVIF page gives no size from its first bytes. bpp: the original's bits per pixel, None when not stored
-    (a bulk file's pages are re-encoded).
+    """Return the published copy's original measurements.
+
+    As stored when the pipeline published it, else measured from the library file (the bulk converter's, or published
+    before they were stored). Each page is read whole and not decoded: an AVIF page gives no size from its first
+    bytes. bpp: the original's bits per pixel, None when not stored (a bulk file's pages are re-encoded).
     """
     if published["pages_in"] is not None:  # publish stores the 3 measures together
         return _measured(published["library_path"], published, published["bpp"])
@@ -238,9 +248,10 @@ def _original(ctx: workflow.Context, published):
 
 
 def _take(ctx: workflow.Context, chapter, published):
-    """The better copy names its file (its 1 open chapter) and takes the file's volume cover: the series' stored image
-    of that volume, else the old file's own cover page. Returns None (the copy goes on), or NeedsHuman for a busy
-    file.
+    """Make the better copy name its file (its 1 open chapter) and take the file's volume cover.
+
+    The cover: the series' stored image of that volume, else the old file's own cover page. Returns None (the copy goes
+    on), or NeedsHuman for a busy file.
     """
     volume = rewrite_covers.cover_volume(published["cover_state"])  # an old image too: the copy takes the new one
     if published["cover_state"] is None:  # not read yet (export reads it): the file's own cover page says
@@ -272,8 +283,10 @@ def _take(ctx: workflow.Context, chapter, published):
 
 
 def _cover(ctx: workflow.Context, series_id, published, volume):
-    """(path below paths.covers, sha256) of the cover the copy takes in place of its file's: the series' stored image
-    of that volume, else the file's own 000_cover page, stored content-addressed beside the fetched ones.
+    """Return (path below paths.covers, sha256) of the cover the copy takes in place of its file's.
+
+    The series' stored image of that volume, else the file's own 000_cover page, stored content-addressed beside the
+    fetched ones.
     """
     v = names.to_volume(volume)
     row = None

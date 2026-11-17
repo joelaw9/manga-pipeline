@@ -43,8 +43,6 @@ ignore = [
     "S314",                       # xml.etree on expat >= 2.4.1 resists entity expansion and resolves no external entity
     "TRY004",                     # every isinstance check validates a parsed YAML file: a value error, not a type error
     "S105",                       # every hit is a false positive (a meta key name; a fake test token)
-    # lint phase: pending (rules the next lint PRs resolve; this block shrinks to nothing)
-    "D",
 ]
 
 [tool.ruff.lint.per-file-ignores]

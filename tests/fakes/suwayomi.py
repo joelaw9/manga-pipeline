@@ -21,8 +21,9 @@ from tests.fakes.http import NoNetwork
 
 
 def page(number, seed=""):
-    """A small real page image (PNG bytes, 16 x 24) of 1 colour, set by its number and seed: no junk unit (it has no
-    signature), not white, and other number or seed = other bytes.
+    """Return a small real page image (PNG bytes, 16 x 24) of 1 colour, set by its number and seed.
+
+    No junk unit (it has no signature), not white, and other number or seed = other bytes.
     """
     shade = 40 + (zlib.crc32(f"{number} {seed}".encode()) % 160)
     out = io.BytesIO()
@@ -31,7 +32,7 @@ def page(number, seed=""):
 
 
 def cbz(pages=3, comicinfo=None):
-    """The bytes of a small CBZ: `pages` small page images (page) and, when given, a ComicInfo.xml."""
+    """Return the bytes of a small CBZ: `pages` small page images (page) and, when given, a ComicInfo.xml."""
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as archive:
         for number in range(1, pages + 1):
@@ -77,12 +78,14 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         return manga_id
 
     def add_tracker(self, manga_id, tracker_id, remote_id):
-        """A tracker record of a manga (Suwayomi's tracker ids: AniList 2, MangaUpdates 7)."""
+        """Add a tracker record of a manga (Suwayomi's tracker ids: AniList 2, MangaUpdates 7)."""
         self.manga_rows[manga_id]["trackRecords"]["nodes"].append({"trackerId": tracker_id, "remoteId": remote_id})
 
     def add_chapter(self, manga_id, name, scanlator=None, number=None, *, listed=True):
-        """A chapter of the manga, not downloaded. number defaults to its place in the manga. listed=False: the
-        source has it, and Suwayomi lists it only after fetch_manga_and_chapters.
+        """Add a chapter of the manga, not downloaded.
+
+        number defaults to its place in the manga. listed=False: the source has it, and Suwayomi lists it only after
+        fetch_manga_and_chapters.
         """
         chapter_id = self._new_id()
         rows = [*self.chapter_rows.values(), *self.unlisted.values()]
@@ -116,7 +119,10 @@ class FakeSuwayomi(suwayomi.Suwayomi):
     # --- what Suwayomi's downloader does between 2 runs of the pipeline
 
     def begin_download(self, chapter_id, data=b"PK half-written"):
-        """The downloader is writing the chapter: the CBZ is visible, incomplete, and the chapter is not flagged."""
+        """Start writing the chapter as the downloader does.
+
+        The CBZ is visible, incomplete, and the chapter is not flagged.
+        """
         self._entry(chapter_id)["state"] = "DOWNLOADING"
         self._write(chapter_id, data)
 
@@ -128,7 +134,7 @@ class FakeSuwayomi(suwayomi.Suwayomi):
             self.queue.remove(entry)
 
     def fail_download(self, chapter_id, tries=3):
-        """The download failed: it stays in the queue as ERROR and nothing is flagged."""
+        """Fail the download: it stays in the queue as ERROR and nothing is flagged."""
         self._entry(chapter_id).update(state="ERROR", tries=tries)
 
     # --- the client's calls
@@ -177,8 +183,10 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         return copy.deepcopy(list(self.source_rows.values()))
 
     def enqueue(self, chapter_ids):
-        """As Suwayomi: a chapter already queued is skipped; so is one flagged with its file in place; one flagged
-        whose file is gone is queued again.
+        """Queue the chapters as Suwayomi does.
+
+        A chapter already queued is skipped; so is one flagged with its file in place; one flagged whose file is gone is
+        queued again.
         """
         self.writes.append(("enqueue", list(chapter_ids)))
         for chapter_id in chapter_ids:
@@ -208,7 +216,7 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         self.downloader = "STARTED"
 
     def search_source(self, source_id, title):
-        """The source's manga whose title contains `title`, whatever the case."""
+        """Return the source's manga whose title contains `title`, whatever the case."""
         self.writes.append(("search_source", str(source_id), title))
         self._check_source(str(source_id))
         rows = self.manga_rows.values()

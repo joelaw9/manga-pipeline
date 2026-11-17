@@ -1,5 +1,7 @@
-"""CBZ archives (contracts section 1; SPEC "Bad downloads", "Publishing"): which members are pages and in what order,
-the content digest, and the deterministic store-mode writer. Copied from the bulk converter's optimizer/formats.py
+"""CBZ archives (contracts section 1; SPEC "Bad downloads", "Publishing").
+
+Which members are pages and in what order, the content digest, and the deterministic store-mode writer. Copied from the
+bulk converter's optimizer/formats.py
 (archive half), pipeline.repack and record.pages_digest.
 
 A file on the share is written as <name>.part, renamed over its target, then tested (size and zip test), so a reader
@@ -31,12 +33,13 @@ COVER_NAME = re.compile(
 
 
 def is_cover_name(name):
-    """True when Kavita would treat this page as the archive's cover (cover.jpg, 000_cover.png, folder.png)."""
+    """Return whether Kavita would treat this page as the archive's cover (cover.jpg, 000_cover.png, folder.png)."""
     return bool(COVER_NAME.search(PurePosixPath(name.replace("\\", "/")).name))
 
 
 def natural_key(path):
-    """Natural sort key over a full archive path (matches Kavita's page ordering).
+    """Return the natural sort key over a full archive path (matches Kavita's page ordering).
+
     The extension is compared last, so "1.jpg" < "1.5.jpg" < "2.jpg".
     """
     folder, _, name = path.rpartition("/")
@@ -48,6 +51,7 @@ def natural_key(path):
 
 
 def is_junk(name):
+    """Return whether an archive member is junk: a junk file name (Thumbs.db), under __MACOSX/, or a ._* file."""
     p = PurePosixPath(name.replace("\\", "/"))
     return (
         p.name.lower() in JUNK_NAMES
@@ -61,9 +65,10 @@ def _posix(name):
 
 
 def archive_pages(names):
-    """An archive's page members (names as stored) in natural reading order: image extensions only; directories,
-    junk (__MACOSX/, ._*, Thumbs.db) and ComicInfo.xml dropped. Every reader of an archive's pages uses this, so
-    page indexes agree everywhere.
+    """Return an archive's page members (names as stored) in natural reading order.
+
+    Image extensions only; directories, junk (__MACOSX/, ._*, Thumbs.db) and ComicInfo.xml dropped. Every reader of an
+    archive's pages uses this, so page indexes agree everywhere.
     """
     pages = [
         n
@@ -74,20 +79,23 @@ def archive_pages(names):
 
 
 def comicinfo_member(names):
-    """The archive's ComicInfo.xml member (exact basename, any case, not under junk like __MACOSX/), preferring one
-    at the root; None if absent.
+    """Return the archive's ComicInfo.xml member (exact basename, any case, not under junk like __MACOSX/).
+
+    Prefers one at the root; None if absent.
     """
     hits = [n for n in names if PurePosixPath(_posix(n)).name.lower() == "comicinfo.xml" and not is_junk(n)]
     return next((n for n in hits if "/" not in _posix(n)), hits[0] if hits else None)
 
 
 def sha1(data):
+    """Return the hex sha1 digest of data."""
     return hashlib.sha1(data, usedforsecurity=False).hexdigest()
 
 
 def pages_digest(cbz):
-    """The content digest (SPEC "Bad downloads"): sha256 of the ordered page sha1 list, "\\n"-joined. The bulk
-    converter's record.pages_digest exactly, so its records' `pages_digest` compare with it.
+    r"""Return the content digest (SPEC "Bad downloads"): sha256 of the ordered page sha1 list, "\n"-joined.
+
+    The bulk converter's record.pages_digest exactly, so its records' `pages_digest` compare with it.
     """
     with zipfile.ZipFile(cbz) as z:
         sha1s = [sha1(z.read(n)) for n in archive_pages(z.namelist())]
@@ -105,16 +113,17 @@ def digest_or_none(cbz):
 
 
 def read_comicinfo(cbz):
-    """The bytes of the archive's ComicInfo.xml, or None when it has none."""
+    """Return the bytes of the archive's ComicInfo.xml, or None when it has none."""
     with zipfile.ZipFile(cbz) as z:
         member = comicinfo_member(z.namelist())
         return None if member is None else z.read(member)
 
 
 def write(dest, members):
-    """A store-mode CBZ of members ([(name, bytes)], stored in that order) at dest: fixed date, attributes and
-    system, so the same members give byte-identical archives. Written as dest.part, renamed over dest, then tested;
-    a write that raises before the rename removes dest.part. Returns dest's size.
+    """Write a store-mode CBZ of members ([(name, bytes)], stored in that order) at dest; return dest's size.
+
+    Fixed date, attributes and system, so the same members give byte-identical archives. Written as dest.part, renamed
+    over dest, then tested; a write that raises before the rename removes dest.part.
     """
     dest = Path(dest)
     part = dest.with_name(dest.name + ".part")
@@ -142,9 +151,10 @@ def pages(cbz):
 
 
 def replace_member(cbz, name, data):
-    """Rewrite cbz with member `name` (compared without case) stored last with data, replacing any member of that
-    name; every other member keeps its bytes and order. Through write, so a crash leaves the old archive whole.
-    Returns the new size.
+    """Rewrite cbz with member `name` (compared without case) stored last with data; return the new size.
+
+    Replaces any member of that name; every other member keeps its bytes and order. Through write, so a crash leaves the
+    old archive whole.
     """
     with zipfile.ZipFile(cbz) as z:
         members = [(n, z.read(n)) for n in z.namelist() if n.lower() != name.lower()]

@@ -1,6 +1,8 @@
-"""Chapter names (names; SPEC "Bad downloads", "Publishing"): the library's file-name shapes (parse_name), the helper
-rules (number parts, ratings, titles, side labels, ComicInfo dates), a chapter's identity and its published file name.
-The parse tests are ported from the bulk converter's tests/test_structure.py.
+"""Chapter names (names; SPEC "Bad downloads", "Publishing").
+
+The library's file-name shapes (parse_name), the helper rules (number parts, ratings, titles, side labels, ComicInfo
+dates), a chapter's identity and its published file name. The parse tests are ported from the bulk converter's
+tests/test_structure.py.
 """
 
 import json

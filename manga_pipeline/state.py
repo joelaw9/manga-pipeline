@@ -1,5 +1,7 @@
-"""The state commands (SPEC "State"): `state reset` clears the workflow state, `state adopt` makes this database the
-share's owner. Both run under every part's lock (cli command table).
+"""The state commands (SPEC "State"): `state reset`, `state adopt` and `state version`.
+
+`state reset` clears the workflow state, `state adopt` makes this database the share's owner. Both run under every
+part's lock (cli command table).
 """
 
 import logging
@@ -11,8 +13,9 @@ log = logging.getLogger(__name__)
 
 
 def reset(cfg, conn):
-    """Empty the workflow tables and set every series ok, then empty the staging folder (keeping the owner file and
-    the staged files of queued rewrites: SPEC "Retroactive updates"), the scratch folder and the junk candidates folder.
+    """Empty the workflow tables and set every series ok, then empty the staging, scratch and junk candidates folders.
+
+    The staging folder keeps the owner file and the staged files of queued rewrites (SPEC "Retroactive updates").
     Downloads, the library, knowledge and sync records are never touched.
     """
     workflow.reset(conn)
@@ -37,8 +40,10 @@ def reset(cfg, conn):
 
 
 def adopt(cfg, conn):
-    """Write this database's id to the owner file. The staging folder is never created (preflight requires it), so an
-    unmounted share is never written under its mount point.
+    """Write this database's id to the owner file.
+
+    The staging folder is never created (preflight requires it), so an unmounted share is never written under its mount
+    point.
     """
     database_id = db.database_id(conn)
     path = preflight.owner_file(cfg)
@@ -47,8 +52,9 @@ def adopt(cfg, conn):
 
 
 def version(cfg, conn):
-    """Store this machine's digest as the fleet's version (SPEC "State"): run once per deploy or change of a shared
-    setting, while nothing else runs (the exclusive lock).
+    """Store this machine's digest as the fleet's version (SPEC "State").
+
+    Run once per deploy or change of a shared setting, while nothing else runs (the exclusive lock).
     """
     with db.transaction(conn):
         fleet.store(conn, cfg)

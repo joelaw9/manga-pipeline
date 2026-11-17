@@ -1,8 +1,10 @@
-"""Test databases (SPEC "Tests"): a pool of databases mp_test_pool_<n> kept on the test server between runs. Each test
-process takes 2 when it starts (a 3rd when a test asks for a 3rd folder), holding a session advisory lock per database
-on its 1 connection to the server's maintenance database, so no other process uses them meanwhile; a process that
-dies frees its locks with its connection. Taking a database makes it right (emptied, or rebuilt when it is not exactly
-what a build of these step files makes), and every database a test used is emptied in that test's teardown.
+"""Test databases (SPEC "Tests"): a pool of databases mp_test_pool_<n> kept on the test server between runs.
+
+Each test process takes 2 when it starts (a 3rd when a test asks for a 3rd folder), holding a session advisory lock
+per database on its 1 connection to the server's maintenance database, so no other process uses them meanwhile; a
+process that dies frees its locks with its connection. Taking a database makes it right (emptied, or rebuilt when it
+is not exactly what a build of these step files makes), and every database a test used is emptied in that test's
+teardown.
 
 Only mp_test_* databases are ever created; none is dropped but by the pool's own tests.
 """
@@ -41,7 +43,7 @@ process = None  # this test process's Process, made by tests/conftest.py when th
 
 
 def current():
-    """This test process's Process: conftest makes it when the process starts."""
+    """Return this test process's Process: conftest makes it when the process starts."""
     if process is None:
         msg = "no test database pool: tests/conftest.py makes it when the process starts"
         raise RuntimeError(msg)
@@ -49,7 +51,7 @@ def current():
 
 
 class LeakedConnectionError(AssertionError):
-    pass
+    """A test left a connection to its database open (raised by Process.end_test after the reset)."""
 
 
 def _login():
@@ -57,7 +59,7 @@ def _login():
 
 
 def connect(dbname):
-    """An autocommit connection to database `dbname` as the test role."""
+    """Open an autocommit connection to database `dbname` as the test role."""
     login = _login()
     return psycopg.connect(
         host=login["host"],
@@ -72,7 +74,7 @@ def connect(dbname):
 
 
 def cfg_for(name):
-    """The test config with its database section naming database `name`."""
+    """Return the test config with its database section naming database `name`."""
     return {**config.cached(), "database": {**_login(), "name": name}}
 
 
@@ -85,7 +87,7 @@ def owned(name):
 
 
 def relations(conn):
-    """The relations of schema public (tables, sequences, indexes, views), as 1 fingerprint."""
+    """Return the relations of schema public (tables, sequences, indexes, views), as 1 fingerprint."""
     rows = conn.execute(
         "SELECT relkind::text || ':' || relname FROM pg_class WHERE relnamespace = 'public'::regnamespace ORDER BY 1"
     ).fetchall()
@@ -93,7 +95,7 @@ def relations(conn):
 
 
 def _value(conn, sql, params=()):
-    """The first column of the query's 1st row; the query always returns 1."""
+    """Return the first column of the query's 1st row; the query always returns 1."""
     row = conn.execute(sql, params).fetchone()
     if row is None:
         msg = f"no row from: {sql}"
@@ -102,7 +104,7 @@ def _value(conn, sql, params=()):
 
 
 def print_of(conn, name):
-    """The fingerprint stored on database `name` (its comment)."""
+    """Return the fingerprint stored on database `name` (its comment)."""
     return _value(conn, "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = %s", (name,))
 
 
@@ -112,9 +114,10 @@ def set_print(conn, name, value):
 
 
 class Process:
-    """This test process's pool databases. slots[n] is the database the (n+1)-th folder of a test gets."""
+    """The pool databases of this test process. slots[n] is the database the (n+1)-th folder of a test gets."""
 
     def __init__(self, pool=POOL, lock_space=LOCK_SPACE, take=TAKEN_AT_START):
+        """Open the lock-holding connection to the maintenance database and take `take` pool databases."""
         self.pool, self.lock_space = pool, lock_space
         self.owner = connect(db.MAINTENANCE_DATABASE)
         self.held = set()  # numbers whose lock this process holds, retired ones included
@@ -126,8 +129,10 @@ class Process:
             self.slots.append(self._take())
 
     def _take(self):
-        """The lowest-numbered pool database no process holds, made right: created if missing, its orphaned
-        connections ended, emptied or rebuilt. A database that cannot be made right stays held, unused.
+        """Take the lowest-numbered pool database no process holds, made right.
+
+        Made right: created if missing, its orphaned connections ended, emptied or rebuilt. A database that cannot be
+        made right stays held, unused.
         """
         n, failures = 0, []
         while True:
@@ -157,7 +162,7 @@ class Process:
             return name
 
     def database(self, folder, built):
-        """The database name for `folder` in the running test (SPEC "Tests": same folder, same database)."""
+        """Return the database name for `folder` in the running test (SPEC "Tests": same folder, same database)."""
         if folder in self.used:
             return self.slots[self.used[folder]]
         n = len(self.used)
@@ -173,8 +178,10 @@ class Process:
         return name
 
     def end_test(self):
-        """Empty every database the test used. Raises LeakedConnectionError after the reset when the test left a
-        connection open; a database whose reset fails is retired (held, unused) and its slot takes another.
+        """Empty every database the test used.
+
+        Raises LeakedConnectionError after the reset when the test left a connection open; a database whose reset
+        fails is retired (held, unused) and its slot takes another.
         """
         used, unbuilt = sorted(set(self.used.values())), self.unbuilt
         self.used, self.unbuilt = {}, set()
@@ -195,9 +202,10 @@ class Process:
             raise LeakedConnectionError(msg)
 
     def _end_leaks(self, name):
-        """End and return the test's connections still open: a connection dropped but not yet collected closes with
-        a collection, and a closed one's server process may outlive it for a moment, so only those still there after
-        both count.
+        """End and return the test's connections still open.
+
+        A connection dropped but not yet collected closes with a collection, and a closed one's server process may
+        outlive it for a moment, so only those still there after both count.
         """
         if not self._others(name):
             return []
@@ -219,8 +227,10 @@ class Process:
         return ended
 
     def reset(self, name, rebuild):
-        """Empty database `name`: its rows deleted and ids restarted, or rebuilt from the step files when `rebuild`
-        or it is not intact.
+        """Empty database `name`.
+
+        Its rows are deleted and ids restarted, or it is rebuilt from the step files when `rebuild` or it is not
+        intact.
         """
         with closing(connect(name)) as conn:
             if rebuild or not self._intact(conn, name):
@@ -260,7 +270,7 @@ class Process:
 
 
 def _order(conn):
-    """The tables but schema_step, children before parents, and the identity sequences."""
+    """Return the tables but schema_step, children before parents, and the identity sequences."""
     tables = {row[0] for row in conn.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")}
     tables.discard("schema_step")
     parents = {t: set() for t in tables}

@@ -1,6 +1,7 @@
-"""A series' naming override file (SPEC "Publishing"): `<paths.naming_overrides>/<series rules key>.yaml`, read and
-checked as the bulk converter accepts it (`volumes` ranges, `series_group`, `layout`), and the volume a range gives a
-chapter.
+"""A series' naming override file (SPEC "Publishing"): read and checked, and the volume a range gives a chapter.
+
+The file is `<paths.naming_overrides>/<series rules key>.yaml`, read and checked as the bulk converter accepts it
+(`volumes` ranges, `series_group`, `layout`).
 The volume bases' names. Volumes themselves are resolved by metadata/naming.py.
 """
 
@@ -24,8 +25,9 @@ class OverrideError(VolumeError):
 
 
 def layout(data):
-    """`layout:` of an overrides mapping as the bulk converter reads it (case-folded, trimmed): "strip", "pages" or
-    None. ValueError for any other value.
+    """Return `layout:` of an overrides mapping as the bulk converter reads it (case-folded, trimmed).
+
+    "strip", "pages" or None. ValueError for any other value.
     """
     v = data.get("layout")
     v = str(v).strip().lower() if v is not None else None
@@ -36,22 +38,24 @@ def layout(data):
 
 
 def override_layout(overrides, folder_name):
-    """The layout the series' override file names, None without the file or the key. OverrideError when the file is
-    malformed.
+    """Return the layout the series' override file names, None without the file or the key.
+
+    OverrideError when the file is malformed.
     """
     return layout(override_file(overrides, folder_name) or {})
 
 
 def series_group(overrides, folder_name):
-    """ComicInfo SeriesGroup from the series' override file's `series_group` (a name, or a list joined with ", "),
-    None without the file or the key. OverrideError when the file is malformed.
+    """Return ComicInfo SeriesGroup from the series' override file's `series_group`.
+
+    A name, or a list joined with ", "; None without the file or the key. OverrideError when the file is malformed.
     """
     data = override_file(overrides, folder_name) or {}
     return data.get("series_group") and ", ".join(_group_names(data["series_group"]))
 
 
 def _mapping(data):
-    """data, when it is a mapping; ValueError otherwise."""
+    """Return data when it is a mapping; ValueError otherwise."""
     if not isinstance(data, dict):
         msg = f"overrides must be a YAML mapping, not {type(data).__name__}"
         raise ValueError(msg)
@@ -59,7 +63,10 @@ def _mapping(data):
 
 
 def override_file(overrides, folder_name):
-    """The series' override file as a checked mapping, None when it does not exist. OverrideError when malformed."""
+    """Return the series' override file as a checked mapping, None when it does not exist.
+
+    OverrideError when malformed.
+    """
     path = Path(overrides) / f"{folder_name}.yaml"
     if not errors.exists(path):
         return None
@@ -76,8 +83,9 @@ def override_file(overrides, folder_name):
 
 
 def _group_names(value):
-    """series_group's names: a non-empty name or a non-empty list of them, none holding a comma (Kavita splits
-    SeriesGroup on commas, 1 collection each). ValueError otherwise.
+    """Return series_group's names: a non-empty name or a non-empty list of them, none holding a comma.
+
+    Kavita splits SeriesGroup on commas, 1 collection each. ValueError otherwise.
     """
     items = [value] if isinstance(value, str) else value
     if not isinstance(items, list) or not items:
@@ -94,8 +102,10 @@ def _group_names(value):
 
 
 def check_volumes(volumes):
-    """`volumes: {volume: range}`: each volume a whole number (ComicInfo Volume is an xs:int), each range one _range
-    reads ("1-53", "54", "94-", "-53") and that does not run backwards. Raises ValueError otherwise.
+    """Check `volumes: {volume: range}`: each volume a whole number, each range one _range reads, never backwards.
+
+    Each volume a whole number (ComicInfo Volume is an xs:int), each range one _range reads ("1-53", "54", "94-",
+    "-53") and that does not run backwards. Raises ValueError otherwise.
     """
     if volumes is None:
         return
@@ -121,8 +131,9 @@ def check_volumes(volumes):
 
 
 def override_volume(volumes, num):
-    """The volume whose range holds chapter number num (the last such volume, as the bulk converter's loop leaves
-    it), or None.
+    """Return the volume whose range holds chapter number num, or None.
+
+    The last such volume, as the bulk converter's loop leaves it.
     """
     found = None
     for vol, rng in volumes.items():
@@ -133,7 +144,7 @@ def override_volume(volumes, num):
 
 
 def _range(rng):
-    """overrides range -> (lo, hi): "1-53", "54" (one chapter), "94-" (open end), "-53" (open start)."""
+    """Parse an overrides range into (lo, hi): "1-53", "54" (one chapter), "94-" (open end), "-53" (open start)."""
     lo, sep, hi = str(rng).strip().partition("-")
     lo = float(lo) if lo.strip() else float("-inf")
     hi = float(hi) if hi.strip() else (float("inf") if sep else lo)

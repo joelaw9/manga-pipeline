@@ -1,5 +1,6 @@
-"""Junk units of a page-format chapter (SPEC "Junk decisions": units, the chapter edit; junk/page_units.py):
-credit bands (find_band, ink_box), the end-page size and text rules (page_candidates, text_features, end_text_page),
+"""Junk units of a page-format chapter (SPEC "Junk decisions": units, the chapter edit; junk/page_units.py).
+
+Credit bands (find_band, ink_box), the end-page size and text rules (page_candidates, text_features, end_text_page),
 and decide() on small scans. The band, size and text tests are ported from the bulk converter's tests/test_restitch.py
 and tests/test_segmentation.py; the page sizes are recorded from real chapters.
 """
@@ -34,7 +35,7 @@ def find_band(page, where, aspect=ASPECT, cfg: Mapping[str, float] = BAND):
 
 
 def sig_matches(sig, text):
-    """The live signature rule between a signature and a band's signature text."""
+    """Return whether the live signature rule matches a signature and a band's signature text."""
     return images.matches(sig, images.sig_from_str(text))
 
 
@@ -152,15 +153,16 @@ def test_a_seam_band_of_exactly_band_seam_min_px_counts():
 
 
 def footer(x):
-    """A 2-line LHTranslation-style footer, its text at x."""
+    """Draw a 2-line LHTranslation-style footer, its text at x."""
     b = Image.new("RGB", (600, 40), "white")
     b.paste(fx.credit((480, 30)), (x, 6))
     return b
 
 
 def footer_page(x):
-    """After Being Called a Hero: a footer under the last story page behind a 12 px gutter (960 x 1378 + 62 px, the
-    line at another x per chapter: Ch 14 / Ch 21), here at 600 wide.
+    """After Being Called a Hero: a footer under the last story page behind a 12 px gutter.
+
+    960 x 1378 + 62 px, the line at another x per chapter: Ch 14 / Ch 21; here at 600 wide.
     """
     return fx.stack(fx.blob(1, (600, 852)), (12, 600), footer(x))
 
@@ -193,8 +195,9 @@ def test_a_band_cut_on_a_seam_needs_band_seam_min_px(height, want):
 
 @budget(load="pure")
 def test_find_band_uses_the_one_gap_row_classifier_unchanged():
-    """A Thunder Scans style WARNING band over a rescaled page, cut on the gutter: the result is the one the bulk
-    converter's find_band gave (pinned), and the gutter comes from strip.blank_rows.
+    """A Thunder Scans style WARNING band over a rescaled page, cut on the gutter.
+
+    The result is the one the bulk converter's find_band gave (pinned), and the gutter comes from strip.blank_rows.
     """
     page = fx.stack(fx.warning_banner(), (40, 600), fx.webtoon_page((600, 840), seed=1))
     with mock.patch.object(strip, "blank_rows", wraps=strip.blank_rows) as spy:
@@ -303,8 +306,9 @@ def names(n):
 
 
 def cands(sizes, aspects=AKUYAKU, pages=None, banded=(), joined=()):
-    """page_candidates on a chapter's content pages, as 1-based page numbers of the download; banded and joined are
-    download indexes.
+    """Return page_candidates on a chapter's content pages, as 1-based page numbers of the download.
+
+    banded and joined are download indexes.
     """
     content = strip.content_indexes(pages or names(len(sizes)))
     position = {i: k for k, i in enumerate(content)}
@@ -379,8 +383,9 @@ def test_cover_named_pages_and_joined_slices_never_listed():
 
 @budget(load="pure")
 def test_a_joined_middle_slice_does_not_widen_the_middle_pages_range():
-    """A 1,500 + 100 slice pair in the middle that slice repair joins: the 100 px sliver is no page size, so a short
-    end page is still listed.
+    """A 1,500 + 100 slice pair in the middle that slice repair joins.
+
+    The 100 px sliver is no page size, so a short end page is still listed.
     """
     sizes = [(1125, 1600)] * 4 + [(1125, 1500), (1125, 100)] + [(1125, 1600)] * 4 + [(1125, 900)]
     assert cands(sizes, [1600 / 1125], joined={4, 5}) == [(11, "short")], "the sliver's aspect is left out"
@@ -406,8 +411,10 @@ SIZE = (300, 426)
 
 
 def text_credits_page(size=SIZE):
-    """A scanlator credits page the size of the story pages (Liz, the Magical Tool Maker Art Lapsa Ch.18 026.webp):
-    black text lines on white and one small coloured logo, no shading.
+    """Draw a scanlator credits page the size of the story pages.
+
+    As Liz, the Magical Tool Maker Art Lapsa Ch.18 026.webp: black text lines on white and one small coloured logo, no
+    shading.
     """
     w, h = size
     a = np.full((h, w, 3), 255, np.uint8)
@@ -418,7 +425,7 @@ def text_credits_page(size=SIZE):
 
 
 def gray_story_page(seed, size=SIZE):
-    """A gray story page: screentone shading (mid-tones) and ink lines on white."""
+    """Draw a gray story page: screentone shading (mid-tones) and ink lines on white."""
     a = np.full((size[1], size[0]), 245, np.uint8)
     rng = np.random.default_rng(seed)
     for _ in range(4):
@@ -531,7 +538,10 @@ def edge(sc, page):
 
 
 def hand_scan(frame_on=None):
-    """A 6-page scan of same-size pages (edges 0, 1, 3, 4, 5; no bands, no slices); page `frame_on` has a frame."""
+    """Build a 6-page scan of same-size pages; page `frame_on` has a frame.
+
+    Edges 0, 1, 3, 4, 5; no bands, no slices.
+    """
     return {
         "layout": "pages",
         "split": False,
@@ -634,8 +644,9 @@ def test_a_stitched_chapter_is_only_split():
     ],
 )
 def test_the_page_and_frame_decision_ranking_first_decides(page, frame, dropped):
-    """Page and frame decisions both apply in lookup order: the pipeline's (keep first), then imported ones: the
-    series' before global, keep before junk within a scope.
+    """Page and frame decisions both apply in lookup order.
+
+    The pipeline's (keep first), then imported ones: the series' before global, keep before junk within a scope.
     """
     rows = {("page", "s5"): page, ("frame", "f5"): frame}
     out = page_units.decide(hand_scan(frame_on=5), decider({k: v for k, v in rows.items() if v}))
@@ -678,7 +689,7 @@ def test_slice_joins_are_found_among_kept_pages(tmp_path):
 
 
 def light_rows(h, row):
-    """h rows of 400 px, each the given row of luma values (RGB)."""
+    """Return h rows of 400 px, each the given row of luma values (RGB)."""
     return Image.fromarray(np.repeat(np.tile(np.asarray(row, np.uint8), (h, 1))[..., None], 3, axis=2))
 
 
@@ -702,8 +713,10 @@ def test_gutter_rows_have_std_under_3_and_range_under_20(row, how):
 @budget(2.0, load="fs")
 @pytest.mark.parametrize("end_page", ["endpage_akuyaku_ch18_p37.jpg", "endpage_akuyaku_ch22_p34.jpg"])
 def test_a_frame_decision_on_a_real_end_page_drops_it_in_later_chapters(tmp_path, end_page):
-    """Akuyaku Kizoku ch17 / 18 / 22 end pages (real JPEGs): one template, other text, so their page signatures differ
-    but their frames match. A frame decision on ch17's drops the end page of a later chapter, and only that page.
+    """Akuyaku Kizoku ch17 / 18 / 22 end pages (real JPEGs): one template, other text.
+
+    Their page signatures differ but their frames match. A frame decision on ch17's drops the end page of a later
+    chapter, and only that page.
     """
     first = Image.open(fx.PAGE_FIX / "endpage_akuyaku_ch17_p39.jpg")
     later = Image.open(fx.PAGE_FIX / end_page)
@@ -729,8 +742,10 @@ def test_an_undecided_band_on_a_middle_page_is_a_candidate_at_1_chapter(tmp_path
 
 @budget(3.0, load="fs")
 def test_an_unsignable_band_is_no_band_and_its_edge_page_is_judged_as_a_page(tmp_path):
-    """A band whose ink signs as a flat image: no decision could be written on it, so it is no unit, and its page is
-    no band page: the edge-page size rule still offers the page.
+    """An unsignable band is no band, and its edge page is judged as a page.
+
+    A band whose ink signs as a flat image: no decision could be written on it, so it is no unit, and its page is no
+    band page: the edge-page size rule still offers the page.
     """
     sc = banded_chapter(tmp_path, 0)
     sc["bands"]["0"][0]["sig"] = images.sig_to_str(((0,), 2.5))

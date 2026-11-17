@@ -1,5 +1,6 @@
-"""Stage comicinfo (SPEC "Chapter stages", "Publishing", "Metadata" ComicInfo): adds ComicInfo.xml to the staged CBZ
-and settles the file's name in the series folder.
+"""Stage comicinfo (SPEC "Chapter stages", "Publishing", "Metadata" ComicInfo): ComicInfo.xml and the file's name.
+
+Adds ComicInfo.xml to the staged CBZ and settles the file's name in the series folder.
 
 The download's ComicInfo.xml is kept field by field where a field is valid for the schema (Suwayomi writes Day, Month
 and Year out of schema order: build orders them), except what this stage writes itself: the series' fields from its
@@ -34,6 +35,11 @@ LEFT_TO_RIGHT = {"manhwa", "manhua", "korean", "chinese", "webtoon", "long strip
 
 
 def run(ctx: workflow.Context, chapter):
+    """Write the staged CBZ's ComicInfo.xml and settle its library path; record both with the chapter's naming.
+
+    Waits on bulk_conversion when a baseline the series needs cannot be taken yet; a VolumeError from naming is
+    needs_human. A better copy keeps its file's path. ValueError when the series has no ComicInfo Series name.
+    """
     series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     if not series["comicinfo_series"]:
         msg = f"series {series['id']} has no ComicInfo Series name (no baseline)"
@@ -103,7 +109,10 @@ def _file(ctx: workflow.Context, chapter):
 
 
 def _copy_name(ctx: workflow.Context, chapter):
-    """A better copy's naming: its file's as it is now (SPEC "Retroactive updates"); None for any other chapter."""
+    """Return a better copy's naming: its file's as it is now (SPEC "Retroactive updates").
+
+    None for any other chapter.
+    """
     if chapter["published_file_id"] is None:
         return None
     f = _file(ctx, chapter)
@@ -119,7 +128,7 @@ def _copy_name(ctx: workflow.Context, chapter):
 
 
 def series_fields(ctx: workflow.Context, series, chapter, group):
-    """The elements the series' stored fields and the chapter's source give."""
+    """Return the elements the series' stored fields and the chapter's source give."""
     got = merge.stored(ctx.conn, series["id"], tags.load())
     web = [*got.links, *([chapter["source_url"]] if chapter["source_url"] else [])]
     genres = {g.lower() for g in (*got.genres, *got.tags)}
@@ -140,9 +149,10 @@ def series_fields(ctx: workflow.Context, series, chapter, group):
 
 
 def page_entries(pages, cover, spreads):
-    """ComicInfo Page entries of convert's output pages ([{index, name, width, height, bytes}] in archive order):
-    FrontCover on the inserted volume cover (cover: one was inserted), DoublePage on a page wider than tall in a page
-    series (spreads).
+    """Return the ComicInfo Page entries of convert's output pages.
+
+    pages: [{index, name, width, height, bytes}] in archive order. FrontCover on the inserted volume cover (cover: one
+    was inserted), DoublePage on a page wider than tall in a page series (spreads).
     """
     out = []
     for page in pages:

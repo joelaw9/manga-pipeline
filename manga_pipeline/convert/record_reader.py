@@ -1,4 +1,5 @@
 """The bulk converter's series record, `.optimizer.json` (SPEC "State", baseline): read and validated, never written.
+
 A record that parses is a finished series. Copied from the bulk converter's optimizer/record.py (`load`, `parse`,
 `check`); the check of the schema-4 junk decision rows comes with Phase 5, which imports them.
 """
@@ -38,7 +39,10 @@ class PartialRecordError(RecordError):
 
 
 def load(folder):
-    """The parsed record of a series folder. FileNotFoundError when it has none; RecordError when it does not parse."""
+    """Return the parsed record of a series folder.
+
+    FileNotFoundError when it has none; RecordError when it does not parse.
+    """
     path = folder / RECORD_NAME
     text = path.read_text(encoding="utf-8")
     try:
@@ -60,9 +64,10 @@ def parse(rec):
 
 
 def check(rec):
-    """The structural validation of a record: schema 3 or 4, every top key and series block, runs, folders, the
-    naming restart flag, the calibration groups' shape, unique outputs and chapter files, and sources that name
-    existing outputs. Raises RecordError.
+    """Validate a record's structure.
+
+    Schema 3 or 4, every top key and series block, runs, folders, the naming restart flag, the calibration groups'
+    shape, unique outputs and chapter files, and sources that name existing outputs. Raises RecordError.
     """
     _check_top(rec)
     _check_blocks(rec)
@@ -74,7 +79,7 @@ def check(rec):
 
 
 def _check_top(rec):
-    """An object of schema 3 or 4 holding every top key with its type."""
+    """Check that the record is an object of schema 3 or 4 holding every top key with its type."""
     if not isinstance(rec, dict):
         msg = f"record is a {type(rec).__name__}, not an object"
         raise RecordError(msg)

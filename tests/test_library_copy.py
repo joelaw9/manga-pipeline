@@ -1,5 +1,7 @@
-"""The junk stage's library-copy check (SPEC "Library copies"): a chapter the series already has published is a
-duplicate, a better copy (which takes its file: test_better_copies), or doubtful.
+"""The junk stage's library-copy check (SPEC "Library copies").
+
+A chapter the series already has published is a duplicate, a better copy (which takes its file: test_better_copies),
+or doubtful.
 """
 
 import io
@@ -49,7 +51,7 @@ def published_copy(  # noqa: PLR0913  # 1 published_file row's varied columns
     bpp=None,
     junk=None,
 ):
-    """A pipeline-published file of the series with its stored original measurements."""
+    """Add a pipeline-published file of the series with its stored original measurements."""
     path = world.library / "Solo Leveling" / (name or "Ch.5.cbz")
     path.write_bytes(data or cbz(seed="published 5"))
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
@@ -72,7 +74,7 @@ def published_copy(  # noqa: PLR0913  # 1 published_file row's varied columns
 
 
 def through_junk(world, name="Chapter 5", copies=(), *, gone=False):
-    """A download taken through intake, then the published copies (published_copy keywords) added, then process."""
+    """Take a download through intake, then add the published copies (published_copy keywords), then run process."""
     _, path = world.download(world.manga_id, name, data=cbz(seed=f"new {name}"))
     world.run(intake)
     for copy in copies:
@@ -241,7 +243,7 @@ def test_a_library_file_whose_pages_are_bigger_than_a_header_read_is_measured(wo
 
 @pytest.fixture
 def by_filename(tmp_path):
-    """A series whose volume basis is `filename`, holding the bulk converter's Vol.1 Ch.3."""
+    """Provide a series whose volume basis is `filename`, holding the bulk converter's Vol.1 Ch.3."""
     w = CopyWorld(tmp_path, sources={"ranking": [BEST, "Src (EN)"], "download_timeout_hours": 24})
     w.kavita_series("Solo Leveling", bulk=(("Vol.1 Ch.3.cbz", "Grp_Vol.1 Chapter 3", "3", 1),), basis="filename")
     w.manga_id = w.manga("Solo Leveling")

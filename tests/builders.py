@@ -25,7 +25,7 @@ class WinFileNotFoundError(FileNotFoundError):
 
 
 def one(conn, query, params=()):
-    """The first column of the query's 1st row, asserting there is one."""
+    """Return the first column of the query's 1st row, asserting there is one."""
     row = conn.execute(query, params).fetchone()
     assert row is not None, f"a row from: {query}"
     return row[0]
@@ -38,14 +38,16 @@ def present(value):
 
 
 def problem_text(problem):
-    """A check's problem text, asserting it names one."""
+    """Return a check's problem text, asserting it names one."""
     assert problem is not None, "the check names a problem"
     return problem
 
 
 def site_cfg(tmp_path, *, built=True, **changes):
-    """The test config with every path in tmp_path and this process's database for tmp_path (built, or with no
-    schema when not built: tests/pg.py); changes replace whole sections, and a replaced database section takes none.
+    """Return the test config with every path in tmp_path and this process's database for tmp_path.
+
+    The database is built, or with no schema when not built (tests/pg.py); changes replace whole sections, and a
+    replaced database section takes none.
     """
     share = tmp_path / "share"
     for key in ("downloads/mangas", "library", "staging", "retention", "candidates", "covers"):
@@ -70,7 +72,7 @@ def site_cfg(tmp_path, *, built=True, **changes):
 
 
 def config_file(tmp_path, cfg):
-    """cfg written as tmp_path/config.yaml, for --config and subprocesses."""
+    """Write cfg as tmp_path/config.yaml, for --config and subprocesses."""
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
     return path
@@ -87,8 +89,9 @@ def adopted(tmp_path, **changes):
 
 
 def add_series(conn, name, origin="new", status="ok", kavita_library_id=None):
-    """A series row; kavita_library_id None = Kavita does not hold it. A new series is an admitted one (SPEC "Series
-    identification": only those have chapters).
+    """Add a series row; kavita_library_id None = Kavita does not hold it.
+
+    A new series is an admitted one (SPEC "Series identification": only those have chapters).
     """
     with db.transaction(conn):
         series_id = one(
@@ -102,8 +105,9 @@ def add_series(conn, name, origin="new", status="ok", kavita_library_id=None):
 
 
 def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None, **columns):
-    """A ready chapter at stage (discovered_at defaults to now); columns set other chapter columns (download_path
-    among them) as given.
+    """Add a ready chapter at stage (discovered_at defaults to now).
+
+    columns set other chapter columns (download_path among them) as given.
     """
     stamp = discovered_at or workflow.now(conn)
     with db.transaction(conn):
@@ -122,14 +126,16 @@ def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None,
 
 
 def chapter(conn, chapter_id):
+    """Return the chapter row of chapter_id, asserting it exists."""
     row = conn.execute("SELECT * FROM chapter WHERE id = %s", (chapter_id,)).fetchone()
     assert row is not None, f"chapter {chapter_id} exists"
     return row
 
 
 def download(cfg, series, name, data=b"fake cbz"):
-    """A fake CBZ where Suwayomi writes downloads: <downloads>/mangas/Src (EN)/<series>/<name>.cbz (no Suwayomi
-    chapter behind it; tests/world.py builds complete downloads).
+    """Write a fake CBZ where Suwayomi writes downloads: <downloads>/mangas/Src (EN)/<series>/<name>.cbz.
+
+    No Suwayomi chapter is behind it; tests/world.py builds complete downloads.
     """
     path = config.abs_path(cfg["paths"]["downloads"]) / "mangas" / "Src (EN)" / series / f"{name}.cbz"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -153,7 +159,10 @@ def run_part(cfg, part_module):
 
 
 def claimed(conn, ctx, chapter_id):
-    """The chapter claimed by ctx's run as workflow.claim claims it (owner, next count), for a test calling a stage."""
+    """Claim the chapter for ctx's run as workflow.claim claims it (owner, next count); return its row.
+
+    For a test calling a stage.
+    """
     with db.transaction(conn):
         row = conn.execute(
             """UPDATE chapter SET status = 'claimed', claimed_by = %s, claim_count = claim_count + 1
@@ -166,8 +175,9 @@ def claimed(conn, ctx, chapter_id):
 
 @contextmanager
 def running(cfg, *names):
-    """Another run holding these run locks (part names stand for workflow.owner of them) and the shared idle lock on
-    its own connection: a part running, on this machine or another.
+    """Provide another run holding these run locks and the shared idle lock on its own connection.
+
+    Part names stand for workflow.owner of them. It is a part running, on this machine or another.
     """
     with closing(db.connect(cfg)) as conn, lock.held(conn, cfg, [workflow.owner(n) for n in names], lock.SHARED):
         yield conn

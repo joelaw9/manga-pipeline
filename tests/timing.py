@@ -46,11 +46,12 @@ def budget(seconds=None, load="pure"):
 
 
 def budget_for(func, cls=None):
-    """The budget of a test: its own tag, else its class's tag, else None."""
+    """Return the budget of a test: its own tag, else its class's tag, else None."""
     return getattr(func, ATTR, None) or (getattr(cls, ATTR, None) if cls is not None else None)
 
 
 def row(test_id, seconds, tag):
+    """Return a test's timing row: its id, seconds, budget tag's load and seconds, and whether it ran over."""
     return {
         "id": test_id,
         "seconds": round(seconds, 4),
@@ -61,8 +62,9 @@ def row(test_id, seconds, tag):
 
 
 def report(rows, out, path, *, check_budgets=True):
-    """Print the slowest tests, over-budget tests and untagged tests; write all rows to path as JSON. Budgets are set
-    for a serial run: with check_budgets False (a parallel run) the over-budget list is not printed.
+    """Print the slowest tests, over-budget tests and untagged tests; write all rows to path as JSON.
+
+    Budgets are set for a serial run: with check_budgets False (a parallel run) the over-budget list is not printed.
     """
     rows = sorted(rows, key=lambda r: r["seconds"], reverse=True)
     total = sum(r["seconds"] for r in rows)
@@ -101,6 +103,7 @@ class TimedResult(unittest.TextTestResult):
     """Collects one row per test; elapsed covers setUp, the test, tearDown and cleanups (not setUpClass)."""
 
     def __init__(self, *args, **kwargs):
+        """Build the TextTestResult with no timing rows yet."""
         super().__init__(*args, **kwargs)
         self.timing_rows = []
 
@@ -120,6 +123,7 @@ class TimedRunner(unittest.TextTestRunner):
 
 
 def main(argv=None):
+    """Run unittest with TimedRunner and report its timings (rows written to --timings); return the exit code."""
     argv = sys.argv[1:] if argv is None else argv
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--timings", default="test-timings.json")

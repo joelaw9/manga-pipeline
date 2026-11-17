@@ -1,5 +1,7 @@
-"""The junk decision store (SPEC "Junk decisions", decisions): lookup of the decisions that apply to a series, the
-near rule, and the 1 upsert every writer uses (import, the baseline's record rows, `junk decide`).
+"""The junk decision store (SPEC "Junk decisions", decisions): lookup, the near rule and the 1 upsert.
+
+Lookup of the decisions that apply to a series, the near rule, and the 1 upsert every writer uses (import, the
+baseline's record rows, `junk decide`).
 
 A series key is the series' rules key (series.rules_key: the name of the first folder it had); GLOBAL ('') marks a
 decision of every series. A key is a unit's signature text (images.sig_to_str), for a frame frames.key_text, for a logo
@@ -31,7 +33,7 @@ DECIDERS = ("import", "claude", "human")
 
 
 def series_key(series):
-    """The series key of a series row: its rules key, which a later folder does not change."""
+    """Return the series key of a series row: its rules key, which a later folder does not change."""
     if not series["rules_key"]:
         msg = f"series {series['id']} has no folder yet: it has no series key"
         raise ValueError(msg)
@@ -44,6 +46,7 @@ def unsignable(kind, text):
 
 
 def parse_key(kind, text):
+    """Return a decision key's text parsed for kind: a frame, a logo template, else a signature."""
     if kind == "frame":
         return frames.from_key(text)
     if kind == "logo":
@@ -61,11 +64,12 @@ def matches(kind, stored, unit):
 
 
 def in_lookup_order(rows):
-    """Decision rows in lookup order: decisions the pipeline made (claude, human) first, so one wins for every
-    signature it covers, their keeps before their junk; then the imported ones in the bulk converter's order: the
-    series' keeps, its junk, global keeps, global junk; newest first within each. Keeps go first because matching is
-    not transitive: a unit within reach of a kept and a junk key stays kept, whichever is newer (the bulk converter's
-    rule). Equal rows keep their given order.
+    """Return decision rows in lookup order.
+
+    Decisions the pipeline made (claude, human) first, so one wins for every signature it covers, their keeps before
+    their junk; then the imported ones in the bulk converter's order: the series' keeps, its junk, global keeps, global
+    junk; newest first within each. Keeps go first because matching is not transitive: a unit within reach of a kept and
+    a junk key stays kept, whichever is newer (the bulk converter's rule). Equal rows keep their given order.
     """
     newest = sorted(rows, key=lambda r: r["decided_at"], reverse=True)
     return sorted(
@@ -79,7 +83,7 @@ def in_lookup_order(rows):
 
 
 def by_series(conn):
-    """series key -> its Decisions, each built once (for loops over many candidates)."""
+    """Return a lookup of series key -> its Decisions, each built once (for loops over many candidates)."""
     cache = {}
 
     def get(key):
@@ -94,6 +98,7 @@ class Decisions:
     """The decisions that apply to 1 series (its own and the global ones), in lookup order (in_lookup_order)."""
 
     def __init__(self, conn, key):
+        """Read the decisions of series key `key` and the global ones, each key parsed, in lookup order."""
         rows = in_lookup_order(
             conn.execute(
                 "SELECT * FROM junk_decision WHERE series_key IN (%s, %s) ORDER BY id DESC", (key, GLOBAL)
@@ -103,7 +108,7 @@ class Decisions:
         self._rows = [(row, parse_key(row["kind"], row["key"])) for row in rows]
 
     def decide(self, kind, key):
-        """The deciding row for a unit of `kind` with parsed key `key`, or None (undecided)."""
+        """Return the deciding row for a unit of `kind` with parsed key `key`, or None (undecided)."""
         if kind in SIGNATURE_KINDS and images.unsignable(key):
             return None
         kinds = DECIDING[kind]
@@ -114,11 +119,12 @@ class Decisions:
 
 
 def near(conn, series_key_, sig, threshold=images.NEAR_THRESHOLD, aspect_tol=images.NEAR_ASPECT_TOLERANCE):
-    """(row, distance, aspect difference) of the approved decision of NEAR_KINDS (any series, or global) nearest to
-    signature `sig`: same tile count, every tile within `threshold`, aspect difference within `aspect_tol`; smallest
-    distance, then aspect difference, then the oldest. None when none is that near, or when such a decision that
-    applies to the series (its own or global) matches `sig` at the live rule (it decides; near is for the undecided),
-    or when `sig` is unsignable.
+    """Return (row, distance, aspect difference) of the approved decision nearest to signature `sig`, or None.
+
+    The approved decision of NEAR_KINDS (any series, or global) nearest to signature `sig`: same tile count, every tile
+    within `threshold`, aspect difference within `aspect_tol`; smallest distance, then aspect difference, then the
+    oldest. None when none is that near, or when such a decision that applies to the series (its own or global) matches
+    `sig` at the live rule (it decides; near is for the undecided), or when `sig` is unsignable.
     """
     tiles, aspect = sig
     if images.unsignable(sig):
@@ -145,10 +151,11 @@ def near(conn, series_key_, sig, threshold=images.NEAR_THRESHOLD, aspect_tol=ima
 
 
 def upsert(conn, rows):
-    """Write decisions (dicts: series_key, kind, key, verdict, decider, decided_at, source) inside the caller's
-    transaction. A new key is inserted. An existing row is replaced only when its decider is 'import' and the new one
-    is a pipeline decision or at least as new; a pipeline-made row ('claude', 'human') is never touched. ValueError for
-    a row that is no junk decision, or on an unsignable key. Returns {"inserted", "updated", "unchanged"} counts.
+    """Write decisions (dicts: series_key, kind, key, verdict, decider, decided_at, source) in the caller's transaction.
+
+    A new key is inserted. An existing row is replaced only when its decider is 'import' and the new one is a pipeline
+    decision or at least as new; a pipeline-made row ('claude', 'human') is never touched. ValueError for a row that is
+    no junk decision, or on an unsignable key. Returns {"inserted", "updated", "unchanged"} counts.
     """
     if not db.in_transaction(conn):
         msg = "upsert runs inside the caller's transaction"

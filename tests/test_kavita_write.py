@@ -1,6 +1,7 @@
-"""Series fields to Kavita (SPEC "Metadata"; decisions D7.10, D7.11, D7.22): written locked by export from stored
-records, only what differs, never over a person's locked edit; a tag-rule change reaches Kavita with no source
-request.
+"""Series fields to Kavita (SPEC "Metadata"; decisions D7.10, D7.11, D7.22).
+
+Written locked by export from stored records, only what differs, never over a person's locked edit; a tag-rule change
+reaches Kavita with no source request.
 """
 
 import io
@@ -27,7 +28,7 @@ def execute(world, sql, *params):
 
 
 def checked(world, **mb):
-    """A Kavita series checked by intake, its MangaBaka record found by search with the given fields."""
+    """Add a Kavita series checked by intake, its MangaBaka record found by search with the given fields."""
     kavita_id = world.kavita_series("Solo Leveling")
     record = {"id": 50, "title": "Solo Leveling", "status": "completed", "content_rating": "suggestive"}
     record |= {"genres": ["action", "fantasy"], "tags_v2": [], "description": "Hunters <b>rise</b>."} | mb

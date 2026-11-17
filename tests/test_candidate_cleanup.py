@@ -1,5 +1,7 @@
-"""junk review's clean-up of junk candidates (SPEC "Junk decisions"): closed for an hour, then deleted with their
-folders; a folder no row names stays a day; a candidate a running review listed is left alone.
+"""junk review's clean-up of junk candidates (SPEC "Junk decisions").
+
+Closed for an hour, then deleted with their folders; a folder no row names stays a day; a candidate a running review
+listed is left alone.
 """
 
 import os
@@ -25,7 +27,7 @@ def site(tmp_path):
 
 
 def candidate(conn, cfg, folder, key="123456789abcdef0|0.7", closed_at=None):
-    """A candidate row and its folder (with an image)."""
+    """Add a candidate row and its folder (with an image)."""
     (config.abs_path(cfg["paths"]["candidates"]) / folder).mkdir(parents=True)
     (config.abs_path(cfg["paths"]["candidates"]) / folder / "unit.png").write_bytes(b"png")
     with db.transaction(conn):
@@ -38,7 +40,7 @@ def candidate(conn, cfg, folder, key="123456789abcdef0|0.7", closed_at=None):
 
 
 def wait_on(conn, chapter_id, cid):
-    """The junk chapter chapter_id waits on candidate cid (which is then open)."""
+    """Make the junk chapter chapter_id wait on candidate cid (which is then open)."""
     with db.transaction(conn):
         conn.execute("UPDATE chapter SET status = 'waiting', waiting_on = 'junk_decision' WHERE id = %s", (chapter_id,))
         conn.execute(

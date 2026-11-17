@@ -1,6 +1,7 @@
-"""The chapter plan and its execution (convert.plan, convert.image; SPEC "Conversion"): routes, chroma, feeds, gates,
-retries, the lossless path, drops, rendered pages, and the record. Tools and scorer are the fakes
-(tests/fakes/convert.py): avifenc writes a real AVIF with Pillow, jpegtran and oxipng copy.
+"""The chapter plan and its execution (convert.plan, convert.image; SPEC "Conversion").
+
+Routes, chroma, feeds, gates, retries, the lossless path, drops, rendered pages, and the record. Tools and scorer are
+the fakes (tests/fakes/convert.py): avifenc writes a real AVIF with Pillow, jpegtran and oxipng copy.
 """
 
 import io
@@ -28,7 +29,7 @@ def calls(tool):
 
 
 def score_by_q(scores):
-    """A fake score from the encode quality in the decode's name (<stem>.q<Q>.png): scores[q], else 90."""
+    """Return a fake score from the encode quality in the decode's name (<stem>.q<Q>.png): scores[q], else 90."""
 
     def f(_ref, dec):
         return scores.get(int(present(re.search(r"\.q(\d+)\.png$", dec.name)).group(1)), 90.0)
@@ -462,7 +463,7 @@ BLANK = {**NO_EDIT, "blank": [{"page": 0, "box": BOX, "fill": FILL}]}
 
 
 def filled(path, box=BOX, fill=FILL):
-    """Is box of the PNG at path exactly fill?"""
+    """Return whether box of the PNG at path is exactly fill."""
     with Image.open(path) as im:
         a = np.asarray(im.convert("RGB"))
     x0, y0, x1, y1 = box
@@ -606,7 +607,10 @@ def _gray16():
 
 
 def _transparent(im):
-    """im with rows 0-31 fully transparent over black and rows 32-47 half transparent (the matrix's with_alpha)."""
+    """Return im with rows 0-31 fully transparent over black and rows 32-47 half transparent.
+
+    As the matrix's with_alpha.
+    """
     a = np.full(im.size[::-1], 255, np.uint8)
     rgb = np.asarray(im).copy()
     a[:32], a[32:48] = 0, 128

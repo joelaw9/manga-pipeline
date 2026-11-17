@@ -1,6 +1,8 @@
-"""The fleet's version (SPEC "State", "Config", "Preflight"): every machine that works runs the same program with the
-same shared settings, Python packages and image tools. `state version --yes` stores this machine's digest of the 4
-as the fleet's; a part or junk review whose digest differs, or that finds none stored, does not run.
+"""The fleet's version (SPEC "State", "Config", "Preflight").
+
+Every machine that works runs the same program with the same shared settings, Python packages and image tools. `state
+version --yes` stores this machine's digest of the 4 as the fleet's; a part or junk review whose digest differs, or
+that finds none stored, does not run.
 
 Shared settings are every config key but the machine-local ones (MACHINE_LOCAL_*) and the secrets. Packages are the
 runtime dependency group of pyproject.toml at their installed versions (onnxruntime is per machine: SPEC "Config",
@@ -72,7 +74,7 @@ def _parts(cfg):
 
 
 def shared_settings(cfg):
-    """The config's shared keys and values: {section: {key: value}}."""
+    """Return the config's shared keys and values: {section: {key: value}}."""
     left_out = set(MACHINE_LOCAL_KEYS) | set(config.secret_keys())
     out = {}
     for section, values in cfg.items():
@@ -101,14 +103,16 @@ def _packages():
 
 
 def package_name(spec):
-    """The distribution name at the start of a requirement ("psycopg[binary]==3.3.9" -> "psycopg")."""
+    """Return the distribution name at the start of a requirement ("psycopg[binary]==3.3.9" -> "psycopg")."""
     end = next((i for i, ch in enumerate(spec) if not (ch.isalnum() or ch in "._-")), len(spec))
     return spec[:end]
 
 
 def _tools(cfg):
-    """{tool: its version}: the first line each executable prints (jpegtran's build date left out) and the scorer
-    library's major.minor.patch and backend.
+    """Return {tool: its version}.
+
+    The first line each executable prints (jpegtran's build date left out) and the scorer library's major.minor.patch
+    and backend.
     """
     out = {}
     for name, flag in (

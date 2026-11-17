@@ -1,5 +1,7 @@
-"""config.load merges the config file, env and --set (in rising priority) and refuses a result whose keys or value
-types differ from the example (SPEC "Config"); tests never read the live config.yaml (SPEC "Tests").
+"""config.load merges the config file, env and --set (in rising priority) and checks the result.
+
+It refuses a result whose keys or value types differ from the example (SPEC "Config"); tests never read the live
+config.yaml (SPEC "Tests").
 """
 
 import pytest

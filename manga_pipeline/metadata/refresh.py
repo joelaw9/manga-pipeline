@@ -1,5 +1,7 @@
-"""A completed series' chapter list refresh (SPEC "Suwayomi"): Suwayomi's updater skips completed series, so a due
-check asks Suwayomi to fetch the list again, and queues only the chapters that refresh added and the series lacks.
+"""A completed series' chapter list refresh (SPEC "Suwayomi").
+
+Suwayomi's updater skips completed series, so a due check asks Suwayomi to fetch the list again, and queues only the
+chapters that refresh added and the series lacks.
 """
 
 import logging
@@ -12,6 +14,11 @@ COMPLETED = "COMPLETED"
 
 
 def completed(ctx: workflow.Context, series_id, manga_rows):
+    """Refresh the chapter list of each completed Suwayomi manga of the series, and queue the chapters it added.
+
+    Only a chapter the refresh added whose key the series does not hold is queued (1 per key), and the downloader
+    started; a manga whose source is unavailable is logged and skipped.
+    """
     held = _held_keys(ctx.conn, series_id)
     for manga in manga_rows:
         if manga["status"] != COMPLETED:
@@ -44,7 +51,7 @@ def key(chapter):
 
 
 def _held_keys(conn, series_id):
-    """The chapter keys of the series' published files, unfinished chapters and handled chapters."""
+    """Return the chapter keys of the series' published files, unfinished chapters and handled chapters."""
     rows = conn.execute(
         """SELECT identity FROM published_file WHERE series_id = %(id)s
         UNION ALL SELECT identity FROM chapter WHERE series_id = %(id)s AND identity IS NOT NULL

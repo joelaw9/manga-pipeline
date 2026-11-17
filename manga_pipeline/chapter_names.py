@@ -1,5 +1,7 @@
-"""The names of a series' open chapters (SPEC "Publishing"): loads the series' published files and open chapters as
-the resolver's rows (metadata/naming.py), with its override file and stored MangaDex aggregate, and resolves them.
+"""The names of a series' open chapters (SPEC "Publishing").
+
+Loads the series' published files and open chapters as the resolver's rows (metadata/naming.py), with its override file
+and stored MangaDex aggregate, and resolves them.
 Every caller that needs a new chapter's volume goes through here: comicinfo, the library-copy check, validate's
 mislabel check and the volume-cover supply (D7.21).
 """
@@ -15,10 +17,11 @@ OPEN = ("ready", "claimed", "waiting")  # an unnamed needs_human chapter may nev
 
 
 def resolve(ctx: workflow.Context, series, downloads=None, *, edited=True):
-    """{chapter id: naming.Naming} of the series' open download chapters, with the series' hand edits (edited=False:
-    as the sources alone name them). downloads: {chapter id: stored path} read instead of the chapter's own download
-    (validate's re-download candidate). VolumeError (volumes.OverrideError included) for a malformed override file, an
-    `override` basis without one, or a volume that is not whole.
+    """Return the names of the series' open download chapters, with the series' hand edits.
+
+    {chapter id: naming.Naming}; edited=False: as the sources alone name them. downloads: {chapter id: stored path} read
+    instead of the chapter's own download (validate's re-download candidate). VolumeError (volumes.OverrideError
+    included) for a malformed override file, an `override` basis without one, or a volume that is not whole.
     """
     rows, overrides, mangadex, platform = inputs(ctx, series, downloads)
     found = edits(ctx.conn, series["id"]) if edited else None
@@ -38,9 +41,10 @@ def edits(conn, series_id):
 
 
 def choose_basis(ctx: workflow.Context, series, downloads=None):
-    """Choose and store a new series' volume basis over its chapters known now (SPEC "Publishing"); kept when another
-    run stored one first. downloads: as resolve's. Returns the series' basis. VolumeError for a malformed override
-    file.
+    """Choose and store a new series' volume basis over its chapters known now (SPEC "Publishing").
+
+    Kept when another run stored one first. downloads: as resolve's. Returns the series' basis. VolumeError for a
+    malformed override file.
     """
     rows, overrides, mangadex, platform = inputs(ctx, series, downloads)
     basis = naming.choose(rows, overrides, mangadex, platform)
@@ -155,8 +159,9 @@ def _open(ctx: workflow.Context, series_id, downloads):
 
 
 def download_volume(cfg, download):
-    """The volume a download gives itself (its name's, else its ComicInfo Volume) when it is a main chapter, else
-    None (a side story's volume is assigned). A ComicInfo.xml that cannot be read gives none of its own.
+    """Return the volume a download gives itself (its name's, else its ComicInfo Volume) when it is a main chapter.
+
+    Else None (a side story's volume is assigned). A ComicInfo.xml that cannot be read gives none of its own.
     VolumeError for a volume that is not whole.
     """
     path = config.to_local(cfg, download)
@@ -174,10 +179,11 @@ def download_volume(cfg, download):
 
 
 def same_chapter(ours, theirs, theirs_source):
-    """Whether a published file of a download's key (season, side label, number) is the same chapter (SPEC "Library
-    copies", D7.21, user 2026-11-15): 2 volumes that both come from the files, the download's own (ours: a callable
-    giving it, read only when compared) and a published file's from its file name, must not differ; a volume a source
-    or rule assigned (MangaDex, an override, seasons) never splits a chapter, since a source may move a chapter
+    """Return whether a published file of a download's key (season, side label, number) is the same chapter.
+
+    SPEC "Library copies", D7.21, user 2026-11-15: 2 volumes that both come from the files, the download's own (ours: a
+    callable giving it, read only when compared) and a published file's from its file name, must not differ; a volume a
+    source or rule assigned (MangaDex, an override, seasons) never splits a chapter, since a source may move a chapter
     between volumes later.
     """
     theirs = names.to_volume(theirs)

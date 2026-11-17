@@ -23,6 +23,7 @@ class Site:
     """A World whose fakes every part run gets (from_config patched), with series made on first use."""
 
     def __init__(self, tmp_path, monkeypatch, **changes):
+        """Build the World (config `changes` applied) and patch the client and source builders to return its fakes."""
         self.world = World(tmp_path, **changes)
         self.cfg = self.world.cfg
         self.mangas = {}
@@ -31,7 +32,7 @@ class Site:
         monkeypatch.setattr(sources, "new_sources", lambda: self.world.sources)
 
     def download(self, series, number, data=None):
-        """A complete download "Chapter <number>" of series (a Kavita series with bulk Ch.1 and a record)."""
+        """Add a complete download "Chapter <number>" of series (a Kavita series with bulk Ch.1 and a record)."""
         if series not in self.mangas:
             self.world.kavita_series(series)
             self.mangas[series] = self.world.manga(series)
@@ -56,7 +57,7 @@ def rows(cfg, sql, *params):
 
 
 def published(cfg):
-    """The library's pipeline-published files (bulk Ch.1.cbz and records aside), as <series>/<name>."""
+    """Return the library's pipeline-published files (bulk Ch.1.cbz and records aside), as <series>/<name>."""
     library = config.abs_path(cfg["paths"]["library"])
     files = (p.relative_to(library).as_posix() for p in library.rglob("*.cbz") if p.name != "Ch.1.cbz")
     return sorted(files)
@@ -188,7 +189,7 @@ def test_unreachable_share_is_the_runs_result_with_exit_0(site, tmp_path, monkey
 
 
 def meta(cfg, part):
-    """The run records of the part on this machine (workflow.owner), named by part ("process.last_result")."""
+    """Return the run records of the part on this machine (workflow.owner), named by part ("process.last_result")."""
     owner = workflow.owner(part)
     return {
         k.replace(owner, part, 1): v
@@ -254,7 +255,7 @@ def test_an_export_stage_that_lost_its_claim_leaves_every_file_untouched(site):
         ctx = workflow.context(site.cfg, conn, "export")
 
         def lost(stage, run):
-            """The chapter's claim at stage, freed and taken by another run before the stage's act."""
+            """Lose the chapter's claim at stage: freed and taken by another run before the stage's act."""
             row = workflow.claim(ctx, (stage,))
             assert row is not None, f"the chapter is ready at {stage}"
             with db.transaction(conn):

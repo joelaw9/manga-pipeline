@@ -14,8 +14,10 @@ HELD, STALE = "volume:", "stale:"  # cover_state prefixes: the volume's current 
 
 
 def changes(basis, rows, overrides, mangadex, platform=None):
-    """{published file id: (volume, volume source)} for every published main row whose volume should change. rows: the
-    resolver's rows of the series (published rows keyed ("published", id)). VolumeError as naming.resolve raises it.
+    """Return {published file id: (volume, volume source)} for every published main row whose volume should change.
+
+    rows: the resolver's rows of the series (published rows keyed ("published", id)). VolumeError as naming.resolve
+    raises it.
     """
     override = (overrides or {}).get("volumes") or {}
     published = [i for i, r in enumerate(rows) if _published(r) and r.kind == names.MAIN]
@@ -33,11 +35,12 @@ def changes(basis, rows, overrides, mangadex, platform=None):
 
 
 def edit_changes(rows, edits, unedited):
-    """{published file id: (volume, volume source, title, unedited)} of the published files (main and side) whose
-    title or volume a hand edit, or a hand edit's removal, changes (SPEC "Retroactive updates", hand edits). edits:
-    {naming.edit_key: naming.Edit}; unedited: {file id: the values its sources gave its edited fields}. An edited field
-    takes the edit; a field whose edit is gone takes its unedited value back; the result's unedited is what the file
-    keeps afterwards (None: nothing edited).
+    """Return {published file id: (volume, volume source, title, unedited)} of the files a hand edit changes.
+
+    The published files (main and side) whose title or volume a hand edit, or a hand edit's removal, changes (SPEC
+    "Retroactive updates", hand edits). edits: {naming.edit_key: naming.Edit}; unedited: {file id: the values its
+    sources gave its edited fields}. An edited field takes the edit; a field whose edit is gone takes its unedited value
+    back; the result's unedited is what the file keeps afterwards (None: nothing edited).
     """
     out = {}
     for r in rows:
@@ -54,9 +57,10 @@ def edit_changes(rows, edits, unedited):
 
 
 def _edited_volume(row, edit, was):
-    """(volume, volume source) a published row takes from its volume's edit (edit: the edited volume, None when not
-    edited): the edit, its sources' volume back when the edit gives that or is gone, else its own. was (the file's
-    unedited values) keeps what the edit replaced and loses what it gives back.
+    """Return (volume, volume source) a published row takes from its volume's edit.
+
+    edit: the edited volume, None when not edited. The edit, its sources' volume back when the edit gives that or is
+    gone, else its own. was (the file's unedited values) keeps what the edit replaced and loses what it gives back.
     """
     if edit is not None and "volume" in was and edit == names.to_volume(was["volume"]):
         return names.to_volume(was.pop("volume")), was.pop("volume_source")  # edited back: the sources'
@@ -72,9 +76,10 @@ def _edited_volume(row, edit, was):
 
 
 def _edited_title(row, edit, was):
-    """The title a published row takes from its title's edit (edit: the edited title, None when not edited): the edit,
-    its sources' title back when the edit is gone, else its own. was (the file's unedited values) keeps what the edit
-    replaced and loses what it gives back.
+    """Return the title a published row takes from its title's edit.
+
+    edit: the edited title, None when not edited. The edit, its sources' title back when the edit is gone, else its own.
+    was (the file's unedited values) keeps what the edit replaced and loses what it gives back.
     """
     if edit is not None:
         want = naming.edited_title(row.kind, row.number, edit)
@@ -87,8 +92,9 @@ def _edited_title(row, edit, was):
 
 
 def held(rows, edits, unedited):
-    """The published file ids whose volume a hand edit holds (edited, or to be restored): 7e's own volume rules leave
-    them alone.
+    """Return the published file ids whose volume a hand edit holds (edited, or to be restored).
+
+    7e's own volume rules leave them alone.
     """
     return {
         r.key[1]
@@ -102,10 +108,11 @@ def held(rows, edits, unedited):
 
 
 def differences(basis, rows, overrides, mangadex, platform=None):
-    """{published file id: (stored volume, the volume the sources give now)} of the published main rows holding a
-    volume from a source that can be read again (MangaDex, a platform list) that the sources would move or drop, which
-    7e never applies (SPEC "Retroactive updates"). A volume from the files themselves cannot be read again: the record
-    keeps no download.
+    """Return {published file id: (stored volume, the volume the sources give now)} the sources would move.
+
+    The published main rows holding a volume from a source that can be read again (MangaDex, a platform list) that the
+    sources would move or drop, which 7e never applies (SPEC "Retroactive updates"). A volume from the files themselves
+    cannot be read again: the record keeps no download.
     """
     override = (overrides or {}).get("volumes") or {}
     published = [i for i, r in enumerate(rows) if _published(r) and r.kind == names.MAIN]
@@ -124,8 +131,9 @@ def differences(basis, rows, overrides, mangadex, platform=None):
 
 
 def moved_rows(rows, moved):
-    """rows with each published file in moved (changes' result: {file id: (volume, volume source)}) at its new
-    volume.
+    """Return the rows with each published file in moved at its new volume.
+
+    moved: changes' result, {file id: (volume, volume source)}.
     """
     return [
         dataclasses.replace(r, volume=moved[r.key[1]][0], volume_source=moved[r.key[1]][1])
@@ -136,14 +144,15 @@ def moved_rows(rows, moved):
 
 
 def cover_changes(rows, covered, *, states, taken, images):
-    """{published file id: ("insert", volume) | ("drop", None)} of the published main files whose volume cover should
-    change (SPEC "Retroactive updates"). rows: the resolver's rows as the volume changes leave them (moved_rows);
-    covered: their covered volumes (naming.covered_volumes); states: {file id: cover_state} (every one known); taken:
-    the volumes whose cover an open chapter took; images: {volume: sha256} of the series' stored cover images. A
-    covered volume whose files hold none of its cover gets it in its lowest-numbered published file; a file holding
-    another volume's cover drops it, unless it is that file; every other file keeps what it holds. A file holding an
-    old image of a volume (stale: MangaDex had a new one) takes the new image when the volume is its own, else drops
-    it. An insert recorded unfit for the volume's current image is not made again.
+    """Return {published file id: ("insert", volume) | ("drop", None)} of the files whose volume cover should change.
+
+    The published main files whose volume cover should change (SPEC "Retroactive updates"). rows: the resolver's rows as
+    the volume changes leave them (moved_rows); covered: their covered volumes (naming.covered_volumes); states: {file
+    id: cover_state} (every one known); taken: the volumes whose cover an open chapter took; images: {volume: sha256} of
+    the series' stored cover images. A covered volume whose files hold none of its cover gets it in its lowest-numbered
+    published file; a file holding another volume's cover drops it, unless it is that file; every other file keeps what
+    it holds. A file holding an old image of a volume (stale: MangaDex had a new one) takes the new image when the
+    volume is its own, else drops it. An insert recorded unfit for the volume's current image is not made again.
     """
     published = sorted(
         (i for i, r in enumerate(rows) if _published(r) and r.kind == names.MAIN),
@@ -160,9 +169,10 @@ def cover_changes(rows, covered, *, states, taken, images):
 
 
 def _cover_homes(volume, covered, taken, states):
-    """{file id: volume text} of the files that should get a covered volume's cover: the volume's first file (volume:
-    {file id: volume text} in number order), unless an open chapter took the volume's cover or one of its files holds
-    it already (its current image or an old one).
+    """Return {file id: volume text} of the files that should get a covered volume's cover.
+
+    The volume's first file (volume: {file id: volume text} in number order), unless an open chapter took the volume's
+    cover or one of its files holds it already (its current image or an old one).
     """
     homes = {}
     for v in map(_fmt, covered):
@@ -175,7 +185,8 @@ def _cover_homes(volume, covered, taken, states):
 
 
 def _cover_act(state, volume, home, images):
-    """("insert", volume) | ("drop", None) | None of 1 published file in volume (text) whose cover state is state.
+    """Return ("insert", volume) | ("drop", None) | None of 1 published file in volume (text) with cover state state.
+
     home: the covered volume whose cover it should get (_cover_homes), else None.
     """
     held, stale = _cover_of(state, HELD), _cover_of(state, STALE)
@@ -190,8 +201,9 @@ def _cover_act(state, volume, home, images):
 
 
 def _cover_of(state, prefix):
-    """The volume text of a cover state with prefix (HELD: the volume's current image, STALE: an old one), else
-    None.
+    """Return the volume text of a cover state with prefix, else None.
+
+    prefix: HELD, the volume's current image; STALE, an old one.
     """
     return state.removeprefix(prefix) if state.startswith(prefix) else None
 
@@ -201,8 +213,10 @@ def _fmt(volume):
 
 
 def _reopened(basis, rows, overrides, mangadex, platform, *, ids):  # noqa: PLR0913  # the resolver's inputs: 1 place resolves the reopened rows for changes and differences
-    """{key: naming.Naming} of the rows with ids as the resolver names them reopened (no volume), beside the others as
-    they are: changes and differences read them the same way. Its inputs are the resolver's own (naming.resolve).
+    """Return {key: naming.Naming} of the rows with ids as the resolver names them reopened (no volume).
+
+    Beside the others as they are: changes and differences read them the same way. Its inputs are the resolver's own
+    (naming.resolve).
     """
     if not ids:
         return {}

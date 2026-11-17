@@ -1,7 +1,9 @@
-"""`junk import` (SPEC "Junk decisions", import): decisions from the bulk converter's junk.sqlite3 (read_store) or
-from another pipeline database on the same server (read_database), and from a bulk-converter series record's decision
-rows. A source is never written: the store is opened read-only (its WAL included) and copied into memory before it is
-read; the other database is opened through db.read_only.
+"""`junk import` (SPEC "Junk decisions", import): junk decisions imported from a bulk-converter or pipeline source.
+
+Decisions from the bulk converter's junk.sqlite3 (read_store) or from another pipeline database on the same server
+(read_database), and from a bulk-converter series record's decision rows. A source is never written: the store is opened
+read-only (its WAL included) and copied into memory before it is read; the other database is opened through
+db.read_only.
 
 An import rebuilds the imported rows: in 1 transaction every decision whose decider is 'import' (and, from a
 bulk-converter store, every imported sighting) is deleted and the source's rows are loaded fresh, so a decision the
@@ -31,7 +33,7 @@ class SourceError(ValueError):
 
 
 def snapshot(path):
-    """An in-memory copy of the SQLite database at `path`, read through a read-only connection."""
+    """Return an in-memory copy of the SQLite database at `path`, read through a read-only connection."""
     path = Path(path).resolve()
     if not path.is_file():
         msg = f"no database at {path}"
@@ -49,13 +51,14 @@ def snapshot(path):
 
 
 def bulk_time(added):
-    """The bulk converter's `added` (SQLite CURRENT_TIMESTAMP, UTC) as our time text (workflow.now's format)."""
+    """Return the bulk converter's `added` (SQLite CURRENT_TIMESTAMP, UTC) as our time text (workflow.now's format)."""
     return added.replace(" ", "T") + "+00:00"
 
 
 def winners(rows):
-    """Of several source rows on 1 (series key, kind, key), the one the bulk converter obeyed: a keep before a junk,
-    then the newest. rows: dicts as upsert takes; returns them in input order, 1 per key.
+    """Pick, of several source rows on 1 (series key, kind, key), the one the bulk converter obeyed.
+
+    A keep before a junk, then the newest. rows: dicts as upsert takes; returns them in input order, 1 per key.
     """
     best = {}
     for r in rows:
@@ -67,15 +70,16 @@ def winners(rows):
 
 
 def signable(rows):
-    """(the rows a decision may be written from, how many were left out: on an unsignable key)."""
+    """Return (the rows a decision may be written from, how many were left out: on an unsignable key)."""
     kept = [r for r in rows if not store.unsignable(r["kind"], r["key"])]
     return kept, len(rows) - len(kept)
 
 
 def bulk_rows(src, name):
-    """(rows to upsert, counts of what is not imported) of a bulk-converter store. A block or probe approve with a
-    chain comes over as a plain decision on its signature (the old tool removed the unit by it before trying the
-    chain); only the chain is left out (counted).
+    """Return (rows to upsert, counts of what is not imported) of a bulk-converter store.
+
+    A block or probe approve with a chain comes over as a plain decision on its signature (the old tool removed the unit
+    by it before trying the chain); only the chain is left out (counted).
     """
     rows = []
     junk = src.execute(
@@ -108,8 +112,9 @@ def bulk_rows(src, name):
 
 
 def logo_key(png, size, source):
-    """A logo decision's key from a bulk-converter template PNG (marks.Template.key_text); SourceError when it is no
-    template or its size is not the recorded (w, h).
+    """Return a logo decision's key from a bulk-converter template PNG (marks.Template.key_text).
+
+    SourceError when it is no template or its size is not the recorded (w, h).
     """
     try:
         template = marks.Template.from_png(png)
@@ -138,10 +143,11 @@ def _row(series, kind, key, r, source):
 
 
 def record_rows(record):
-    """Rows to upsert from a bulk-converter series record: schema 4 carries the decision rows its runs used
-    (series.decisions.rows; a marks row names its template in series.decisions.templates); a schema-3 record carries
-    none it can give (its decisions are in the store). Cut rows are left out and chains dropped, as in the store
-    import. RecordError on a malformed row.
+    """Return the rows to upsert from a bulk-converter series record.
+
+    Schema 4 carries the decision rows its runs used (series.decisions.rows; a marks row names its template in
+    series.decisions.templates); a schema-3 record carries none it can give (its decisions are in the store). Cut rows
+    are left out and chains dropped, as in the store import. RecordError on a malformed row.
     """
     if record["schema"] != record_reader.SCHEMA:
         return []
@@ -175,8 +181,9 @@ def record_rows(record):
 
 
 def read_database(cfg, name):
-    """(rows, skipped, seen) of another pipeline database on the server: its decisions with their deciders, times and
-    sources; its sightings are not read (seen None).
+    """Return (rows, skipped, seen) of another pipeline database on the server.
+
+    Its decisions with their deciders, times and sources; its sightings are not read (seen None).
     """
     if name == cfg["database"]["name"]:
         msg = f"{name} is this pipeline's own database"
@@ -197,9 +204,10 @@ IMPORTED_SEEN_AT = "1970-01-01T00:00:00+00:00"  # the bulk converter saw them be
 
 
 def bulk_seen(src):
-    """junk_seen rows of a bulk-converter store's sightings of edge blocks, pages and bands: (series key, kind, key,
-    chapter identity, IMPORTED_SEEN_AT, 'import'). The chapter is the identity of its archive name, as the baseline
-    names sources.
+    """Return the junk_seen rows of a bulk-converter store's sightings of edge blocks, pages and bands.
+
+    Each is (series key, kind, key, chapter identity, IMPORTED_SEEN_AT, 'import'). The chapter is the identity of its
+    archive name, as the baseline names sources.
     """
     rows = src.execute(  # an SQLite query: the kinds as 1 JSON array parameter
         """SELECT DISTINCT series, chapter, kind, tiles, aspect FROM junk_seen
@@ -217,6 +225,7 @@ def bulk_seen(src):
 
 
 def tables(src):
+    """Return the names of the tables of SQLite connection src."""
     return {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
@@ -225,8 +234,9 @@ PLACES = sql.SQL(", ").join([sql.Placeholder()] * len(DECISION_COLUMNS))
 
 
 def read_store(path):
-    """(rows, skipped, seen) of the bulk converter's junk store at `path`: its decisions, the rows not imported by
-    what, and its sightings.
+    """Return (rows, skipped, seen) of the bulk converter's junk store at `path`.
+
+    Its decisions, the rows not imported by what, and its sightings.
     """
     path = Path(path).resolve()
     with closing(snapshot(path)) as src:
@@ -243,6 +253,7 @@ def read_store(path):
 
 def run(conn, source):
     """Rebuild the imported rows from source, (rows, skipped, seen) of read_store or read_database (module docstring).
+
     Returns {"added", "removed", "changed", "unchanged" (decisions, compared by key with the rows before),
     "pipeline_kept" (source rows left out because the pipeline decided their key), "seen" (imported sightings now),
     "skipped": {what: count, "unsignable": rows on an unsignable key}}.

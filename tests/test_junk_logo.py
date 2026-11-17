@@ -1,6 +1,7 @@
-"""Logo units (SPEC "Junk decisions": units, candidates, the chapter edit's blank): a page's logo measured at the
-scan, which logos survive the rest of the edit, variants decided by their representatives, the blanks, the review
-images (junk/logo_units.py).
+"""Logo units (SPEC "Junk decisions": units, candidates, the chapter edit's blank; junk/logo_units.py).
+
+A page's logo measured at the scan, which logos survive the rest of the edit, variants decided by their
+representatives, the blanks, the review images.
 """
 
 import io
@@ -25,7 +26,7 @@ def solid(grey, w=40):
 
 
 def logo(page, grey=200, ring_frac=1.0, tight=(100, 100, 140, 120), rows=None):
-    """A scan's logo dict with a solid template of `grey` (grays 40 apart are 1 variant, 80 apart are not)."""
+    """Return a scan's logo dict with a solid template of `grey` (grays 40 apart are 1 variant, 80 apart are not)."""
     x0, y0, x1, y1 = tight
     out = {
         "page": page,

@@ -1,5 +1,6 @@
-"""Kavita API client (SPEC "Services"): the token, the reads, the library scan request, path mapping and a series'
-folder.
+"""Kavita API client (SPEC "Services").
+
+The token, the reads, the library scan request, path mapping and a series' folder.
 
 Endpoints as verified against Kavita v0.9.1.4 by the bulk converter's client (optimizer/kavita.py), which this is
 ported from. 1 object per run: it keeps the token, the library folders and whether Kavita was found unreachable.
@@ -49,7 +50,10 @@ class FolderError(Exception):
 
 
 class Kavita:
+    """A run's Kavita client: it keeps the token, the library folders and whether Kavita was found unreachable."""
+
     def __init__(self, url, api_key, path_map, service=None):
+        """Store the server's URL, the API key and the path map (longest Kavita prefix first); nothing is asked yet."""
         self.base = url.rstrip("/")
         self._api_key = api_key
         # Longest Kavita prefix first, so the most specific entry wins.
@@ -65,8 +69,9 @@ class Kavita:
         return self._call("GET", "/api/Library/libraries").json()
 
     def series_in_library(self, library_id):
-        """POST /api/Series/all-v2, filtered to 1 library and sorted by name (pages of an unsorted list can repeat
-        or miss a series): every series DTO of it.
+        """Return every series DTO of 1 library (POST /api/Series/all-v2).
+
+        Filtered to the library and sorted by name (pages of an unsorted list can repeat or miss a series).
         """
         body = {
             "statements": [{"comparison": 0, "field": LIBRARY_FILTER_FIELD, "value": str(library_id)}],
@@ -83,8 +88,9 @@ class Kavita:
             page += 1
 
     def series(self, series_id):
-        """GET /api/Series/{id}: the series DTO, or None when Kavita no longer holds it (404, or an empty reply for a
-        series deleted since it was listed).
+        """GET /api/Series/{id}: the series DTO, or None when Kavita no longer holds it.
+
+        None for a 404, or an empty reply for a series deleted since it was listed.
         """
         try:
             reply = self._call("GET", f"/api/Series/{int(series_id)}")
@@ -103,17 +109,19 @@ class Kavita:
         self._call("POST", "/api/Series/metadata", {"seriesMetadata": metadata})
 
     def update_series(self, series, **changes):
-        """POST /api/Series/update: Kavita applies every field it is sent and resets those left out (an omitted
-        aniListId becomes 0, an omitted coverImageLocked unlocks the cover), so the series as just read is resent
-        whole with the changes.
+        """POST /api/Series/update: the series as just read, resent whole with the changes.
+
+        Kavita applies every field it is sent and resets those left out (an omitted aniListId becomes 0, an omitted
+        coverImageLocked unlocks the cover).
         """
         body = {name: series[name] for name in UPDATE_SERIES_FIELDS if name in series}
         body.update(changes, id=series["id"])
         self._call("POST", "/api/Series/update", body)
 
     def upload_cover(self, series_id, image):
-        """POST /api/Upload/series, then check Kavita serves it: Kavita has answered 200 while failing to write the
-        file. CoverError when it does not.
+        """POST /api/Upload/series, then check Kavita serves it.
+
+        Kavita has answered 200 while failing to write the file. CoverError when it does not.
         """
         self._call("POST", "/api/Upload/series", {"id": int(series_id), "url": base64.b64encode(image).decode()})
         if not self.has_uploaded_cover(series_id):
@@ -121,8 +129,9 @@ class Kavita:
             raise CoverError(msg)
 
     def has_uploaded_cover(self, series_id):
-        """Whether the series' cover is one uploaded through the API: Kavita names those series<id>.<ext> (a scan
-        names its own after a volume), and serves its image.
+        """Return whether the series' cover is one uploaded through the API.
+
+        Kavita names those series<id>.<ext> (a scan names its own after a volume), and serves its image.
         """
         series = self.series(series_id) or {}
         if not (series.get("coverImage") or "").startswith(f"series{int(series_id)}."):
@@ -139,9 +148,11 @@ class Kavita:
         return self._call("GET", f"/api/Series/volumes?seriesId={int(series_id)}").json()
 
     def series_files(self, series_id):
-        """Every file Kavita holds for the series: its local path, bytes, pages, file id, chapter id, volume id, the
-        chapter's pagesRead (of the API key's user) and its lastModifiedUtc (moved by every scan that re-reads the
-        file: local library kavita-scanning.md).
+        """Return every file Kavita holds for the series.
+
+        Each with its local path, bytes, pages, file id, chapter id, volume id, the chapter's pagesRead (of the API
+        key's user) and its lastModifiedUtc (moved by every scan that re-reads the file: local library
+        kavita-scanning.md).
         """
         return [
             {
@@ -160,8 +171,9 @@ class Kavita:
         ]
 
     def save_progress(self, series_id, volume_id, chapter_id, page):
-        """The API key's user has read `page` pages of the chapter (POST /api/reader/progress; Kavita caps it at the
-        chapter's page count).
+        """Record that the API key's user has read `page` pages of the chapter (POST /api/reader/progress).
+
+        Kavita caps it at the chapter's page count.
         """
         series = self.series(series_id)
         if series is None:
@@ -178,7 +190,7 @@ class Kavita:
         self._call("POST", "/api/reader/progress", json=body)
 
     def mark_read(self, series_id, chapter_ids):
-        """The API key's user has read the chapters whole (POST /api/reader/mark-multiple-read)."""
+        """Record that the API key's user has read the chapters whole (POST /api/reader/mark-multiple-read)."""
         body = {
             "seriesId": series_id,
             "volumeIds": [],
@@ -188,16 +200,18 @@ class Kavita:
         self._call("POST", "/api/reader/mark-multiple-read", json=body)
 
     def refresh_covers(self, library_id, series_id):
-        """Kavita regenerates the series' chapter and volume cover images (POST /api/Series/refresh-metadata, forced):
-        a library scan keeps a re-read chapter's old one. The series' locked cover stays.
+        """Have Kavita regenerate the series' chapter and volume cover images (POST /api/Series/refresh-metadata).
+
+        Forced: a library scan keeps a re-read chapter's old one. The series' locked cover stays.
         """
         body = {"libraryId": library_id, "seriesId": series_id, "forceUpdate": True}
         self._call("POST", "/api/Series/refresh-metadata", json=body)
 
     def series_folder(self, series_id):
-        """The single folder holding the series' files, as a local path. FolderError when its files lie in no folder,
-        in 2 or more, or directly in one of a library's own folders. Never Kavita's folderPath: for a series under a
-        shared top folder that is the top folder.
+        """Return the single folder holding the series' files, as a local path.
+
+        FolderError when its files lie in no folder, in 2 or more, or directly in one of a library's own folders. Never
+        Kavita's folderPath: for a series under a shared top folder that is the top folder.
         """
         folders = sorted(
             {
@@ -219,8 +233,10 @@ class Kavita:
         return self.local_path(folders[0])
 
     def local_path(self, kavita_path):
-        """A path as Kavita reports it, as a local path: the longest prefix of paths.kavita_path_map that ends on a
-        path boundary is replaced; case counts. ValueError for a path under no prefix.
+        """Return a path as Kavita reports it as a local path.
+
+        The longest prefix of paths.kavita_path_map that ends on a path boundary is replaced; case counts. ValueError
+        for a path under no prefix.
         """
         for prefix, local in self._path_map:
             if kavita_path == prefix or kavita_path.startswith(prefix + "/"):
@@ -231,10 +247,12 @@ class Kavita:
     # --- scans: requested, never awaited
 
     def scan_library(self, library_id):
-        """POST /api/Library/scan (not forced): Kavita's own library scan, which matches files to series by their
-        ComicInfo Series against each series' names and keeps their ids. The pipeline's only scan: a series scan
-        deletes a series whose files no longer parse back to it, and any scan requested while one runs does not work.
-        (POST /api/Library/scan-folder is never used: it rewrites a series' folderPath to the top folder.)
+        """POST /api/Library/scan (not forced): Kavita's own library scan.
+
+        It matches files to series by their ComicInfo Series against each series' names and keeps their ids. The
+        pipeline's only scan: a series scan deletes a series whose files no longer parse back to it, and any scan
+        requested while one runs does not work. (POST /api/Library/scan-folder is never used: it rewrites a series'
+        folderPath to the top folder.)
         """
         self._call("POST", f"/api/Library/scan?libraryId={int(library_id)}&force=false")
 
@@ -272,4 +290,5 @@ class Kavita:
 
 
 def from_config(cfg):
+    """Build the Kavita client from the kavita.url, kavita.api_key and paths.kavita_path_map settings."""
     return Kavita(cfg["kavita"]["url"], cfg["kavita"]["api_key"], cfg["paths"]["kavita_path_map"])

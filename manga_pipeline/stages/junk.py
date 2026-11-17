@@ -1,6 +1,7 @@
-"""Stage junk (SPEC "Chapter stages", "State", "Bad downloads", "Junk decisions"): first the put-aside check (the
-series' baseline, taken at validate, recorded what was handled), then the library-copy check (SPEC "Library
-copies"), then a numbered notice title's judgement (notices.py), then junk.
+"""Stage junk (SPEC "Chapter stages", "State", "Bad downloads", "Junk decisions"): checks, then scan or decide.
+
+First the put-aside check (the series' baseline, taken at validate, recorded what was handled), then the library-copy
+check (SPEC "Library copies"), then a numbered notice title's judgement (notices.py), then junk.
 
 A chapter with no current scan is scanned (pages extracted to its scratch folder, measured, its units keyed, OCR on
 the strip units no decision covers, every content page's logo measured) and stays ready (Ready), so every ready junk
@@ -40,6 +41,7 @@ WORDS = ("keywords", "weak", "paired", "suppress")
 
 
 def run(ctx: workflow.Context, chapter):
+    """Run the put-aside, library-copy and notice checks, then scan the chapter, or decide it from its current scan."""
     series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
     why = handled.put_aside(ctx, chapter, chapter["content_digest"])
     if why:
@@ -58,8 +60,9 @@ def run(ctx: workflow.Context, chapter):
 
 
 def current_scan(conn, chapter):
-    """The chapter's junk_scan row when it is current (same series, same content digest, holding logos: a scan made
-    before logo detection holds none), else None.
+    """Return the chapter's junk_scan row when it is current, else None.
+
+    Current: same series, same content digest, holding logos (a scan made before logo detection holds none).
     """
     current = workflow.SCANNED.format(c=sql.Identifier("c"))
     query = sql.SQL("SELECT s.* FROM chapter c JOIN junk_scan s ON s.chapter_id = c.id WHERE c.id = %s AND {}")
@@ -74,7 +77,7 @@ def _scratch(ctx: workflow.Context, chapter):
 
 
 def extract(ctx: workflow.Context, chapter, work):
-    """The download's pages written to `work` in archive order: (paths, names, sizes, measurements)."""
+    """Write the download's pages to `work` in archive order; return (paths, names, sizes, measurements)."""
     cbz = config.to_local(ctx.cfg, chapter["download_path"])
     measured = images.measure_pages(cbz, page_store.load(ctx.conn, chapter["id"]))
     if work.exists():
@@ -91,9 +94,11 @@ def extract(ctx: workflow.Context, chapter, work):
 
 
 def _layout(ctx: workflow.Context, chapter, series, content_paths):
-    """The series' layout (SPEC "State"): its override file's `layout`, stored as the series' layout; else the stored
-    one; else measured, for a new series over up to 3 of its chapters (this one among them), for any other over this
-    chapter. OverrideError for a malformed override file.
+    """Return the series' layout (SPEC "State").
+
+    Its override file's `layout`, stored as the series' layout; else the stored one; else measured, for a new series
+    over up to 3 of its chapters (this one among them), for any other over this chapter. OverrideError for a malformed
+    override file.
     """
     wanted = volumes.override_layout(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
     if wanted:
@@ -115,9 +120,11 @@ def _layout(ctx: workflow.Context, chapter, series, content_paths):
 
 
 def _sample(ctx: workflow.Context, chapter, series):
-    """The content pages of up to 2 more of a new series' chapters past validate (first, middle and last by id, this
-    chapter counting as 1 of them), each extracted to the claim's scratch folder; only chapters whose download this
-    machine can use and that still exist (the claim query's count, SPEC "State").
+    """Return the content pages of up to 2 more of a new series' chapters past validate.
+
+    The chapters are first, middle and last by id, this chapter counting as 1 of them, each extracted to the claim's
+    scratch folder; only chapters whose download this machine can use and that still exist (the claim query's count,
+    SPEC "State").
     """
     rows = ctx.conn.execute(
         """SELECT id, download_path FROM chapter
@@ -153,7 +160,7 @@ def _sample(ctx: workflow.Context, chapter, series):
 
 
 def _aspects(ctx: workflow.Context, series, sizes):
-    """The series' page aspect candidates: stored, else computed from this chapter and stored."""
+    """Return the series' page aspect candidates: stored, else computed from this chapter and stored."""
     row = db.one_row(ctx.conn, "SELECT page_aspect FROM series_conversion WHERE series_id = %s", (series["id"],))
     if row["page_aspect"] is not None:
         return json.loads(row["page_aspect"])
@@ -171,6 +178,11 @@ def _aspects(ctx: workflow.Context, series, sizes):
 
 
 def scan(ctx: workflow.Context, chapter, series, key):
+    """Scan the chapter's pages by the series' layout and record the scan; the chapter stays ready (Ready).
+
+    The pages are extracted to the claim's scratch folder, removed afterwards. A malformed override file, or strip OCR
+    text holding a NUL character, is needs_human.
+    """
     work = _scratch(ctx, chapter)
     try:
         paths, names, sizes, measured = extract(ctx, chapter, work)
@@ -235,8 +247,9 @@ def _scan_strip(ctx: workflow.Context, key, paths, sizes, content):
 
 
 def _nul_rows(sc):
-    """[(start, end)] of the strip units whose OCR text holds a NUL: the edge blocks and their join pieces, the only
-    units OCR reads.
+    """Return [(start, end)] of the strip units whose OCR text holds a NUL.
+
+    Those are the edge blocks and their join pieces, the only units OCR reads.
     """
     units = [u for b in sc["blocks"] for u in (b, *b["joins"])]
     return [(u["start"], u["end"]) for u in units if "\x00" in u.get("text", "")]
@@ -259,9 +272,10 @@ def _page_units(sc):
 
 
 class _Applied(NamedTuple):
-    """What decisions make of a chapter's scan: its chapter edit, the watermark rows [(series key, key)] to remember,
-    the units left undecided (the layout's, then the logos'), and why the edit is refused (strip_units'
-    kept_problem; None when it is not).
+    """What decisions make of a chapter's scan: its edit, watermarks to remember, undecided units, refusal.
+
+    Its chapter edit, the watermark rows [(series key, key)] to remember, the units left undecided (the layout's, then
+    the logos'), and why the edit is refused (strip_units' kept_problem; None when it is not).
     """
 
     edit: dict
@@ -271,8 +285,9 @@ class _Applied(NamedTuple):
 
 
 def _apply(conn, sc, key, decide_unit):
-    """The decisions on a scan: its layout's (a strip's with the series' known watermarks), then the logos' on what
-    that leaves (a refused strip edit stops before the logos).
+    """Apply the decisions on a scan: its layout's, then the logos' on what that leaves.
+
+    A strip's layout decisions take the series' known watermarks; a refused strip edit stops before the logos.
     """
     edit = {"drop_pages": [], "bands": [], "join": [], "split": False, "strip_removed": [], "blank": []}
     watermarks = []
@@ -301,8 +316,10 @@ def _remember(conn, watermarks):
 
 
 def _finished(ctx: workflow.Context, chapter, edit, watermarks):
-    """The outcome of a chapter that offers no candidate: the library copy check's (a duplicate dropped, or a better
-    copy of a busy file held: no edit kept), else Done with its chapter edit.
+    """Return the outcome of a chapter that offers no candidate.
+
+    The library copy check's (a duplicate dropped, or a better copy of a busy file held: no edit kept), else Done with
+    its chapter edit.
     """
     copy = library_copy.after_junk(ctx, chapter, edit)
     if copy is not None:
@@ -330,6 +347,12 @@ def _finished(ctx: workflow.Context, chapter, edit, watermarks):
 
 
 def decide(ctx: workflow.Context, chapter, key, row):
+    """Decide the chapter from its current scan, with no decode.
+
+    Done with its chapter edit when no candidate is left; waiting on junk_decision with its candidates (their images
+    written first); or needs_human (a removal that would leave too little; a candidate Claude was unsure of or past
+    the review limit).
+    """
     sc = json.loads(row["scan"])
     decisions = store.Decisions(ctx.conn, key)
 
@@ -368,6 +391,7 @@ def decide(ctx: workflow.Context, chapter, key, row):
 
 
 def held_reason(rows, limit):
+    """Return the needs_human reason naming each held candidate: Claude was unsure, or undecided after limit reviews."""
     parts = [
         f"candidate {r['id']} ({r['kind']}): "
         + ("Claude was unsure" if r["verdict"] == "unsure" else f"undecided after {limit} reviews")
@@ -377,10 +401,11 @@ def held_reason(rows, limit):
 
 
 def junk_decision_over(ctx: workflow.Context, chapter):
-    """The junk_decision wait (SPEC "Junk decisions"): over (True) when the chapter's scan is stale (it rescans) or a
-    candidate it waits on is covered by a decision or gone: the chapter is decided again and waits on what is still
-    undecided then (a decision can make another candidate moot: a dropped page's band). Else NeedsHuman when one is
-    unsure or stuck; else False.
+    """Return whether the junk_decision wait is over (SPEC "Junk decisions"): True, NeedsHuman or False.
+
+    Over (True) when the chapter's scan is stale (it rescans) or a candidate it waits on is covered by a decision or
+    gone: the chapter is decided again and waits on what is still undecided then (a decision can make another candidate
+    moot: a dropped page's band). Else NeedsHuman when one is unsure or stuck; else False.
     """
     row = ctx.conn.execute("SELECT * FROM junk_scan WHERE chapter_id = %s", (chapter["id"],)).fetchone()
     if row is None or current_scan(ctx.conn, chapter) is None:
@@ -405,8 +430,9 @@ def junk_decision_over(ctx: workflow.Context, chapter):
 
 
 def write_images(ctx: workflow.Context, chapter, key, sc, picks):
-    """Write the images of new candidates (SPEC "Junk decisions", candidates): the download's pages are extracted
-    again to the scratch folder, which is removed afterwards.
+    """Write the images of new candidates (SPEC "Junk decisions", candidates).
+
+    The download's pages are extracted again to the scratch folder, which is removed afterwards.
     """
     work = _scratch(ctx, chapter)
     try:
@@ -435,7 +461,7 @@ def write_images(ctx: workflow.Context, chapter, key, sc, picks):
 
 
 def seen_kind(kind):
-    """The kind a unit is recorded as seen under (a probe is part of a seen edge block)."""
+    """Return the kind a unit is recorded as seen under (a probe is part of a seen edge block)."""
     return "block" if kind == "probe" else kind
 
 

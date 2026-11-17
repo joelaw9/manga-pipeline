@@ -1,6 +1,7 @@
-"""Series fields to Kavita (SPEC "Metadata", decisions D7.10, D7.11, D7.22): export writes a series' fields through
-the Kavita API, locked, when the data, the tag rules or the field merge they come from changed; writes only the fields
-that differ; uploads its cover when it changed.
+"""Series fields to Kavita (SPEC "Metadata", decisions D7.10, D7.11, D7.22): written through its API when they change.
+
+Export writes a series' fields through the Kavita API, locked, when the data, the tag rules or the field merge they
+come from changed; writes only the fields that differ; uploads its cover when it changed.
 
 A locked Kavita field is overwritten only when it holds the value the pipeline last wrote, or, for a field the
 pipeline never wrote, a value the old metadata tool wrote (`series_import`). Any other locked value is a person's
@@ -52,13 +53,14 @@ CODE = hashlib.sha256(Path(merge.__file__).read_bytes() + Path(__file__).read_by
 
 
 def inputs(version, rules):
-    """What a series' written fields come from: its data version, the tag rules and this code."""
+    """Return what a series' written fields come from: its data version, the tag rules and this code."""
     return f"{version}:{rules.fingerprint}:{CODE}"
 
 
 def due(ctx: workflow.Context, rules):
-    """Ids of the in-scope Kavita series with a completed check whose written fields or cover are out of date, or
-    written to another Kavita series (Kavita recreated it).
+    """Return the ids of the in-scope Kavita series with a completed check whose fields or cover need writing.
+
+    Their written fields or cover are out of date, or written to another Kavita series (Kavita recreated it).
     """
     rows = ctx.conn.execute(
         sql.SQL("""SELECT s.id FROM series s JOIN series_check k ON k.series_id = s.id
@@ -73,8 +75,10 @@ def due(ctx: workflow.Context, rules):
 
 
 def run(ctx: workflow.Context):
-    """Write every due series' fields; a series Kavita refuses, or whose cover file cannot be read, is logged and stays
-    due. Kavita unreachable ends the step (and the run, as everything after it needs Kavita).
+    """Write every due series' fields.
+
+    A series Kavita refuses, or whose cover file cannot be read, is logged and stays due. Kavita unreachable ends the
+    step (and the run, as everything after it needs Kavita).
     """
     rules = tags.load()
     previous = workflow.get_meta(ctx.conn, FINGERPRINT)
@@ -92,6 +96,11 @@ def run(ctx: workflow.Context):
 
 
 def write(ctx: workflow.Context, series_id, rules):
+    """Write 1 series' fields to its Kavita series: scalars, lists, people, links and ids, then its cover.
+
+    Nothing is written when Kavita no longer holds the series. What was written is recorded as it goes, and the
+    series' inputs once all of it is.
+    """
     conn, kv = ctx.conn, ctx.kavita
     series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series_id,))
     kid = series["kavita_series_id"]
@@ -119,8 +128,10 @@ def write(ctx: workflow.Context, series_id, rules):
 
 
 def _state(conn, series_id, kid):
-    """What the pipeline wrote to Kavita series kid before: {"written": {field: value}, "kept": {field a person's
-    locked edit keeps}, "cover": sha256 or None}; nothing when it wrote to a Kavita series that is gone.
+    """Return what the pipeline wrote to Kavita series kid before.
+
+    {"written": {field: value}, "kept": {field a person's locked edit keeps}, "cover": sha256 or None}; nothing when it
+    wrote to a Kavita series that is gone.
     """
     before = conn.execute("SELECT * FROM series_written WHERE series_id = %s", (series_id,)).fetchone()
     if before is None or before["kavita_series_id"] != kid:
@@ -129,8 +140,9 @@ def _state(conn, series_id, kid):
 
 
 def _write_scalars(kv, kid, fields, guard):
-    """Write the scalar fields that differ from Kavita's or are unlocked, in 1 update, where the guard lets them;
-    each one written goes in the guard's state.
+    """Write the scalar fields that differ from Kavita's or are unlocked, in 1 update, where the guard lets them.
+
+    Each one written goes in the guard's state.
     """
     meta = kv.metadata(kid)
     changed = False
@@ -147,8 +159,9 @@ def _write_scalars(kv, kid, fields, guard):
 
 
 def _write_lists(kv, kid, fields, guard, record):
-    """Write each list field the sources give, where the guard lets it (_set_list); recorded after its add step and
-    once it is whole. A source that gives nothing never clears a list.
+    """Write each list field the sources give, where the guard lets it (_set_list).
+
+    Recorded after its add step and once it is whole. A source that gives nothing never clears a list.
     """
     written = guard.state["written"]
     for name, (key, lock, label) in LISTS.items():
@@ -197,8 +210,9 @@ class _Guard:
         return IMPORTED.get(name) in (self.imported["fields"] or [])
 
     def held_cover(self):
-        """The sha256 of the cover Kavita holds from the pipeline, or before its first upload from the old tool (None:
-        neither).
+        """Return the sha256 of the cover Kavita holds from the pipeline, or before its first upload from the old tool.
+
+        None: neither.
         """
         return self.state["cover"] or (self.imported["cover_sha256"] if self.imported else None)
 
@@ -208,7 +222,7 @@ def _scalar(value):
 
 
 def _key(values):
-    """A list's comparison key: its entries under Kavita's name normalising, sorted."""
+    """Return a list's comparison key: its entries under Kavita's name normalising, sorted."""
     return sorted({normalize(v) for v in values})
 
 
@@ -217,9 +231,10 @@ def _list_key(entries, label):
 
 
 def _set_list(kv, kid, name, values, *, added_step):
-    """Add the missing entries of list field name (LISTS) in the sources' spelling, then drop the others, in 2
-    updates of this list alone; lock it. added_step(key) is told what Kavita holds after the add step, before the
-    prune can fail.
+    """Add the missing entries of list field name (LISTS) in the sources' spelling, then drop the others; lock it.
+
+    2 updates of this list alone. added_step(key) is told what Kavita holds after the add step, before the prune can
+    fail.
     """
     key, lock, label = LISTS[name]
     wanted = {normalize(v) for v in values}
@@ -265,7 +280,8 @@ def _links_and_ids(kv, kid, fields):
 
 
 def _cover(ctx: workflow.Context, kid, guard, record):
-    """Upload the series' cover when Kavita does not hold it from the pipeline; the sha256 Kavita now holds from it.
+    """Upload the series' cover when Kavita does not hold it from the pipeline; return the sha256 Kavita now holds.
+
     A cover uploaded to Kavita before the pipeline's first upload, and not by the old tool, is a person's: kept.
     (Kavita names every upload alike, so a person's upload after the pipeline's is not told apart.)
     """

@@ -1,4 +1,5 @@
 """Page, CBZ and ComicInfo builders: synthetic stand-ins for what the library holds (no real pages are copied).
+
 Copied from the bulk converter's tests/fixtures.py; PAGE_FIX holds tiny ICC profiles taken from real pages.
 """
 
@@ -15,6 +16,7 @@ ZERO_BYTE = b""  # page entry written with no data (seen: 5 chapters on the shar
 
 
 def zero_filled(n=4096):
+    """Return `n` NUL bytes: a page entry full of them."""
     return bytes(n)  # page entry full of NUL bytes (seen: 3 PNG pages on the share)
 
 
@@ -29,8 +31,9 @@ def webtoon_page(size=(800, 2400), seed=0):
 
 
 def manga_page(size=(900, 1300), seed=0, noise=0.0):
-    """B&W manga page: halftone screentone, ink lines, white gutters; optional scan noise. RGB-encoded like most
-    scans.
+    """Draw a B&W manga page: halftone screentone, ink lines, white gutters; optional scan noise.
+
+    RGB-encoded like most scans.
     """
     y, x = np.ogrid[0 : size[1], 0 : size[0]]
     dots = ((x % 6 - 3) ** 2 + (y % 6 - 3) ** 2) < 5
@@ -55,16 +58,19 @@ def blob(seed, size=(300, 426)):
 
 
 def encode(im, fmt="JPEG", **kw):
+    """Return im saved in format `fmt` with Pillow's save options `kw`, as bytes."""
     buf = io.BytesIO()
     im.save(buf, fmt, **kw)
     return buf.getvalue()
 
 
 def jpeg(im, quality=92, **kw):
+    """Return im as JPEG bytes at `quality`."""
     return encode(im, "JPEG", quality=quality, **kw)
 
 
 def png(im):
+    """Return im as PNG bytes."""
     return encode(im, "PNG")
 
 
@@ -118,7 +124,7 @@ def pipeline_comicinfo(title="Chapter 1", series="Some Series", number="1", volu
 
 
 def credit(size=(200, 150)):
-    """A scanlator credit block: dark bars on white (identical in every chapter that carries it)."""
+    """Draw a scanlator credit block: dark bars on white (identical in every chapter that carries it)."""
     a = np.zeros((size[1], size[0], 3), np.uint8)
     a[:] = np.linspace(140, 240, size[0]).astype(np.uint8)[None, :, None]  # no uniform row inside the block
     for k, y in enumerate(range(15, size[1] - 15, 18)):
@@ -127,7 +133,9 @@ def credit(size=(200, 150)):
 
 
 def warning_banner(width=600, height=240):
-    """Scanlator WARNING band (Thunder Scans style): dark block with yellow text bars, identical in every chapter.
+    """Draw a scanlator WARNING band (Thunder Scans style): dark block with yellow text bars.
+
+    Identical in every chapter.
     Shaded across x so no row of it is uniform: where it meets the art directly there is no gutter to find.
     """
     a = np.empty((height, width, 3), np.uint8)

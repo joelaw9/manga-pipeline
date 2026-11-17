@@ -135,8 +135,9 @@ def test_free_space_measures_the_drive_of_a_log_folder_not_made_yet(tmp_path):
 
 
 def site(tmp_path, database=pg.UNASSIGNED):
-    """Config with the share folders under tmp_path/share and the database named database (default: one never
-    built, for checks that open none).
+    """Return a config with the share folders under tmp_path/share and the database named database.
+
+    Default database: one never built, for checks that open none.
     """
     share = tmp_path / "share"
     paths = {key: str(share / key) for key in preflight.SHARE_FOLDERS} | {
@@ -147,7 +148,7 @@ def site(tmp_path, database=pg.UNASSIGNED):
 
 
 def adopted(tmp_path, owner=None):
-    """A database and an owner file holding owner (default: that database's id)."""
+    """Make a database and an owner file holding owner (default: that database's id)."""
     cfg = site(tmp_path, pg.current().database(tmp_path.resolve(), built=True))
     with closing(db.connect(cfg)) as conn:
         mine = db.database_id(conn)
@@ -211,7 +212,7 @@ def test_example_folder_layout_passes():
 
 
 def dir_link(link, target):
-    """A link to a folder that needs no privilege: a junction on Windows, a symlink elsewhere."""
+    """Make a link to a folder that needs no privilege: a junction on Windows, a symlink elsewhere."""
     if sys.platform == "win32":
         _winapi.CreateJunction(str(target), str(link))
     else:
@@ -285,7 +286,7 @@ def test_workflow_settings_refuse_a_kavita_library_id_below_1():
 
 
 def services(**changes):
-    """The test config with (section, key) = value changes, e.g. kavita__url="x"."""
+    """Return the test config with (section, key) = value changes, e.g. kavita__url="x"."""
     cfg = {**config.cached()}
     for name, value in changes.items():
         section, key = name.split("__")

@@ -1,7 +1,8 @@
-"""New series (SPEC "Series identification", "Metadata checks", "Publishing", "State"): a download no Kavita series
-matches becomes a pending new series, is admitted under its name and folder after its first metadata check, and its
-chapters go through intake and process with a chosen volume basis and a measured layout (publishing:
-test_new_series_publish.py).
+"""New series (SPEC "Series identification", "Metadata checks", "Publishing", "State").
+
+A download no Kavita series matches becomes a pending new series, is admitted under its name and folder after its first
+metadata check, and its chapters go through intake and process with a chosen volume basis and a measured layout
+(publishing: test_new_series_publish.py).
 """
 
 from contextlib import closing

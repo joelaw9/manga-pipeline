@@ -1,12 +1,18 @@
-"""Stage confirm (SPEC "Chapter stages", "Publishing"): once Kavita lists the published file in its series with the
-size on disk, the download is removed the retention way and the published file is confirmed. Until then the chapter
-waits on kavita_scan; a series Kavita no longer holds is needs_human.
+"""Stage confirm (SPEC "Chapter stages", "Publishing"): confirm a published file once Kavita lists it.
+
+Once Kavita lists the published file in its series with the size on disk, the download is removed the retention way
+and the published file is confirmed. Until then the chapter waits on kavita_scan; a series Kavita no longer holds is
+needs_human.
 """
 
 from manga_pipeline import config, db, kavita_link, retention, workflow
 
 
 def run(ctx: workflow.Context, chapter):
+    """Confirm the chapter's published file once Kavita lists it, removing the download; else wait on kavita_scan.
+
+    A series Kavita no longer holds is marked needs_human, and the chapter waits.
+    """
     series = _series(ctx, chapter)
     if series["kavita_series_id"] is None:
         return workflow.Waiting("kavita_scan")  # a new series Kavita does not list yet (SPEC "Publishing")
@@ -33,7 +39,10 @@ def run(ctx: workflow.Context, chapter):
 
 
 def wait_over(ctx: workflow.Context, chapter):
-    """The kavita_scan wait ends when the file is indexed, or Kavita no longer holds the series (confirm says so)."""
+    """Return whether the kavita_scan wait ends: the file is indexed, or Kavita no longer holds the series.
+
+    In the second case confirm says so.
+    """
     series = _series(ctx, chapter)
     if series["kavita_series_id"] is None:
         return False
@@ -41,7 +50,10 @@ def wait_over(ctx: workflow.Context, chapter):
 
 
 def _series(ctx: workflow.Context, chapter):
-    """The chapter's series, its Kavita id looked for first when it is a new series Kavita did not list before."""
+    """Return the chapter's series, its Kavita id looked for first when it is new.
+
+    New: a new series Kavita did not list before.
+    """
     series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     if series["kavita_series_id"] is not None:
         return series

@@ -1,6 +1,7 @@
-"""SSIMULACRA2 on the GPU (SPEC "Conversion"): ctypes binding of Vship 5.1.2's C API, copied from the bulk
-converter's optimizer/vship.py. The library path is config `tools.vship` (the Linux libvship.so or the Windows DLL;
-the binding loads either unchanged).
+"""SSIMULACRA2 on the GPU (SPEC "Conversion"): ctypes binding of Vship 5.1.2's C API.
+
+Copied from the bulk converter's optimizer/vship.py. The library path is config `tools.vship` (the Linux libvship.so or
+the Windows DLL; the binding loads either unchanged).
 
 Scorer(path) loads the library and checks the GPU (Vship_GPUFullCheck); a failure raises VshipError naming Vship's own
 message. Use it in 1 process only (the parent): every process holding a handle opens its own CUDA context (~390 MiB).
@@ -76,7 +77,7 @@ _PLANES, _STRIDES = ctypes.c_void_p * 3, ctypes.c_int64 * 3
 
 
 def load(path):
-    """The Vship library at path with its argument types set. Raises VshipError when it does not load."""
+    """Load the Vship library at path with its argument types set. Raises VshipError when it does not load."""
     try:
         lib = ctypes.CDLL(str(path))
         lib.Vship_InitHandler.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
@@ -137,9 +138,10 @@ class _Handle:
 
 
 class Scorer:
-    """The loaded, GPU-checked library, its scoring threads (`threads`, SCORE_THREADS of them, made once) and their
-    handles. A thread's handle lives as long as the thread, so the threads live as long as the Scorer: a thread that
-    ended would leave its handle's GPU memory allocated.
+    """The loaded, GPU-checked library, its scoring threads (`threads`, SCORE_THREADS of them, made once) and handles.
+
+    A thread's handle lives as long as the thread, so the threads live as long as the Scorer: a thread that ended would
+    leave its handle's GPU memory allocated.
     """
 
     def __init__(self, path, *, loader=load):
@@ -190,8 +192,10 @@ class Scorer:
         return out.score
 
     def score_files(self, reference, distorted):
-        """SSIMULACRA2 of 2 image files (8-bit PNGs: the pipeline's reference and avifdec's decode; gray ones are
-        scored as RGB). With alpha on either side: the lower score over a dark and a light backdrop.
+        """Return the SSIMULACRA2 score of 2 image files.
+
+        8-bit PNGs: the pipeline's reference and avifdec's decode; gray ones are scored as RGB. With alpha on either
+        side: the lower score over a dark and a light backdrop.
         """
         t0 = time.perf_counter()
         with Image.open(reference) as a, Image.open(distorted) as b:

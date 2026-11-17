@@ -1,6 +1,8 @@
-"""Discovery (SPEC "Suwayomi", "Series identification"): `intake` lists the downloads, maps each to its series (by its
-library manga, else as a hand-placed folder) and to its Suwayomi chapter when it has one, and records each settled one
-as a chapter at discover. Opens no CBZ but to identify a hand-placed folder by its ComicInfo Series.
+"""Discovery (SPEC "Suwayomi", "Series identification").
+
+`intake` lists the downloads, maps each to its series (by its library manga, else as a hand-placed folder) and to its
+Suwayomi chapter when it has one, and records each settled one as a chapter at discover. Opens no CBZ but to identify a
+hand-placed folder by its ComicInfo Series.
 
 What cannot be taken is collected and, once the listing is complete, replaces unmatched_download in 1 transaction.
 """
@@ -18,10 +20,11 @@ log = logging.getLogger(__name__)
 
 
 def scan(ctx: workflow.Context):
-    """Record each new settled download as a chapter. A manga folder that cannot be listed is not taken (`_list`);
-    any other folder that cannot be read raises its OSError (the caller
-    decides whether the share is unreachable); an unreachable service raises Unreachable before anything is written
-    but the series rows identification settled.
+    """Record each new settled download as a chapter.
+
+    A manga folder that cannot be listed is not taken (`_list`); any other folder that cannot be read raises its OSError
+    (the caller decides whether the share is unreachable); an unreachable service raises Unreachable before anything is
+    written but the series rows identification settled.
     """
     root = config.abs_path(ctx.cfg["paths"]["downloads"]) / suwayomi.MANGAS_FOLDER
     held = _held(ctx)
@@ -61,8 +64,9 @@ def scan(ctx: workflow.Context):
 
 
 def _settled(path, settled_by):
-    """Whether the file was last modified at or before settled_by (SPEC "Suwayomi": a file still being written is
-    skipped); a file gone since the listing is not.
+    """Return whether the file was last modified at or before settled_by.
+
+    SPEC "Suwayomi": a file still being written is skipped; a file gone since the listing is not.
     """
     try:
         return path.stat().st_mtime <= settled_by
@@ -73,8 +77,10 @@ def _settled(path, settled_by):
 
 
 def _held(ctx: workflow.Context):
-    """The paths open chapters hold: their downloads, the re-downloads they expect and the rejected copies they are
-    still removing (SPEC "Bad downloads"). Such a file is never a new chapter and never listed as not taken.
+    """Return the paths open chapters hold.
+
+    Their downloads, the re-downloads they expect and the rejected copies they are still removing (SPEC "Bad
+    downloads"). Such a file is never a new chapter and never listed as not taken.
     """
     rows = ctx.conn.execute(
         """SELECT download_path FROM chapter WHERE status != 'done' AND download_path IS NOT NULL
@@ -88,9 +94,11 @@ def _held(ctx: workflow.Context):
 
 
 def _list(root):
-    """({(source folder, manga folder): [CBZ file names]}, [(manga folder path, reason)]) under <downloads>/mangas.
-    A manga folder that cannot be listed (a name Samba cannot show Windows, e.g. one holding "?") is not taken, and the
-    rest is listed; a manga folder gone since its source was listed is skipped. Any other folder that cannot be read
+    """List the downloads under <downloads>/mangas.
+
+    Returns ({(source folder, manga folder): [CBZ file names]}, [(manga folder path, reason)]). A manga folder that
+    cannot be listed (a name Samba cannot show Windows, e.g. one holding "?") is not taken, and the rest is listed; a
+    manga folder gone since its source was listed is skipped. Any other folder that cannot be read
     raises, as does a manga folder's share error (SHARE_ERRNOS) or any error once the root itself cannot be read.
     Never Path.glob: it swallows the OSError of a folder it cannot read.
     """

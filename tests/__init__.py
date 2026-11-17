@@ -22,7 +22,7 @@ real_load = config.load
 
 
 class LiveConfigReadError(AssertionError):
-    pass
+    """A test asked config.load for the live config.yaml."""
 
 
 def _in_tmp(value):

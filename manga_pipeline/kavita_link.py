@@ -1,6 +1,7 @@
-"""Kavita series folders in stored form, and a published new series' Kavita id (SPEC "Publishing"): once Kavita lists
-it, the listed series no row holds that is named as its ComicInfo Series under Kavita's name normalising and whose
-folder is the series' folder. Each series is looked for at most once per run.
+"""Kavita series folders in stored form, and a published new series' Kavita id (SPEC "Publishing").
+
+The id is found once Kavita lists it: the listed series no row holds that is named as its ComicInfo Series under
+Kavita's name normalising and whose folder is the series' folder. Each series is looked for at most once per run.
 """
 
 import logging
@@ -19,7 +20,7 @@ UNATTACHED = sql.SQL("""s.origin = 'new' AND s.admitted_at IS NOT NULL AND s.kav
 
 
 def library_folder(cfg, folder):
-    """A Kavita series folder in stored form; PathError unless it lies under paths.library (SPEC "State")."""
+    """Return a Kavita series folder in stored form; PathError unless it lies under paths.library (SPEC "State")."""
     stored = config.to_stored(cfg, folder)
     if stored.split("/", 1)[0] != "library":
         msg = f"the series folder {folder} is not under paths.library"
@@ -28,15 +29,17 @@ def library_folder(cfg, folder):
 
 
 def listing(ctx: workflow.Context):
-    """The library's series (`series_in_library`, unfiltered), read once per run."""
+    """Return the library's series (`series_in_library`, unfiltered), read once per run."""
     if "listing" not in ctx.kavita_cache:
         ctx.kavita_cache["listing"] = ctx.kavita.series_in_library(ctx.cfg["kavita"]["library_id"])
     return ctx.kavita_cache["listing"]
 
 
 def attach(ctx: workflow.Context, series_id, rows):
-    """The series' Kavita id: the stored one, else the one found among rows (the library's listing) and stored, else
-    None (not an unattached series, or Kavita does not list it yet).
+    """Return the series' Kavita id.
+
+    The stored one, else the one found among rows (the library's listing) and stored, else None (not an unattached
+    series, or Kavita does not list it yet).
     """
     conn = ctx.conn
     query = sql.SQL("SELECT s.*, {} AS unattached FROM series s WHERE s.id = %s").format(UNATTACHED)
@@ -61,8 +64,10 @@ def attach(ctx: workflow.Context, series_id, rows):
 
 
 def attach_all(ctx: workflow.Context, rows):
-    """attach every unattached series in scope; returns the normalised names of those still unattached: a listed
-    series so named may be one of them, and is not a series of its own.
+    """Run attach on every unattached series in scope.
+
+    Returns the normalised names of those still unattached: a listed series so named may be one of them, and is not a
+    series of its own.
     """
     ids = ctx.conn.execute(
         sql.SQL("SELECT s.id FROM series s WHERE {unattached} AND {scope} ORDER BY s.id").format(

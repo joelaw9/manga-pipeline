@@ -1,6 +1,7 @@
-"""Chapter names (SPEC "Bad downloads", "Publishing"): the file-name parser, a chapter's identity and the name a
-published file gets. The parser is the bulk converter's optimizer/structure.py name part, copied (its series-level
-structure pass is not); the published name, title and volume text are its optimizer/naming.py rules, copied.
+"""Chapter names (SPEC "Bad downloads", "Publishing"): the file-name parser, a chapter's identity, a file's name.
+
+The parser is the bulk converter's optimizer/structure.py name part, copied (its series-level structure pass is not);
+the published name, title and volume text are its optimizer/naming.py rules, copied.
 
 A chapter name is free text written by scanlators, not a structured format: the patterns below are the heuristics the
 bulk converter settled on over its library.
@@ -81,6 +82,8 @@ SAME_TITLE_SHARE = 0.6  # shared words over all words from which 2 titles are th
 
 @dataclass
 class Item:
+    """A chapter file and its parse: group, volume, label, number, kind, title, season, pages, width, bytes, date."""
+
     file: str
     group: str = ""
     volume: str | None = None
@@ -98,10 +101,12 @@ class Item:
 
     @property
     def num(self):
+        """Return the chapter number as a float, or None when the item has none."""
         return float(self.number) if self.number is not None else None
 
     @property
     def key(self):
+        """Return the chapter number's number_key: its parts, so 3.1 and 3.10 stay apart; None without a number."""
         return number_key(self.number)
 
 
@@ -119,9 +124,11 @@ def _number_parts(number):
 
 
 def two_readings(number):
-    """Why a chapter number has no single reading, or None: its decimal part ends in 0 without being all zeros
-    ("26.10": 26.1, or part 10 of chapter 26). fmt_num, a file name and Kavita read such a number as the shorter
-    decimal, so a download numbered so is held for a person (SPEC "Bad downloads").
+    """Return why a chapter number has no single reading, or None.
+
+    It has none when its decimal part ends in 0 without being all zeros ("26.10": 26.1, or part 10 of chapter 26).
+    fmt_num, a file name and Kavita read such a number as the shorter decimal, so a download numbered so is held for a
+    person (SPEC "Bad downloads").
     """
     if number is None:
         return None
@@ -161,8 +168,9 @@ def _peel(body):
 
 
 def _match(body):
-    """(season, tags, kind of match, regex match) for a name body, or None. A label without a number counts only
-    for labels that stand alone ("Epilogue", "Prologue", "Special Episode: Ivy").
+    """Return (season, tags, kind of match, regex match) for a name body, or None.
+
+    A label without a number counts only for labels that stand alone ("Epilogue", "Prologue", "Special Episode: Ivy").
     """
     season, tags, rest = _peel(body.strip())
     for shape, rx in (("label", NAME_RE), ("volume", VOLUME_ONLY), ("numdot", NUM_DOT)):
@@ -185,8 +193,9 @@ def _numbered(body):
 
 
 def number_start(stem):
-    """Index in `stem` where parse_name's chapter number starts ("Vol.1 Ch.3.1" -> the 3 after "Ch."), None when the
-    file name carries no number (ComicInfo numbers the item).
+    """Return the index in `stem` where parse_name's chapter number starts ("Vol.1 Ch.3.1" -> the 3 after "Ch.").
+
+    None when the file name carries no number (ComicInfo numbers the item).
     """
     _, body = split_group(stem)
     hit = _match(body)
@@ -198,7 +207,9 @@ def number_start(stem):
 
 
 def split_group(stem):
-    """'Easy Going Scans_Vol.1 Ch.1' -> ('Easy Going Scans', 'Vol.1 Ch.1');
+    """Split a chapter file's stem into its scanlator group ("" for none) and the rest.
+
+    'Easy Going Scans_Vol.1 Ch.1' -> ('Easy Going Scans', 'Vol.1 Ch.1');
     '_dumbcat__Chapter 45' -> ('_dumbcat_', ...).
     """
     if _numbered(stem):
@@ -216,6 +227,7 @@ def split_group(stem):
 
 
 def clean_title(rest):
+    """Return rest with its leading and trailing separators ("-", "_", ":") and spaces removed."""
     return TITLE_SEP.sub("", rest).strip()
 
 
@@ -239,9 +251,10 @@ def parse_name(stem, ci=None, non_chapter_names=()):
 
 
 def _read_shape(item, stem, hit):
-    """Fill item from its name's shape match (_match): season, label, volume, number and title. A prologue without a
-    number is chapter 0; a hyphen part is the decimal part, and a decimal with a hyphen part ("045.5-1") has no
-    single reading, so no number.
+    """Fill item from its name's shape match (_match): season, label, volume, number and title.
+
+    A prologue without a number is chapter 0; a hyphen part is the decimal part, and a decimal with a hyphen part
+    ("045.5-1") has no single reading, so no number.
     """
     season, tags, shape, m = hit
     item.season = season
@@ -267,8 +280,10 @@ def _read_shape(item, stem, hit):
 
 
 def _number_from_comicinfo(item, name_number, ci_num):
-    """Number an item its file name left unnumbered from ComicInfo Number (ci_num, "" when absent); note a file
-    name's hyphen-part number (name_number: the number as the name writes it) that ComicInfo disagrees with.
+    """Set the number of an item its file name left unnumbered from ComicInfo Number (ci_num, "" when absent).
+
+    Note a file name's hyphen-part number (name_number: the number as the name writes it) that ComicInfo disagrees
+    with.
     """
     if item.number is None and ci_num:
         if CI_NUMBER.fullmatch(ci_num):  # not "-1" (Tachiyomi's unknown number), "1e3", "nan"
@@ -279,8 +294,10 @@ def _number_from_comicinfo(item, name_number, ci_num):
 
 
 def _kind(item, texts, non_chapter_names):
-    """An item's kind: a non-chapter when one of texts (its title, and an unmatched name's whole body) is a
-    non-chapter name, else unnumbered without a number, else a side story by its label or side tag, else main.
+    """Return an item's kind.
+
+    A non-chapter when one of texts (its title, and an unmatched name's whole body) is a non-chapter name, else
+    unnumbered without a number, else a side story by its label or side tag, else main.
     """
     names = {normalize_title(n) for n in non_chapter_names}
     if any(normalize_title(t) in names for t in texts):
@@ -291,7 +308,7 @@ def _kind(item, texts, non_chapter_names):
 
 
 def side_label(item):
-    """The side-story series an item belongs to: its own label, or the side tag's ("[Side Story] Chapter 1")."""
+    """Return the side-story series an item belongs to: its own label, or the side tag's ("[Side Story] Chapter 1")."""
     if item.label in SIDE_LABELS:
         return item.label.replace("spin off", "spin-off")
     m = SIDE_MARKER.match(item.title)
@@ -326,8 +343,10 @@ DATE_PARTS = (("Year", 1, 9999), ("Month", 1, 12), ("Day", 1, 31))
 
 
 def ci_date_parts(ci):
-    """ComicInfo Year / Month / Day each on its own: ({part: int or None}, [(part, value)] of the values present but
-    unusable). A part is an ASCII integer in range (DATE_PARTS); Month may be a name ("Mar", "March"); never clamped.
+    """Read ComicInfo Year / Month / Day each on its own.
+
+    Returns ({part: int or None}, [(part, value)] of the values present but unusable). A part is an ASCII integer in
+    range (DATE_PARTS); Month may be a name ("Mar", "March"); never clamped.
     """
     parts, bad = {}, []
     for name, lo, hi in DATE_PARTS:
@@ -346,8 +365,9 @@ def ci_date_parts(ci):
 
 
 def ci_date(ci):
-    """'YYYY-MM-DD' from ComicInfo Year/Month/Day (ci_date_parts; a missing or unusable Month / Day counts as 1);
-    None without a usable Year.
+    """Return 'YYYY-MM-DD' from ComicInfo Year/Month/Day; None without a usable Year.
+
+    The parts are ci_date_parts'; a missing or unusable Month / Day counts as 1.
     """
     p, _ = ci_date_parts(ci)
     if p["Year"] is None:
@@ -359,23 +379,27 @@ def ci_date(ci):
 
 
 def parse(stem, ci_number=""):
-    """The parse of a chapter file's stem ("<scanlator>_<chapter name>", or the name alone), its ComicInfo Number
-    numbering it when the name has none.
+    """Parse a chapter file's stem ("<scanlator>_<chapter name>", or the name alone).
+
+    Its ComicInfo Number numbers it when the name has none.
     """
     return parse_name(stem, {"Number": ci_number} if ci_number else None)
 
 
 def key(text):
-    """Letters and digits only, lower-cased (after NFKC): ":" in a chapter name is "_" in its file name, and both
-    must give 1 key.
+    """Return text's letters and digits only, lower-cased (after NFKC).
+
+    ":" in a chapter name is "_" in its file name, and both must give 1 key.
     """
     return "".join(c for c in unicodedata.normalize("NFKC", text or "").casefold() if c.isalnum())
 
 
 def identity(item):
-    """A chapter's identity (SPEC "Bad downloads"): JSON text of [scanlator key, season, side label, number, title
-    key]; numbers as fmt_num gives them, so "01" and "1" agree. A number with 2 readings (two_readings) stays as
-    written ("26.10"), so it is never the identity of the chapter fmt_num would make of it (26.1).
+    """Return a chapter's identity (SPEC "Bad downloads").
+
+    JSON text of [scanlator key, season, side label, number, title key]; numbers as fmt_num gives them, so "01" and "1"
+    agree. A number with 2 readings (two_readings) stays as written ("26.10"), so it is never the identity of the
+    chapter fmt_num would make of it (26.1).
     """
     season = fmt_num(item.season) if item.season is not None else None
     number = "{}.{}".format(*_number_parts(item.number)) if two_readings(item.number) else fmt_num(item.number)
@@ -398,8 +422,9 @@ MAX_TITLE = 80
 
 
 def to_volume(v):
-    """'2' -> 2, '0' -> 0, '2.5' -> 2.5. None, '', 'none', non-numeric ('Special') and negative values
-    (Suwayomi/Kavita write -1 for "no volume") -> None.
+    """Return a volume text as a number: '2' -> 2, '0' -> 0, '2.5' -> 2.5.
+
+    None, '', 'none', non-numeric ('Special') and negative values (Suwayomi/Kavita write -1 for "no volume") -> None.
     """
     try:
         f = float(str(v).strip())
@@ -411,8 +436,10 @@ def to_volume(v):
 
 
 def title_from_comicinfo(ci_title, num=None):
-    """'Chapter 4 : Where Is She?' -> 'Where Is She?'; 'Vol.1 Ch.1' -> ''. The leading label is dropped only when
-    its number is the chapter's own (`num`): "Episode 7 Begins" on chapter 2 is the title itself.
+    """Return a ComicInfo Title without its leading label: 'Chapter 4 : Where Is She?' -> 'Where Is She?'.
+
+    'Vol.1 Ch.1' -> ''. The leading label is dropped only when its number is the chapter's own (`num`): "Episode 7
+    Begins" on chapter 2 is the title itself.
     """
     if not ci_title:
         return ""
@@ -423,9 +450,10 @@ def title_from_comicinfo(ci_title, num=None):
 
 
 def clean_marker_title(title):
-    """Strip status markers ([END], (END), (S1 END), {S2-END}, [End of Main Story], (End of Season 1)), unwrap
-    decorative brackets (〖Main Story Finale〗 -> Main Story Finale) and tidy separators (" _ " was ":" before
-    Suwayomi).
+    """Strip a title's status markers, unwrap its decorative brackets and tidy its separators.
+
+    Status markers: [END], (END), (S1 END), {S2-END}, [End of Main Story], (End of Season 1). Decorative brackets:
+    〖Main Story Finale〗 -> Main Story Finale. Separators: " _ " was ":" before Suwayomi.
     """
     for m in TITLE_MARKERS:
         title = re.sub(m, " ", title, flags=re.IGNORECASE)
@@ -439,8 +467,10 @@ def clean_marker_title(title):
 
 
 def chapter_title(item, ci_title):
-    """A chapter's title as the bulk converter gives it: its ComicInfo Title (which keeps characters the file name
-    lost) without a leading label of its own number, else the file name's title; markers stripped. "" for none.
+    """Return a chapter's title as the bulk converter gives it; "" for none.
+
+    Its ComicInfo Title (which keeps characters the file name lost) without a leading label of its own number, else the
+    file name's title; markers stripped.
     """
     return clean_marker_title(title_from_comicinfo(ci_title or "", item.num) or item.title)
 
@@ -453,15 +483,17 @@ def safe_title(title, limit=MAX_TITLE):
 
 
 def folder_name(series_name):
-    """A new series' folder name (SPEC "Series identification"): Windows-illegal characters replaced, trailing dots
-    and spaces trimmed; "" when nothing is left.
+    """Return a new series' folder name (SPEC "Series identification"); "" when nothing is left.
+
+    Windows-illegal characters replaced, trailing dots and spaces trimmed.
     """
     return ILLEGAL.sub("_", series_name).strip().rstrip(". ")
 
 
 def file_name(number, title, volume=None):
-    """The name a published file gets (SPEC "Publishing"): "Vol.<volume> Ch.<number> - <title>.cbz", without
-    "Vol.<volume> " when the volume is None and without " - <title>" when the title is empty once made safe.
+    """Return the name a published file gets (SPEC "Publishing"): "Vol.<volume> Ch.<number> - <title>.cbz".
+
+    Without "Vol.<volume> " when the volume is None and without " - <title>" when the title is empty once made safe.
     ValueError for no number.
     """
     if number is None:

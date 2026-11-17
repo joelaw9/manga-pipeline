@@ -1,5 +1,7 @@
-"""ComicInfo.xml (SPEC "Metadata", "Publishing"): validation against the v2.1 schema (no lxml needed), reading fields
-and building a file. Copied from the bulk converter's optimizer/comicinfo.py; `from_kavita` comes with Phase 7c.
+"""ComicInfo.xml (SPEC "Metadata", "Publishing").
+
+Validation against the v2.1 schema (no lxml needed), reading fields and building a file. Copied from the bulk
+converter's optimizer/comicinfo.py; `from_kavita` comes with Phase 7c.
 """
 
 import re
@@ -55,8 +57,10 @@ LIST_TYPES = {"ComicPageType"}  # a space-separated list of its enumeration's va
 
 
 def _type_ok(value, xsd_type, enums):
-    """Whether value is valid for a schema type: a type with a value check, then a list of an enumeration, then an
-    enumeration; any other type is text (xs:string).
+    """Return whether value is valid for a schema type.
+
+    Checked as a type with a value check, then a list of an enumeration, then an enumeration; any other type is text
+    (xs:string).
     """
     if xsd_type in VALUE_CHECKS:
         return VALUE_CHECKS[xsd_type](value)
@@ -107,8 +111,9 @@ def validate(xml_bytes):
 
 
 def _page_errors(pages, page_attrs, enums):
-    """The schema violations of the Pages element: an element other than Page, a Page without Image, an unknown
-    Page attribute or one whose value its type refuses.
+    """Return the schema violations of the Pages element.
+
+    An element other than Page, a Page without Image, an unknown Page attribute or one whose value its type refuses.
     """
     errors = []
     for page in pages:
@@ -126,12 +131,14 @@ def _page_errors(pages, page_attrs, enums):
 
 
 def read_fields(xml_bytes, names=("Series", "Title", "Number", "Volume", "Count")):
+    """Return {name: text} of the named top-level elements, stripped; '' for one that is absent or empty."""
     root = ET.fromstring(xml_bytes)
     return {n: (root.findtext(n) or "").strip() for n in names}
 
 
 def read_all(xml_bytes):
-    """{element: text} of every non-empty top-level element but Pages, as written (unknown elements included).
+    """Return {element: text} of every non-empty top-level element but Pages, as written (unknown elements included).
+
     ET.ParseError for XML that does not parse.
     """
     root = ET.fromstring(xml_bytes)
@@ -141,16 +148,19 @@ def read_all(xml_bytes):
 
 
 def read_pages(xml_bytes):
-    """The Page entries of the Pages element ([{attribute: value}] in order; [] when there is none), as build takes
-    them. ET.ParseError for XML that does not parse.
+    """Return the Page entries of the Pages element, as build takes them.
+
+    [{attribute: value}] in order; [] when there is none. ET.ParseError for XML that does not parse.
     """
     pages = ET.fromstring(xml_bytes).find("Pages")
     return [] if pages is None else [dict(page.attrib) for page in pages.findall("Page")]
 
 
 def build(fields, pages=None):
-    """ComicInfo.xml bytes with elements in schema order. `fields` maps element -> value (str/int);
-    empty values are skipped; `pages` is [{"Image": 0, "Type": "FrontCover", ...}]. Raises if invalid.
+    """Build ComicInfo.xml bytes with elements in schema order.
+
+    `fields` maps element -> value (str/int); empty values are skipped; `pages` is [{"Image": 0, "Type": "FrontCover",
+    ...}]. Raises if invalid.
     """
     elements, _, _ = schema()
     root = ET.Element(
@@ -182,7 +192,7 @@ def build(fields, pages=None):
 
 
 def download_number(path):
-    """A download's ComicInfo Number: '' without one, or for an archive that cannot be read."""
+    """Return a download's ComicInfo Number: '' without one, or for an archive that cannot be read."""
     try:
         xml = archive.read_comicinfo(path)
     except archive.UNREADABLE:
@@ -191,9 +201,10 @@ def download_number(path):
 
 
 def read_download(path):
-    """(fields, item) of a download as the comicinfo stage reads it: the ComicInfo.xml fields valid for the schema
-    ({} without one), and its name's parse, numbered by that Number when the name has none. Raises
-    archive.UNREADABLE or ET.ParseError for an archive or a ComicInfo.xml that cannot be read.
+    """Return (fields, item) of a download as the comicinfo stage reads it.
+
+    The ComicInfo.xml fields valid for the schema ({} without one), and its name's parse, numbered by that Number when
+    the name has none. Raises archive.UNREADABLE or ET.ParseError for an archive or a ComicInfo.xml that cannot be read.
     """
     path = Path(path)
     xml = archive.read_comicinfo(path)

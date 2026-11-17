@@ -1,6 +1,7 @@
-"""Stage publish (SPEC "Chapter stages", "Publishing"): renames the staged CBZ into the series folder, never over a
-library file, and records the published file, the handled chapter and the series' due scan with the rename's
-outcome. The scan itself is `export`'s 1 library scan, after all its publishes.
+"""Stage publish (SPEC "Chapter stages", "Publishing"): renames the staged CBZ into the series folder.
+
+It never renames over a library file, and records the published file, the handled chapter and the series' due scan
+with the rename's outcome. The scan itself is `export`'s 1 library scan, after all its publishes.
 """
 
 import json
@@ -11,9 +12,11 @@ from manga_pipeline.db import sql
 
 
 def row_values(conn, chapter):
-    """{published_file column: value} of a chapter's download as publish records it (a better copy's are applied to
-    its file's row: SPEC "Retroactive updates"): its identity, source, names and the original measurements a later copy
-    of the chapter is judged against (SPEC "Library copies": none for a chapter with no page rows).
+    """Return {published_file column: value} of a chapter's download as publish records it.
+
+    A better copy's are applied to its file's row (SPEC "Retroactive updates"). The values: its identity, source, names
+    and the original measurements a later copy of the chapter is judged against (SPEC "Library copies": none for a
+    chapter with no page rows).
     """
     pages = list(page_store.load(conn, chapter["id"]).values())
     m = measures.summary(pages)
@@ -55,6 +58,11 @@ def row_values(conn, chapter):
 
 
 def run(ctx: workflow.Context, chapter):
+    """Rename the staged CBZ into the series' folder as it is now, never over a library file, and record the result.
+
+    A target already in the library, or one left at another size by a lost staged file, is needs_human; a rename done
+    before a crash carries on. The record: the published file (unconfirmed), the handled chapter, the series' due scan.
+    """
     # The series' folder as it is now (a person may have linked it again since comicinfo named the file): the name
     # comicinfo settled, in that folder.
     folder = db.one_row(ctx.conn, "SELECT folder FROM series WHERE id = %s", (chapter["series_id"],))[0]

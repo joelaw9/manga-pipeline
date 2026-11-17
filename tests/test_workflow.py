@@ -1,5 +1,7 @@
-"""workflow: claim by priority, outcomes, attempt limit, needs_human, share errors, guarded outcome writes, stale
-claims and run records (SPEC "Parts", "State", "Chapter stages").
+"""workflow (SPEC "Parts", "State", "Chapter stages").
+
+Claim by priority, outcomes, attempt limit, needs_human, share errors, guarded outcome writes, stale claims and run
+records.
 """
 
 import errno
@@ -35,7 +37,7 @@ def raises(error):
 
 
 def claimed(ctx, stage="junk"):
-    """A new series' chapter at stage, claimed by ctx's part."""
+    """Add a new series' chapter at stage, claimed by ctx's part; return its row."""
     chapter_id = add_chapter(ctx.conn, add_series(ctx.conn, "S"), "c1", stage)
     row = present(workflow.claim(ctx, (stage,)))
     assert row["id"] == chapter_id
@@ -349,7 +351,10 @@ def test_needs_human_series(ctx, caplog):
 
 
 def meta(ctx):
-    """The run records of ctx's owner (process@<host>), named by part ("process.last_start") for the assertions."""
+    """Return the run records of ctx's owner (process@<host>), named by part ("process.last_start").
+
+    For the assertions.
+    """
     rows = ctx.conn.execute("SELECT * FROM meta WHERE key LIKE %s", (f"{ctx.owner}.%",))
     return {r["key"].replace(ctx.owner, ctx.part, 1): r["value"] for r in rows}
 
@@ -525,8 +530,9 @@ def test_charge_waits_skips_chapters_of_out_of_scope_and_needs_human_series(ctx)
 @budget(load="db")
 @pytest.mark.parametrize("old_scan", [False, True], ids=["current-scan", "scan-before-logos"])
 def test_a_scanned_junk_chapter_waits_while_another_of_its_series_is_unscanned(ctx, old_scan):
-    """A scan without logos ("marks") is no current scan, so its chapter is claimed (to be scanned) before the
-    scanned one is decided.
+    """A scan without logos ("marks") is no current scan.
+
+    So its chapter is claimed (to be scanned) before the scanned one is decided.
     """
     series = add_series(ctx.conn, "S")
     scanned = add_chapter(ctx.conn, series, "a", "junk", "2026-01-01T00:00:00+00:00", content_digest="d1")
