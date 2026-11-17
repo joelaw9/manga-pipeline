@@ -16,6 +16,12 @@ TRACKER_MANGAUPDATES = 7
 KAVITA_ID_FIELDS = {"aniListId": "anilist", "malId": "myanimelist", "mangaBakaId": "mangabaka"}
 UUID_TEXT_LEN = 36  # a UUID's 32 hex digits and 4 hyphens
 KIND_ID_PARTS = 2  # a link path's /<kind>/<id>
+# Sites whose series page is /<kind>/<id>: {host: (kind, source)}
+KIND_ID_SITES = {
+    "anilist.co": ("manga", "anilist"),
+    "myanimelist.net": ("manga", "myanimelist"),
+    "mangadex.org": ("title", "mangadex"),
+}
 
 
 def form(source, value):
@@ -46,24 +52,27 @@ def link_id(url):
     parts = urllib.parse.urlsplit(url.strip())
     host = (parts.hostname or "").removeprefix("www.")
     path = [p for p in parts.path.split("/") if p]
-    if host == "anilist.co" and len(path) >= KIND_ID_PARTS and path[0] == "manga":
-        return _pair("anilist", path[1])
-    if host == "myanimelist.net" and len(path) >= KIND_ID_PARTS and path[0] == "manga":
-        return _pair("myanimelist", path[1])
-    if host == "mangadex.org" and len(path) >= KIND_ID_PARTS and path[0] == "title":
-        return _pair("mangadex", path[1])
-    if host == "mangaupdates.com" and path:
-        if path[0] == "series" and len(path) >= KIND_ID_PARTS:
-            found = mangaupdates_link(path[1])
-            return ("mangaupdates", found) if found else None
-        if path[0] == "series.html":
-            ids = urllib.parse.parse_qs(parts.query).get("id") or [""]
-            found = mangaupdates_link(ids[0])
-            return ("mangaupdates", found) if found else None
+    if host in KIND_ID_SITES:
+        kind, source = KIND_ID_SITES[host]
+        return _pair(source, path[1]) if len(path) >= KIND_ID_PARTS and path[0] == kind else None
+    if host == "mangaupdates.com":
+        return _mangaupdates_page(path, parts.query)
     if host in ("mangabaka.org", "mangabaka.dev"):
         # /<id>[/<slug>] or /<type>/<id>[/<slug>]: the first all-digit part of the first 2
         return next((_pair("mangabaka", p) for p in path[:2] if p.isascii() and p.isdigit()), None)
     return None
+
+
+def _mangaupdates_page(path, query):
+    """(mangaupdates, id) of a MangaUpdates series page: /series/<base-36 id>[/<slug>] or series.html?id=<id>."""
+    if path[:1] == ["series"] and len(path) >= KIND_ID_PARTS:
+        text = path[1]
+    elif path[:1] == ["series.html"]:
+        text = (urllib.parse.parse_qs(query).get("id") or [""])[0]
+    else:
+        return None
+    found = mangaupdates_link(text)
+    return ("mangaupdates", found) if found else None
 
 
 def _pair(source, value):

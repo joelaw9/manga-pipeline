@@ -9,7 +9,7 @@ import pytest
 from manga_pipeline import config, db, intake, process, state
 
 from tests.timing import budget
-from tests.world import World, cbz
+from tests.world import World, bulk_record, cbz
 
 
 @pytest.fixture
@@ -21,7 +21,8 @@ def at_junk(world, *, record=True, name="Chapter 2", data=None, **series):
     """A Kavita series with 2 bulk chapters (record or not) and 1 download of it taken through intake (which takes the
     baseline at validate)."""
     bulk = (("Ch.1.cbz", "Grp_Chapter 1", "1"), ("Ch.1.5 - Extra.cbz", "Grp_Chapter 1.5 - Extra", "1.5"))
-    kavita_id = world.kavita_series("Solo Leveling", record=record, bulk=bulk, **series)
+    series_of = world.kavita_series if record else world.series_without_record
+    kavita_id = series_of("Solo Leveling", bulk=bulk, **series)
     _, path = world.download(world.manga("Solo Leveling"), name, scanlator="Grp", data=data)
     world.run(intake)
     return kavita_id, path
@@ -35,7 +36,7 @@ def test_a_series_without_a_record_holds_its_chapters_until_the_record_parses(wo
     assert ".optimizer.json" in json.loads(data)["why"]
     world.run(intake)
     assert world.rows("SELECT status FROM chapter") == [("waiting",)], "the wait holds while there is no record"
-    world.write_record("Solo Leveling", kavita_id, "Solo Leveling", [])
+    world.write_record("Solo Leveling", bulk_record("Solo Leveling", kavita_id, []))
     world.run(intake)
     assert world.rows("SELECT stage, status FROM chapter") == [("junk", "ready")], "the record ends the wait"
 
@@ -83,7 +84,7 @@ def test_a_download_with_the_pages_of_a_bulk_source_is_put_aside_once_the_baseli
 @budget(load="db")
 def test_a_record_naming_another_series_records_nothing_and_needs_a_human(world):
     kavita_id, _ = at_junk(world, record=False)
-    world.write_record("Some Other Name", kavita_id, "Solo Leveling", [])
+    world.write_record("Solo Leveling", bulk_record("Some Other Name", kavita_id, []))
     world.run(intake)
     ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
     assert status == "needs_human"
@@ -95,7 +96,7 @@ def test_a_record_naming_another_series_records_nothing_and_needs_a_human(world)
 @budget(load="db")
 def test_the_record_name_may_be_a_localized_kavita_name(world):
     kavita_id, _ = at_junk(world, record=False, localized="Na Honjaman Level Up")
-    world.write_record("na honjaman level-up", kavita_id, "Solo Leveling", [])
+    world.write_record("Solo Leveling", bulk_record("na honjaman level-up", kavita_id, []))
     world.run(intake)
     assert world.rows("SELECT comicinfo_series FROM series") == [("na honjaman level-up",)], (
         "the record's name is written exactly, once it normalizes to a Kavita name"

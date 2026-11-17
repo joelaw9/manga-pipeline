@@ -388,61 +388,37 @@ def folder_key(cfg, suwayomi, text):
     return text
 
 
-def link(cfg, conn, suwayomi, kavita, kavita_series_id, *, manga_id=None, folder=None):
-    """`series link` (SPEC "Series identification"): the downloads of the manga (manga_id) or of the hand-placed folder
-    (folder, as the command line gives it) belong to the Kavita series. The row holding that Kavita id, else the
-    subject's held row, else a new row gets its Kavita id, names and folder (refreshed when run again); the subject is
-    linked to it. A held row of the subject (no Kavita id) is merged into the Kavita series' row: its chapters and links
-    move there and it is deleted. workflow.Refused when the manga, the folder or the series does not exist, the series
-    is outside kavita.library_id or has no folder, the subject's row is another Kavita series' row that holds
-    chapters, or the subject's row is an admitted new series (its rows, published files included, are its own).
-    needs_human is left for `retry --series` to clear. Returns the series id."""
+def link_subject(cfg, suwayomi, *, manga_id=None, folder=None):
+    """What `series link` links: the manga (manga_id) or the hand-placed folder (folder, as the command line gives it;
+    folder_key). workflow.Refused when the manga or the folder does not exist."""
     if (manga_id is None) == (folder is None):
         msg = "link takes a manga_id or a folder"
         raise ValueError(msg)
     if folder is not None:
-        subject = _folder_subject(folder_key(cfg, suwayomi, folder))
-    else:
-        manga = suwayomi.manga(manga_id)
-        if manga is None:
-            msg = f"Suwayomi holds no manga {manga_id}"
-            raise workflow.Refused(msg)
-        subject = _manga_subject(manga)
-    found = kavita.series(kavita_series_id)
-    if found is None:
-        msg = f"Kavita holds no series {kavita_series_id}"
+        return _folder_subject(folder_key(cfg, suwayomi, folder))
+    manga = suwayomi.manga(manga_id)
+    if manga is None:
+        msg = f"Suwayomi holds no manga {manga_id}"
         raise workflow.Refused(msg)
-    if found["libraryId"] != cfg["kavita"]["library_id"]:
-        msg = (
-            f"Kavita series {kavita_series_id} is in library {found['libraryId']}, not kavita.library_id "
-            f"{cfg['kavita']['library_id']}"
-        )
-        raise workflow.Refused(msg)
+    return _manga_subject(manga)
+
+
+def link(cfg, conn, kavita, kavita_series_id, subject):
+    """`series link` (SPEC "Series identification"): the downloads of the subject (a manga or a hand-placed folder:
+    link_subject) belong to the Kavita series. The row holding that Kavita id, else the subject's held row, else a
+    new row gets its Kavita id, names and folder (refreshed when run again); the subject is linked to it. A held row of
+    the subject (no Kavita id) is merged into the Kavita series' row: its chapters and links move there and it is
+    deleted. workflow.Refused when the series does not exist, is outside kavita.library_id or has no folder, the
+    subject's row is another Kavita series' row that holds chapters, or the subject's row is an admitted new series (its
+    rows, published files included, are its own). needs_human is left for `retry --series` to clear. Returns the series
+    id."""
+    found = _kavita_series(cfg, kavita, kavita_series_id)
     try:
         series_dir = kavita_link.library_folder(cfg, kavita.series_folder(kavita_series_id))
     except (kavita_client.FolderError, config.PathError) as e:
         raise workflow.Refused(str(e)) from None
     with db.transaction(conn):
-        by_kavita = conn.execute("SELECT id FROM series WHERE kavita_series_id = %s", (kavita_series_id,)).fetchone()
-        by_manga = subject.linked(conn, sql.SQL("s.id, s.kavita_series_id, s.origin, s.admitted_at"))
-        if by_manga and by_manga["origin"] == "new" and by_manga["admitted_at"] is not None:
-            msg = (
-                f"{subject.label} is linked to series {by_manga['id']}, a new series admitted under its own name: "
-                f"it is not moved to another series"
-            )
-            raise workflow.Refused(msg)
-        other_kavita = by_manga and by_manga["kavita_series_id"] not in (None, kavita_series_id)
-        if other_kavita and conn.execute("SELECT 1 FROM chapter WHERE series_id = %s", (by_manga["id"],)).fetchone():
-            msg = (
-                f"{subject.label} is linked to series {by_manga['id']} (Kavita {by_manga['kavita_series_id']}), "
-                f"which has chapters: they are not moved to another Kavita series"
-            )
-            raise workflow.Refused(msg)
-        if by_kavita and by_manga and by_manga["kavita_series_id"] is None:
-            _merge_held(conn, by_manga["id"], by_kavita[0])
-        if other_kavita:
-            by_manga = None  # its row stays the other series'; the manga or folder alone moves
-        series_id = (by_kavita or by_manga or [None])[0]
+        series_id = _link_row(conn, subject, kavita_series_id)
         values = (
             found["name"],
             kavita_series_id,
@@ -469,6 +445,47 @@ def link(cfg, conn, suwayomi, kavita, kavita_series_id, *, manga_id=None, folder
         subject.write_link(conn, series_id)
     log.info("%s linked to series %s (Kavita %s)", subject.label, series_id, kavita_series_id)
     return series_id
+
+
+def _kavita_series(cfg, kavita, kavita_series_id):
+    """The Kavita series link names; workflow.Refused when Kavita holds none or it is outside kavita.library_id."""
+    found = kavita.series(kavita_series_id)
+    if found is None:
+        msg = f"Kavita holds no series {kavita_series_id}"
+        raise workflow.Refused(msg)
+    if found["libraryId"] != cfg["kavita"]["library_id"]:
+        msg = (
+            f"Kavita series {kavita_series_id} is in library {found['libraryId']}, not kavita.library_id "
+            f"{cfg['kavita']['library_id']}"
+        )
+        raise workflow.Refused(msg)
+    return found
+
+
+def _link_row(conn, subject, kavita_series_id):
+    """The id of the series row the link takes (inside link's transaction): the row holding the Kavita id (a held row
+    of the subject merged into it), else the subject's row, else None (a new row). workflow.Refused for an admitted new
+    series, or another Kavita series' row that holds chapters."""
+    by_kavita = conn.execute("SELECT id FROM series WHERE kavita_series_id = %s", (kavita_series_id,)).fetchone()
+    by_manga = subject.linked(conn, sql.SQL("s.id, s.kavita_series_id, s.origin, s.admitted_at"))
+    if by_manga and by_manga["origin"] == "new" and by_manga["admitted_at"] is not None:
+        msg = (
+            f"{subject.label} is linked to series {by_manga['id']}, a new series admitted under its own name: "
+            f"it is not moved to another series"
+        )
+        raise workflow.Refused(msg)
+    other_kavita = by_manga and by_manga["kavita_series_id"] not in (None, kavita_series_id)
+    if other_kavita and conn.execute("SELECT 1 FROM chapter WHERE series_id = %s", (by_manga["id"],)).fetchone():
+        msg = (
+            f"{subject.label} is linked to series {by_manga['id']} (Kavita {by_manga['kavita_series_id']}), "
+            f"which has chapters: they are not moved to another Kavita series"
+        )
+        raise workflow.Refused(msg)
+    if by_kavita and by_manga and by_manga["kavita_series_id"] is None:
+        _merge_held(conn, by_manga["id"], by_kavita[0])
+    if other_kavita:
+        by_manga = None  # its row stays the other series'; the manga or folder alone moves
+    return (by_kavita or by_manga or [None])[0]
 
 
 def _merge_held(conn, held_id, series_id):

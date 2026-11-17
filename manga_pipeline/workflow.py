@@ -191,7 +191,19 @@ def after(stamp, delta):
     return (datetime.fromisoformat(stamp) + delta).isoformat(timespec="seconds")
 
 
-def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, *, source, source_url):
+@dataclass(frozen=True)
+class NewChapter:
+    """A discovered download, as add_chapter records it. The Suwayomi fields are None for a hand-placed one."""
+
+    series_id: int
+    identity: str  # names.identity's JSON
+    download_path: str  # stored form
+    suwayomi_chapter_id: int | None
+    source: str | None  # the Suwayomi source's display name
+    source_url: str | None  # the chapter's page at its source
+
+
+def add_chapter(conn, new: NewChapter):
     """Record a discovered download as a chapter ready at the first stage; runs inside the caller's transaction."""
     if not db.in_transaction(conn):
         msg = "add_chapter runs inside the caller's transaction"
@@ -201,7 +213,17 @@ def add_chapter(conn, series_id, identity, download_path, suwayomi_chapter_id, *
         """INSERT INTO chapter (series_id, kind, identity, download_path, suwayomi_chapter_id, source, source_url,
             stage, status, discovered_at, updated_at)
         VALUES (%s, 'download', %s, %s, %s, %s, %s, %s, 'ready', %s, %s)""",
-        (series_id, identity, download_path, suwayomi_chapter_id, source, source_url, STAGES[0], stamp, stamp),
+        (
+            new.series_id,
+            new.identity,
+            new.download_path,
+            new.suwayomi_chapter_id,
+            new.source,
+            new.source_url,
+            STAGES[0],
+            stamp,
+            stamp,
+        ),
     )
 
 
@@ -347,15 +369,26 @@ def work(ctx: Context, chapter, stage):
     if not isinstance(outcome, OUTCOMES):
         msg = f"stage {stage.__module__}.{stage.__name__} returned {outcome!r}, not an outcome"
         raise TypeError(msg)
+    outcome, recorded = _record_outcome(ctx, chapter, outcome)
+    if recorded:  # else _finish logged that it was dropped
+        _count(ctx, chapter, outcome)
+    return outcome
+
+
+def _record_outcome(ctx: Context, chapter, outcome):
+    """(the outcome recorded, whether it was: false when dropped). An outcome whose own writes fail is recorded as
+    Failed in its place."""
     try:
-        recorded = _finish(ctx, chapter, outcome)
+        return outcome, _finish(ctx, chapter, outcome)
     except Exception as e:
         if not (isinstance(outcome, RECORDED) and outcome.record):
             raise
-        outcome = Failed(f"recording the outcome: {type(e).__name__}: {e}")
-        recorded = _finish(ctx, chapter, outcome)
-    if not recorded:
-        return outcome  # _finish logged that it was dropped
+        failed = Failed(f"recording the outcome: {type(e).__name__}: {e}")
+        return failed, _finish(ctx, chapter, failed)
+
+
+def _count(ctx: Context, chapter, outcome):
+    """Count a recorded outcome in the run and log its 1 line (needs_human logged its own reason)."""
     if isinstance(outcome, Failed):
         ctx.failed.add(chapter["id"])
         ctx.counts["failed"] += 1
@@ -374,7 +407,6 @@ def work(ctx: Context, chapter, stage):
     else:
         ctx.counts["done"] += 1
         log.info("%s: %s done", ctx.part, _name(chapter))
-    return outcome
 
 
 def _name(chapter):

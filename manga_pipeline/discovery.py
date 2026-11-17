@@ -120,7 +120,7 @@ def _entries(folder, dirs):
 
 
 def _manga_downloads(ctx: workflow.Context, manga, paths, kavita_series):
-    """([(path, reason)] not taken, [new chapter fields]) for 1 manga's downloads."""
+    """([(path, reason)] not taken, [workflow.NewChapter]) for 1 manga's downloads."""
     series = identify.series_for(ctx, manga, kavita_series)
     if isinstance(series, identify.NotTaken):
         return ([(p, series.reason) for p in paths] if series.listed else []), []
@@ -141,7 +141,7 @@ def _manga_downloads(ctx: workflow.Context, manga, paths, kavita_series):
 
 
 def _folder_downloads(ctx: workflow.Context, folder, paths, kavita_series):
-    """([(path, reason)] not taken, [new chapter fields]) for a hand-placed folder's downloads."""
+    """([(path, reason)] not taken, [workflow.NewChapter]) for a hand-placed folder's downloads."""
     series = identify.series_for_folder(ctx, folder, paths, kavita_series)
     if isinstance(series, identify.NotTaken):
         return ([(p, series.reason) for p in paths] if series.listed else []), []
@@ -152,7 +152,7 @@ def _found(ctx: workflow.Context, series, path, chapter, source):
     """chapter: the Suwayomi chapter the file rebuilds to, None for a hand-placed one."""
     identity = names.identity(names.parse(path.stem))
     chapter_id, url = (chapter["id"], chapter["realUrl"] or None) if chapter else (None, None)
-    return series["id"], identity, config.to_stored(ctx.cfg, path), chapter_id, source, url
+    return workflow.NewChapter(series["id"], identity, config.to_stored(ctx.cfg, path), chapter_id, source, url)
 
 
 def _record(ctx: workflow.Context, found, unmatched):
@@ -160,15 +160,15 @@ def _record(ctx: workflow.Context, found, unmatched):
     stamp = workflow.now(ctx.conn)
     with db.transaction(ctx.conn):
         added = 0
-        for series_id, identity, path, chapter_id, source, url in found:
+        for new in found:
             open_ = ctx.conn.execute(
-                "SELECT 1 FROM chapter WHERE download_path = %s AND status != 'done'", (path,)
+                "SELECT 1 FROM chapter WHERE download_path = %s AND status != 'done'", (new.download_path,)
             ).fetchone()
             # Checked after the row: confirm moves a download away before its chapter is done, so a file still here
             # once its chapter reads done is a new download, not one an export confirmed since the listing.
-            if not open_ and errors.exists(config.to_local(ctx.cfg, path)):
-                workflow.add_chapter(ctx.conn, series_id, identity, path, chapter_id, source=source, source_url=url)
-                check.make_urgent(ctx.conn, series_id)  # a new chapter makes its series' check due at once
+            if not open_ and errors.exists(config.to_local(ctx.cfg, new.download_path)):
+                workflow.add_chapter(ctx.conn, new)
+                check.make_urgent(ctx.conn, new.series_id)  # a new chapter makes its series' check due at once
                 added += 1
         seen = dict(ctx.conn.execute("SELECT path, first_seen FROM unmatched_download").fetchall())
         ctx.conn.execute("DELETE FROM unmatched_download")

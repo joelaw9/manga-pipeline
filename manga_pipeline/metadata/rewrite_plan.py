@@ -189,7 +189,7 @@ def _fmt(volume):
     return "" if volume is None else names.fmt_num(volume)
 
 
-def _reopened(basis, rows, overrides, mangadex, platform, *, ids):
+def _reopened(basis, rows, overrides, mangadex, platform, *, ids):  # noqa: PLR0913  # the resolver's inputs: 1 place resolves the reopened rows for changes and differences
     """{key: naming.Naming} of the rows with ids as the resolver names them reopened (no volume), beside the others as
     they are: changes and differences read them the same way. Its inputs are the resolver's own (naming.resolve)."""
     if not ids:

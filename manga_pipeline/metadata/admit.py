@@ -31,11 +31,33 @@ def run(ctx: workflow.Context, listing):
     ).fetchall()
     if not pending:
         return
-    kavita_keys = {normalize(n): s for s in listing for n in series_names(s) if normalize(n)}
-    root = config.abs_path(cfg["paths"]["library"])
-    on_disk = [p.name for p in root.iterdir()]
+    library = _Library(listing, config.abs_path(cfg["paths"]["library"]))
     for series in pending:
-        _admit(ctx, series, kavita_keys, on_disk, root)
+        _admit(ctx, series, library)
+
+
+class _Library:
+    """The names in the library a new series' name must not clash with: its series' names as Kavita normalises them,
+    and the folders under its root (read once per admission run)."""
+
+    def __init__(self, listing, root):
+        self.root = root
+        self._kavita_keys = {normalize(n): s for s in listing for n in series_names(s) if normalize(n)}
+        self._on_disk = [p.name for p in root.iterdir()]
+
+    def series_clash(self, key):
+        """Why a Kavita series holds the name of normalised key, or None."""
+        if key not in self._kavita_keys:
+            return None
+        found = self._kavita_keys[key]
+        return f"Kavita series {found['id']} ({found['name']}) has that name"
+
+    def folder_clash(self, key, safe):
+        """Why a folder under the root holds the name (of normalised key, safe folder name), or None."""
+        for folder in self._on_disk:
+            if folder.casefold() == safe.casefold() or normalize(folder) == key:
+                return f"the library already has a folder {folder!r}"
+        return None
 
 
 def name_for(conn, series):
@@ -51,12 +73,12 @@ def name_for(conn, series):
     return english or series["alt_name"] or series["name"]
 
 
-def _admit(ctx: workflow.Context, series, kavita_keys, on_disk, root):
+def _admit(ctx: workflow.Context, series, library):
     conn = ctx.conn
     name = name_for(conn, series)
     safe = names.folder_name(name)
     with db.transaction(conn):
-        clash = _clash(conn, series, name, safe, kavita_keys=kavita_keys, on_disk=on_disk)
+        clash = _clash(conn, series, name, safe, library)
         if clash:
             workflow.needs_human(
                 conn, "series", series["id"], f"new series {name!r}: {clash} -> series new {series['id']} --name NAME"
@@ -64,7 +86,7 @@ def _admit(ctx: workflow.Context, series, kavita_keys, on_disk, root):
         else:
             conn.execute(
                 "UPDATE series SET comicinfo_series = %s, folder = %s, admitted_at = %s WHERE id = %s",
-                (name, config.to_stored(ctx.cfg, root / safe), workflow.now(conn), series["id"]),
+                (name, config.to_stored(ctx.cfg, library.root / safe), workflow.now(conn), series["id"]),
             )
     if clash:
         log.warning("series %s (%s): not admitted: %s", series["id"], series["name"], clash)
@@ -72,7 +94,7 @@ def _admit(ctx: workflow.Context, series, kavita_keys, on_disk, root):
         log.info("series %s (%s): admitted as new series %r, folder %r", series["id"], series["name"], name, safe)
 
 
-def _clash(conn, series, name, safe, *, kavita_keys, on_disk):
+def _clash(conn, series, name, safe, library):
     """Why the name cannot be the series', or None (inside the admission's transaction, so 2 admissions never both
     take a name)."""
     if not safe:
@@ -80,9 +102,11 @@ def _clash(conn, series, name, safe, *, kavita_keys, on_disk):
     key = normalize(name)
     if not key:
         return "its name has no letter or digit Kavita keeps"
-    if key in kavita_keys:
-        found = kavita_keys[key]
-        return f"Kavita series {found['id']} ({found['name']}) has that name"
+    return library.series_clash(key) or _new_series_clash(conn, series, key) or library.folder_clash(key, safe)
+
+
+def _new_series_clash(conn, series, key):
+    """Why another new series Kavita does not hold yet has the name of normalised key, or None."""
     others = conn.execute(
         """SELECT id, comicinfo_series FROM series
         WHERE origin = 'new' AND kavita_series_id IS NULL AND comicinfo_series IS NOT NULL AND id <> %s""",
@@ -91,7 +115,4 @@ def _clash(conn, series, name, safe, *, kavita_keys, on_disk):
     for other in others:
         if normalize(other["comicinfo_series"]) == key:
             return f"new series {other['id']} ({other['comicinfo_series']}) has that name"
-    for folder in on_disk:
-        if folder.casefold() == safe.casefold() or normalize(folder) == key:
-            return f"the library already has a folder {folder!r}"
     return None

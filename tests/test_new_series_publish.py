@@ -170,7 +170,7 @@ def test_after_the_rescan_window_a_published_series_still_waits_for_its_id(world
 def test_a_listed_series_of_its_name_in_another_folder_is_neither_attached_nor_a_row(world):
     sid, _ = ready(world)
     world.run(export)
-    world.kavita_series("Brand New Thing", folder="Elsewhere", record=False)
+    world.series_without_record("Brand New Thing", folder="Elsewhere")
     world.run(intake)
     assert world.rows("SELECT id, kavita_series_id FROM series") == [(sid, None)], "folder decides; no second row"
     second = world.suwayomi.add_manga("Brand New Thing", world.suwayomi.add_source("Other"))

@@ -35,7 +35,7 @@ def world(tmp_path):
     return w
 
 
-def published_copy(
+def published_copy(  # noqa: PLR0913  # 1 published_file row's varied columns
     world,
     source=BEST,
     pages_in=3,

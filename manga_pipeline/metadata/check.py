@@ -231,45 +231,51 @@ def _store_platform(conn, series_id, platform, now):
 def _fetch(clients, names, known):
     """Every source's records, {(source, kind): payload or None}; known grows with each search hit (origin search)
     and each record's cross-links. Disagree as soon as 2 ids of a source differ."""
-
-    def agreed():
-        result, problem = ids.resolve(known)
-        if problem:
-            raise Disagree(problem)
-        return result
-
-    def learn(source, origin, pairs):
-        known.extend((s, origin, v) for s, v in pairs if s != source)
-
-    def id_for(source, searcher):
-        value = agreed().get(source)
-        if value is None:
-            value = searcher()
-            if value is not None:
-                known.append((source, "search", value))
-                agreed()
-        return value
-
     records = {(source, kind): None for source, kinds in KINDS.items() for kind in kinds}
-    mb_id = id_for("mangabaka", lambda: search.mangabaka(clients.mangabaka, names, agreed()))
+    mb_id = _id_for(known, "mangabaka", lambda: search.mangabaka(clients.mangabaka, names, _agreed(known)))
     if mb_id is not None and (record := _comic(clients.mangabaka.series(mb_id), "type", "novel", mb_id)) is not None:
         records[("mangabaka", "series")] = record
-        learn("mangabaka", "mangabaka", ids.mangabaka_ids(record))
-    mu_id = id_for("mangaupdates", lambda: search.mangaupdates(clients.mangaupdates, names))
+        _learn(known, "mangabaka", ids.mangabaka_ids(record))
+    mu_id = _id_for(known, "mangaupdates", lambda: search.mangaupdates(clients.mangaupdates, names))
     if mu_id is not None:
         records[("mangaupdates", "series")] = _comic(clients.mangaupdates.series(mu_id), "type", "novel", mu_id)
-    md_id = id_for("mangadex", lambda: search.mangadex(clients.mangadex, names, agreed()))
+    md_id = _id_for(known, "mangadex", lambda: search.mangadex(clients.mangadex, names, _agreed(known)))
     if md_id is not None and (record := clients.mangadex.manga(md_id)) is not None:
         records[("mangadex", "manga")] = record
         records[("mangadex", "aggregate")] = clients.mangadex.aggregate(md_id)
         records[("mangadex", "covers")] = clients.mangadex.covers(md_id)
-        learn("mangadex", "mangadex", ids.mangadex_ids(record))
-    al_id = id_for("anilist", lambda: search.anilist(clients.anilist, names))
+        _learn(known, "mangadex", ids.mangadex_ids(record))
+    al_id = _id_for(known, "anilist", lambda: search.anilist(clients.anilist, names))
     if al_id is not None and (record := _comic(clients.anilist.media(al_id), "format", "novel", al_id)) is not None:
         records[("anilist", "media")] = record
-        learn("anilist", "anilist", ids.anilist_ids(record))
-    agreed()
+        _learn(known, "anilist", ids.anilist_ids(record))
+    _agreed(known)
     return records
+
+
+def _agreed(known):
+    """Each source's id the known ids agree on (ids.resolve); Disagree when 2 ids of a source differ."""
+    result, problem = ids.resolve(known)
+    if problem:
+        raise Disagree(problem)
+    return result
+
+
+def _id_for(known, source, searcher):
+    """The source's agreed id, else the id searcher() finds (then known as a search hit, and checked to agree), else
+    None."""
+    value = _agreed(known).get(source)
+    if value is None:
+        value = searcher()
+        if value is not None:
+            known.append((source, "search", value))
+            _agreed(known)
+    return value
+
+
+def _learn(known, source, pairs):
+    """A source's record's cross-links (other sources' ids, by that source's origin) join known."""
+    known.extend((s, source, v) for s, v in pairs if s != source)
 
 
 def _comic(record, field, novel, source_id):

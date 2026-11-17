@@ -34,13 +34,9 @@ from manga_pipeline.metadata import check, covers
 
 
 def run(ctx: workflow.Context, chapter):
-    series = _series(ctx, chapter)
-    if baseline.needed(ctx.conn, series):
-        why = baseline.take(ctx, series)
-        if why:
-            return workflow.Waiting("bulk_conversion", {"why": why})
-    if not check.completed(ctx, chapter):
-        return workflow.Waiting("metadata_check")
+    waits = _prerequisites(ctx, chapter)
+    if waits is not None:
+        return waits
     state = redownload.load(chapter)
     if state is None:
         verdict = _check(ctx, chapter, chapter["download_path"])
@@ -49,33 +45,62 @@ def run(ctx: workflow.Context, chapter):
         if verdict.kind == "human":
             return workflow.NeedsHuman(verdict.reason)
         state = _reject(ctx, chapter, redownload.new_state(ctx, chapter, {}), _own(chapter), verdict.reason)
-    elif "original" not in state:  # chapter use on a chapter never rejected: its file in hand, if any, gives way
-        state = redownload.new_state(ctx, chapter, state)
-        if errors.exists(config.to_local(ctx.cfg, chapter["download_path"])):
-            state = _reject(ctx, chapter, state, _own(chapter), "replaced by the download a person chose")
-        else:
-            redownload.save(ctx, chapter, state)
+    elif "original" not in state:
+        state = _first_choice(ctx, chapter, state)
     if state["expected"] is not None:
         outcome = _candidate(ctx, chapter, state)
         if outcome is not None:
             return outcome
     redownload.remove(ctx, chapter, state)
+    return _next_download(ctx, chapter, state)
+
+
+def _prerequisites(ctx: workflow.Context, chapter):
+    """The wait of a chapter whose series lacks what its names and covers need, else None: the baseline of a series
+    Kavita holds (bulk_conversion while its record cannot be read), then a completed metadata check."""
+    series = _series(ctx, chapter)
+    if baseline.needed(ctx.conn, series):
+        why = baseline.take(ctx, series)
+        if why:
+            return workflow.Waiting("bulk_conversion", {"why": why})
+    if not check.completed(ctx, chapter):
+        return workflow.Waiting("metadata_check")
+    return None
+
+
+def _first_choice(ctx: workflow.Context, chapter, state):
+    """The re-download state of `chapter use` on a chapter never rejected: its file in hand, if any, gives way."""
+    state = redownload.new_state(ctx, chapter, state)
+    if errors.exists(config.to_local(ctx.cfg, chapter["download_path"])):
+        return _reject(ctx, chapter, state, _own(chapter), "replaced by the download a person chose")
+    redownload.save(ctx, chapter, state)
+    return state
+
+
+def _next_download(ctx: workflow.Context, chapter, state):
+    """Queue the next download, the one chosen with chapter use else the next pick, and wait on it; the pick's outcome
+    when it gives none, needs_human for a refused choice."""
     if state["chosen"] is not None:
-        found = redownload.target(ctx, state["chosen"])
-        # a refused choice stays recorded: retry clears it, another chapter use replaces it
-        if found is None:
-            return workflow.NeedsHuman("the Suwayomi chapter chosen with chapter use does not exist")
-        if redownload.held_elsewhere(ctx, chapter, found):
-            return workflow.NeedsHuman(
-                "the Suwayomi chapter chosen with chapter use is another open chapter's download"
-            )
-        found["chosen"] = True  # enqueue clears it with the expected download, so an interruption keeps the choice
+        found = _chosen(ctx, chapter, state["chosen"])
     else:
         found = redownload.pick(ctx, chapter, _series(ctx, chapter), state)
-        if not isinstance(found, dict):
-            return found
+    if not isinstance(found, dict):
+        return found
     redownload.enqueue(ctx, chapter, state, found)
     return _waiting(found)
+
+
+def _chosen(ctx: workflow.Context, chapter, chapter_id):
+    """The Suwayomi chapter chosen with chapter use as a target, marked chosen; needs_human when it does not exist or
+    is another open chapter's download (a refused choice stays recorded: retry clears it, another chapter use replaces
+    it)."""
+    found = redownload.target(ctx, chapter_id)
+    if found is None:
+        return workflow.NeedsHuman("the Suwayomi chapter chosen with chapter use does not exist")
+    if redownload.held_elsewhere(ctx, chapter, found):
+        return workflow.NeedsHuman("the Suwayomi chapter chosen with chapter use is another open chapter's download")
+    found["chosen"] = True  # enqueue clears it with the expected download, so an interruption keeps the choice
+    return found
 
 
 def _waiting(expected):

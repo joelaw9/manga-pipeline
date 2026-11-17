@@ -37,7 +37,9 @@ def scan(world):
 
 def link(world, kavita_id, folder):
     with closing(db.connect(world.cfg)) as conn:
-        return identify.link(world.cfg, conn, world.suwayomi, world.kavita, kavita_id, folder=folder)
+        return identify.link(
+            world.cfg, conn, world.kavita, kavita_id, identify.link_subject(world.cfg, world.suwayomi, folder=folder)
+        )
 
 
 def chapters(world):

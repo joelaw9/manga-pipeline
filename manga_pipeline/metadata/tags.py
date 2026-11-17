@@ -161,42 +161,48 @@ def _lines(text):
 
 
 def _derived(entries, table):
-    def keys(terms, tag):
-        if not isinstance(terms, list) or not all(isinstance(t, str) for t in terms):
-            msg = f"derived_tags.yaml: {tag}: not a list of names: {terms!r}"
-            raise ValueError(msg)
-        return {k for k in (_canonical_key(t, table) for t in terms) if k}
-
     if not isinstance(entries, list):
         msg = "derived_tags.yaml: not a list of entries"
         raise ValueError(msg)
-    derived = []
-    for entry in entries:
-        if not isinstance(entry, dict) or set(entry) - {"tag", "kind", "rules"} or not entry.get("tag"):
-            msg = f"derived_tags.yaml: not an entry of tag, kind and rules: {entry!r}"
-            raise ValueError(msg)
-        tag, kind, rules = entry["tag"], entry.get("kind") or "tag", entry.get("rules")
-        if not isinstance(tag, str) or not isinstance(kind, str) or kind.lower() not in ("tag", "genre"):
-            msg = f"derived_tags.yaml: {tag!r}: tag must be a name and kind tag or genre"
-            raise ValueError(msg)
-        kind = kind.lower()
-        if not isinstance(rules, list) or not rules:
-            msg = f"derived_tags.yaml: {tag}: needs a list of rules"
-            raise ValueError(msg)
-        parsed = []
-        for rule in rules:
-            groups = rule.get("all") if isinstance(rule, dict) else None
-            if set(rule if isinstance(rule, dict) else ()) - {"all", "none"} or not isinstance(groups, list):
-                msg = f"derived_tags.yaml: {tag}: a rule is all (a list of groups) and none: {rule!r}"
-                raise ValueError(msg)
-            if not groups or not all(isinstance(g, list) and g for g in groups):
-                msg = f"derived_tags.yaml: {tag}: a rule needs at least 1 group, each with a term: {rule!r}"
-                raise ValueError(msg)
-            parsed.append(
-                {"all": [keys(group, tag) for group in rule["all"]], "none": keys(rule.get("none") or [], tag)}
-            )
-        derived.append({"tag": tag, "kind": kind, "rules": parsed})
-    return derived
+    return [_derived_entry(entry, table) for entry in entries]
+
+
+def _derived_entry(entry, table):
+    """1 derived_tags.yaml entry as {tag, kind, rules}; ValueError naming what is wrong with it."""
+    if not isinstance(entry, dict) or set(entry) - {"tag", "kind", "rules"} or not entry.get("tag"):
+        msg = f"derived_tags.yaml: not an entry of tag, kind and rules: {entry!r}"
+        raise ValueError(msg)
+    tag, kind, rules = entry["tag"], entry.get("kind") or "tag", entry.get("rules")
+    if not isinstance(tag, str) or not isinstance(kind, str) or kind.lower() not in ("tag", "genre"):
+        msg = f"derived_tags.yaml: {tag!r}: tag must be a name and kind tag or genre"
+        raise ValueError(msg)
+    if not isinstance(rules, list) or not rules:
+        msg = f"derived_tags.yaml: {tag}: needs a list of rules"
+        raise ValueError(msg)
+    return {"tag": tag, "kind": kind.lower(), "rules": [_derived_rule(rule, tag, table) for rule in rules]}
+
+
+def _derived_rule(rule, tag, table):
+    """1 rule of the entry for tag as {all: [term key sets], none: term key set}; ValueError naming what is wrong."""
+    groups = rule.get("all") if isinstance(rule, dict) else None
+    if set(rule if isinstance(rule, dict) else ()) - {"all", "none"} or not isinstance(groups, list):
+        msg = f"derived_tags.yaml: {tag}: a rule is all (a list of groups) and none: {rule!r}"
+        raise ValueError(msg)
+    if not groups or not all(isinstance(g, list) and g for g in groups):
+        msg = f"derived_tags.yaml: {tag}: a rule needs at least 1 group, each with a term: {rule!r}"
+        raise ValueError(msg)
+    return {
+        "all": [_rule_keys(group, tag, table) for group in rule["all"]],
+        "none": _rule_keys(rule.get("none") or [], tag, table),
+    }
+
+
+def _rule_keys(terms, tag, table):
+    """A rule's list of terms as their canonical keys; ValueError when it is not a list of names."""
+    if not isinstance(terms, list) or not all(isinstance(t, str) for t in terms):
+        msg = f"derived_tags.yaml: {tag}: not a list of names: {terms!r}"
+        raise ValueError(msg)
+    return {k for k in (_canonical_key(t, table) for t in terms) if k}
 
 
 def _promoted(lines, table):
@@ -331,9 +337,17 @@ def _top_up(genres, tags, mb, rules, mu_categories):
     """(genres, tags) to add toward MIN_GENRES / MIN_TAGS from MangaBaka's genres and weighted tags, then MangaUpdates
     categories MangaBaka lacks; only names in the allowlists, never excluded ones. Allowlisted tags, and tags the
     table makes genres, are added past the minimum too, at a strong weight only."""
-    mb = mb or {}
+    cand_g, cand_t = _top_up_candidates(mb or {}, rules, mu_categories)
+    have_g = {term_key(g) for g in genres}
+    genre_keys = _top_up_genres(cand_g, have_g, rules)
+    tag_keys = _top_up_tags(cand_t, {term_key(t) for t in tags}, have_g | set(genre_keys), rules)
+    return [rules.allow_genres[k] for k in genre_keys], [rules.allow_tags[k] for k in tag_keys]
+
+
+def _top_up_candidates(mb, rules, mu_categories):
+    """([(genre, weight)], [(tag, weight)]) a top-up may take, in order: MangaBaka's genres, its strong tags (strongest
+    first), then MangaUpdates categories MangaBaka has no tag for; each as the table names it, removed ones left out."""
     table = rules.table
-    have_g, have_t = {term_key(g) for g in genres}, {term_key(t) for t in tags}
     cand_g, cand_t = [], []
 
     def candidate(name, kind, weight="unweighted", skip=()):
@@ -357,19 +371,32 @@ def _top_up(genres, tags, mb, rules, mu_categories):
     mb_keys = {_canonical_key(t["name"], table) for t in mb.get("tags_v2") or []}
     for name in mu_categories:
         candidate(name, "tag", skip=mb_keys)
-    add_g, add_t = [], []
-    for name, w in cand_g:
+    return cand_g, cand_t
+
+
+def _top_up_genres(candidates, have, rules):
+    """The keys of the allowlisted, not excluded genres the top-up adds, in order: up to MIN_GENRES held, past it at a
+    strong weight only."""
+    have, added = set(have), []
+    for name, w in candidates:
         key = term_key(name)
-        if len(have_g) >= MIN_GENRES and w not in PAST_MIN_WEIGHTS:
+        if len(have) >= MIN_GENRES and w not in PAST_MIN_WEIGHTS:
             continue
-        if key in rules.allow_genres and key not in have_g and key not in rules.exclude:
-            add_g.append(rules.allow_genres[key])
-            have_g.add(key)
-    for name, w in cand_t:
+        if key in rules.allow_genres and key not in have and key not in rules.exclude:
+            added.append(key)
+            have.add(key)
+    return added
+
+
+def _top_up_tags(candidates, have, genre_keys, rules):
+    """The keys of the allowlisted, not excluded tags the top-up adds, in order, none a genre (genre_keys: held and
+    added): up to MIN_TAGS held, past it an always-added tag at a strong weight only."""
+    have, added = set(have), []
+    for name, w in candidates:
         key = term_key(name)
-        if len(have_t) >= MIN_TAGS and (key not in rules.always_tags or w not in PAST_MIN_WEIGHTS):
+        if len(have) >= MIN_TAGS and (key not in rules.always_tags or w not in PAST_MIN_WEIGHTS):
             continue
-        if key in rules.allow_tags and key not in have_t and key not in have_g and key not in rules.exclude:
-            add_t.append(rules.allow_tags[key])
-            have_t.add(key)
-    return add_g, add_t
+        if key in rules.allow_tags and key not in have and key not in genre_keys and key not in rules.exclude:
+            added.append(key)
+            have.add(key)
+    return added

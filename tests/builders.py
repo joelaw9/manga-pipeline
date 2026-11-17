@@ -99,15 +99,16 @@ def add_series(conn, name, origin="new", status="ok", kavita_library_id=None):
     return series_id
 
 
-def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None, *, download_path=None, **columns):
-    """A ready chapter at stage (discovered_at defaults to now); columns set other chapter columns as given."""
+def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None, **columns):
+    """A ready chapter at stage (discovered_at defaults to now); columns set other chapter columns (download_path
+    among them) as given."""
     stamp = discovered_at or workflow.now(conn)
     with db.transaction(conn):
         chapter_id = one(
             conn,
-            """INSERT INTO chapter (series_id, kind, identity, download_path, stage, status, discovered_at, updated_at)
-            VALUES (%s, 'download', %s, %s, %s, 'ready', %s, %s) RETURNING id""",
-            (series_id, identity, download_path, stage, stamp, stamp),
+            """INSERT INTO chapter (series_id, kind, identity, stage, status, discovered_at, updated_at)
+            VALUES (%s, 'download', %s, %s, 'ready', %s, %s) RETURNING id""",
+            (series_id, identity, stage, stamp, stamp),
         )
         if columns:
             assignments = sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(name)) for name in columns)
