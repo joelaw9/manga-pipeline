@@ -37,7 +37,10 @@ PORT_MAX = 65535  # the highest TCP port
 
 
 class SchemaError(RuntimeError):
-    """The database's schema steps are not this program's: an unknown step, one that refuses it, or a missing record."""
+    """The database's schema steps are not this program's.
+
+    An unknown step, one that refuses it, a missing record, or (read_only) steps not applied yet.
+    """
 
 
 class CannotConnectError(RuntimeError):

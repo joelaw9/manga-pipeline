@@ -147,7 +147,10 @@ class Ready:
 
 @dataclass(frozen=True)
 class Failed:
-    """The stage failed: 1 attempt and its error recorded; the chapter is ready again after RETRY_PAUSE."""
+    """The stage failed: 1 attempt and its error recorded.
+
+    The chapter is ready again after RETRY_PAUSE, or needs_human once it reaches workflow.attempt_limit.
+    """
 
     error: str
 

@@ -233,7 +233,7 @@ def test_relevant(low, want):
 def test_normalize_same_key(a, b):
     """Names differing only in spaces, punctuation, case or a combining mark get the same key.
 
-    Punctuation: straight / curly apostrophes, &, :. Kavita drops all of them.
+    Kavita drops all of them. The punctuation: straight / curly apostrophes, &, :.
     """
     assert normalize(a) == normalize(b)
 
@@ -298,7 +298,7 @@ def test_normalize_value(name, want):
     r"""The key is letters, ASCII digits, + ! and full-width * ! +, lower-cased (not case-folded: ß stays).
 
     A missing name is the empty key. Like .NET, each character is lowered on its own ("İ" gives "i", a final capital
-    sigma "\u03c3", never the context-sensitive "ς"), and a letter above U+FFFF (a UTF-16 surrogate pair, not \p{L} to
+    sigma U+03C3, never the context-sensitive "ς"), and a letter above U+FFFF (a UTF-16 surrogate pair, not \p{L} to
     .NET) is dropped.
     """
     assert normalize(name) == want

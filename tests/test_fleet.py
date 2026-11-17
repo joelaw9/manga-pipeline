@@ -59,7 +59,7 @@ class Fleet:
             ctx.conn.close()
 
     def series(self, name, chapters=2, folder=None):
-        """Add a Kavita series with `chapters` junk chapters; return (series id, [chapter ids])."""
+        """Add a Kavita series with `chapters` chapters at the junk stage; return (series id, [chapter ids])."""
         series_id = add_series(self.conn, name, origin="kavita")
         if folder:
             with db.transaction(self.conn):

@@ -1,6 +1,6 @@
 """The state commands (SPEC "State"): `state reset`, `state adopt` and `state version`.
 
-`state reset` clears the workflow state, `state adopt` makes this database the share's owner. Both run under every
+`state reset` clears the workflow state, `state adopt` makes this database the share's owner. All 3 run under every
 part's lock (cli command table).
 """
 

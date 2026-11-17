@@ -27,7 +27,10 @@ def run(cfg, conn):
 
 
 def work(ctx: workflow.Context):
-    """Do 1 export run's work in the order the module docstring gives."""
+    """Do 1 export run's work in the order the module docstring gives.
+
+    The retroactive rewrites run in it too (SPEC "Retroactive updates"): rewrite.compare, finish_all and restore_all.
+    """
     with workflow.share_errors():
         retention.purge(ctx.cfg)
     # The comparison (SPEC "Retroactive updates"): rewrite chapters for comicinfo and publish below

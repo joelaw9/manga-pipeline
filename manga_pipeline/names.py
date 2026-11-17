@@ -1,4 +1,4 @@
-"""Chapter names (SPEC "Bad downloads", "Publishing"): the file-name parser, a chapter's identity, a file's name.
+"""Chapter names (SPEC "Bad downloads", "Publishing"): the name parser, a chapter's identity, a published file's name.
 
 The parser is the bulk converter's optimizer/structure.py name part, copied (its series-level structure pass is not);
 the published name, title and volume text are its optimizer/naming.py rules, copied.

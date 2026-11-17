@@ -118,7 +118,7 @@ def _native_luma(page):
 
 
 def pixels_match(original, output, mode):
-    """Check 1 page (bytes or Page) losslessly: exact (RGBA) or luma.
+    """Check that an output page (bytes or Page) matches its original losslessly: exact (RGBA) or luma.
 
     Luma of a YCbCr JPEG source against a JPEG output compares the stored Y planes exactly; other luma comparisons go
     through RGB->L, alpha kept, within LUMA_TOLERANCE.

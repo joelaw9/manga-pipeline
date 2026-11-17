@@ -349,9 +349,9 @@ def _finished(ctx: workflow.Context, chapter, edit, watermarks):
 def decide(ctx: workflow.Context, chapter, key, row):
     """Decide the chapter from its current scan, with no decode.
 
-    Done with its chapter edit when no candidate is left; waiting on junk_decision with its candidates (their images
-    written first); or needs_human (a removal that would leave too little; a candidate Claude was unsure of or past
-    the review limit).
+    Done with its chapter edit when no candidate is left (or the library copy check's outcome, when it has one);
+    waiting on junk_decision with its candidates (their images written first); or needs_human (a removal that would
+    leave too little; a candidate Claude was unsure of or past the review limit).
     """
     sc = json.loads(row["scan"])
     decisions = store.Decisions(ctx.conn, key)

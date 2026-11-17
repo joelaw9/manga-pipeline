@@ -17,7 +17,7 @@ DECIMAL = re.compile(r"-?[0-9]+(\.[0-9]+)?")
 
 
 class ConfigError(ValueError):
-    """The config does not load, or does not match config.yaml.example (SPEC "Config")."""
+    """The config does not load, does not match config.yaml.example, or holds an invalid value (SPEC "Config")."""
 
 
 class _Process:

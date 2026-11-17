@@ -66,7 +66,7 @@ def scan(ctx: workflow.Context):
 def _settled(path, settled_by):
     """Return whether the file was last modified at or before settled_by.
 
-    SPEC "Suwayomi": a file still being written is skipped; a file gone since the listing is not.
+    SPEC "Suwayomi": a file still being written is skipped; a file gone since the listing is not settled (False).
     """
     try:
         return path.stat().st_mtime <= settled_by

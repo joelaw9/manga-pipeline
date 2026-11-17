@@ -80,7 +80,7 @@ def _gone_is_none(fetch, *args):
 
 
 def mangadex_choice(manga, covers):
-    """Return the MangaDex cover file name the series' cover is.
+    """Return the MangaDex cover file name to use as the series' cover.
 
     English volume 1, the lowest English volume, volume 1 in the original language, volume 1 in any language, else the
     series' main cover; None when it has none.

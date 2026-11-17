@@ -458,7 +458,7 @@ def copy_replacing(source, dest, name, data):
 def publish_run(ctx: workflow.Context, chapter):
     """Queue the rewrite, or a better copy's replacement, on its file's row with the API key's user's progress.
 
-    SPEC "Retroactive updates". The chapter is then done. A copy also queues its values (publish.row_values), puts its
+    The chapter is then done (SPEC "Retroactive updates"). A copy also queues its values (publish.row_values), puts its
     download aside the retention way and is recorded as a handled chapter `published`. A publish run again finds its
     rewrite queued or finished and is done.
     """

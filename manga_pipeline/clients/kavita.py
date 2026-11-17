@@ -50,7 +50,10 @@ class FolderError(Exception):
 
 
 class Kavita:
-    """A run's Kavita client: it keeps the token, the library folders and whether Kavita was found unreachable."""
+    """A run's Kavita client: it keeps the token, the library folders and the path map.
+
+    Its http.Service remembers whether Kavita was found unreachable.
+    """
 
     def __init__(self, url, api_key, path_map, service=None):
         """Store the server's URL, the API key and the path map (longest Kavita prefix first); nothing is asked yet."""
@@ -121,7 +124,7 @@ class Kavita:
     def upload_cover(self, series_id, image):
         """POST /api/Upload/series, then check Kavita serves it.
 
-        Kavita has answered 200 while failing to write the file. CoverError when it does not.
+        Kavita has answered 200 while failing to write the file. CoverError when Kavita does not serve it.
         """
         self._call("POST", "/api/Upload/series", {"id": int(series_id), "url": base64.b64encode(image).decode()})
         if not self.has_uploaded_cover(series_id):

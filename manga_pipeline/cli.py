@@ -260,9 +260,10 @@ def metadata_import(cfg, args, conn):
 
 
 def metadata_audit(cfg, args):
-    """List every library series whose source ids disagree (`metadata audit`).
+    """Print the library's source-id audit (`metadata audit`).
 
-    Opens no database (SPEC "Metadata checks", Audit): it runs before cutover, with or without one.
+    It lists the series whose source ids disagree, the sources no origin gives an id for and the Suwayomi manga no
+    series matches. Opens no database (SPEC "Metadata checks", Audit): it runs before cutover, with or without one.
     """
     state = importer.read_state(args.state) if args.state else None
     audit.run(cfg, kavita.from_config(cfg), suwayomi.from_config(cfg), sources.new_sources(), state)
