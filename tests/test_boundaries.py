@@ -1,7 +1,9 @@
 """JSON and YAML loads stay in their listed readers (ann-phase.md, "JSON and YAML boundaries").
 
-A load (json.load, json.loads, yaml.safe_load, any .json() call) returns an untyped value; only the readers listed
-here may hold one, so every other function gets a typed shape from a reader.
+A load (json.load, json.loads, json.JSONDecoder, a yaml loader, any .json() call) returns an untyped value; only the
+readers listed here may hold one, so every other function gets a typed shape from a reader. A load is any reference to
+a loader, called or not (`map(json.loads, rows)`, `parse = json.loads`), through any import alias. The list is kept at
+function granularity: a listed function may hold any number of loads.
 """
 
 import ast
@@ -10,7 +12,19 @@ from pathlib import Path
 from tests.timing import budget
 
 PROGRAM = Path(__file__).resolve().parent.parent / "manga_pipeline"
-LOADS = {("json", "load"), ("json", "loads"), ("yaml", "safe_load")}
+LOADS = {
+    ("json", "load"),
+    ("json", "loads"),
+    ("json", "JSONDecoder"),
+    ("yaml", "load"),
+    ("yaml", "safe_load"),
+    ("yaml", "full_load"),
+    ("yaml", "unsafe_load"),
+    ("yaml", "load_all"),
+    ("yaml", "safe_load_all"),
+    ("yaml", "full_load_all"),
+    ("yaml", "unsafe_load_all"),
+}
 
 # (module path below manga_pipeline/, enclosing function) of every load allowed; "" for module level.
 READERS = {
@@ -85,19 +99,16 @@ def _aliases(tree: ast.Module) -> dict[str, tuple[str, str]]:
     return names
 
 
-def _is_load(call: ast.Call, aliases: dict[str, tuple[str, str]]) -> bool:
-    """Return whether a call is a JSON or YAML load: json.load(s), yaml.safe_load or any .json() call."""
-    func = call.func
-    if isinstance(func, ast.Name):
-        return aliases.get(func.id) in LOADS
-    if not isinstance(func, ast.Attribute):
+def _is_load(node: ast.AST, aliases: dict[str, tuple[str, str]]) -> bool:
+    """Return whether a node references a JSON or YAML loader (LOADS, through its import alias) or is a .json() call."""
+    if isinstance(node, ast.Call):
+        return isinstance(node.func, ast.Attribute) and node.func.attr == "json"
+    if isinstance(node, ast.Name):
+        return aliases.get(node.id) in LOADS
+    if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name) or node.value.id not in aliases:
         return False
-    if func.attr == "json":
-        return True
-    if not isinstance(func.value, ast.Name) or func.value.id not in aliases:
-        return False
-    module, name = aliases[func.value.id]
-    return not name and (module, func.attr) in LOADS
+    module, name = aliases[node.value.id]
+    return not name and (module, node.attr) in LOADS
 
 
 def sites(module: str, text: str) -> set[tuple[str, str]]:
@@ -111,7 +122,7 @@ def sites(module: str, text: str) -> set[tuple[str, str]]:
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 visit(child, f"{scope}.{child.name}" if scope else child.name)
                 continue
-            if isinstance(child, ast.Call) and _is_load(child, aliases):
+            if _is_load(child, aliases):
                 found.add((module, scope))
             visit(child, scope)
 
@@ -135,7 +146,7 @@ def test_every_json_and_yaml_load_is_in_a_listed_reader():
 
 
 @budget(load="pure")
-def test_aliased_and_from_imports_json_methods_and_nested_scopes_are_found():
+def test_every_loader_reference_is_found_through_aliases_and_nested_scopes():
     text = """\
 import json as jsonlib
 import yaml
@@ -156,6 +167,19 @@ def read(t):
 def unsafe(t):
     return yaml.load(t)
 
+def every(rows):
+    return list(map(jsonlib.loads, rows))
+
+def kept(t):
+    parse_all = yaml.safe_load_all
+    return parse_all(t)
+
+def decoder():
+    return jsonlib.JSONDecoder().decode
+
+def dumps(v):
+    return jsonlib.dumps(v), yaml.safe_dump(v)
+
 TABLE = jsonlib.load(open("x"))
 
 def imported(t):
@@ -165,6 +189,10 @@ def imported(t):
         ("m.py", "Service.json"),
         ("m.py", "reply.inner"),
         ("m.py", "read"),
+        ("m.py", "unsafe"),
+        ("m.py", "every"),
+        ("m.py", "kept"),
+        ("m.py", "decoder"),
         ("m.py", ""),
         ("m.py", "imported"),
-    }, "an aliased json import, a from-import, a .json() call, a nested function and module level are each a site"
+    }, "a loader referenced, called or not, through any import, and a .json() call are sites; a dump is not"
