@@ -147,7 +147,7 @@ def _write_scalars(kv, kid, fields, guard):
     meta = kv.metadata(kid)
     changed = False
     for name, (key, lock) in SCALARS.items():
-        value = getattr(fields, "age_rating_kavita" if name == "age_rating" else name)
+        value = fields.age_rating_kavita if name == "age_rating" else getattr(fields, name)
         if value is None or not guard.may(name, meta.get(lock), _scalar(meta.get(key)), value):
             continue
         if meta.get(key) != value or not meta.get(lock):
