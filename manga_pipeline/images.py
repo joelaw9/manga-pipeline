@@ -239,7 +239,7 @@ def save_png(im, path):
 
 GRAY, TINTED, COLOUR, GRAY_MARK = "gray", "tinted", "colour", "gray-mark"  # page classes (SPEC "Page classes")
 MARK_DILATION = 3  # tiles: coloured tiles this close (Manhattan) belong to one mark
-MARK_BLOCK = 8  # px: side of the colour tiles (classify, gray_mark_box)
+MARK_BLOCK = 8  # px: side of the colour tiles (classify, _mark_box)
 
 
 def _spread(rgb):
@@ -306,9 +306,9 @@ def _mark_box(mask, shape, limits, block):
     mask: the page's coloured-tile grid (tile spread above colour_block; None for a page smaller than a tile);
     shape: its (height, width). None when the page is not gray-mark: exactly 1 component, under
     limits["mark_max_frac"] of the page's tiles, box within mark_max_w x mark_max_h of the page and at least
-    mark_min_area px2 (a lone faint speck is not a badge; it keeps the page colour). The one mark finder: Part C
-    (optimizer.marks.measure) measures the logo inside this box. limits: the config's integrity section, the caller's
-    own (never config.cached()).
+    mark_min_area px2 (a lone faint speck is not a badge; it keeps the page colour). The one mark finder:
+    junk.marks.measure measures the logo inside this box. limits: the config's integrity section, the caller's own
+    (never config.cached()).
     """
     cfg = limits
     if mask is None or not mask.any() or mask.mean() >= cfg["mark_max_frac"]:

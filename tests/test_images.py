@@ -487,7 +487,7 @@ def test_one_small_badge_is_gray_mark():
 
 
 @budget(load="fs")
-def test_gray_mark_box_is_the_dilated_badge():
+def test_the_mark_box_is_the_dilated_badge():
     """The badge covers tiles x 112..144, y 206..211; 3 tiles of dilation give px (872, 1624)-(1184, 1720)."""
     assert images.classify(badge_page(BADGE), 22, 6, LIMITS) == (images.GRAY_MARK, (872, 1624, 1184, 1720)), (
         "the mark box is the dilated badge"

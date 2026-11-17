@@ -140,7 +140,7 @@ python -m manga_pipeline.cli --help
 - Tests stay offline and never read the live `config.yaml` (SPEC "Tests"). Test only situations that occur in real use.
 - Talk to Suwayomi and Kavita only through `clients/` (SPEC "Services"); a client never imports `workflow`, a stage or a part. Every path Kavita reports goes through `Kavita.local_path`; a series' folder is `Kavita.series_folder`, never Kavita's `folderPath`. A stage uses the run's clients, `ctx.suwayomi` and `ctx.kavita`, and never builds its own; `intake`'s metadata step uses `ctx.sources` (built by `workflow.context` through `sources.new_sources`). Tests use `tests/fakes/`.
 - Module docstrings or header comments name the SPEC section they implement. Comment only where the reason isn't obvious.
-- Run the linter, the formatter and the type checker before finishing a change; all must pass.
+- Run the linter, the formatter, the type checker, the import contracts (`lint-imports --no-cache`) and the dead-code check (`python -m vulture manga_pipeline`) before finishing a change; all must pass.
 
 ## Merging
 

@@ -164,7 +164,7 @@ forbidden_modules = [
 ]
 
 # Dead code (python -m vulture manga_pipeline): program code must be used by the program, so tests are not scanned.
-# Every finding today is a 60% one; a higher threshold keeps only kinds ruff's F401 and ARG already check. Each
+# Unused names are 60% findings; a higher threshold keeps only kinds ruff's F401 and ARG already check. Each
 # ignore_names entry is a use vulture cannot see, approved by the user; a new one needs the user's approval.
 [tool.vulture]
 paths = ["manga_pipeline"]

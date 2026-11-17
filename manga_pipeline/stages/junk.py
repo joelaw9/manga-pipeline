@@ -122,9 +122,9 @@ def _layout(ctx: workflow.Context, chapter, series, content_paths):
 def _sample(ctx: workflow.Context, chapter, series):
     """Return the content pages of up to SAMPLE_CHAPTERS - 1 more of a new series' chapters past validate.
 
-    The chapters are first, middle and last by id, this chapter counting as 1 of them, each extracted to the claim's
-    scratch folder; only chapters whose download this machine can use and that still exist (the claim query's count,
-    SPEC "State").
+    The chapters are spread out by id (first, last, then evenly between: first, middle and last for 3), this chapter
+    counting as 1 of them, each extracted to the claim's scratch folder; only chapters whose download this machine
+    can use and that still exist (the claim query's count, SPEC "State").
     """
     rows = ctx.conn.execute(
         """SELECT id, download_path FROM chapter
@@ -139,7 +139,9 @@ def _sample(ctx: workflow.Context, chapter, series):
         and not (os.name == "nt" and re.search(workflow.WINDOWS_UNUSABLE, r["download_path"]))
         and (r["id"] == chapter["id"] or errors.exists(config.to_local(ctx.cfg, r["download_path"])))
     ]
-    picked = list(dict.fromkeys(r["id"] for r in (usable[0], usable[-1], usable[len(usable) // 2]))) if usable else []
+    n, last = len(usable), strip.SAMPLE_CHAPTERS - 1
+    spread = [0, n - 1, *(k * n // last for k in range(1, last))]
+    picked = list(dict.fromkeys(usable[i]["id"] for i in spread)) if usable else []
     others = [i for i in picked if i != chapter["id"]][: strip.SAMPLE_CHAPTERS - 1]  # this chapter is always measured
     out = []
     for r in usable:
