@@ -3,7 +3,8 @@
 A TypedDict field is read by key (`cfg["logging"]["dir"]`), which vulture cannot see, so it reports every field as an
 unused variable. This runs vulture over manga_pipeline/ with `[tool.vulture]` of pyproject.toml and drops only the
 findings that sit on a field declaration in a TypedDict class body (found with ast: a class whose bases name TypedDict,
-generic ones included, or another TypedDict class of the program); every other finding is printed.
+generic ones included, or another TypedDict of the program, a class or a functional `X = TypedDict(...)`); every other
+finding is printed.
 
 Usage: python scripts/vulture_check.py. Exit status: 0 when nothing is left, 1 when findings are left, vulture's own
 status when it fails.
@@ -33,15 +34,32 @@ def _base_names(node: ast.ClassDef) -> set[str]:
     return names
 
 
+def _called(call: ast.Call) -> str | None:
+    """Return the name a call calls: `TypedDict(...)` and `typing.TypedDict(...)` give TypedDict; None for another."""
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    return None
+
+
 def typeddict_fields(trees: Mapping[Path, ast.Module]) -> set[Location]:
     """Return the location of every field declared in a TypedDict class body of the trees.
 
-    A class is a TypedDict when a base names TypedDict or a TypedDict class of the trees (matched by class name).
+    A class is a TypedDict when a base names TypedDict or a TypedDict of the trees (matched by name): a TypedDict class,
+    or a name a functional `X = TypedDict("X", {...})` assigns (its fields are keys, not declarations).
     """
     classes = [
         (path, node) for path, tree in trees.items() for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
     ]
-    typed = {"TypedDict"}
+    typed = {"TypedDict"} | {
+        target.id
+        for tree in trees.values()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and _called(node.value) == "TypedDict"
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
     while True:
         found = {node.name for _, node in classes if _base_names(node) & typed}
         if found <= typed:
