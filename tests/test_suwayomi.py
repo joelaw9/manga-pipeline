@@ -51,7 +51,7 @@ def sent_query(service, index=-1):
 @budget(load="pure")
 def test_graphql_returns_the_data():
     s, service = client({"data": {"a": 1}})
-    assert s.graphql("{ a }", {"x": 2}) == {"a": 1}
+    assert s.graphql("{ a }", json.loads, {"x": 2}) == {"a": 1}
     assert service.sent == [("POST", GRAPHQL, {"query": "{ a }", "variables": {"x": 2}})]
 
 
@@ -60,7 +60,7 @@ def test_graphql_returns_the_data():
 def test_a_reply_with_errors_is_a_failure_though_its_status_is_200(name):
     s, _ = client(recorded(name))
     with pytest.raises(suwayomi.GraphQLError) as e:
-        s.graphql("{ anything }")
+        s.graphql("{ anything }", json.loads)
     assert e.value.errors == recorded(name)["errors"], "SPEC 'Services': HTTP 200 with errors is a failure"
     assert recorded(name)["errors"][0]["message"] in str(e.value)
 
@@ -101,7 +101,7 @@ def test_library_manga_follows_pages_until_the_last(monkeypatch):
     s, service = client(recorded("library_page_1"), last)
     got = list(s.library_manga())
     assert [m["id"] for m in got] == [23, 31093, 31094, 31148, 31149, 31151], "SPEC 'Services': read page by page"
-    assert got[0]["source"]["displayName"] == "MangaDex (EN)"
+    assert present(got[0]["source"])["displayName"] == "MangaDex (EN)"
     assert got[0]["title"].startswith("I, Who Have")
     assert [sent_query(service, i)[1] for i in (0, 1)] == [{"first": 3, "after": 0}, {"first": 3, "after": 31094}]
     query = sent_query(service)[0]
@@ -233,7 +233,7 @@ def test_a_write_that_fails_is_a_failure():
 @budget(load="pure")
 def test_search_source_returns_its_hits_without_retrying_a_timeout():
     s, service = client({"data": {"fetchSourceManga": {"mangas": [MANGA]}}})
-    assert s.search_source(7, "T") == [MANGA]
+    assert s.search_source("7", "T") == [MANGA]
     query, variables = sent_query(service)
     assert variables == {"source": "7", "query": "T"}
     assert "type: SEARCH, page: 1" in query
@@ -251,7 +251,7 @@ def test_fetch_manga_and_chapters_returns_both():
 
 
 @budget(load="pure")
-@pytest.mark.parametrize("call", [lambda s: s.search_source(7, "T"), lambda s: s.fetch_manga_and_chapters(9)])
+@pytest.mark.parametrize("call", [lambda s: s.search_source("7", "T"), lambda s: s.fetch_manga_and_chapters(9)])
 def test_an_error_raised_while_the_query_ran_means_the_source_is_unavailable(call):
     s, _ = client(PATH_ERROR)
     with pytest.raises(suwayomi.SourceUnavailableError, match="No route to host"):
@@ -263,21 +263,21 @@ def test_an_error_raised_while_the_query_ran_means_the_source_is_unavailable(cal
 def test_a_wrong_query_to_a_source_call_is_a_failure(name):
     s, _ = client(recorded(name))
     with pytest.raises(suwayomi.GraphQLError):
-        s.search_source(7, "T")
+        s.search_source("7", "T")
 
 
 @budget(load="pure")
 def test_errors_with_and_without_a_path_are_a_failure():
     s, _ = client({"errors": [{"message": "a", "path": ["x"]}, {"message": "b"}], "data": None})
     with pytest.raises(suwayomi.GraphQLError):
-        s.search_source(7, "T")
+        s.search_source("7", "T")
 
 
 @budget(load="pure")
 def test_a_source_call_that_times_out_while_suwayomi_answers_means_the_source_is_unavailable():
     s, service = client(http.HttpTimeoutError("POST http://suwayomi.invalid/api/graphql timed out after 120 s"), PING)
     with pytest.raises(suwayomi.SourceUnavailableError, match="timed out"):
-        s.search_source(7, "T")
+        s.search_source("7", "T")
     assert sent_query(service)[0] == "{ __typename }", "SPEC 'Services': Suwayomi is asked a trivial query"
     assert service.options[-1] == (60, True), "the ping is retried like any request"
 

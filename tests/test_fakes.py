@@ -4,6 +4,7 @@ The download flag and file names of Suwayomi, and Kavita's scans (name matching,
 sizes, folderPath).
 """
 
+import json
 import os
 
 import pytest
@@ -136,7 +137,7 @@ def test_a_chapter_new_on_the_source_is_listed_only_after_a_fetch(suw):
 @budget(load="fs")
 def test_a_call_the_fake_does_not_answer_fails_loudly(suw):
     with pytest.raises(AssertionError, match="unexpected request"):
-        suw.graphql("{ __typename }")
+        suw.graphql("{ __typename }", json.loads)
 
 
 # --- FakeKavita
