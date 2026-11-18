@@ -7,12 +7,17 @@ ported from. 1 object per run: it keeps the token, the library folders and wheth
 """
 
 import base64
+import json as jsonlib
 import logging
 import urllib.parse
+from collections.abc import Iterable, Mapping
 from http import HTTPStatus
 from pathlib import Path
+from typing import TypedDict
 
+from manga_pipeline import config
 from manga_pipeline.clients import http
+from manga_pipeline.errors import Unreachable
 
 log = logging.getLogger(__name__)
 PLUGIN = "manga-pipeline"
@@ -41,6 +46,132 @@ UPDATE_SERIES_FIELDS = (
 )
 
 
+# Kavita's replies: the fields the program reads, as Kavita v0.9.1.4 sends them (local library kavita.md). Each is read
+# by its reader at the end of this module, unchecked.
+
+
+class Library(TypedDict):
+    """A library of GET /api/Library/libraries: its id, name and folders (Kavita paths)."""
+
+    id: int
+    name: str
+    folders: list[str]
+
+
+class Series(TypedDict):
+    """A series DTO (GET /api/Series/{id}, POST /api/Series/all-v2): the fields the program reads.
+
+    The names it matches on (kavita_match.SERIES_NAME_KEYS; the localized and original names can be null), its library,
+    its cover image's file name (null when it has none) and the provider ids (0 when unset). update_series resends the
+    rest of UPDATE_SERIES_FIELDS as they came, unread (typed object); Kavita v0.9.1.4 sends each of them.
+    """
+
+    id: int
+    name: str
+    localizedName: str | None
+    originalName: str | None
+    libraryId: int
+    coverImage: str | None
+    aniListId: int
+    malId: int
+    mangaBakaId: int
+    nameLocked: object
+    sortName: object
+    sortNameLocked: object
+    localizedNameLocked: object
+    coverImageLocked: object
+    cbrId: object
+    comicVineId: object
+    hardcoverId: object
+    metronId: object
+    metadataProviderOverride: object
+
+
+class Tag(TypedDict):
+    """An entry of the metadata's genres or tags: Kavita's id (0 for one to add) and its title."""
+
+    id: int
+    title: str
+
+
+class Person(TypedDict):
+    """An entry of the metadata's writers or pencillers: Kavita's id (0 for one to add) and the name."""
+
+    id: int
+    name: str
+
+
+class SeriesMetadata(TypedDict):
+    """A series' metadata (GET /api/Series/metadata): the fields the program reads, each with its lock.
+
+    Changed in place and posted back whole (update_metadata), so it carries every field Kavita sent, seriesId (the
+    series it updates) among them. webLinks is a comma-separated list of URLs.
+    """
+
+    seriesId: int
+    summary: str
+    summaryLocked: bool
+    publicationStatus: int
+    publicationStatusLocked: bool
+    ageRating: int
+    ageRatingLocked: bool
+    language: str
+    languageLocked: bool
+    genres: list[Tag]
+    genresLocked: bool
+    tags: list[Tag]
+    tagsLocked: bool
+    writers: list[Person]
+    writerLocked: bool
+    pencillers: list[Person]
+    pencillerLocked: bool
+    webLinks: str
+
+
+class KavitaFile(TypedDict):
+    """A file of a chapter (GET /api/Series/volumes): its id, Kavita path, size in bytes and page count."""
+
+    id: int
+    filePath: str
+    bytes: int
+    pages: int
+
+
+class Chapter(TypedDict):
+    """A chapter of a volume: its id, the API key's user's pages read, when a scan last re-read it, and its files."""
+
+    id: int
+    pagesRead: int
+    lastModifiedUtc: str
+    files: list[KavitaFile]
+
+
+class Volume(TypedDict):
+    """A volume of GET /api/Series/volumes: its id and chapters (chapters with no volume sit in volume -100000)."""
+
+    id: int
+    chapters: list[Chapter]
+
+
+class Authenticated(TypedDict):
+    """The reply of POST /api/Plugin/authenticate: the token."""
+
+    token: str
+
+
+class SeriesFile(TypedDict):
+    """A file Kavita holds for a series (Kavita.series_files), with its chapter's and volume's ids and progress."""
+
+    path: Path
+    bytes: int
+    pages: int
+    file_id: int
+    chapter_id: int
+    volume_id: int
+    pages_read: int
+    modified: str
+
+
 class CoverError(Exception):
     """Kavita does not serve a cover it accepted."""
 
@@ -55,42 +186,47 @@ class Kavita:
     Its http.Service remembers whether Kavita was found unreachable.
     """
 
-    def __init__(self, url, api_key, path_map, service=None):
+    def __init__(
+        self, url: str, api_key: str | None, path_map: Mapping[str, str], service: http.Service | None = None
+    ) -> None:
         """Store the server's URL, the API key and the path map (longest Kavita prefix first); nothing is asked yet."""
         self.base = url.rstrip("/")
         self._api_key = api_key
         # Longest Kavita prefix first, so the most specific entry wins.
         self._path_map = sorted(((k.rstrip("/"), v) for k, v in path_map.items()), key=lambda kv: -len(kv[0]))
         self._service = service or http.Service("kavita")
-        self._token = None
-        self._library_folders = None
+        self._token: str | None = None
+        self._library_folders: set[str] | None = None
 
     # --- reads
 
-    def libraries(self):
+    def libraries(self) -> list[Library]:
         """GET /api/Library/libraries: every library with its id, name and folders (Kavita paths)."""
-        return self._call("GET", "/api/Library/libraries").json()
+        return self._call("GET", "/api/Library/libraries").parse(_libraries)
 
-    def series_in_library(self, library_id):
+    def series_in_library(self, library_id: int) -> list[Series]:
         """Return every series DTO of 1 library (POST /api/Series/all-v2).
 
         Filtered to the library and sorted by name (pages of an unsorted list can repeat or miss a series).
         """
-        body = {
+        body: dict[str, object] = {
             "statements": [{"comparison": 0, "field": LIBRARY_FILTER_FIELD, "value": str(library_id)}],
             "combination": 1,
             "limitTo": 0,
             "sortOptions": {"sortField": SORT_BY_NAME, "isAscending": True},
         }
-        out, page = [], 1
+        out: list[Series] = []
+        page = 1
         while True:
-            batch = self._call("POST", f"/api/Series/all-v2?PageNumber={page}&PageSize={PAGE_SIZE}", body).json()
+            batch = self._call("POST", f"/api/Series/all-v2?PageNumber={page}&PageSize={PAGE_SIZE}", body).parse(
+                _series_page
+            )
             out += batch
             if len(batch) < PAGE_SIZE:
                 return out
             page += 1
 
-    def series(self, series_id):
+    def series(self, series_id: int) -> Series | None:
         """GET /api/Series/{id}: the series DTO, or None when Kavita no longer holds it.
 
         None for a 404, or an empty reply for a series deleted since it was listed.
@@ -101,27 +237,27 @@ class Kavita:
             if e.status == HTTPStatus.NOT_FOUND:
                 return None
             raise
-        return reply.json() if reply.body.strip() else None
+        return reply.parse(_series) if reply.body.strip() else None
 
-    def metadata(self, series_id):
+    def metadata(self, series_id: int) -> SeriesMetadata:
         """GET /api/Series/metadata: the series' metadata (web links, summary, genres, tags, people, locks)."""
-        return self._call("GET", f"/api/Series/metadata?seriesId={int(series_id)}").json()
+        return self._call("GET", f"/api/Series/metadata?seriesId={int(series_id)}").parse(_metadata)
 
-    def update_metadata(self, metadata):
+    def update_metadata(self, metadata: SeriesMetadata) -> None:
         """POST /api/Series/metadata: Kavita applies the whole series metadata as sent (read it fresh first)."""
         self._call("POST", "/api/Series/metadata", {"seriesMetadata": metadata})
 
-    def update_series(self, series, **changes):
+    def update_series(self, series: Series, **changes: int) -> None:
         """POST /api/Series/update: the series as just read, resent whole with the changes.
 
         Kavita applies every field it is sent and resets those left out (an omitted aniListId becomes 0, an omitted
         coverImageLocked unlocks the cover).
         """
-        body = {name: series[name] for name in UPDATE_SERIES_FIELDS if name in series}
+        body: dict[str, object] = {name: series[name] for name in UPDATE_SERIES_FIELDS if name in series}
         body.update(changes, id=series["id"])
         self._call("POST", "/api/Series/update", body)
 
-    def upload_cover(self, series_id, image):
+    def upload_cover(self, series_id: int, image: bytes) -> None:
         """POST /api/Upload/series, then check Kavita serves it.
 
         Kavita has answered 200 while failing to write the file. CoverError when Kavita does not serve it.
@@ -131,7 +267,7 @@ class Kavita:
             msg = f"Kavita accepted the cover of series {series_id} but does not serve it"
             raise CoverError(msg)
 
-    def has_uploaded_cover(self, series_id):
+    def has_uploaded_cover(self, series_id: int) -> bool:
         """Return whether the series' cover is one uploaded through the API.
 
         Kavita names those series<id>.<ext> (a scan names its own after a volume), and serves its image.
@@ -146,11 +282,11 @@ class Kavita:
                 return False
             raise
 
-    def volumes(self, series_id):
+    def volumes(self, series_id: int) -> list[Volume]:
         """GET /api/Series/volumes: the series' volumes, each with its chapters, each with its files (Kavita paths)."""
-        return self._call("GET", f"/api/Series/volumes?seriesId={int(series_id)}").json()
+        return self._call("GET", f"/api/Series/volumes?seriesId={int(series_id)}").parse(_volumes)
 
-    def series_files(self, series_id):
+    def series_files(self, series_id: int) -> list[SeriesFile]:
         """Return every file Kavita holds for the series.
 
         Each with its local path, bytes, pages, file id, chapter id, volume id, the chapter's pagesRead (of the API
@@ -173,7 +309,7 @@ class Kavita:
             for file in chapter["files"]
         ]
 
-    def save_progress(self, series_id, volume_id, chapter_id, page):
+    def save_progress(self, series_id: int, volume_id: int, chapter_id: int, page: int) -> None:
         """Record that the API key's user has read `page` pages of the chapter (POST /api/reader/progress).
 
         Kavita caps it at the chapter's page count.
@@ -182,7 +318,7 @@ class Kavita:
         if series is None:
             msg = f"Kavita series {series_id} is gone: progress not saved"
             raise ValueError(msg)
-        body = {
+        body: dict[str, object] = {
             "volumeId": volume_id,
             "chapterId": chapter_id,
             "pageNum": page,
@@ -192,9 +328,9 @@ class Kavita:
         }
         self._call("POST", "/api/reader/progress", json=body)
 
-    def mark_read(self, series_id, chapter_ids):
+    def mark_read(self, series_id: int, chapter_ids: Iterable[int]) -> None:
         """Record that the API key's user has read the chapters whole (POST /api/reader/mark-multiple-read)."""
-        body = {
+        body: dict[str, object] = {
             "seriesId": series_id,
             "volumeIds": [],
             "chapterIds": list(chapter_ids),
@@ -202,15 +338,15 @@ class Kavita:
         }
         self._call("POST", "/api/reader/mark-multiple-read", json=body)
 
-    def refresh_covers(self, library_id, series_id):
+    def refresh_covers(self, library_id: int, series_id: int) -> None:
         """Have Kavita regenerate the series' chapter and volume cover images (POST /api/Series/refresh-metadata).
 
         Forced: a library scan keeps a re-read chapter's old one. The series' locked cover stays.
         """
-        body = {"libraryId": library_id, "seriesId": series_id, "forceUpdate": True}
+        body: dict[str, object] = {"libraryId": library_id, "seriesId": series_id, "forceUpdate": True}
         self._call("POST", "/api/Series/refresh-metadata", json=body)
 
-    def series_folder(self, series_id):
+    def series_folder(self, series_id: int) -> Path:
         """Return the single folder holding the series' files, as a local path.
 
         FolderError when its files lie in no folder, in 2 or more, or directly in one of a library's own folders. Never
@@ -235,7 +371,7 @@ class Kavita:
             raise FolderError(msg)
         return self.local_path(folders[0])
 
-    def local_path(self, kavita_path):
+    def local_path(self, kavita_path: str) -> Path:
         """Return a path as Kavita reports it as a local path.
 
         The longest prefix of paths.kavita_path_map that ends on a path boundary is replaced; case counts. ValueError
@@ -249,7 +385,7 @@ class Kavita:
 
     # --- scans: requested, never awaited
 
-    def scan_library(self, library_id):
+    def scan_library(self, library_id: int) -> None:
         """POST /api/Library/scan (not forced): Kavita's own library scan.
 
         It matches files to series by their ComicInfo Series against each series' names and keeps their ids. The
@@ -261,7 +397,7 @@ class Kavita:
 
     # --- transport
 
-    def _call(self, method, path, json=None):
+    def _call(self, method: str, path: str, json: Mapping[str, object] | None = None) -> http.Response:
         """1 authenticated call. A 401 gets 1 new token and 1 more try; a second 401 makes Kavita unreachable."""
         for _ in (1, 2):
             headers = {"Authorization": f"Bearer {self._get_token()}"}
@@ -274,7 +410,7 @@ class Kavita:
         msg = "HTTP 401 after re-authentication"
         raise self._refused(msg)
 
-    def _get_token(self):
+    def _get_token(self) -> str:
         if self._token is None:
             query = urllib.parse.urlencode({"apiKey": self._api_key, "pluginName": PLUGIN})
             try:
@@ -284,14 +420,48 @@ class Kavita:
                     raise
                 msg = "HTTP 401 from authenticate: the API key was refused"
                 raise self._refused(msg) from None
-            self._token = reply.json()["token"]
+            self._token = reply.parse(_authenticated)["token"]
         return self._token
 
-    def _refused(self, reason):
+    def _refused(self, reason: str) -> Unreachable:
         log.warning("kavita: %s; Kavita is not asked again in this run", reason)  # Phase 8 adds the notification
         return self._service.mark_unreachable(reason)
 
 
-def from_config(cfg):
+def from_config(cfg: config.Config) -> Kavita:
     """Build the Kavita client from the kavita.url, kavita.api_key and paths.kavita_path_map settings."""
     return Kavita(cfg["kavita"]["url"], cfg["kavita"]["api_key"], cfg["paths"]["kavita_path_map"])
+
+
+# --- readers of Kavita's replies: each takes the reply's JSON as the shape Kavita sends, unchecked (an approved
+# unchecked boundary: ann-phase.md, "JSON and YAML boundaries")
+
+
+def _authenticated(body: bytes) -> Authenticated:
+    """Read POST /api/Plugin/authenticate's reply; unchecked."""
+    return jsonlib.loads(body)
+
+
+def _libraries(body: bytes) -> list[Library]:
+    """Read GET /api/Library/libraries' reply; unchecked."""
+    return jsonlib.loads(body)
+
+
+def _series_page(body: bytes) -> list[Series]:
+    """Read a page of POST /api/Series/all-v2's reply; unchecked."""
+    return jsonlib.loads(body)
+
+
+def _series(body: bytes) -> Series:
+    """Read GET /api/Series/{id}'s reply; unchecked."""
+    return jsonlib.loads(body)
+
+
+def _metadata(body: bytes) -> SeriesMetadata:
+    """Read GET /api/Series/metadata's reply; unchecked."""
+    return jsonlib.loads(body)
+
+
+def _volumes(body: bytes) -> list[Volume]:
+    """Read GET /api/Series/volumes' reply; unchecked."""
+    return jsonlib.loads(body)

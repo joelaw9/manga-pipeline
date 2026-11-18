@@ -12,6 +12,7 @@ from manga_pipeline import config
 from manga_pipeline.clients import http, kavita
 from manga_pipeline.errors import Unreachable
 
+from tests.builders import kavita_series
 from tests.fakes.http import CannedService, Each, reply
 from tests.timing import budget
 
@@ -301,13 +302,17 @@ def test_from_config_reads_the_kavita_keys():
 @budget()
 def test_update_series_resends_the_series_whole_with_the_changes():
     kv, service = client({"/api/Series/update": {}})
-    series = {"id": 7, "name": "N", "coverImageLocked": True, "aniListId": 1, "folderPath": "/x", "malId": 0}
+    series: kavita.Series = {**kavita_series(7, "N"), "coverImageLocked": True, "aniListId": 1, "libraryId": 3}
     kv.update_series(series, aniListId=2)
     method, path, body = service.sent[-1]
     assert (method, path) == ("POST", "/api/Series/update")
-    assert body == {"id": 7, "name": "N", "coverImageLocked": True, "aniListId": 2, "malId": 0}, (
-        "every field Kavita reads is resent (an omitted one is reset); fields it does not read are not"
-    )
+    assert body == {
+        **{name: series[name] for name in kavita.UPDATE_SERIES_FIELDS},
+        "id": 7,
+        "aniListId": 2,
+    }, "every field Kavita reads is resent (an omitted one is reset); fields it does not read are not"
+    assert body["coverImageLocked"] is True, "a locked cover stays locked"
+    assert "libraryId" not in body, "a field the update does not read is not sent"
 
 
 @budget()

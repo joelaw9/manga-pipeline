@@ -4,6 +4,7 @@ import pytest
 
 from manga_pipeline.clients.kavita_match import normalize, series_names
 
+from tests.builders import kavita_series
 from tests.timing import budget
 
 # normalize (Kavita v0.9.1.4 StringExtensions.ToNormalized: keep [\p{L}0-9+!\uff0a\uff01\uff0b], then lower-case)
@@ -103,7 +104,8 @@ def test_normalize_value(name, want):
 @budget(load="pure")
 def test_series_names_in_key_order_without_blanks():
     """name, localizedName, originalName in that order; empty and missing names are left out."""
-    assert series_names({"name": "Liz", "localizedName": "", "originalName": "Rize"}) == ["Liz", "Rize"]
+    assert series_names({**kavita_series(1, "Liz"), "localizedName": "", "originalName": "Rize"}) == ["Liz", "Rize"]
+    assert series_names({**kavita_series(1, "Liz"), "localizedName": None, "originalName": None}) == ["Liz"]
 
 
 @budget(load="pure")

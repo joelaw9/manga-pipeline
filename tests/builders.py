@@ -8,6 +8,7 @@ from typing import TypedDict, Unpack
 import yaml
 
 from manga_pipeline import config, db, fleet, lock, state, workflow
+from manga_pipeline.clients import kavita
 from manga_pipeline.db import sql
 
 from tests import pg
@@ -30,6 +31,31 @@ def one(conn, query, params=()):
     row = conn.execute(query, params).fetchone()
     assert row is not None, f"a row from: {query}"
     return row[0]
+
+
+def kavita_series(series_id: int, name: str) -> kavita.Series:
+    """Return a Kavita series DTO as Kavita sends it: its own name in every name field, no ids, no cover."""
+    return {
+        "id": series_id,
+        "name": name,
+        "localizedName": name,
+        "originalName": name,
+        "libraryId": 1,
+        "coverImage": None,
+        "aniListId": 0,
+        "malId": 0,
+        "mangaBakaId": 0,
+        "nameLocked": False,
+        "sortName": name,
+        "sortNameLocked": False,
+        "localizedNameLocked": False,
+        "coverImageLocked": False,
+        "cbrId": 0,
+        "comicVineId": None,
+        "hardcoverId": None,
+        "metronId": 0,
+        "metadataProviderOverride": None,
+    }
 
 
 def present(value):
