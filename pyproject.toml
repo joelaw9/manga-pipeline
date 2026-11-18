@@ -66,7 +66,7 @@ known-local-folder = ["tests"]
 typeCheckingMode = "basic"
 pythonVersion = "3.13"
 pythonPlatform = "Windows"  # CI's platform; CI and the merge hook also run --pythonplatform Linux (the LXC)
-include = ["manga_pipeline", "tests"]
+include = ["manga_pipeline", "tests", "scripts"]
 
 # Import rules (lint-imports --no-cache): each contract encodes a rule CLAUDE.md or SPEC states. A new contract or
 # ignore_imports entry needs the user's approval, as a noqa does. The ignore_imports of C3 and C4 name the 1 module each
@@ -165,7 +165,7 @@ forbidden_modules = [
     "psycopg",
 ]
 
-# Dead code (python -m vulture manga_pipeline): program code must be used by the program, so tests are not scanned.
+# Dead code (python scripts/vulture_check.py): program code must be used by the program, so tests are not scanned.
 # Unused names are 60% findings; a higher threshold keeps only kinds ruff's F401 and ARG already check. Each
 # ignore_names entry is a use vulture cannot see, approved by the user; a new one needs the user's approval.
 [tool.vulture]
@@ -179,14 +179,8 @@ ignore_names = [
     "external_attr",
     "MAX_IMAGE_PIXELS",  # Pillow's module setting (images.py)
     "row_factory",  # sqlite3.Connection's attribute (junk/importing.py)
-    # config.py's TypedDict fields that are read only by key (cfg["logging"]["dir"]), which vulture cannot see;
-    # approved by the user 2026-11-16
-    "dir", "keep_days", "enabled", "min_free_mb", "user", "password", "staging", "kavita_path_map", "attempt_limit",
-    "settle_minutes", "rescan_after_minutes", "checks_per_run", "recent_months", "complete_months", "recent_days",
-    "quiet_days", "complete_days", "retention_days", "rewrites_open", "avifenc", "avifdec", "jpegtran", "oxipng",
-    "min_scratch_free_mb", "download_timeout_hours", "claude_token", "claude_path", "review_limit", "review_batch",
-    "keywords", "weak", "paired", "suppress",
 ]
+# TypedDict fields are read by key, which vulture cannot see: scripts/vulture_check.py drops the findings on them.
 
 [tool.coverage.run]
 branch = true

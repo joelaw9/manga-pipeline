@@ -1,5 +1,6 @@
 """clients.http: retries, back-off, Retry-After, the minimum gap, what is unreachable, redaction (SPEC "Services")."""
 
+import json
 import logging
 import urllib.error
 
@@ -32,7 +33,7 @@ def scripted(monkeypatch, *script):
 def test_reply_is_returned_with_status_headers_and_body(monkeypatch, clock):
     urlopen = scripted(monkeypatch, Reply({"a": 1}))
     got = http.Service("svc").request("POST", URL, json={"q": 2}, headers={"X-Extra": "1"}, timeout=7)
-    assert (got.status, got.json(), got.headers.get("content-type")) == (200, {"a": 1}, "application/json")
+    assert (got.status, got.parse(json.loads), got.headers.get("content-type")) == (200, {"a": 1}, "application/json")
     sent = urlopen.requests[0]
     assert (sent.get_method(), sent.full_url, sent.data) == ("POST", URL, b'{"q": 2}')
     assert sent.get_header("Content-type") == "application/json"
@@ -50,7 +51,7 @@ def test_a_reply_that_is_not_json_fails_naming_service_status_and_content_type(m
     with pytest.raises(
         http.NotJsonError, match=r"^svc: HTTP 200 reply is not JSON \(Content-Type text/html\)$"
     ) as caught:
-        got.json()
+        got.parse(json.loads)
     assert isinstance(caught.value, http.HttpError), "a reply that is not JSON is a failure of the request"
 
 
@@ -93,7 +94,7 @@ def test_mangadex_is_asked_with_a_user_agent_naming_the_client(monkeypatch):
 )
 def test_a_failed_request_is_sent_again_and_its_answer_returned(monkeypatch, clock, failure):
     urlopen = scripted(monkeypatch, failure, Reply({"ok": True}))
-    assert http.Service("svc").request("GET", URL).json() == {"ok": True}, "SPEC 'Services': retried"
+    assert http.Service("svc").request("GET", URL).parse(json.loads) == {"ok": True}, "SPEC 'Services': retried"
     assert len(urlopen.requests) == 2
     assert clock.sleeps == [2]
 

@@ -42,7 +42,7 @@ jobs:
       - run: python -m basedpyright --warnings
       - run: python -m basedpyright --warnings --pythonplatform Linux
       - run: lint-imports --no-cache
-      - run: python -m vulture manga_pipeline
+      - run: python scripts/vulture_check.py
       - run: python -m pytest -q -n auto
   audit:
     name: audit

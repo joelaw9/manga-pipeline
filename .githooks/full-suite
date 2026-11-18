@@ -6,5 +6,5 @@ python -m ruff format --check . || exit 1
 python -m basedpyright --warnings || exit 1
 python -m basedpyright --warnings --pythonplatform Linux || exit 1
 lint-imports --no-cache || exit 1
-python -m vulture manga_pipeline || exit 1
+python scripts/vulture_check.py || exit 1
 exec python -m pytest -q -n auto

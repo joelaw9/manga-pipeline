@@ -4,9 +4,14 @@ Field and input names are Suwayomi-Server's schema at v2.4.2366 (introspected). 
 Suwayomi was found unreachable. Every call returns plain dicts shaped like the GraphQL reply.
 """
 
+import json
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from http import HTTPStatus
+from typing import NotRequired, TypedDict
 
+from manga_pipeline import config
 from manga_pipeline.clients import http
+from manga_pipeline.replies.suwayomi import Chapter, DownloadStatus, Manga, MangaAndChapters, Source
 
 PAGE_SIZE = 50  # library manga per query: the whole library in 1 query times out
 SOURCE_TIMEOUT = 120  # seconds; a source search or chapter fetch waits on the source's site
@@ -23,10 +28,119 @@ UTF8_1_BYTE_LAST, UTF8_2_BYTES_LAST, UTF8_3_BYTES_LAST = 0x7F, 0x7FF, 0xFFFF
 FIRST_PRINTABLE = 0x20  # the first printable code point: the C0 control characters lie below it
 
 
+# Suwayomi's replies are typed in replies/suwayomi.py; the GraphQL envelope and each query's data are here. Each reply
+# is read by its reader at the end of this module, unchecked.
+
+
+class ErrorEntry(TypedDict):
+    """An error of a reply: its message, and the path of the field it came from when it arose while the query ran."""
+
+    message: str
+    path: NotRequired[list[str | int]]
+
+
+class Reply[T](TypedDict):
+    """A GraphQL reply: the query's data and, when it failed, its errors (data is read only when there are none)."""
+
+    data: T
+    errors: NotRequired[list[ErrorEntry]]
+
+
+class _Count(TypedDict):
+    """A connection's total count."""
+
+    totalCount: int
+
+
+class _LibrarySize(TypedDict):
+    """The data of the library size query."""
+
+    mangas: _Count
+
+
+class _PageInfo(TypedDict):
+    """Whether a connection has a page after this one."""
+
+    hasNextPage: bool
+
+
+class _MangaPage(TypedDict):
+    """A page of manga."""
+
+    nodes: list[Manga]
+    pageInfo: _PageInfo
+
+
+class _LibraryPage(TypedDict):
+    """The data of the library page query."""
+
+    mangas: _MangaPage
+
+
+class _MangaNodes(TypedDict):
+    """Manga of a connection."""
+
+    nodes: list[Manga]
+
+
+class _Mangas(TypedDict):
+    """The data of the 1-manga query."""
+
+    mangas: _MangaNodes
+
+
+class _ChapterNodes(TypedDict):
+    """Chapters of a connection."""
+
+    nodes: list[Chapter]
+
+
+class _Chapters(TypedDict):
+    """The data of the chapters queries."""
+
+    chapters: _ChapterNodes
+
+
+class _Downloads(TypedDict):
+    """The data of the download status query."""
+
+    downloadStatus: DownloadStatus
+
+
+class _SourceNodes(TypedDict):
+    """Sources of a connection."""
+
+    nodes: list[Source]
+
+
+class _Sources(TypedDict):
+    """The data of the sources query."""
+
+    sources: _SourceNodes
+
+
+class _FoundMangas(TypedDict):
+    """The manga a source search found."""
+
+    mangas: list[Manga]
+
+
+class _SourceSearch(TypedDict):
+    """The data of the fetchSourceManga mutation."""
+
+    fetchSourceManga: _FoundMangas
+
+
+class _Fetched(TypedDict):
+    """The data of the fetchMangaAndChapters mutation."""
+
+    fetchMangaAndChapters: MangaAndChapters
+
+
 class GraphQLError(Exception):
     """Suwayomi answered a query with errors (HTTP 200 with `errors`)."""
 
-    def __init__(self, errors):
+    def __init__(self, errors: list[ErrorEntry]) -> None:
         """Store the reply's errors; the message joins their messages."""
         super().__init__("; ".join(str(e.get("message")) for e in errors))
         self.errors = errors
@@ -39,27 +153,31 @@ class SourceUnavailableError(Exception):
 class Suwayomi:
     """A run's Suwayomi GraphQL client: its reads, writes and calls that reach a download source, over 1 Service."""
 
-    def __init__(self, url, service=None):
+    def __init__(self, url: str, service: http.Service | None = None) -> None:
         """Store the server's URL and the Service its requests go through."""
         self.base = url.rstrip("/")
         self._service = service or http.Service("suwayomi")
 
-    def graphql(self, query, variables=None):
-        """Return the `data` of 1 query or mutation. GraphQLError when the reply carries errors."""
+    def graphql[T](
+        self, query: str, read: Callable[[bytes], Reply[T]], variables: Mapping[str, object] | None = None
+    ) -> T:
+        """Return the `data` of 1 query or mutation, its reply read by `read`. GraphQLError when it carries errors."""
         reply = self._service.request("POST", f"{self.base}/api/graphql", json=_body(query, variables))
-        return _data(reply)
+        return _data(reply, read)
 
     # --- reads
 
-    def ping(self):
+    def ping(self) -> None:
         """Send a trivial query: Unreachable when Suwayomi does not answer."""
-        self.graphql("{ __typename }")
+        self.graphql("{ __typename }", _unread)
 
-    def library_size(self):
+    def library_size(self) -> int:
         """Return how many manga the library holds."""
-        return self.graphql("{ mangas(condition: {inLibrary: true}) { totalCount } }")["mangas"]["totalCount"]
+        return self.graphql("{ mangas(condition: {inLibrary: true}) { totalCount } }", _library_size)["mangas"][
+            "totalCount"
+        ]
 
-    def library_manga(self):
+    def library_manga(self) -> Iterator[Manga]:
         """Yield every manga of the library, PAGE_SIZE per query, in id order.
 
         Each query starts after the last id read, so a manga added or removed while the caller works shifts nothing.
@@ -72,33 +190,33 @@ class Suwayomi:
         )
         after = 0
         while True:
-            page = self.graphql(query, {"first": PAGE_SIZE, "after": after})["mangas"]
+            page = self.graphql(query, _library_page, {"first": PAGE_SIZE, "after": after})["mangas"]
             yield from page["nodes"]
             if not page["pageInfo"]["hasNextPage"] or not page["nodes"]:
                 return
             after = page["nodes"][-1]["id"]
 
-    def manga(self, manga_id):
+    def manga(self, manga_id: int) -> Manga | None:
         """1 manga, in the library or not; None when Suwayomi holds no manga of that id."""
         query = f"query ($id: Int!) {{ mangas(condition: {{id: $id}}) {{ nodes {{ {MANGA} }} }} }}"
-        nodes = self.graphql(query, {"id": manga_id})["mangas"]["nodes"]
+        nodes = self.graphql(query, _mangas, {"id": manga_id})["mangas"]["nodes"]
         return nodes[0] if nodes else None
 
-    def chapters(self, manga_id):
+    def chapters(self, manga_id: int) -> list[Chapter]:
         """Every chapter Suwayomi lists for 1 manga, in the source's order."""
         query = (
             "query ($id: Int!) { chapters(condition: {mangaId: $id}, order: [{by: SOURCE_ORDER}])"
             f" {{ nodes {{ {CHAPTER} }} }} }}"
         )
-        return self.graphql(query, {"id": manga_id})["chapters"]["nodes"]
+        return self.graphql(query, _chapters, {"id": manga_id})["chapters"]["nodes"]
 
-    def chapter(self, chapter_id):
+    def chapter(self, chapter_id: int) -> Chapter | None:
         """1 chapter by its id (of any manga, in the library or not); None when Suwayomi holds no chapter of that id."""
         query = f"query ($id: Int!) {{ chapters(condition: {{id: $id}}) {{ nodes {{ {CHAPTER} }} }} }}"
-        nodes = self.graphql(query, {"id": chapter_id})["chapters"]["nodes"]
+        nodes = self.graphql(query, _chapters, {"id": chapter_id})["chapters"]["nodes"]
         return nodes[0] if nodes else None
 
-    def thumbnail(self, manga_id):
+    def thumbnail(self, manga_id: int) -> bytes | None:
         """Return the manga's thumbnail image, or None when Suwayomi cannot serve it.
 
         It cannot on a 500 (the source's image is gone) or a timeout (Suwayomi fetches it from the source's site, which
@@ -121,43 +239,43 @@ class Suwayomi:
             raise
         return reply.body
 
-    def download_queue(self):
+    def download_queue(self) -> DownloadStatus:
         """Return {state, queue}: the downloader's state and its entries.
 
         The state is STARTED or STOPPED; each entry has its state (QUEUED, DOWNLOADING, FINISHED, ERROR), tries,
         progress and chapter {id mangaId}. A finished download has left the queue.
         """
         query = "{ downloadStatus { state queue { state tries progress position chapter { id mangaId } } } }"
-        return self.graphql(query)["downloadStatus"]
+        return self.graphql(query, _downloads)["downloadStatus"]
 
-    def sources(self):
+    def sources(self) -> list[Source]:
         """Return every source Suwayomi has, each with its id, name, lang and displayName."""
-        return self.graphql("{ sources { nodes { id name lang displayName } } }")["sources"]["nodes"]
+        return self.graphql("{ sources { nodes { id name lang displayName } } }", _sources)["sources"]["nodes"]
 
     # --- writes
 
-    def enqueue(self, chapter_ids):
+    def enqueue(self, chapter_ids: Iterable[int]) -> None:
         """Queue chapters for download. Suwayomi skips one already queued, and one whose file is in place."""
         query = "mutation ($ids: [Int!]!) { enqueueChapterDownloads(input: {ids: $ids}) { downloadStatus { state } } }"
-        self.graphql(query, {"ids": list(chapter_ids)})
+        self.graphql(query, _unread, {"ids": list(chapter_ids)})
 
-    def delete_downloaded(self, chapter_ids):
+    def delete_downloaded(self, chapter_ids: Iterable[int]) -> None:
         """Delete the downloaded files of chapters and clear their downloaded flag."""
         query = "mutation ($ids: [Int!]!) { deleteDownloadedChapters(input: {ids: $ids}) { chapters { id } } }"
-        self.graphql(query, {"ids": list(chapter_ids)})
+        self.graphql(query, _unread, {"ids": list(chapter_ids)})
 
-    def dequeue(self, chapter_ids):
+    def dequeue(self, chapter_ids: Iterable[int]) -> None:
         """Remove chapters from the download queue (a chapter not queued is no error)."""
         query = "mutation ($ids: [Int!]!) { dequeueChapterDownloads(input: {ids: $ids}) { downloadStatus { state } } }"
-        self.graphql(query, {"ids": list(chapter_ids)})
+        self.graphql(query, _unread, {"ids": list(chapter_ids)})
 
-    def start_downloader(self):
+    def start_downloader(self) -> None:
         """Start Suwayomi's downloader."""
-        self.graphql("mutation { startDownloader(input: {}) { downloadStatus { state } } }")
+        self.graphql("mutation { startDownloader(input: {}) { downloadStatus { state } } }", _unread)
 
     # --- calls that make Suwayomi reach a download source
 
-    def search_source(self, source_id, title):
+    def search_source(self, source_id: str, title: str) -> list[Manga]:
         """Return the first page of a source's search for a title.
 
         Suwayomi stores each hit as a manga outside the library. SourceUnavailableError when the source cannot serve it.
@@ -166,9 +284,11 @@ class Suwayomi:
             "mutation ($source: LongString!, $query: String!) { fetchSourceManga(input:"
             f" {{source: $source, type: SEARCH, page: 1, query: $query}}) {{ mangas {{ {MANGA} }} }} }}"
         )
-        return self._source_call(query, {"source": str(source_id), "query": title})["fetchSourceManga"]["mangas"]
+        return self._source_call(query, _source_search, {"source": source_id, "query": title})["fetchSourceManga"][
+            "mangas"
+        ]
 
-    def fetch_manga_and_chapters(self, manga_id):
+    def fetch_manga_and_chapters(self, manga_id: int) -> MangaAndChapters:
         """Refresh 1 manga's chapter list from its source and return {manga, chapters}.
 
         Any manga, in the library or not; none of the updater's filters apply. SourceUnavailableError when the source
@@ -178,9 +298,9 @@ class Suwayomi:
             "mutation ($id: Int!) { fetchMangaAndChapters(input: {id: $id, fetchManga: false, fetchChapters: true})"
             f" {{ manga {{ {MANGA} }} chapters {{ {CHAPTER} }} }} }}"
         )
-        return self._source_call(query, {"id": manga_id})["fetchMangaAndChapters"]
+        return self._source_call(query, _fetched, {"id": manga_id})["fetchMangaAndChapters"]
 
-    def _source_call(self, query, variables):
+    def _source_call[T](self, query: str, read: Callable[[bytes], Reply[T]], variables: Mapping[str, object]) -> T:
         """Send a call Suwayomi answers from a source's site; return its `data`.
 
         An error raised while the query ran (it carries a `path`) is the source's; one without a path (the query is
@@ -199,55 +319,104 @@ class Suwayomi:
             self.ping()
             raise SourceUnavailableError(str(e)) from None
         try:
-            return _data(reply)
+            return _data(reply, read)
         except GraphQLError as e:
             if all("path" in error for error in e.errors):
                 raise SourceUnavailableError(str(e)) from None
             raise
 
 
-def from_config(cfg):
+def from_config(cfg: config.Config) -> Suwayomi:
     """Build the Suwayomi client from the suwayomi.url setting."""
     return Suwayomi(cfg["suwayomi"]["url"])
 
 
-def _body(query, variables):
+def _body(query: str, variables: Mapping[str, object] | None) -> dict[str, object]:
     return {"query": query, "variables": variables or {}}
 
 
-def _data(reply):
-    payload = reply.json()
-    if payload.get("errors"):
-        raise GraphQLError(payload["errors"])
+def _data[T](reply: http.Response, read: Callable[[bytes], Reply[T]]) -> T:
+    payload = reply.parse(read)
+    if errors := payload.get("errors"):
+        raise GraphQLError(errors)
     return payload["data"]
+
+
+# --- readers of Suwayomi's replies, 1 per query's data shape: each takes the reply's JSON as the shape its query asks
+# for, unchecked (an approved unchecked boundary: ann-phase.md, "JSON and YAML boundaries")
+
+
+def _unread(body: bytes) -> Reply[object]:
+    """Read the reply of a query whose data the program does not read (ping, the mutations); unchecked."""
+    return json.loads(body)
+
+
+def _library_size(body: bytes) -> Reply[_LibrarySize]:
+    """Read the library size query's reply; unchecked."""
+    return json.loads(body)
+
+
+def _library_page(body: bytes) -> Reply[_LibraryPage]:
+    """Read a library page query's reply; unchecked."""
+    return json.loads(body)
+
+
+def _mangas(body: bytes) -> Reply[_Mangas]:
+    """Read the 1-manga query's reply; unchecked."""
+    return json.loads(body)
+
+
+def _chapters(body: bytes) -> Reply[_Chapters]:
+    """Read a chapters query's reply (a manga's chapters, or 1 chapter by id); unchecked."""
+    return json.loads(body)
+
+
+def _downloads(body: bytes) -> Reply[_Downloads]:
+    """Read the download status query's reply; unchecked."""
+    return json.loads(body)
+
+
+def _sources(body: bytes) -> Reply[_Sources]:
+    """Read the sources query's reply; unchecked."""
+    return json.loads(body)
+
+
+def _source_search(body: bytes) -> Reply[_SourceSearch]:
+    """Read the fetchSourceManga mutation's reply; unchecked."""
+    return json.loads(body)
+
+
+def _fetched(body: bytes) -> Reply[_Fetched]:
+    """Read the fetchMangaAndChapters mutation's reply; unchecked."""
+    return json.loads(body)
 
 
 # --- where Suwayomi writes a download: <source folder>/<manga folder>/<chapter file>
 
 
-def source_folder(display_name):
+def source_folder(display_name: str) -> str:
     """Return the folder of a source, from its displayName ("Name (LANG)")."""
     return valid_filename(display_name)
 
 
-def manga_folder(title):
+def manga_folder(title: str) -> str:
     """Return the folder of a manga, from its title."""
     return valid_filename(title)
 
 
-def download_folders(manga):
+def download_folders(manga: Manga) -> tuple[str, str] | None:
     """(source folder, manga folder) a manga's downloads lie in under MANGAS_FOLDER; None with no source installed."""
     if manga["source"] is None:
         return None
     return source_folder(manga["source"]["displayName"]), manga_folder(manga["title"])
 
 
-def chapter_file(scanlator, name):
+def chapter_file(scanlator: str | None, name: str) -> str:
     """Return the CBZ of a chapter: "<scanlator>_<name>" with a scanlator (an empty one counts), else its name."""
     return valid_filename(name if scanlator is None else f"{scanlator}_{name}") + ".cbz"
 
 
-def valid_filename(name):
+def valid_filename(name: str) -> str:
     """Return a name as Suwayomi's SafePath.buildValidFilename (v2.4.2366) makes it, exactly.
 
     Trim dots and spaces at both ends (nothing left is "(invalid)"); control characters and REPLACED become "_"; then
@@ -258,7 +427,8 @@ def valid_filename(name):
     name = name.strip(". ")
     if not name:
         return "(invalid)"
-    kept, size = [], 0
+    kept: list[str] = []
+    size = 0
     for char in name:
         code = ord(char)
         char_bytes = (
