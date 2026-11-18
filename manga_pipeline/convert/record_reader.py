@@ -124,7 +124,7 @@ class RecordMarkRow(RecordDecisionRow):
 
 
 class DecisionRows(TypedDict):
-    """The decision rows the runs used, by the bulk converter's table."""
+    """The decision rows the runs used, by the bulk converter's table; the junk table's cut rows are left out."""
 
     junk: list[RecordJunkRow]
     frames: list[RecordFrameRow]
@@ -251,6 +251,8 @@ def decisions(record: Record) -> DecisionBlock:
     frames: list[RecordFrameRow] = []
     marks: list[RecordMarkRow] = []
     for r in block["rows"]["junk"]:
+        if r["origin"] == "cut":  # a cut is no decision on a unit's key: only its origin is read
+            continue
         tiles, aspect = r["key"]
         junk.append(
             {

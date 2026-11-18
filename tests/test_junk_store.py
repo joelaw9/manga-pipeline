@@ -505,6 +505,14 @@ def test_a_schema_4_records_decision_rows_land_as_import_rows(conn):
     assert importing.record_rows(record_with_rows(schema=3)) == [], "a schema-3 record gives no rows"
 
 
+@budget(load="pure")
+def test_a_cut_row_is_read_for_its_origin_alone():
+    """A cut row is no decision on a key: one holding only its origin leaves the record's decisions importable."""
+    rec = record_with_rows()
+    decisions_of(rec)["rows"]["junk"][1] = {"origin": "cut"}  # no row, series, decision, added or key
+    assert importing.record_rows(rec) == importing.record_rows(record_with_rows()), "the other rows import as before"
+
+
 @budget(load="db")
 def test_record_rows_after_a_store_import_are_no_error_and_never_undo_a_newer_one(conn):
     put(conn, decision("S", "block", sig(), "keep", at="2026-11-09T00:00:00+00:00"))

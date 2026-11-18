@@ -190,9 +190,7 @@ def record_rows(record: record_reader.Record) -> list[store.Decision]:
         block = record_reader.decisions(record)
         junk, frame_rows = block["rows"]["junk"], block["rows"]["frames"]
         out: list[store.Decision] = []
-        for r in junk:
-            if r["origin"] == "cut":
-                continue
+        for r in junk:  # its cut rows are left out by the reader
             if r["origin"] not in UNIT_ORIGINS:
                 msg = f"origin {r['origin']!r}"
                 raise SourceError(msg)

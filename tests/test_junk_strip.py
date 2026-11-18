@@ -676,11 +676,12 @@ def test_w1_drops_gaps_blank_uniform_and_unsignable_pieces():
     }
     assert su.inked(p) == p, "an inked piece is no blank: it is reviewed as it is"
     blank: su.BlankPiece = {"start": 0, "end": 50, "gap": False, "blank": True}
+    uniform: su.UnsignedPiece = {**p, "uniform": True, "sig": None}  # measure_piece signs no uniform run
     flagged: list[tuple[str, su.ClassedPiece]] = [
         ("gap", {**p, "gap": True}),
         ("blank", blank),
-        ("uniform", {**p, "uniform": True}),
-        ("unsignable", {**p, "unsignable": True}),
+        ("uniform", uniform),
+        ("unsignable", {**uniform, "uniform": False, "unsignable": True}),
     ]
     for k, q in flagged:
         assert su.inked(q) is None, f"a {k} piece is blank"
