@@ -7,7 +7,7 @@ from typing import TypedDict, Unpack
 
 import yaml
 
-from manga_pipeline import config, db, fleet, lock, state, workflow
+from manga_pipeline import config, db, fleet, lock, names, state, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import episodes, platforms
 from manga_pipeline.metadata.records import SeriesRecords
@@ -262,9 +262,12 @@ def add_series(conn, name, origin="new", status="ok", kavita_library_id=None):
 def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None, **columns):
     """Add a ready chapter at stage (discovered_at defaults to now).
 
-    columns set other chapter columns (download_path among them) as given.
+    columns set other chapter columns (download_path among them) as given; a chapter past discover carries its number
+    (identity_number), unless columns give one.
     """
     stamp = discovered_at or workflow.now(conn)
+    if stage != "discover":
+        columns = {"number": identity_number(identity), **columns}
     with db.transaction(conn):
         chapter_id = one(
             conn,
@@ -278,6 +281,16 @@ def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None,
                 sql.SQL("UPDATE chapter SET {} WHERE id = %s").format(assignments), (*columns.values(), chapter_id)
             )
     return chapter_id
+
+
+def identity_number(identity):
+    """Return the number discover writes with an identity: names.identity's number, or 1.0 for a test's opaque identity.
+
+    A download past discover always has a number (schema step 0061); a test naming its chapter "c1" reads none of it.
+    """
+    if not identity.startswith("["):
+        return 1.0
+    return float(present(names.read_identity(identity)[3]))
 
 
 def chapter(conn, chapter_id):

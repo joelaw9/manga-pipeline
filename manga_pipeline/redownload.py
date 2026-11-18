@@ -234,7 +234,7 @@ def _match(
         return None
     other = ctx.suwayomi.fetch_manga_and_chapters(found["id"])["chapters"]
     ours = ctx.suwayomi.chapters(reference) if reference else []
-    row = pick_chapter(chapter["identity"], _number(ctx, chapter["id"]), ours, other)
+    row = pick_chapter(chapter["identity"], chapter["number"], ours, other)  # a download past discover has one
     return None if row is None else target(ctx, row["id"])
 
 
@@ -260,17 +260,6 @@ def _parsed(row: suwayomi_replies.Chapter) -> tuple[list[str | None], float | No
     """(identity list, number as float or None) of a Suwayomi chapter row, parsed as its download file's stem."""
     item = names.parse(suwayomi.chapter_file(row["scanlator"], row["name"])[: -len(".cbz")])
     return names.read_identity(names.identity(item)), (None if item.number is None else float(item.number))
-
-
-def _number(ctx: workflow.Context, chapter_id: int) -> float:
-    """Return a chapter's number (its identity's) as a float.
-
-    Every chapter past discover has one: discover makes a chapter with no number needs_human.
-    """
-    number: float = db.one_row(
-        ctx.conn, "SELECT (identity::jsonb ->> 3)::float8 FROM chapter WHERE id = %s", (chapter_id,)
-    )[0]
-    return number
 
 
 def pick_chapter(

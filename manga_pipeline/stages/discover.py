@@ -28,6 +28,7 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     item = names.parse(download.stem, number)
     if item.number is None:
         return workflow.NeedsHuman(f"{download.name}: no chapter number in its name or its ComicInfo Number")
+    chapter_number = float(item.number)
     why = digest and handled.put_aside(ctx, chapter, digest)
     if why:
         return workflow.Dropped(why)
@@ -37,8 +38,8 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
 
     def record(conn: db.Connection) -> None:
         conn.execute(
-            "UPDATE chapter SET identity = %s, content_digest = %s WHERE id = %s",
-            (names.identity(item), digest, chapter["id"]),
+            "UPDATE chapter SET identity = %s, number = %s, content_digest = %s WHERE id = %s",
+            (names.identity(item), chapter_number, digest, chapter["id"]),
         )
 
     return workflow.Done(record)

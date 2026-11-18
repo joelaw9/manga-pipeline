@@ -164,7 +164,8 @@ def test_merged_chapters_past_junk_go_back_to_junk(world):
     world.download(second, "Chapter 3")
     scan(world)
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
-        conn.execute("UPDATE chapter SET stage = 'comicinfo', attempts = 2 WHERE series_id = 2")
+        # past discover, with the number discover wrote
+        conn.execute("UPDATE chapter SET stage = 'comicinfo', number = 3, attempts = 2 WHERE series_id = 2")
     link(world, second, kavita_id)
     assert world.rows("SELECT stage, status, attempts FROM chapter WHERE id = 2") == [("junk", "ready", 0)], (
         "the series' baseline and handled digests apply to a merged chapter"

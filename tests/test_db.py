@@ -22,7 +22,7 @@ import yaml
 from manga_pipeline import cli, config, db
 
 from tests import pg
-from tests.builders import one, present
+from tests.builders import add_chapter, add_series, one, present
 from tests.timing import budget
 
 SHIPPED = db.SCHEMA
@@ -681,3 +681,50 @@ def test_a_failed_reset_still_resets_the_tests_other_databases(tmp_path, monkeyp
     monkeypatch.undo()
     with closing(db.connect(second)) as conn:
         assert one(conn, "SELECT count(*) FROM series") == 0, "the other database is emptied too"
+
+
+# ---------------------------------------------------------------- step 0061: a download's number
+
+
+@budget(load="db")
+def test_a_download_past_discover_has_its_number_by_commit(tmp_path):
+    with closing(db.connect(db_cfg(tmp_path))) as conn:
+        series = add_series(conn, "S")
+        found = add_chapter(conn, series, '["", null, "", "5", ""]')  # at discover: no number yet
+        with db.transaction(conn):  # as workflow finishes discover: the stage moves, then its record writes the number
+            conn.execute("UPDATE chapter SET stage = 'validate' WHERE id = %s", (found,))
+            conn.execute("UPDATE chapter SET number = 5 WHERE id = %s", (found,))
+        broken = add_chapter(conn, series, '["", null, "", "6", ""]')
+        with (
+            pytest.raises(
+                psycopg.errors.CheckViolation, match=f"chapter {broken}: a download past discover has no number"
+            ),
+            db.transaction(conn),
+        ):
+            conn.execute("UPDATE chapter SET stage = 'validate' WHERE id = %s", (broken,))  # a record that wrote none
+        assert one(conn, "SELECT stage FROM chapter WHERE id = %s", (broken,)) == "discover", (
+            "the transaction is undone"
+        )
+
+
+@budget(BUILD, load="db")
+def test_step_0061_fills_each_downloads_number_from_its_identity(tmp_path, monkeypatch):
+    older = tmp_path / "schema"
+    older.mkdir()
+    for step in SHIPPED.glob("*.sql"):
+        if step.stem < "0061":
+            shutil.copy(step, older)
+    cfg = db_cfg(tmp_path, built=False)
+    monkeypatch.setattr(db, "SCHEMA", older)
+    with closing(db.connect(cfg)) as conn, db.transaction(conn):
+        conn.execute("INSERT INTO series (name, origin) VALUES ('S', 'new')")
+        for identity, stage in [('["", null, "", "12.5", ""]', "junk"), ('["", null, "", null, "notice"]', "discover")]:
+            conn.execute(
+                """INSERT INTO chapter (series_id, kind, identity, stage, status, discovered_at, updated_at)
+                VALUES (1, 'download', %s, %s, 'ready', 't', 't')""",
+                (identity, stage),
+            )
+    monkeypatch.undo()
+    with closing(db.connect(cfg)) as conn:
+        numbers = [tuple(r) for r in conn.execute("SELECT stage, number FROM chapter ORDER BY id")]
+    assert numbers == [("junk", 12.5), ("discover", None)], "the identity's number; none stays NULL"
