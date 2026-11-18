@@ -38,7 +38,7 @@ def raises(error):
 
 def claimed(ctx, stage="junk"):
     """Add a new series' chapter at stage, claimed by ctx's part; return its row."""
-    chapter_id = add_chapter(ctx.conn, add_series(ctx.conn, "S"), "c1", stage)
+    chapter_id = add_chapter(ctx.conn, add_series(ctx.conn, "S"), "c1", stage, number=1)
     row = present(workflow.claim(ctx, (stage,)))
     assert row["id"] == chapter_id
     return row
@@ -48,10 +48,10 @@ def claimed(ctx, stage="junk"):
 def test_claim_order_is_kavita_series_first_then_oldest_then_id(ctx):
     new = add_series(ctx.conn, "New", "new")
     known = add_series(ctx.conn, "Known", "kavita")
-    a = add_chapter(ctx.conn, new, "a", "junk", "2026-01-01T00:00:00+00:00")
-    b = add_chapter(ctx.conn, known, "b", "junk", "2026-01-03T00:00:00+00:00")
-    c = add_chapter(ctx.conn, known, "c", "junk", "2026-01-02T00:00:00+00:00")
-    d = add_chapter(ctx.conn, known, "d", "junk", "2026-01-02T00:00:00+00:00")
+    a = add_chapter(ctx.conn, new, "a", "junk", "2026-01-01T00:00:00+00:00", number=1)
+    b = add_chapter(ctx.conn, known, "b", "junk", "2026-01-03T00:00:00+00:00", number=1)
+    c = add_chapter(ctx.conn, known, "c", "junk", "2026-01-02T00:00:00+00:00", number=1)
+    d = add_chapter(ctx.conn, known, "d", "junk", "2026-01-02T00:00:00+00:00", number=1)
     order = []
     while row := workflow.claim(ctx, ("junk",)):
         order.append(row["id"])
@@ -62,15 +62,15 @@ def test_claim_order_is_kavita_series_first_then_oldest_then_id(ctx):
 
 @budget(load="db")
 def test_claim_picks_only_the_parts_stages(ctx):
-    add_chapter(ctx.conn, add_series(ctx.conn, "S"), "c1", "comicinfo")
+    add_chapter(ctx.conn, add_series(ctx.conn, "S"), "c1", "comicinfo", number=1)
     assert workflow.claim(ctx, workflow.PART_STAGES["process"]) is None
 
 
 @budget(load="db")
 def test_convert_waits_for_the_series_ready_junk(ctx):
     series = add_series(ctx.conn, "S")
-    convert = add_chapter(ctx.conn, series, "c1", "convert", "2026-01-01T00:00:00+00:00")
-    junk = add_chapter(ctx.conn, series, "c2", "junk", "2026-01-02T00:00:00+00:00")
+    convert = add_chapter(ctx.conn, series, "c1", "convert", "2026-01-01T00:00:00+00:00", number=1)
+    junk = add_chapter(ctx.conn, series, "c2", "junk", "2026-01-02T00:00:00+00:00", number=1)
     assert present(workflow.claim(ctx, ("junk", "convert")))["id"] == junk, (
         "a series' junk runs before any of it converts"
     )
@@ -81,8 +81,8 @@ def test_convert_waits_for_the_series_ready_junk(ctx):
 @budget(load="db")
 def test_junk_that_failed_this_run_does_not_hold_its_series_conversions(ctx):
     series = add_series(ctx.conn, "S")
-    junk = add_chapter(ctx.conn, series, "c1", "junk", "2026-01-01T00:00:00+00:00")
-    convert = add_chapter(ctx.conn, series, "c2", "convert", "2026-01-02T00:00:00+00:00")
+    junk = add_chapter(ctx.conn, series, "c1", "junk", "2026-01-01T00:00:00+00:00", number=1)
+    convert = add_chapter(ctx.conn, series, "c2", "convert", "2026-01-02T00:00:00+00:00", number=1)
     workflow.work(ctx, present(workflow.claim(ctx, ("junk", "convert"))), returns(Failed("bad page")))
     assert chapter(ctx.conn, junk)["status"] == "ready"
     assert present(workflow.claim(ctx, ("junk", "convert")))["id"] == convert, (
@@ -92,14 +92,14 @@ def test_junk_that_failed_this_run_does_not_hold_its_series_conversions(ctx):
 
 @budget(load="db")
 def test_needs_human_series_holds_its_chapters(ctx):
-    add_chapter(ctx.conn, add_series(ctx.conn, "S", status="needs_human"), "c1", "junk")
+    add_chapter(ctx.conn, add_series(ctx.conn, "S", status="needs_human"), "c1", "junk", number=1)
     assert workflow.claim(ctx, ("junk",)) is None
 
 
 @budget(load="db")
 def test_out_of_scope_series_is_not_claimed(ctx: workflow.Context):
     cfg: config.Config = {**ctx.cfg, "series": {"only": ["Other"]}}
-    add_chapter(ctx.conn, add_series(ctx.conn, "S"), "c1", "junk")
+    add_chapter(ctx.conn, add_series(ctx.conn, "S"), "c1", "junk", number=1)
     assert workflow.claim(workflow.context(cfg, ctx.conn, "process"), ("junk",)) is None
 
 
@@ -154,10 +154,10 @@ def test_a_run_has_1_client_of_each_service(ctx):
 @budget(load="db")
 def test_series_of_another_kavita_library_is_not_claimed(ctx):
     other = ctx.cfg["kavita"]["library_id"] + 1
-    add_chapter(ctx.conn, add_series(ctx.conn, "Elsewhere", "kavita", kavita_library_id=other), "c1", "junk")
+    add_chapter(ctx.conn, add_series(ctx.conn, "Elsewhere", "kavita", kavita_library_id=other), "c1", "junk", number=1)
     assert workflow.claim(ctx, ("junk",)) is None, "SPEC 'Parts': other libraries' series are out of scope"
     mine = add_series(ctx.conn, "Mine", "kavita", kavita_library_id=ctx.cfg["kavita"]["library_id"])
-    chapter_id = add_chapter(ctx.conn, mine, "c1", "junk")
+    chapter_id = add_chapter(ctx.conn, mine, "c1", "junk", number=1)
     assert present(workflow.claim(ctx, ("junk",)))["id"] == chapter_id
 
 
@@ -247,7 +247,7 @@ def test_attempt_limit_makes_the_chapter_needs_human(ctx, caplog):
 )
 def test_unreachable_share_leaves_attempts_unchanged_and_skips_the_stage(ctx, error):
     row = claimed(ctx)
-    other = add_chapter(ctx.conn, add_series(ctx.conn, "T"), "c2", "convert")
+    other = add_chapter(ctx.conn, add_series(ctx.conn, "T"), "c2", "convert", number=1)
     outcome = workflow.work(ctx, row, raises(error))
     assert isinstance(outcome, workflow.Unreachable)
     assert outcome.service == "share"
@@ -290,7 +290,7 @@ def test_no_transaction_is_open_while_a_stage_runs(ctx):
 @budget(load="db")
 def test_release_own_claims_frees_only_this_parts_claims(ctx):
     mine = claimed(ctx)
-    add_chapter(ctx.conn, mine["series_id"], "c2", "comicinfo")
+    add_chapter(ctx.conn, mine["series_id"], "c2", "comicinfo", number=1)
     other = workflow.claim(workflow.context(ctx.cfg, ctx.conn, "export"), ("comicinfo",))
     assert other is not None, "export claims its ready chapter"
     with db.transaction(ctx.conn):
@@ -397,7 +397,7 @@ def test_needs_human_clears_what_a_waiting_chapter_waits_on(ctx):
 def test_failing_wait_check_is_logged_and_the_others_go_on(ctx, caplog):
     first = claimed(ctx)
     workflow.work(ctx, first, returns(Waiting("junk_decision")))
-    add_chapter(ctx.conn, first["series_id"], "c2", "junk")
+    add_chapter(ctx.conn, first["series_id"], "c2", "junk", number=1)
     second = present(workflow.claim(ctx, ("junk",)))
     workflow.work(ctx, second, returns(Waiting("junk_decision")))
 
@@ -467,7 +467,7 @@ def test_needs_human_outcome_needs_no_attempts(ctx):
 def test_drain_returns_how_many_ended_done(ctx):
     series = add_series(ctx.conn, "S")
     for name in ("a", "b", "c"):
-        add_chapter(ctx.conn, series, name, "junk")
+        add_chapter(ctx.conn, series, name, "junk", number=1)
     outcomes = iter([Done(), Failed("x"), Done()])
     assert workflow.drain(ctx, {"junk": lambda _ctx, _chapter: next(outcomes)}) == 2
 
@@ -475,11 +475,11 @@ def test_drain_returns_how_many_ended_done(ctx):
 @budget(load="db")
 def test_charge_waits_costs_1_attempt_per_chapter_waiting_since_the_cutoff_and_ends_at_the_limit(ctx):
     series = add_series(ctx.conn, "S")
-    tired = add_chapter(ctx.conn, series, "a", "confirm", attempts=2)
-    fresh = add_chapter(ctx.conn, series, "b", "confirm")
-    ready = add_chapter(ctx.conn, series, "c", "confirm")
-    late = add_chapter(ctx.conn, series, "d", "confirm")
-    other_wait = add_chapter(ctx.conn, series, "e", "junk")
+    tired = add_chapter(ctx.conn, series, "a", "confirm", attempts=2, number=1)
+    fresh = add_chapter(ctx.conn, series, "b", "confirm", number=1)
+    ready = add_chapter(ctx.conn, series, "c", "confirm", number=1)
+    late = add_chapter(ctx.conn, series, "d", "confirm", number=1)
+    other_wait = add_chapter(ctx.conn, series, "e", "junk", number=1)
     with db.transaction(ctx.conn):
         ctx.conn.execute(
             """UPDATE chapter SET status = 'waiting', waiting_on = 'kavita_scan',
@@ -516,9 +516,9 @@ def test_charge_waits_costs_1_attempt_per_chapter_waiting_since_the_cutoff_and_e
 def test_charge_waits_skips_chapters_of_out_of_scope_and_needs_human_series(ctx):
     other = ctx.cfg["kavita"]["library_id"] + 1
     elsewhere = add_chapter(
-        ctx.conn, add_series(ctx.conn, "Elsewhere", "kavita", kavita_library_id=other), "a", "confirm"
+        ctx.conn, add_series(ctx.conn, "Elsewhere", "kavita", kavita_library_id=other), "a", "confirm", number=1
     )
-    held = add_chapter(ctx.conn, add_series(ctx.conn, "Held", status="needs_human"), "b", "confirm")
+    held = add_chapter(ctx.conn, add_series(ctx.conn, "Held", status="needs_human"), "b", "confirm", number=1)
     with db.transaction(ctx.conn):
         ctx.conn.execute(
             """UPDATE chapter SET status = 'waiting', waiting_on = 'kavita_scan',
@@ -538,8 +538,8 @@ def test_a_scanned_junk_chapter_waits_while_another_of_its_series_is_unscanned(c
     So its chapter is claimed (to be scanned) before the scanned one is decided.
     """
     series = add_series(ctx.conn, "S")
-    scanned = add_chapter(ctx.conn, series, "a", "junk", "2026-01-01T00:00:00+00:00", content_digest="d1")
-    other = add_chapter(ctx.conn, series, "b", "junk", "2026-01-02T00:00:00+00:00", content_digest="d2")
+    scanned = add_chapter(ctx.conn, series, "a", "junk", "2026-01-01T00:00:00+00:00", content_digest="d1", number=1)
+    other = add_chapter(ctx.conn, series, "b", "junk", "2026-01-02T00:00:00+00:00", content_digest="d2", number=1)
     scans = [(scanned, "d1", '{"marks": []}'), (other, "d2", "{}" if old_scan else '{"marks": []}')]
     with db.transaction(ctx.conn):
         db.executemany(
@@ -558,9 +558,9 @@ def test_a_scanned_junk_chapter_waits_while_another_of_its_series_is_unscanned(c
 def test_a_new_series_without_a_layout_waits_at_junk_for_3_chapters_or_an_empty_intake(ctx):
     """SPEC "State": its layout is measured over up to 3 of its chapters."""
     series = add_series(ctx.conn, "S")
-    first = add_chapter(ctx.conn, series, "c1", "junk")
-    second = add_chapter(ctx.conn, series, "c2", "junk")
-    later = add_chapter(ctx.conn, series, "c3", "validate")
+    first = add_chapter(ctx.conn, series, "c1", "junk", number=1)
+    second = add_chapter(ctx.conn, series, "c2", "junk", number=1)
+    later = add_chapter(ctx.conn, series, "c3", "validate", number=1)
     assert workflow.claim(ctx, ("junk",)) is None, "2 past validate and 1 still at validate: it waits"
     with db.transaction(ctx.conn):
         ctx.conn.execute("UPDATE chapter SET stage = 'junk' WHERE id = %s", (later,))
@@ -568,7 +568,7 @@ def test_a_new_series_without_a_layout_waits_at_junk_for_3_chapters_or_an_empty_
     with db.transaction(ctx.conn):
         ctx.conn.execute("UPDATE chapter SET status = 'ready', claimed_by = NULL WHERE id = %s", (first,))
         ctx.conn.execute("DELETE FROM chapter WHERE id IN (%s, %s)", (later, second))
-    held = add_chapter(ctx.conn, series, "c4", "validate")
+    held = add_chapter(ctx.conn, series, "c4", "validate", number=1)
     with db.transaction(ctx.conn):
         ctx.conn.execute("UPDATE chapter SET status = 'needs_human' WHERE id = %s", (held,))
     assert present(workflow.claim(ctx, ("junk",)))["id"] == first, "nothing ready at discover or validate: it goes on"

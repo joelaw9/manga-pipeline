@@ -707,8 +707,8 @@ def test_a_download_past_discover_has_its_number_by_commit(tmp_path):
         )
 
 
-@budget(BUILD, load="db")
-def test_step_0061_fills_each_downloads_number_from_its_identity(tmp_path, monkeypatch):
+def built_to_0060(tmp_path, monkeypatch, chapters):
+    """Return the config of a database built with the steps before 0061, holding chapters [(identity, stage)]."""
     older = tmp_path / "schema"
     older.mkdir()
     for step in SHIPPED.glob("*.sql"):
@@ -718,13 +718,30 @@ def test_step_0061_fills_each_downloads_number_from_its_identity(tmp_path, monke
     monkeypatch.setattr(db, "SCHEMA", older)
     with closing(db.connect(cfg)) as conn, db.transaction(conn):
         conn.execute("INSERT INTO series (name, origin) VALUES ('S', 'new')")
-        for identity, stage in [('["", null, "", "12.5", ""]', "junk"), ('["", null, "", null, "notice"]', "discover")]:
+        for identity, stage in chapters:
             conn.execute(
                 """INSERT INTO chapter (series_id, kind, identity, stage, status, discovered_at, updated_at)
                 VALUES (1, 'download', %s, %s, 'ready', 't', 't')""",
                 (identity, stage),
             )
     monkeypatch.undo()
+    return cfg
+
+
+@budget(BUILD, load="db")
+def test_step_0061_fills_each_downloads_number_past_discover_from_its_identity(tmp_path, monkeypatch):
+    cfg = built_to_0060(
+        tmp_path, monkeypatch, [('["", null, "", "12.5", ""]', "junk"), ('["", null, "", "7", ""]', "discover")]
+    )
     with closing(db.connect(cfg)) as conn:
         numbers = [tuple(r) for r in conn.execute("SELECT stage, number FROM chapter ORDER BY id")]
-    assert numbers == [("junk", 12.5), ("discover", None)], "the identity's number; none stays NULL"
+    assert numbers == [("junk", 12.5), ("discover", None)], (
+        "the identity's number past discover; discover writes its own"
+    )
+
+
+@budget(BUILD, load="db")
+def test_step_0061_refuses_a_download_past_discover_whose_identity_has_no_number(tmp_path, monkeypatch):
+    cfg = built_to_0060(tmp_path, monkeypatch, [('["", null, "", null, "notice"]', "validate")])
+    with pytest.raises(db.SchemaError, match="step 0061_chapter_number: 1 download"):
+        db.connect(cfg).close()

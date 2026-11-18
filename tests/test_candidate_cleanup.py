@@ -75,7 +75,7 @@ def test_a_closed_candidate_is_stamped_then_deleted_with_its_folder_an_hour_late
 @budget(load="db")
 def test_a_reopened_candidate_loses_its_stamp(site):
     cfg, conn = site
-    chapter_id = add_chapter(conn, add_series(conn, "S"), "c1", "junk")
+    chapter_id = add_chapter(conn, add_series(conn, "S"), "c1", "junk", number=1)
     cid = candidate(conn, cfg, "a-1-1", closed_at=HOUR_AGO_2)
     wait_on(conn, chapter_id, cid)
     assert candidates.cleanup(cfg, conn) == 0

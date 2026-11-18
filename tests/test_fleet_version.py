@@ -108,7 +108,7 @@ def test_jpegtran_s_build_date_is_left_out_and_package_names_are_read_from_requi
 def test_a_winerror_59_share_drop_costs_no_attempt(cfg):
     with closing(db.connect(cfg)) as conn:
         series_id = add_series(conn, "S")
-        chapter_id = add_chapter(conn, series_id, "c1", "junk")
+        chapter_id = add_chapter(conn, series_id, "c1", "junk", number=1)
         ctx = workflow.context(cfg, conn, "process")
         row = present(workflow.claim(ctx, ("junk",)))
 

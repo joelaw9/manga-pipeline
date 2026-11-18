@@ -64,7 +64,7 @@ class Fleet:
         if folder:
             with db.transaction(self.conn):
                 self.conn.execute("UPDATE series SET folder = %s WHERE id = %s", (folder, series_id))
-        return series_id, [add_chapter(self.conn, series_id, f"c{i}", "junk") for i in range(chapters)]
+        return series_id, [add_chapter(self.conn, series_id, f"c{i}", "junk", number=1) for i in range(chapters)]
 
     def row(self, chapter_id):
         """Return the chapter's row, read on the test's own connection."""

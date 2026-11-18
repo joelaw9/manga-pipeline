@@ -262,11 +262,11 @@ def add_series(conn, name, origin="new", status="ok", kavita_library_id=None):
 def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None, **columns):
     """Add a ready chapter at stage (discovered_at defaults to now).
 
-    columns set other chapter columns (download_path among them) as given; a chapter past discover carries its number
-    (identity_number), unless columns give one.
+    columns set other chapter columns (download_path among them) as given; a chapter past discover carries its number:
+    columns' number=, else its identity's (identity_number).
     """
     stamp = discovered_at or workflow.now(conn)
-    if stage != "discover":
+    if stage != "discover" and "number" not in columns:
         columns = {"number": identity_number(identity), **columns}
     with db.transaction(conn):
         chapter_id = one(
@@ -284,12 +284,7 @@ def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None,
 
 
 def identity_number(identity):
-    """Return the number discover writes with an identity: names.identity's number, or 1.0 for a test's opaque identity.
-
-    A download past discover always has a number (schema step 0061); a test naming its chapter "c1" reads none of it.
-    """
-    if not identity.startswith("["):
-        return 1.0
+    """Return the number discover writes with an identity (names.identity's); a download past discover has one."""
     return float(present(names.read_identity(identity)[3]))
 
 

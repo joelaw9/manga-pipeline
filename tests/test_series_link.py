@@ -6,7 +6,7 @@ import pytest
 
 from manga_pipeline import config, db, discovery, identify, intake, status, workflow
 
-from tests.builders import add_series
+from tests.builders import add_series, identity_number
 from tests.timing import budget
 from tests.world import World
 
@@ -164,8 +164,11 @@ def test_merged_chapters_past_junk_go_back_to_junk(world):
     world.download(second, "Chapter 3")
     scan(world)
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
-        # past discover, with the number discover wrote
-        conn.execute("UPDATE chapter SET stage = 'comicinfo', number = 3, attempts = 2 WHERE series_id = 2")
+        for chapter_id, identity in conn.execute("SELECT id, identity FROM chapter WHERE series_id = 2").fetchall():
+            conn.execute(  # past discover, with the number discover writes from its identity
+                "UPDATE chapter SET stage = 'comicinfo', number = %s, attempts = 2 WHERE id = %s",
+                (identity_number(identity), chapter_id),
+            )
     link(world, second, kavita_id)
     assert world.rows("SELECT stage, status, attempts FROM chapter WHERE id = 2") == [("junk", "ready", 0)], (
         "the series' baseline and handled digests apply to a merged chapter"
