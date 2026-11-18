@@ -73,9 +73,9 @@ class Row(tuple[Any, ...]):  # pyright: ignore[reportExplicitAny]
     __slots__ = ()
     _keys: tuple[str, ...] = ()
 
-    # Any: a column's value is whatever type its column holds, which only the query knows.
+    # Any (ANN401, reportExplicitAny): a column's value is whatever type its column holds, which only the query knows.
     @overload
-    def __getitem__(self, key: SupportsIndex | str) -> Any: ...  # pyright: ignore[reportExplicitAny]
+    def __getitem__(self, key: SupportsIndex | str) -> Any: ...  # pyright: ignore[reportExplicitAny]  # noqa: ANN401
     @overload
     def __getitem__(self, key: slice) -> tuple[Any, ...]: ...  # pyright: ignore[reportExplicitAny]
     def __getitem__(self, key: SupportsIndex | str | slice) -> Any:  # pyright: ignore[reportExplicitAny]
