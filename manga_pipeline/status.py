@@ -25,16 +25,6 @@ def report(conn: db.Connection) -> list[str]:
         return _report(conn)
 
 
-def _settle(row: db.Row) -> str:
-    """Return the other commands that settle a needs_human chapter at its stage (SPEC "Bad downloads")."""
-    hint = ""
-    if row["stage"] == "validate":
-        hint += f", chapter use {row['id']} SUWAYOMI_CHAPTER_ID"
-    if row["stage"] in workflow.DROPPABLE:
-        hint += f", chapter drop {row['id']}"
-    return hint
-
-
 def _redownload(row: db.Row) -> str:
     state = workflow.read_redownload(row["redownload"])
     expected = state.get("expected")
@@ -184,21 +174,14 @@ def _needs_human(conn: db.Connection) -> list[str]:
         """SELECT c.id, c.identity, c.stage, c.last_error, s.name FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status = 'needs_human' ORDER BY c.id"""
     ).fetchall()
-    human = [
-        f"  series {r['id']} ({r['name']}): {r['status_reason']}"
-        + (
-            ("" if "series new" in r["status_reason"] else f" -> series link or series new {r['id']}")
-            if r["origin"] == "new" and r["admitted_at"] is None
-            else f" -> retry --series {r['id']}"
-        )
-        for r in series
-    ]
-    human += [
-        f"  chapter {r['id']} ({r['name']} / {r['identity']}, at {r['stage']}): {r['last_error']} -> retry {r['id']}"
-        + _settle(r)
-        for r in chapters
-    ]
+    human = [_human(workflow.human_line("series", r, r["status_reason"])) for r in series]
+    human += [_human(workflow.human_line("chapter", r, r["last_error"])) for r in chapters]
     return lines + (human or ["  none"])
+
+
+def _human(line: tuple[str, str]) -> str:
+    text, fix = line
+    return f"  {text} -> {fix}" if fix else f"  {text}"
 
 
 def _redownloads(conn: db.Connection) -> list[str]:

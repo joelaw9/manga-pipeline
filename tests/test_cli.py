@@ -62,7 +62,11 @@ SPEC = {
             "naming overrides",
         ],
     ),
-    "export": ({"export", "idle"}, "export.log", [*PART_CHECKS, "service settings", "naming overrides"]),
+    "export": (
+        {"export", "idle"},
+        "export.log",
+        [*PART_CHECKS, "service settings", "naming overrides", "discord settings"],
+    ),
     "status": (set(), None, []),
     "retry": (set(), None, []),
     "chapter use": (set(), None, []),

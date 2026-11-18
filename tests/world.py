@@ -19,6 +19,7 @@ from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.junk import review
 
 from tests.builders import adopted, settle
+from tests.fakes.discord import FakeDiscord
 from tests.fakes.kavita import FakeKavita
 from tests.fakes.sources import fake_sources
 from tests.fakes.suwayomi import FakeSuwayomi
@@ -172,6 +173,7 @@ class World:
         self.kavita = FakeKavita({LIBRARY_ID: "/kavita/library"}, self.cfg["paths"]["kavita_path_map"])
         self.source = self.suwayomi.add_source("Src")
         self.sources = fake_sources()
+        self.discord = FakeDiscord()
         self.kavita_specs = []  # [(id, name, folder, add_series keywords)]: rebuilds the FakeKavita in another process
 
     def context(self, conn, part):
@@ -184,6 +186,7 @@ class World:
             suwayomi=self.suwayomi,
             kavita=self.kavita,
             sources=self.sources,
+            discord=self.discord,
         )
 
     def run(self, part_module):
