@@ -7,10 +7,10 @@ needs_human. An archive it cannot read gets no digest and goes on to validate, w
 is discovery.py's.
 """
 
-from manga_pipeline import archive, comicinfo, config, errors, handled, names, notices, workflow
+from manga_pipeline import archive, comicinfo, config, db, errors, handled, names, notices, workflow
 
 
-def run(ctx: workflow.Context, chapter):
+def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     """Settle the chapter's identity and digest from its download, or drop it or make it needs_human.
 
     Dropped: a gone download, an unnumbered notice, a download a handled chapter already had. Needs_human: no number,
@@ -35,7 +35,7 @@ def run(ctx: workflow.Context, chapter):
     if unclear:
         return workflow.NeedsHuman(f"{download.name}: {unclear}")
 
-    def record(conn):
+    def record(conn: db.Connection) -> None:
         conn.execute(
             "UPDATE chapter SET identity = %s, content_digest = %s WHERE id = %s",
             (names.identity(item), digest, chapter["id"]),

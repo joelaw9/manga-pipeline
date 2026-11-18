@@ -13,6 +13,7 @@ completes: check.completed): its chapters' names and volume covers need both.
 import functools
 import json
 from pathlib import Path
+from typing import ReadOnly, TypedDict
 
 from manga_pipeline import (
     archive,
@@ -34,7 +35,25 @@ from manga_pipeline.db import sql
 from manga_pipeline.metadata import check, covers
 
 
-def run(ctx: workflow.Context, chapter):
+class Copy(TypedDict):
+    """A copy of the chapter that is rejected: its source, Suwayomi chapter (None: hand-placed) and stored path."""
+
+    source: ReadOnly[str | None]
+    chapter_id: ReadOnly[int | None]
+    path: ReadOnly[str]
+
+
+class Adopted(TypedDict):
+    """The chapter columns a judged re-download sets: it becomes the chapter's own download."""
+
+    download_path: str
+    suwayomi_chapter_id: int
+    source: str
+    source_url: str | None
+    content_digest: str | None
+
+
+def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     """Validate the chapter's download, or step its re-download state machine (chapter.redownload) on.
 
     The series' prerequisites wait first. A sound download is done; another defect is needs_human; a bad one is
@@ -50,18 +69,18 @@ def run(ctx: workflow.Context, chapter):
             return _done(ctx, chapter, verdict)
         if verdict.kind == "human":
             return workflow.NeedsHuman(verdict.reason)
-        state = _reject(ctx, chapter, redownload.new_state(ctx, chapter, {}), _own(chapter), verdict.reason)
+        state = _reject(ctx, chapter, redownload.new_state(ctx, chapter, None), _own(chapter), verdict.reason)
     elif "original" not in state:
         state = _first_choice(ctx, chapter, state)
-    if state["expected"] is not None:
-        outcome = _candidate(ctx, chapter, state)
+    if (expected := state["expected"]) is not None:
+        outcome = _candidate(ctx, chapter, state, expected)
         if outcome is not None:
             return outcome
     redownload.remove(ctx, chapter, state)
     return _next_download(ctx, chapter, state)
 
 
-def _prerequisites(ctx: workflow.Context, chapter):
+def _prerequisites(ctx: workflow.Context, chapter: db.Row) -> workflow.Waiting | None:
     """Return the wait of a chapter whose series lacks what its names and covers need, else None.
 
     The baseline of a series Kavita holds (bulk_conversion while its record cannot be read), then a completed metadata
@@ -77,19 +96,19 @@ def _prerequisites(ctx: workflow.Context, chapter):
     return None
 
 
-def _first_choice(ctx: workflow.Context, chapter, state):
+def _first_choice(ctx: workflow.Context, chapter: db.Row, state: workflow.PersonChoice) -> workflow.Redownload:
     """Return the re-download state of `chapter use` on a chapter never rejected.
 
     Its file in hand, if any, gives way.
     """
-    state = redownload.new_state(ctx, chapter, state)
+    started = redownload.new_state(ctx, chapter, state["chosen"])
     if errors.exists(config.to_local(ctx.cfg, chapter["download_path"])):
-        return _reject(ctx, chapter, state, _own(chapter), "replaced by the download a person chose")
-    redownload.save(ctx, chapter, state)
-    return state
+        return _reject(ctx, chapter, started, _own(chapter), "replaced by the download a person chose")
+    redownload.save(ctx, chapter, started)
+    return started
 
 
-def _next_download(ctx: workflow.Context, chapter, state):
+def _next_download(ctx: workflow.Context, chapter: db.Row, state: workflow.Redownload) -> workflow.OUTCOMES:
     """Queue the next download, the one chosen with chapter use else the next pick, and wait on it.
 
     The pick's outcome when it gives none, needs_human for a refused choice.
@@ -104,7 +123,7 @@ def _next_download(ctx: workflow.Context, chapter, state):
     return _waiting(found)
 
 
-def _chosen(ctx: workflow.Context, chapter, chapter_id):
+def _chosen(ctx: workflow.Context, chapter: db.Row, chapter_id: int) -> workflow.Chosen | workflow.NeedsHuman:
     """Return the Suwayomi chapter chosen with chapter use as a target, marked chosen.
 
     needs_human when it does not exist or is another open chapter's download (a refused choice stays recorded: retry
@@ -115,24 +134,28 @@ def _chosen(ctx: workflow.Context, chapter, chapter_id):
         return workflow.NeedsHuman("the Suwayomi chapter chosen with chapter use does not exist")
     if redownload.held_elsewhere(ctx, chapter, found):
         return workflow.NeedsHuman("the Suwayomi chapter chosen with chapter use is another open chapter's download")
-    found["chosen"] = True  # enqueue clears it with the expected download, so an interruption keeps the choice
-    return found
+    return {**found, "chosen": True}  # enqueue clears it with the expected download: an interruption keeps the choice
 
 
-def _waiting(expected):
+def _waiting(expected: workflow.Target | workflow.Expected) -> workflow.Waiting:
     return workflow.Waiting("suwayomi_download", {"source": expected["source"], "chapter_id": expected["chapter_id"]})
 
 
-def _own(chapter):
+def _own(chapter: db.Row) -> Copy:
     """Return the chapter's download in hand, shaped as a target."""
     return {"source": chapter["source"], "chapter_id": chapter["suwayomi_chapter_id"], "path": chapter["download_path"]}
 
 
-def _check(ctx: workflow.Context, chapter, path):
+def _phashes(text: str) -> list[str]:
+    """Return a published file's page_phashes (JSON text): its non-blank pages' pHashes. Unchecked."""
+    return json.loads(text)
+
+
+def _check(ctx: workflow.Context, chapter: db.Row, path: str) -> validation.Verdict:
     published = [
         {
             "key": validation.chapter_key(row["identity"]),
-            "page_phashes": None if row["page_phashes"] is None else json.loads(row["page_phashes"]),
+            "page_phashes": None if row["page_phashes"] is None else _phashes(row["page_phashes"]),
             "strip_length": row["strip_length"],
             "volume": row["comicinfo_volume"],
             "volume_source": row["volume_source"],
@@ -161,7 +184,7 @@ def _check(ctx: workflow.Context, chapter, path):
     return verdict
 
 
-def _file_key(path):
+def _file_key(path: Path) -> tuple[str | None, str | None, str | None]:
     """Return (season, side label, number) of a download as discover reads it.
 
     Its name, numbered by its ComicInfo Number when the name has none.
@@ -169,11 +192,13 @@ def _file_key(path):
     return validation.chapter_key(names.identity(names.parse(Path(path).stem, comicinfo.download_number(path))))
 
 
-def _series(ctx: workflow.Context, chapter):
+def _series(ctx: workflow.Context, chapter: db.Row) -> db.Row:
     return db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
 
 
-def _reject(ctx: workflow.Context, chapter, state, copy, why):
+def _reject(
+    ctx: workflow.Context, chapter: db.Row, state: workflow.Redownload, copy: Copy, why: str
+) -> workflow.Redownload:
     """Record a rejected copy (a target: {source, chapter_id, path}) and queue its removal.
 
     The state and the handled chapter land in 1 transaction.
@@ -189,9 +214,10 @@ def _reject(ctx: workflow.Context, chapter, state, copy, why):
     return state
 
 
-def _candidate(ctx: workflow.Context, chapter, state):
-    """Judge the expected download. Returns the stage's outcome, or None once the state moved on to the next pick."""
-    expected = state["expected"]
+def _candidate(
+    ctx: workflow.Context, chapter: db.Row, state: workflow.Redownload, expected: workflow.Expected
+) -> workflow.OUTCOMES | None:
+    """Judge the expected download (the state's). Returns the stage's outcome, or None once the state moved on."""
     status = redownload.download_state(ctx, expected)
     if status == "waiting":
         return _waiting(expected)
@@ -210,7 +236,7 @@ def _candidate(ctx: workflow.Context, chapter, state):
     if verdict.kind == "bad":
         _reject(ctx, chapter, state, expected, verdict.reason)
         return None
-    adopted = {
+    adopted: Adopted = {
         "download_path": expected["path"],
         "suwayomi_chapter_id": expected["chapter_id"],
         "source": expected["source"],
@@ -225,12 +251,14 @@ def _candidate(ctx: workflow.Context, chapter, state):
     return _done(ctx, chapter, verdict, adopted)
 
 
-def _done(ctx: workflow.Context, chapter, verdict, adopted=None):
+def _done(
+    ctx: workflow.Context, chapter: db.Row, verdict: validation.Verdict, adopted: Adopted | None = None
+) -> workflow.Done | workflow.NeedsHuman:
     """Return Done with the verdict's pages and notes (and the adopted re-download), and the chapter's volume cover.
 
     The volume cover is that of a chapter that opens a covered volume (SPEC "Metadata", Volume covers).
     """
-    download = (adopted or {}).get("download_path", chapter["download_path"])
+    download = chapter["download_path"] if adopted is None else adopted["download_path"]
     try:
         series = _series(ctx, chapter)
         if series["origin"] == "new" and series["naming_basis"] is None:  # the claim waited for the whole batch
@@ -242,10 +270,11 @@ def _done(ctx: workflow.Context, chapter, verdict, adopted=None):
                 redownload.save_in(ctx, chapter, None, **adopted)
         return workflow.NeedsHuman(str(e))
 
-    def record(conn):
-        columns = {**(adopted or {}), "notes": json.dumps(verdict.notes) if verdict.notes else None}
-        if adopted:
-            columns["redownload"] = None
+    def record(conn: db.Connection) -> None:
+        notes = json.dumps(verdict.notes) if verdict.notes else None
+        columns: dict[str, object] = (
+            {"notes": notes} if adopted is None else {**adopted, "notes": notes, "redownload": None}
+        )
         conn.execute(
             sql.SQL("UPDATE chapter SET {} WHERE id = %s").format(
                 sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(name)) for name in columns)
@@ -263,7 +292,7 @@ def _done(ctx: workflow.Context, chapter, verdict, adopted=None):
     return workflow.Done(record)
 
 
-def bulk_conversion_over(ctx: workflow.Context, chapter):
+def bulk_conversion_over(ctx: workflow.Context, chapter: db.Row) -> bool:
     """Return whether the bulk_conversion wait ends: the series has its baseline.
 
     The baseline is taken here when its record can be read, so a chapter waiting past validate, left by an older
@@ -273,7 +302,7 @@ def bulk_conversion_over(ctx: workflow.Context, chapter):
     return not baseline.needed(ctx.conn, series) or baseline.take(ctx, series) is None
 
 
-def _volume_cover(ctx: workflow.Context, chapter, download):
+def _volume_cover(ctx: workflow.Context, chapter: db.Row, download: str) -> tuple[str, str, str] | None:
     """Return (path, sha256, volume) of the cover the chapter takes, else None.
 
     It takes one when it opens a covered volume and MangaDex has that volume's cover. A chapter that already has its
@@ -284,7 +313,7 @@ def _volume_cover(ctx: workflow.Context, chapter, download):
     named = chapter_names.resolve(ctx, _series(ctx, chapter), {chapter["id"]: download}).get(chapter["id"])
     if named is None or (covered := named.covered_volume) is None:
         return None
-    volume = names.fmt_num(named.volume)
+    volume = names.fmt_num(covered)  # the chapter's volume
     taken = ctx.conn.execute(
         """SELECT 1 FROM volume_cover v JOIN chapter c ON c.id = v.chapter_id
         WHERE c.series_id = %(series)s AND v.volume = %(volume)s AND c.status != 'done'
@@ -296,4 +325,4 @@ def _volume_cover(ctx: workflow.Context, chapter, download):
     if taken:  # an open chapter of that volume, or a published file, took its cover first: it keeps it
         return None
     found = covers.volume_cover(ctx, chapter["series_id"], covered)
-    return found and (*found, names.fmt_num(named.volume))
+    return found and (*found, volume)

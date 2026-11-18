@@ -62,13 +62,13 @@ def save_in(ctx: workflow.Context, chapter, state, **columns):
         raise RuntimeError(msg)
 
 
-def new_state(ctx: workflow.Context, chapter, state):
-    """Return the state of a chapter rejected for the first time (state: what a person set, e.g. chosen, or {}).
+def new_state(ctx: workflow.Context, chapter, chosen: int | None) -> workflow.Redownload:
+    """Return the state of a chapter rejected for the first time (chosen: the replacement a person chose, or None).
 
     A hand-placed chapter (no Suwayomi chapter) has no original source.
     """
     found = None if chapter["suwayomi_chapter_id"] is None else target(ctx, chapter["suwayomi_chapter_id"])
-    original = {
+    original: workflow.Original = {
         # by Suwayomi's display name, which sources.ranking uses (chapter.source may hold a source id)
         "source": chapter["source"] if found is None else found["source"],
         "manga_id": None if found is None else found["manga_id"],
@@ -81,9 +81,8 @@ def new_state(ctx: workflow.Context, chapter, state):
         "tried": [],
         "same_source_done": False,
         "expected": None,
-        "chosen": None,
+        "chosen": chosen,
         "remove": [],
-        **state,
     }
 
 
@@ -105,7 +104,7 @@ def remove(ctx: workflow.Context, chapter, state):
         save(ctx, chapter, state)
 
 
-def target(ctx: workflow.Context, chapter_id):
+def target(ctx: workflow.Context, chapter_id) -> workflow.Target | None:
     """Return {source, manga_id, chapter_id, path, url} of a Suwayomi chapter of any manga.
 
     None when Suwayomi has no such chapter or no source for it.
@@ -133,7 +132,9 @@ def target(ctx: workflow.Context, chapter_id):
     }
 
 
-def pick(ctx: workflow.Context, chapter, series, state):
+def pick(
+    ctx: workflow.Context, chapter, series, state
+) -> workflow.Target | workflow.SameSource | workflow.Failed | workflow.NeedsHuman:
     """Pick the next download to queue: the original chapter once, then the best-ranked matching source.
 
     After the original chapter, the best-ranked installed source not tried that matches the chapter. Records each

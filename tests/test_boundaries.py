@@ -83,7 +83,7 @@ READERS = {
     ("stages/convert.py", "read_result"),
     ("stages/junk.py", "_candidate_ids"),
     ("stages/junk.py", "read_scan"),
-    ("stages/validate.py", "_check"),
+    ("stages/validate.py", "_phashes"),
     ("status.py", "_notes"),
     ("status.py", "_redownload"),
     ("validation.py", "chapter_key"),
