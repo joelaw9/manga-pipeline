@@ -29,7 +29,7 @@ from PIL import Image
 
 from manga_pipeline import db, images, strip
 from manga_pipeline.convert import plan
-from manga_pipeline.junk import logo_units, store
+from manga_pipeline.junk import store
 
 EDGE_PX = 6000  # edge region: the first and last rows of a strip whose blocks are junk units (old junk_edge_px)
 MAX_SEAM = strip.SLICE_REPAIR["max_seam_score"]  # hard-join threshold (slice_repair.max_seam_score)
@@ -99,8 +99,8 @@ class StripScan(TypedDict):
     """A strip chapter's scan (scan), JSON-able: everything decide reads.
 
     The strip's width and height, its gaps and spans ([start, end] each), its edge blocks, {"start:end": measure} of
-    every tail block and remainder, and the signature texts of its middle blocks. content (the content pages' download
-    indexes) and marks (their logos) are added to it by its caller.
+    every tail block and remainder, and the signature texts of its middle blocks. The junk stage stores it with its
+    content pages and their logos.
     """
 
     layout: Literal["strip"]
@@ -111,8 +111,6 @@ class StripScan(TypedDict):
     blocks: list[EdgeBlock]
     measured: dict[str, PieceMeasure]
     middle: list[str]
-    content: NotRequired[list[int]]
-    marks: NotRequired[list[logo_units.StripLogo]]
 
 
 class Matched[R](TypedDict):

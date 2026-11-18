@@ -147,6 +147,12 @@ def db_row(**columns: object) -> db.Row:
     return row_class(columns.values())
 
 
+def scope_cfg(library_id: int, only: list[str]) -> config.Config:
+    """Return the test config with this Kavita library and series.only: what the scope rule reads."""
+    cfg = config.cached()
+    return {**cfg, "kavita": {**cfg["kavita"], "library_id": library_id}, "series": {**cfg["series"], "only": only}}
+
+
 def problem_text(problem):
     """Return a check's problem text, asserting it names one."""
     assert problem is not None, "the check names a problem"

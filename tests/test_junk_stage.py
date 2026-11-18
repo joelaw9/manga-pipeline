@@ -276,6 +276,19 @@ def test_a_chapter_without_a_content_digest_fails_instead_of_scanning_for_ever(s
     assert site.rows("SELECT count(*) FROM junk_scan") == [(0,)], "no scan is written"
 
 
+@budget(load="db", seconds=10)
+def test_a_malformed_stored_page_aspect_fails_the_scan_naming_its_series(site):
+    site.download("Alpha", 2, cbz(seed="x"))
+    run_part(site.cfg, intake)
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE series_conversion SET layout = 'pages', page_aspect = '[]'")  # its baseline's row
+    run_part(site.cfg, process)
+    ((stage, status, attempts, error),) = site.rows("SELECT stage, status, attempts, last_error FROM chapter")
+    assert (stage, status, attempts) == ("junk", "ready", 1), "the scan reads the series' page aspects checked"
+    assert "page_aspect must be a non-empty list of numbers" in error, "the failure names what is wrong"
+    assert site.rows("SELECT count(*) FROM junk_scan") == [(0,)], "no scan is written"
+
+
 @budget(load="db", seconds=5)
 def test_a_strip_chapter_waits_on_its_candidates_and_finishes_once_they_are_kept(site, monkeypatch):
     monkeypatch.setattr(ocr, "text", lambda _im, _device: "")  # the real engine reads noise for seconds per block
@@ -456,6 +469,18 @@ def test_a_badge_in_a_strip_chapter_is_offered_and_blanked_on_its_page(site, mon
     site.download("Long", 2, strip_logo_cbz("s2"))
     site.parts()
     assert site.chapters() == [("junk", "waiting", "junk_decision")]
+    ((scan,),) = site.rows("SELECT scan FROM junk_scan")
+    assert list(json.loads(scan)) == [
+        "layout",
+        "width",
+        "height",
+        "gaps",
+        "spans",
+        "blocks",
+        "measured",
+        "middle",
+        "marks",
+    ], "a strip scan is stored as strip_units.scan gives it, with its logos (no content pages: nothing reads them)"
     kinds = decide_kinds(site.cfg, {"block": "keep", "probe": "keep", "piece": "keep", "logo": "junk"})
     assert kinds.count("logo") == 1, kinds
     run_part(site.cfg, process)

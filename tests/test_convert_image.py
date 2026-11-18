@@ -149,6 +149,18 @@ def test_a_malformed_edit_is_refused_naming_what_is_wrong(edit, match):
 
 
 @budget(load="pure")
+def test_a_stored_page_aspect_is_read_as_its_numbers():
+    assert plan.read_page_aspect(1, "[1.422, 1.5, 2]") == [1.422, 1.5, 2], "series_conversion.page_aspect as stored"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize("text", ["[]", '"tall"', '[1.4, "a"]', '{"aspect": 1.4}'])
+def test_a_malformed_stored_page_aspect_is_refused_naming_its_series(text):
+    with pytest.raises(RuntimeError, match="series 7 page_aspect must be a non-empty list of numbers"):
+        plan.read_page_aspect(7, text)
+
+
+@budget(load="pure")
 def test_a_well_formed_edit_passes():
     edit = {**NO_EDIT, "drop_pages": [0], "bands": [{"page": 1, "box": [0, 2, 10, 20]}], "join": [[2, 3]]}
     assert plan.check_edit(json.dumps(edit)) == edit

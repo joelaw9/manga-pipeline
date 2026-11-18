@@ -106,6 +106,21 @@ def test_an_equal_copy_is_a_duplicate_put_aside_whatever_its_source(world, sourc
 
 
 @budget(load="db")
+def test_a_chapter_without_a_content_digest_fails_before_any_check_acts(world):
+    _, path = world.download(world.manga_id, "Chapter 5", data=cbz(seed="new Chapter 5"))
+    world.run(intake)
+    published_copy(world, width=17)  # narrower than 0.95 x: the library-copy check would drop it and put it aside
+    with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE chapter SET content_digest = NULL")
+    world.run(process)
+    ((stage, status, attempts, error),) = world.rows("SELECT stage, status, attempts, last_error FROM chapter")
+    assert (stage, status, attempts) == ("junk", "ready", 1), "no digest: 1 failed attempt, before any check"
+    assert "no content digest" in error, "no digest: 1 failed attempt, before any check"
+    assert path.exists(), "nothing is put aside for a chapter the put-aside check cannot judge"
+    assert world.rows("SELECT outcome FROM handled_chapter WHERE outcome = 'duplicate'") == [], "none is recorded"
+
+
+@budget(load="db")
 def test_a_lost_claim_puts_no_duplicate_aside(world, monkeypatch):
     events, real_junk, real_put = [], library_copy.published_junk, retention.put
 

@@ -106,7 +106,7 @@ def test_a_winerror_59_share_drop_costs_no_attempt(cfg):
         series_id = add_series(conn, "S")
         chapter_id = add_chapter(conn, series_id, "c1", "junk")
         ctx = workflow.context(cfg, conn, "process")
-        row = workflow.claim(ctx, ("junk",))
+        row = present(workflow.claim(ctx, ("junk",)))
 
         def stage(_ctx, _chapter):
             error = WinOSError(22, "An unexpected network error occurred")

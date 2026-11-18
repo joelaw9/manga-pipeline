@@ -15,9 +15,9 @@ import json
 import os
 import re
 import shutil
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from PIL import Image
 
@@ -39,9 +39,41 @@ from manga_pipeline.convert import plan
 from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates, logo_units, ocr, page_units, store, strip_units
 
+if TYPE_CHECKING:
+    import numpy as np
+    from numpy.typing import NDArray
 
-def run(ctx: workflow.Context, chapter):
-    """Run the put-aside, library-copy and notice checks, then scan the chapter, or decide it from its current scan."""
+
+class StoredStripScan(strip_units.StripScan):
+    """A strip chapter's scan as junk_scan holds it: strip_units.scan's, with its content pages' logos.
+
+    A scan an older version stored also holds "content" (the content pages' download indexes), which nothing reads.
+    """
+
+    marks: list[logo_units.StripLogo]
+
+
+type Scan = StoredStripScan | page_units.PageScan | page_units.SplitScan  # junk_scan.scan, told apart by its layout
+
+
+def read_scan(text: str) -> Scan:
+    """Return a chapter's stored scan (junk_scan.scan, JSON text). Unchecked."""
+    return json.loads(text)
+
+
+def _candidate_ids(text: str) -> list[int]:
+    """Return the candidates a chapter waits on (junk_scan.candidates, JSON text): their ids. Unchecked."""
+    return json.loads(text)
+
+
+def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
+    """Run the put-aside, library-copy and notice checks, then scan the chapter, or decide it from its current scan.
+
+    A chapter with no content digest fails before any check acts: the put-aside check and its scan need the digest.
+    """
+    if not chapter["content_digest"]:
+        msg = f"chapter {chapter['id']} has no content digest: discovery sets it before junk"
+        raise ValueError(msg)
     series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     why = handled.put_aside(ctx, chapter, chapter["content_digest"])
     if why:
@@ -49,9 +81,6 @@ def run(ctx: workflow.Context, chapter):
     outcome = library_copy.judge(ctx, chapter) or notices.judge(ctx, chapter)
     if outcome:
         return outcome
-    if not chapter["content_digest"]:
-        msg = f"chapter {chapter['id']} has no content digest: discovery sets it before junk"
-        raise ValueError(msg)
     key = store.series_key(series)
     row = current_scan(ctx.conn, chapter)
     if row is None:
@@ -59,7 +88,7 @@ def run(ctx: workflow.Context, chapter):
     return decide(ctx, chapter, key, row)
 
 
-def current_scan(conn, chapter):
+def current_scan(conn: db.Connection, chapter: db.Row) -> db.Row | None:
     """Return the chapter's junk_scan row when it is current, else None.
 
     Current: same series, same content digest, holding logos (a scan made before logo detection holds none).
@@ -72,17 +101,21 @@ def current_scan(conn, chapter):
 # ---------------------------------------------------------------- pages on local disk
 
 
-def _scratch(ctx: workflow.Context, chapter):
+def _scratch(ctx: workflow.Context, chapter: db.Row) -> Path:
     return config.abs_path(ctx.cfg["paths"]["scratch"]) / workflow.claim_name(chapter) / "junk"
 
 
-def extract(ctx: workflow.Context, chapter, work):
+def extract(
+    ctx: workflow.Context, chapter: db.Row, work: Path
+) -> tuple[list[Path], list[str], list[strip.Size], list[images.MeasuredPage]]:
     """Write the download's pages to `work` in archive order; return (paths, names, sizes, measurements)."""
     cbz = config.to_local(ctx.cfg, chapter["download_path"])
     measured = images.measure_pages(cbz, page_store.load(ctx.conn, chapter["id"]))
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True)
+    paths: list[Path]
+    names: list[str]
     paths, names = [], []
     for i, (name, data) in enumerate(archive.pages(cbz)):
         path = work / f"{i:04d}{Path(name).suffix.lower()}"
@@ -93,7 +126,7 @@ def extract(ctx: workflow.Context, chapter, work):
     return paths, names, sizes, measured
 
 
-def _layout(ctx: workflow.Context, chapter, series, content_paths):
+def _layout(ctx: workflow.Context, chapter: db.Row, series: db.Row, content_paths: list[Path]) -> str:
     """Return the series' layout (SPEC "State").
 
     Its override file's `layout`, stored as the series' layout; else the stored one; else measured, for a new series
@@ -119,7 +152,7 @@ def _layout(ctx: workflow.Context, chapter, series, content_paths):
     return strip.ensure_series_layout(ctx.conn, series["id"], chapters)
 
 
-def _sample(ctx: workflow.Context, chapter, series):
+def _sample(ctx: workflow.Context, chapter: db.Row, series: db.Row) -> list[list[Path]]:
     """Return the content pages of up to SAMPLE_CHAPTERS - 1 more of a new series' chapters past validate.
 
     The chapters are spread out by id (first, last, then evenly between: first, middle and last for 3), this chapter
@@ -143,7 +176,7 @@ def _sample(ctx: workflow.Context, chapter, series):
     spread = [0, n - 1, *(k * n // last for k in range(1, last))]
     picked = list(dict.fromkeys(usable[i]["id"] for i in spread)) if usable else []
     others = [i for i in picked if i != chapter["id"]][: strip.SAMPLE_CHAPTERS - 1]  # this chapter is always measured
-    out = []
+    out: list[list[Path]] = []
     for r in usable:
         if r["id"] not in others:
             continue
@@ -151,7 +184,7 @@ def _sample(ctx: workflow.Context, chapter, series):
         work.mkdir(parents=True, exist_ok=True)
         pages = archive.pages(config.to_local(ctx.cfg, r["download_path"]))
         content = strip.content_indexes([name for name, _ in pages])
-        paths = []
+        paths: list[Path] = []
         for i in content:
             name, data = pages[i]
             path = work / f"{i:04d}{Path(name).suffix.lower()}"
@@ -161,11 +194,11 @@ def _sample(ctx: workflow.Context, chapter, series):
     return out
 
 
-def _aspects(ctx: workflow.Context, series, sizes):
+def _aspects(ctx: workflow.Context, series: db.Row, sizes: Sequence[strip.Size]) -> list[float]:
     """Return the series' page aspect candidates: stored, else computed from this chapter and stored."""
     row = db.one_row(ctx.conn, "SELECT page_aspect FROM series_conversion WHERE series_id = %s", (series["id"],))
     if row["page_aspect"] is not None:
-        return json.loads(row["page_aspect"])
+        return plan.read_page_aspect(series["id"], row["page_aspect"])
     aspects = strip.page_aspect([sizes])
     if aspects is not None:
         with db.transaction(ctx.conn):
@@ -179,7 +212,7 @@ def _aspects(ctx: workflow.Context, series, sizes):
 # ---------------------------------------------------------------- scan
 
 
-def scan(ctx: workflow.Context, chapter, series, key):
+def scan(ctx: workflow.Context, chapter: db.Row, series: db.Row, key: str) -> workflow.OUTCOMES:
     """Scan the chapter's pages by the series' layout and record the scan; the chapter stays ready (Ready).
 
     The pages are extracted to the claim's scratch folder, removed afterwards. A malformed override file, or strip OCR
@@ -208,7 +241,7 @@ def scan(ctx: workflow.Context, chapter, series, key):
     at = workflow.now(ctx.conn)
     seen = candidates.seen_rows(key, chapter["identity"], units, at)
 
-    def record(conn):
+    def record(conn: db.Connection) -> None:
         conn.execute(
             """INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at)
             VALUES (%s, %s, %s, %s, %s)
@@ -222,8 +255,12 @@ def scan(ctx: workflow.Context, chapter, series, key):
     return workflow.Ready(record=record)
 
 
-def _scan_strip(ctx: workflow.Context, key, paths, sizes, content):
+def _scan_strip(
+    ctx: workflow.Context, key: str, paths: Sequence[Path], sizes: Sequence[strip.Size], content: list[int]
+) -> tuple[StoredStripScan, list[tuple[str, str]]]:
     cpaths = [paths[i] for i in content]
+    rows: list[NDArray[np.bool_]]
+    logos: list[logo_units.Logo]
     rows, logos = [], []
     for i, path in zip(content, cpaths, strict=True):
         im = strip.open_page(path)
@@ -233,22 +270,26 @@ def _scan_strip(ctx: workflow.Context, key, paths, sizes, content):
             logos.append(logo)
     st = strip.make_strip(cpaths, [sizes[i] for i in content], rows)
     placed = dict(zip(content, st.pages, strict=True))
-    for logo in logos:  # its tight box's rows in the strip, end exclusive
-        p, (_, y0, _, y1) = placed[logo["page"]], logo["tight"]
-        logo["rows"] = [p["top"] + y0 * p["th"] // p["h"], p["top"] + -(-y1 * p["th"] // p["h"])]
+    marks = [_strip_logo(logo, placed[logo["page"]]) for logo in logos]
     decisions = store.Decisions(ctx.conn, key)
     device = ctx.cfg["junk"]["ocr_device"]
-    sc = strip_units.scan(
+    units = strip_units.scan(
         st,
         lambda im: ocr.text(im, device),
         lambda sig: decisions.decide("block", sig) is None,
     )
-    sc["content"] = content
-    sc["marks"] = logos
+    sc: StoredStripScan = {**units, "marks": marks}
     return sc, [("block", b["sig"]) for b in sc["blocks"]]
 
 
-def _nul_rows(sc):
+def _strip_logo(logo: logo_units.Logo, page: strip.LaidPage) -> logo_units.StripLogo:
+    """Return a logo with its tight box's rows in the strip (its page laid there), end exclusive."""
+    _, y0, _, y1 = logo["tight"]
+    top, th, h = page["top"], page["th"], page["h"]
+    return {**logo, "rows": [top + y0 * th // h, top + -(-y1 * th // h)]}
+
+
+def _nul_rows(sc: strip_units.StripScan) -> list[tuple[int, int]]:
     """Return [(start, end)] of the strip units whose OCR text holds a NUL.
 
     Those are the edge blocks and their join pieces, the only units OCR reads.
@@ -257,10 +298,10 @@ def _nul_rows(sc):
     return [(u["start"], u["end"]) for u in units if "\x00" in u.get("text", "")]
 
 
-def _page_units(sc):
-    if sc["split"]:
+def _page_units(sc: page_units.PageScan | page_units.SplitScan) -> list[tuple[str, str]]:
+    if sc["split"] is True:
         return []
-    out = []
+    out: list[tuple[str, str]] = []
     for u in sc["edges"]:
         if u["frame"]:
             out.append(("frame", u["frame"]))
@@ -286,7 +327,7 @@ class _Applied(NamedTuple):
     problem: str | None
 
 
-def _apply(conn, sc, key, decide_unit):
+def _apply(conn: db.Connection, sc: Scan, key: str, decide_unit: store.DecideUnit) -> _Applied:
     """Apply the decisions on a scan: its layout's, then the logos' on what that leaves.
 
     A strip's layout decisions take the series' known watermarks; a refused strip edit stops before the logos.
@@ -299,7 +340,8 @@ def _apply(conn, sc, key, decide_unit):
         "strip_removed": [],
         "blank": [],
     }
-    watermarks = []
+    watermarks: list[tuple[str, str]] = []
+    undecided: list[candidates.Unit]
     if sc["layout"] == "strip":
         known = conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
         got = strip_units.decide(sc, decide_unit, [images.sig_from_str(r["key"]) for r in known])
@@ -307,24 +349,27 @@ def _apply(conn, sc, key, decide_unit):
             return _Applied(edit, [], [], got["kept_problem"])
         edit["strip_removed"] = got["removed"]
         watermarks = [(key, k) for k in got["watermarks"]]
-        survives = logo_units.strip_survives(edit["strip_removed"])
+        logos = logo_units.decide(sc["marks"], logo_units.strip_survives(edit["strip_removed"]), decide_unit)
+        undecided = [*got["undecided"], *logos["undecided"]]
     else:
         got = page_units.decide(sc, decide_unit)
         edit = {**edit, **got["edit"]}
-        survives = logo_units.page_survives(edit)
-    logos = logo_units.decide(sc["marks"], survives, decide_unit)
+        logos = logo_units.decide(sc["marks"], logo_units.page_survives(edit), decide_unit)
+        undecided = [*got["undecided"], *logos["undecided"]]
     edit["blank"] = logos["blank"]
-    return _Applied(edit, watermarks, got["undecided"] + logos["undecided"], None)
+    return _Applied(edit, watermarks, undecided, None)
 
 
-def _remember(conn, watermarks):
+def _remember(conn: db.Connection, watermarks: Iterable[tuple[str, str]]) -> None:
     """With the outcome: the series' later chapters know these bands as watermarks."""
     db.executemany(
         conn, "INSERT INTO junk_watermark (series_key, key) VALUES (%s, %s) ON CONFLICT DO NOTHING", watermarks
     )
 
 
-def _finished(ctx: workflow.Context, chapter, edit, watermarks):
+def _finished(
+    ctx: workflow.Context, chapter: db.Row, edit: plan.ChapterEdit, watermarks: list[tuple[str, str]]
+) -> workflow.OUTCOMES:
     """Return the outcome of a chapter that offers no candidate.
 
     The library copy check's (a duplicate dropped, or a better copy of a busy file held: no edit kept), else Done with
@@ -333,7 +378,7 @@ def _finished(ctx: workflow.Context, chapter, edit, watermarks):
     copy = library_copy.after_junk(ctx, chapter, edit)
     if copy is not None:
 
-        def closed(conn):
+        def closed(conn: db.Connection) -> None:
             _remember(conn, watermarks)
             if isinstance(copy, workflow.Dropped):  # a held copy keeps its scan for its retry
                 conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
@@ -342,7 +387,7 @@ def _finished(ctx: workflow.Context, chapter, edit, watermarks):
 
         return dataclasses.replace(copy, record=closed)
 
-    def done(conn):
+    def done(conn: db.Connection) -> None:
         _remember(conn, watermarks)
         values = (chapter["id"], json.dumps(edit))
         conn.execute(
@@ -355,17 +400,17 @@ def _finished(ctx: workflow.Context, chapter, edit, watermarks):
     return workflow.Done(record=done)
 
 
-def decide(ctx: workflow.Context, chapter, key, row):
+def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> workflow.OUTCOMES:
     """Decide the chapter from its current scan, with no decode.
 
     Done with its chapter edit when no candidate is left (or the library copy check's outcome, when it has one);
     waiting on junk_decision with its candidates (their images written first); or needs_human (a removal that would
     leave too little; a candidate Claude was unsure of or past the review limit).
     """
-    sc = json.loads(row["scan"])
+    sc = read_scan(row["scan"])
     decisions = store.Decisions(ctx.conn, key)
 
-    def decide_unit(kind, text):
+    def decide_unit(kind: str, text: str) -> db.Row | None:
         return decisions.decide(kind, store.parse_key(kind, text))
 
     applied = _apply(ctx.conn, sc, key, decide_unit)
@@ -385,8 +430,8 @@ def decide(ctx: workflow.Context, chapter, key, row):
     rows = [candidates.find(ctx.conn, decisions, p["kind"], p["key"]) for p in picks]
     held = [r for r in rows if r is not None and (r["verdict"] == "unsure" or candidates.stuck(r, limit))]
     if held:
-
-        def hold(conn):  # the chapter keeps the candidates it waits on open, so junk decide can name them
+        # the chapter keeps the candidates it waits on open, so junk decide can name them
+        def hold(conn: db.Connection) -> None:
             _remember(conn, applied.watermarks)
             ids = sorted(r["id"] for r in rows if r is not None)
             conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
@@ -394,10 +439,10 @@ def decide(ctx: workflow.Context, chapter, key, row):
         return workflow.NeedsHuman(held_reason(held, limit), record=hold)
     new = [p for p, r in zip(picks, rows, strict=True) if r is None]
     if new:
-        write_images(ctx, chapter, key, sc, new)
+        write_images(ctx, chapter, key, new)
     at = workflow.now(ctx.conn)
 
-    def wait(conn):
+    def wait(conn: db.Connection) -> None:
         _remember(conn, applied.watermarks)
         ids = candidates.join(conn, key, picks, at)
         conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
@@ -405,7 +450,7 @@ def decide(ctx: workflow.Context, chapter, key, row):
     return workflow.Waiting("junk_decision", {"candidates": len(picks)}, record=wait)
 
 
-def held_reason(rows, limit):
+def held_reason(rows: Iterable[db.Row], limit: int) -> str:
     """Return the needs_human reason naming each held candidate: Claude was unsure, or undecided after limit reviews."""
     parts = [
         f"candidate {r['id']} ({r['kind']}): "
@@ -415,7 +460,7 @@ def held_reason(rows, limit):
     return "junk " + "; ".join(parts) + " -> junk decide ID junk|keep, then retry"
 
 
-def junk_decision_over(ctx: workflow.Context, chapter):
+def junk_decision_over(ctx: workflow.Context, chapter: db.Row) -> bool | workflow.NeedsHuman:
     """Return whether the junk_decision wait is over (SPEC "Junk decisions"): True, NeedsHuman or False.
 
     Over (True) when the chapter's scan is stale (it rescans) or a candidate it waits on is covered by a decision or
@@ -426,7 +471,8 @@ def junk_decision_over(ctx: workflow.Context, chapter):
     if row is None or current_scan(ctx.conn, chapter) is None:
         return True
     limit = ctx.cfg["junk"]["review_limit"]
-    ids, held = json.loads(row["candidates"]), []
+    ids = _candidate_ids(row["candidates"])
+    held: list[db.Row] = []
     decisions = store.by_series(ctx.conn)
     for cid in ids:
         c = ctx.conn.execute("SELECT * FROM junk_candidate WHERE id = %s", (cid,)).fetchone()
@@ -444,23 +490,26 @@ def junk_decision_over(ctx: workflow.Context, chapter):
 # ---------------------------------------------------------------- candidate images
 
 
-def write_images(ctx: workflow.Context, chapter, key, sc, picks):
+def write_images(ctx: workflow.Context, chapter: db.Row, key: str, picks: Sequence[candidates.Candidate]) -> None:
     """Write the images of new candidates (SPEC "Junk decisions", candidates).
 
-    The download's pages are extracted again to the scratch folder, which is removed afterwards.
+    The download's pages are extracted again to the scratch folder, which is removed afterwards. A strip unit is
+    rendered over the download's content pages (strip.content_indexes of its page names), as the scan laid them.
     """
     work = _scratch(ctx, chapter)
     try:
-        paths, _names, sizes, _ = extract(ctx, chapter, work)
+        paths, names, sizes, _ = extract(ctx, chapter, work)
+        content = strip.content_indexes(names)
         for p in picks:
-            if p["kind"] == "logo":
-                page = images.open_flat(paths[p["unit"]["page"]])[0].convert("RGB")
-                unit_im, context_im = logo_units.review_images(page, p["unit"]["logo"])
-            elif sc["layout"] == "strip":
-                unit_im, context_im = _strip_images(sc, paths, sizes, p)
-            else:
-                unit_im, context_im = _page_images(paths, p)
-            info = {
+            unit = p["unit"]
+            if "logo" in unit:  # a logo variant
+                page = images.open_flat(paths[unit["page"]])[0].convert("RGB")
+                unit_im, context_im = logo_units.review_images(page, unit["logo"])
+            elif "start" in unit:  # a strip unit: an edge block, its probe or a tail piece
+                unit_im, context_im = _strip_images(content, paths, sizes, unit)
+            else:  # a page unit: an edge page or frame, or a band
+                unit_im, context_im = _page_images(paths, unit)
+            info: dict[str, str | int] = {
                 "series": key,
                 "kind": p["kind"],
                 "reason": p["reason"],
@@ -475,26 +524,30 @@ def write_images(ctx: workflow.Context, chapter, key, sc, picks):
         shutil.rmtree(work.parent, ignore_errors=True)
 
 
-def seen_kind(kind):
+def seen_kind(kind: str) -> str:
     """Return the kind a unit is recorded as seen under (a probe is part of a seen edge block)."""
     return "block" if kind == "probe" else kind
 
 
-def _strip_images(sc, paths, sizes, pick):
-    content = sc["content"]
+def _strip_images(
+    content: Sequence[int],
+    paths: Sequence[Path],
+    sizes: Sequence[strip.Size],
+    u: strip_units.BlockUnit | strip_units.PieceUnit | candidates.ProbeUnit,
+) -> tuple[Image.Image, Image.Image]:
     width, laid, height = strip.strip_layout([sizes[i] for i in content])
     pages: list[strip.StripPage] = [{**p, "path": str(paths[i])} for p, i in zip(laid, content, strict=True)]
-    u = pick["unit"]
     unit_im = strip.render_rows(pages, width, u["start"], u["end"])
     lo, hi = max(0, u["start"] - candidates.CONTEXT_PX), min(height, u["end"] + candidates.CONTEXT_PX)
     return unit_im, strip.render_rows(pages, width, lo, hi)
 
 
-def _page_images(paths, pick):
-    u = pick["unit"]
+def _page_images(
+    paths: Sequence[Path], u: page_units.PageUnit | page_units.BandUnit
+) -> tuple[Image.Image, Image.Image]:
     i = u["page"]
     page = images.open_flat(paths[i])[0].convert("RGB")
-    unit_im = page.crop(tuple(u["box"])) if pick["kind"] == "band" else page
+    unit_im = page.crop(_box(u["box"])) if "box" in u else page  # a band's crop
     near = [images.open_flat(paths[j])[0].convert("RGB") for j in (i - 1, i, i + 1) if 0 <= j < len(paths)]
     h = 800
     near = [im.resize((max(1, round(im.width * h / im.height)), h)) for im in near]
@@ -504,3 +557,9 @@ def _page_images(paths, pick):
         context.paste(im, (x, 0))
         x += im.width + 8
     return unit_im, context
+
+
+def _box(box: Sequence[int]) -> tuple[int, int, int, int]:
+    """Return a band's box [x0, y0, x1, y1] as the 4-tuple Pillow's crop takes."""
+    x0, y0, x1, y1 = box
+    return x0, y0, x1, y1

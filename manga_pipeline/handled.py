@@ -5,12 +5,12 @@ download whose pages a handled chapter of its series already had is put aside, n
 discover stage and by the junk stage once the series' baseline exists.
 """
 
-from manga_pipeline import config, retention, workflow
+from manga_pipeline import config, db, retention, workflow
 
 OUTCOMES = ("published", "rejected", "duplicate", "dropped")
 
 
-def put_aside(ctx: workflow.Context, chapter, digest):
+def put_aside(ctx: workflow.Context, chapter: db.Row, digest: str) -> str | None:
     """Put a download aside when a handled chapter of its series has this content digest.
 
     Then move the download the retention way and return why (the stage then drops the chapter); else None.
@@ -27,7 +27,7 @@ def put_aside(ctx: workflow.Context, chapter, digest):
     return f"same pages as a handled chapter ({row['outcome']}, {row['identity']})"
 
 
-def record(conn, series_id, identity, outcome, digest):
+def record(conn: db.Connection, series_id: int, identity: str, outcome: str, digest: str | None) -> None:
     """Record a handled chapter, inside the caller's transaction.
 
     digest: None for an archive that could not be read.

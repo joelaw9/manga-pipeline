@@ -8,7 +8,7 @@ needs_human.
 from manga_pipeline import config, db, kavita_link, retention, workflow
 
 
-def run(ctx: workflow.Context, chapter):
+def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     """Confirm the chapter's published file once Kavita lists it, removing the download; else wait on kavita_scan.
 
     A series Kavita no longer holds is marked needs_human, and the chapter waits.
@@ -30,7 +30,7 @@ def run(ctx: workflow.Context, chapter):
     workflow.holds_claim(ctx, chapter)
     retention.put(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]))
 
-    def record(conn):
+    def record(conn: db.Connection) -> None:
         conn.execute(
             "UPDATE published_file SET state = 'confirmed' WHERE library_path = %s", (chapter["library_path"],)
         )
@@ -38,7 +38,7 @@ def run(ctx: workflow.Context, chapter):
     return workflow.Done(record)
 
 
-def wait_over(ctx: workflow.Context, chapter):
+def wait_over(ctx: workflow.Context, chapter: db.Row) -> bool:
     """Return whether the kavita_scan wait ends: the file is indexed, or Kavita no longer holds the series.
 
     In the second case confirm says so.
@@ -49,7 +49,7 @@ def wait_over(ctx: workflow.Context, chapter):
     return ctx.kavita.series(series["kavita_series_id"]) is None or _indexed(ctx, series, chapter)
 
 
-def _series(ctx: workflow.Context, chapter):
+def _series(ctx: workflow.Context, chapter: db.Row) -> db.Row:
     """Return the chapter's series, its Kavita id looked for first when it is new.
 
     New: a new series Kavita did not list before.
@@ -62,7 +62,7 @@ def _series(ctx: workflow.Context, chapter):
     return db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
 
 
-def _indexed(ctx: workflow.Context, series, chapter):
+def _indexed(ctx: workflow.Context, series: db.Row, chapter: db.Row) -> bool:
     """Kavita lists the published file in the series with the size it has on disk (a scan can keep a stale size)."""
     target = config.to_local(ctx.cfg, chapter["library_path"])
     size = target.stat().st_size

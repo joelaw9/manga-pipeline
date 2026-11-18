@@ -107,7 +107,7 @@ def test_series_sharing_a_rules_key_are_never_worked_at_once(fleet):
 def test_between_2_chapters_a_series_may_move_to_another_machine(fleet):
     series_id, _ = fleet.series("S", chapters=2)
     a, b = fleet.machine("a"), fleet.machine("b")
-    first = workflow.claim(a, ("junk",))
+    first = present(workflow.claim(a, ("junk",)))
     workflow.work(a, first, returns(Waiting("junk_decision")))
     assert present(workflow.claim(b, ("junk",)))["series_id"] == series_id, "a holds no claim between chapters"
 
@@ -255,7 +255,7 @@ def test_a_failed_chapter_waits_5_minutes_on_every_machine_and_its_series_goes_o
 def test_retry_ends_the_pause_at_once(fleet):
     _, (c1,) = fleet.series("S", chapters=1)
     a = fleet.machine("a")
-    workflow.work(a, workflow.claim(a, ("junk",)), returns(Failed("bad page")))
+    workflow.work(a, present(workflow.claim(a, ("junk",))), returns(Failed("bad page")))
     with db.transaction(fleet.conn):
         fleet.conn.execute("UPDATE chapter SET status = 'needs_human' WHERE id = %s", (c1,))
     workflow.retry_chapter(fleet.conn, c1)
@@ -331,7 +331,7 @@ def test_no_module_reads_the_machines_clock_as_a_datetime():
 
 @budget(load="pure")
 def test_2_claims_of_1_chapter_never_share_a_scratch_folder_or_staged_file():
-    assert workflow.claim_name({"id": 7, "claim_count": 1}) != workflow.claim_name({"id": 7, "claim_count": 2})
+    assert workflow.claim_name(db_row(id=7, claim_count=1)) != workflow.claim_name(db_row(id=7, claim_count=2))
 
 
 # ---------------------------------------------------------------- the command line
