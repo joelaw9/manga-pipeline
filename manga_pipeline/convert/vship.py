@@ -16,9 +16,12 @@ import ctypes
 import logging
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import numpy as np
+from numpy.typing import NDArray
 from PIL import Image
 
 from manga_pipeline import images
@@ -76,7 +79,7 @@ class _Score(ctypes.Structure):
 _PLANES, _STRIDES = ctypes.c_void_p * 3, ctypes.c_int64 * 3
 
 
-def load(path):
+def load(path: str | Path) -> ctypes.CDLL:
     """Load the Vship library at path with its argument types set. Raises VshipError when it does not load."""
     try:
         lib = ctypes.CDLL(str(path))
@@ -91,13 +94,13 @@ def load(path):
     return lib
 
 
-def _error(lib, code):
+def _error(lib: ctypes.CDLL, code: int) -> str:
     buf = ctypes.create_string_buffer(1024)
     lib.Vship_GetDetailedLastError(buf, len(buf))
     return f"Vship error {code}: {buf.value.decode(errors='replace').strip() or '(no detail)'}"
 
 
-def check_gpu(lib, gpu=GPU):
+def check_gpu(lib: ctypes.CDLL, gpu: int = GPU) -> None:
     """Vship_GPUFullCheck on 1 GPU. Raises VshipError (no usable GPU, driver too old, ...)."""
     code = lib.Vship_GPUFullCheck(gpu)
     if code:
@@ -108,7 +111,7 @@ def check_gpu(lib, gpu=GPU):
 class _Handle:
     """1 thread's Vship handle for 1 image size."""
 
-    def __init__(self, lib, w, h):
+    def __init__(self, lib: ctypes.CDLL, w: int, h: int) -> None:
         cs = _Colorspace(
             w,
             h,
@@ -130,7 +133,7 @@ class _Handle:
             msg = f"handle {w}x{h}: {_error(lib, code)}"
             raise VshipError(msg)
 
-    def free(self):
+    def free(self) -> None:
         code = self.lib.Vship_FreeHandler(self.ptr)
         if code:
             msg = f"free handle {self.size[0]}x{self.size[1]}: {_error(self.lib, code)}"
@@ -144,14 +147,14 @@ class Scorer:
     leave its handle's GPU memory allocated.
     """
 
-    def __init__(self, path, *, loader=load):
+    def __init__(self, path: str | Path, *, loader: Callable[[str | Path], ctypes.CDLL] = load) -> None:
         """loader(path): the Vship library at path (load by default)."""
         self.lib = loader(path)
         check_gpu(self.lib)
         self._local = threading.local()
         self.threads = ThreadPoolExecutor(SCORE_THREADS, thread_name_prefix="vship")
 
-    def _handle(self, w, h):
+    def _handle(self, w: int, h: int) -> _Handle:
         hd = getattr(self._local, "handle", None)
         if hd is None or hd.size != (w, h):
             if hd is not None:
@@ -160,7 +163,7 @@ class Scorer:
             self._local.handle = _Handle(self.lib, w, h)
         return self._local.handle
 
-    def score(self, ref, dist):
+    def score(self, ref: NDArray[np.uint8], dist: NDArray[np.uint8]) -> float:
         """SSIMULACRA2 of dist against ref: HxWx3 uint8 RGB arrays of 1 size. Thread-safe (a handle per thread)."""
         if (
             ref.shape != dist.shape
@@ -191,7 +194,7 @@ class Scorer:
             raise VshipError(msg)
         return out.score
 
-    def score_files(self, reference, distorted):
+    def score_files(self, reference: str | Path, distorted: str | Path) -> float:
         """Return the SSIMULACRA2 score of 2 image files.
 
         8-bit PNGs: the pipeline's reference and avifdec's decode; gray ones are scored as RGB. With alpha on either
@@ -213,10 +216,10 @@ class Scorer:
         return s
 
 
-def _has_alpha(im):
+def _has_alpha(im: Image.Image) -> bool:
     return im.mode in ("RGBA", "LA", "PA") or "transparency" in im.info
 
 
-def _over(im, bg):
+def _over(im: Image.Image, bg: int) -> NDArray[np.uint8]:
     backdrop = Image.new("RGBA", im.size, (bg, bg, bg, 255))
     return np.asarray(Image.alpha_composite(backdrop, im.convert("RGBA")).convert("RGB"))
