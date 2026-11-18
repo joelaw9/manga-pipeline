@@ -114,7 +114,13 @@ def test_a_folder_no_row_names_stays_a_day_and_a_new_rows_folder_survives_its_ol
 @budget(load="db")
 def test_joining_a_candidate_cleaned_up_meanwhile_fails_and_writes_nothing(site):
     _cfg, conn = site
-    pick = {"kind": "page", "key": "123456789abcdef0|0.7", "reason": "r"}  # its images were never written
+    key = "123456789abcdef0|0.7"
+    pick: candidates.Candidate = {  # its images were never written
+        "kind": "page",
+        "key": key,
+        "unit": {"kind": "page", "key": key, "page": 0, "reasons": []},
+        "reason": "r",
+    }
     with db.transaction(conn), pytest.raises(candidates.Gone, match="cleaned up meanwhile"):
         candidates.join(conn, "S", [pick], "2026-01-01T00:00:00+00:00")
     assert one(conn, "SELECT count(*) FROM junk_candidate") == 0

@@ -11,6 +11,11 @@ An unsignable key (a signature whose every tile is a uniform image's) would matc
 with one matches no decision, and no decision is written on one.
 """
 
+from collections.abc import Callable, Iterable
+from typing import TypedDict
+
+import numpy as np
+
 from manga_pipeline import db, images
 from manga_pipeline.db import sql
 from manga_pipeline.junk import frames, marks
@@ -18,7 +23,7 @@ from manga_pipeline.junk import frames, marks
 GLOBAL = ""
 KINDS = ("block", "probe", "piece", "page", "band", "frame", "logo")
 # A unit's kind -> the kinds of the decisions that decide it (the bulk converter's junk.UNIT_KINDS).
-DECIDING = {
+DECIDING: dict[str, tuple[str, ...]] = {
     "block": ("block", "probe"),
     "probe": ("block", "probe"),
     "piece": ("piece",),
@@ -31,8 +36,23 @@ SIGNATURE_KINDS = ("block", "probe", "piece", "page", "band")  # keyed by an ima
 NEAR_KINDS = ("block", "band", "probe")  # the approved decisions the near rule compares against
 DECIDERS = ("import", "claude", "human")
 
+type ParsedKey = images.Signature | frames.Frame | marks.Template  # a key's text parsed for its kind (parse_key)
+type DecideUnit = Callable[[str, str], db.Row | None]  # (kind, key text) -> the deciding junk_decision row, or None
 
-def series_key(series):
+
+class Decision(TypedDict):
+    """A junk decision as upsert writes it: its series key, kind, key text, verdict, decider, time and source."""
+
+    series_key: str
+    kind: str
+    key: str
+    verdict: str
+    decider: str
+    decided_at: str
+    source: str | None
+
+
+def series_key(series: db.Row) -> str:
     """Return the series key of a series row: its rules key, which a later folder does not change."""
     if not series["rules_key"]:
         msg = f"series {series['id']} has no folder yet: it has no series key"
@@ -40,12 +60,12 @@ def series_key(series):
     return series["rules_key"]
 
 
-def unsignable(kind, text):
+def unsignable(kind: str, text: str) -> bool:
     """Whether the key text of a unit of `kind` is an unsignable signature."""
     return kind in SIGNATURE_KINDS and images.unsignable(images.sig_from_str(text))
 
 
-def parse_key(kind, text):
+def parse_key(kind: str, text: str) -> ParsedKey:
     """Return a decision key's text parsed for kind: a frame, a logo template, else a signature."""
     if kind == "frame":
         return frames.from_key(text)
@@ -54,16 +74,40 @@ def parse_key(kind, text):
     return images.sig_from_str(text)
 
 
-def matches(kind, stored, unit):
+def matches(kind: str, stored: ParsedKey, unit: ParsedKey) -> bool | np.bool_:
     """Whether a unit's parsed key matches a stored one (a logo's match is not symmetric: stored first)."""
     if kind == "frame":
-        return frames.matches(stored, unit)
+        return frames.matches(_frame(stored), _frame(unit))
     if kind == "logo":
-        return marks.same_variant(stored, unit)
-    return images.matches(stored, unit)
+        return marks.same_variant(_template(stored), _template(unit))
+    return images.matches(_signature(stored), _signature(unit))
 
 
-def in_lookup_order(rows):
+def _frame(key: ParsedKey) -> frames.Frame:
+    """Return a frame's parsed key; TypeError for another kind's."""
+    if not isinstance(key, frames.Frame):
+        msg = f"a frame key parsed as {type(key).__name__}"
+        raise TypeError(msg)
+    return key
+
+
+def _template(key: ParsedKey) -> marks.Template:
+    """Return a logo's parsed key; TypeError for another kind's."""
+    if not isinstance(key, marks.Template):
+        msg = f"a logo key parsed as {type(key).__name__}"
+        raise TypeError(msg)
+    return key
+
+
+def _signature(key: ParsedKey) -> images.Signature:
+    """Return a signature kind's parsed key; TypeError for a frame's or a logo's."""
+    if isinstance(key, (frames.Frame, marks.Template)):
+        msg = f"a signature key parsed as {type(key).__name__}"
+        raise TypeError(msg)
+    return key
+
+
+def in_lookup_order(rows: Iterable[db.Row]) -> list[db.Row]:
     """Return decision rows in lookup order.
 
     Decisions the pipeline made (claude, human) first, so one wins for every signature it covers, their keeps before
@@ -82,11 +126,11 @@ def in_lookup_order(rows):
     )
 
 
-def by_series(conn):
+def by_series(conn: db.Connection) -> Callable[[str], "Decisions"]:
     """Return a lookup of series key -> its Decisions, each built once (for loops over many candidates)."""
-    cache = {}
+    cache: dict[str, Decisions] = {}
 
-    def get(key):
+    def get(key: str) -> Decisions:
         if key not in cache:
             cache[key] = Decisions(conn, key)
         return cache[key]
@@ -97,7 +141,7 @@ def by_series(conn):
 class Decisions:
     """The decisions that apply to 1 series (its own and the global ones), in lookup order (in_lookup_order)."""
 
-    def __init__(self, conn, key):
+    def __init__(self, conn: db.Connection, key: str) -> None:
         """Read the decisions of series key `key` and the global ones, each key parsed, in lookup order."""
         rows = in_lookup_order(
             conn.execute(
@@ -107,9 +151,9 @@ class Decisions:
         self.series_key = key
         self._rows = [(row, parse_key(row["kind"], row["key"])) for row in rows]
 
-    def decide(self, kind, key):
+    def decide(self, kind: str, key: ParsedKey) -> db.Row | None:
         """Return the deciding row for a unit of `kind` with parsed key `key`, or None (undecided)."""
-        if kind in SIGNATURE_KINDS and images.unsignable(key):
+        if kind in SIGNATURE_KINDS and images.unsignable(_signature(key)):
             return None
         kinds = DECIDING[kind]
         for row, stored in self._rows:
@@ -118,7 +162,13 @@ class Decisions:
         return None
 
 
-def near(conn, series_key_, sig, threshold=images.NEAR_THRESHOLD, aspect_tol=images.NEAR_ASPECT_TOLERANCE):
+def near(
+    conn: db.Connection,
+    series_key_: str,
+    sig: images.Signature,
+    threshold: int = images.NEAR_THRESHOLD,
+    aspect_tol: float = images.NEAR_ASPECT_TOLERANCE,
+) -> tuple[db.Row, int, float] | None:
     """Return (row, distance, aspect difference) of the approved decision nearest to signature `sig`, or None.
 
     The approved decision of NEAR_KINDS (any series, or global) nearest to signature `sig`: same tile count, every tile
@@ -129,7 +179,7 @@ def near(conn, series_key_, sig, threshold=images.NEAR_THRESHOLD, aspect_tol=ima
     tiles, aspect = sig
     if images.unsignable(sig):
         return None
-    best = None
+    best: tuple[db.Row, int, float] | None = None
     rows = conn.execute(
         sql.SQL("""SELECT * FROM junk_decision WHERE verdict = 'junk' AND kind IN ({kinds})
         ORDER BY decided_at, id""").format(kinds=sql.SQL(", ").join([sql.Placeholder()] * len(NEAR_KINDS))),
@@ -150,7 +200,7 @@ def near(conn, series_key_, sig, threshold=images.NEAR_THRESHOLD, aspect_tol=ima
     return best
 
 
-def upsert(conn, rows):
+def upsert(conn: db.Connection, rows: Iterable[Decision]) -> dict[str, int]:
     """Write decisions (dicts: series_key, kind, key, verdict, decider, decided_at, source) in the caller's transaction.
 
     A new key is inserted. An existing row is replaced only when its decider is 'import' and the new one is a pipeline

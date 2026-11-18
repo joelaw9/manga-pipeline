@@ -5,6 +5,8 @@ A record that parses is a finished series. Copied from the bulk converter's opti
 """
 
 import json
+from pathlib import Path
+from typing import NotRequired, TypedDict
 
 RECORD_NAME = ".optimizer.json"
 SCHEMA, FROZEN = 4, 3  # schema 3 is read too; its decisions are history
@@ -30,6 +32,133 @@ FATES = (CHAPTER, MERGED, DUPLICATE, DELETED, REPLACED, CARRIED, FAILED)
 QUALITY_MAX = 100  # the top calibration quality
 
 
+class RecordFolder(TypedDict):
+    """A folder the series had: its name and the run that named it (checked)."""
+
+    name: str
+    from_run: str
+
+
+class RecordLayout(TypedDict):
+    """series.layout: the series' layout ("strip" or "pages"; not checked) and its page aspects (h / w)."""
+
+    layout: str
+    page_aspect: NotRequired[list[float]]
+
+
+class RecordNaming(TypedDict):
+    """series.naming: the series name and the restart flag (checked), and where a new chapter's volume comes from."""
+
+    series_name: str
+    restart: bool
+    basis: NotRequired[str]
+
+
+class CalibrationGroup(TypedDict):
+    """A calibration group: its quality (an integer 0-100, checked), its probes and why it was chosen."""
+
+    q: int
+    probes: NotRequired[list[object]]
+    why: NotRequired[str]
+
+
+class RecordCalibration(TypedDict):
+    """series.calibration: {encode group: its calibration} (checked when present)."""
+
+    groups: NotRequired[dict[str, CalibrationGroup]]
+
+
+class CoverRef(TypedDict):
+    """A volume cover's place: the output holding it (not checked)."""
+
+    chapter: str
+
+
+class RecordCovers(TypedDict):
+    """series.covers: {volume: its cover's place} (not checked)."""
+
+    volumes: dict[str, CoverRef]
+
+
+class RecordSeries(TypedDict):
+    """The record's series blocks (each an object, checked).
+
+    decisions: the junk decision rows the runs used; not checked, so object (read where it is narrowed).
+    """
+
+    layout: RecordLayout
+    naming: RecordNaming
+    calibration: RecordCalibration
+    covers: RecordCovers
+    decisions: object
+
+
+class RecordSource(TypedDict):
+    """A source file: its name, sha256, fate (checked), output, content digest and trash place (together, checked)."""
+
+    file: str
+    sha256: str
+    fate: str
+    output: NotRequired[str | None]
+    pages_digest: NotRequired[str]
+    trash_run: NotRequired[str | None]
+    trash_folder: NotRequired[str | None]
+
+
+class RecordRange(TypedDict):
+    """Strip rows [start, end) a reshape removed, and why."""
+
+    start: int
+    end: int
+    why: str
+
+
+class RecordReshape(TypedDict, total=False):
+    """A chapter's reshape: the strip rows it removed."""
+
+    removed: list[RecordRange]
+
+
+class RecordEdits(TypedDict, total=False):
+    """A chapter's edits (not checked): its dropped pages and its reshape (None: not reshaped)."""
+
+    drops: list[object]
+    reshape: RecordReshape | None
+
+
+class RecordChapter(TypedDict):
+    """A chapter (CHAPTER_KEYS checked present; values not checked) and its edits (an older record keeps none)."""
+
+    output: str
+    file: str
+    sources: list[str]
+    kind: str
+    volume: int | float | None
+    volume_source: str | None
+    number: str | None
+    title: str
+    pages_out: int
+    edits: NotRequired[RecordEdits]
+
+
+class Record(TypedDict):
+    """A bulk-converter series record (`.optimizer.json`): every top key of its type (TOP, checked).
+
+    kavita, runs, errors and flags are not read beyond their type.
+    """
+
+    schema: int
+    stages: list[str]
+    kavita: dict[str, object]
+    folders: list[RecordFolder]
+    runs: list[object]
+    errors: list[object]
+    flags: list[object]
+    series: RecordSeries
+    sources: list[RecordSource]
+    chapters: list[RecordChapter]
+
+
 class RecordError(ValueError):
     """The series record cannot be used."""
 
@@ -38,7 +167,7 @@ class PartialRecordError(RecordError):
     """A record written with partial --stages: the series is not finished."""
 
 
-def load(folder):
+def load(folder: Path) -> Record:
     """Return the parsed record of a series folder.
 
     FileNotFoundError when it has none; RecordError when it does not parse.

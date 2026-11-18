@@ -305,8 +305,8 @@ def strip_layout(sizes: Sequence[Size], width: int | None = None) -> tuple[int, 
     offset. Sizes only, no decode.
     """
     width = width or Counter(w for w, _ in sizes).most_common(1)[0][0]
-    pages: list[LaidPage] = []
-    top = 0
+    pages: list[LaidPage]
+    pages, top = [], 0
     for w, h in sizes:
         th = round(h * width / w)
         pages.append({"w": w, "h": h, "top": top, "th": th})
@@ -361,8 +361,8 @@ def make_strip(paths: Sequence[str | Path], sizes: Sequence[Size], rows: Sequenc
 
 def _blank_runs(strip: Strip) -> list[Rows]:
     """[(first, end)] analysis-row indexes of every maximal run of blank rows (Strip.uniform)."""
-    runs: list[Rows] = []
-    run = 0
+    runs: list[Rows]
+    runs, run = [], 0
     for i, u in enumerate(np.append(strip.uniform, False)):
         if u:
             run += 1
@@ -395,8 +395,8 @@ def spans(strip: Strip) -> list[Rows]:
     row. Lines glued with no blank row (or a walkable run shorter than SPAN_BREAK_PX) between them are one span (I Stole
     the Female Lead's First Love c0006: the D&C logo, (c) line and bunny watermark). An all-blank strip has none.
     """
-    out: list[Rows] = []
-    pos = 0
+    out: list[Rows]
+    out, pos = [], 0
     for s, e in [*walkable_runs(strip), (strip.height, strip.height)]:
         if s > pos:
             if out and pos - out[-1][1] < SPAN_BREAK_PX:
@@ -420,8 +420,8 @@ def edge_region(start: int, end: int, height: int, edge_px: int) -> str | None:
 
 def content_blocks(strip: Strip, gaps: Iterable[Rows]) -> list[Rows]:
     """Content between gaps, [(start, end)] in target px."""
-    blocks: list[Rows] = []
-    pos = 0
+    blocks: list[Rows]
+    blocks, pos = [], 0
     for s, e in gaps:
         if s > pos:
             blocks.append((pos, s))
@@ -539,8 +539,9 @@ def plan_cuts(
         return [0, length], []
     pts, forced = _reachable(sorted({0, length} | {c for c, _ in gaps if 0 < c < length}), length, cfg)
     best = _cheapest_links(pts, forced, dict(gaps), cfg)
-    cuts: list[int] = []
-    q: int | None = length
+    cuts: list[int]
+    q: int | None
+    cuts, q = [], length
     while q is not None:
         cuts.append(q)
         q = best[q][1]
@@ -554,8 +555,8 @@ def cut_strip(height: int, gaps: Iterable[Rows], removed: Iterable[RowRange], cf
     The removed ranges ([{"start", "end"}]) are taken out and the rest cut into pages on its gaps (plan_cuts). Also run
     again once a tail pass drops more pieces.
     """
-    kept: list[Rows] = []
-    pos = 0
+    kept: list[Rows]
+    kept, pos = [], 0
     for r in sorted(removed, key=lambda r: r["start"]):
         if r["start"] > pos:
             kept.append((pos, r["start"]))
@@ -618,8 +619,8 @@ def _kept_mapper(kept: Sequence[Rows]) -> Callable[[int], int | None]:
 
 def kept_ranges(kept: Iterable[Sequence[int]], a: int, b: int) -> list[Rows]:
     """Strip ranges [(s, e)] covered by kept coordinates [a, b) (kept: the strip minus removed blocks)."""
-    parts: list[Rows] = []
-    off = 0
+    parts: list[Rows]
+    parts, off = [], 0
     for s, e in kept:
         lo, hi = max(a, off), min(b, off + e - s)
         if lo < hi:
@@ -650,8 +651,9 @@ def render(
     pages: list[RowSource] | None = (
         [{"path": str(x_dir / p["name"]), "top": p["top"], "th": p["th"]} for p in strip["pages"]] if strip else None
     )
-    written: list[Path] = []
-    cache: dict[str, Image.Image] = {}
+    written: list[Path]
+    cache: dict[str, Image.Image]
+    written, cache = [], {}
     for o in outputs:
         if "rows" in o:
             if strip is None or pages is None:
@@ -754,8 +756,9 @@ def plan_pages(
     width, laid, height = strip_layout(sizes)
     page_h = _best_page_height([p["th"] for p in laid], width, aspects, cfg)
     pages: list[PlannedPage] = []
-    cuts: list[int] = [0]
-    irregular: list[Irregular] = []
+    cuts: list[int]
+    irregular: list[Irregular]
+    cuts, irregular = [0], []
     for n, p in zip(names, laid, strict=True):
         pages.append({**p, "name": n})
         k = max(1, round(p["th"] / page_h))

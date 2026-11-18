@@ -21,12 +21,15 @@ Constants are the bulk converter's, frozen: the stored decisions were made with 
 import functools
 import itertools
 from collections import Counter
-from typing import NamedTuple
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from typing import Literal, NamedTuple, NotRequired, TypedDict
 
 import numpy as np
 from PIL import Image
 
-from manga_pipeline import images, strip
+from manga_pipeline import db, images, strip
+from manga_pipeline.convert import plan
+from manga_pipeline.junk import logo_units, store
 
 EDGE_PX = 6000  # edge region: the first and last rows of a strip whose blocks are junk units (old junk_edge_px)
 MAX_SEAM = strip.SLICE_REPAIR["max_seam_score"]  # hard-join threshold (slice_repair.max_seam_score)
@@ -37,7 +40,165 @@ MIN_PAGE = strip.RESTITCH["min_page"]  # kept check: a strip at least this long 
 MARK_MIN_BANDS = 2  # tail bands sharing 1 decision that make it a mark
 
 
-def signable(im):
+class Piece(TypedDict):
+    """A strip unit: its rows [start, end) in strip px, its signature text, and its OCR text when it was read."""
+
+    start: int
+    end: int
+    sig: str
+    text: NotRequired[str]
+
+
+class Rest(TypedDict):
+    """The remainder a hard join leaves of its edge block: its rows [start, end) and its signature text."""
+
+    start: int
+    end: int
+    sig: str
+
+
+class Join(Piece):
+    """A hard join of an edge block: its edge piece's unit, whether that is uniform, its remainder (None: uniform)."""
+
+    uniform: bool
+    rest: Rest | None
+
+
+class EdgeBlock(Piece):
+    """An edge block's unit at the chapter's `where` edge ("head" or "tail"), with its hard joins from the edge in."""
+
+    where: str
+    joins: list[Join]
+
+
+class PieceMeasure(TypedDict):
+    """What the tail rules read of a gap-free run (measure_piece).
+
+    Luma std, ink, uniform, unsignable, and the signature text (None when uniform or unsignable).
+    """
+
+    std: float
+    ink: int
+    uniform: bool
+    unsignable: bool
+    sig: str | None
+
+
+class StripScan(TypedDict):
+    """A strip chapter's scan (scan), JSON-able: everything decide reads.
+
+    The strip's width and height, its gaps and spans ([start, end] each), its edge blocks, {"start:end": measure} of
+    every tail block and remainder, and the signature texts of its middle blocks. content (the content pages' download
+    indexes) and marks (their logos) are added to it by its caller.
+    """
+
+    layout: Literal["strip"]
+    width: int
+    height: int
+    gaps: list[list[int]]
+    spans: list[list[int]]
+    blocks: list[EdgeBlock]
+    measured: dict[str, PieceMeasure]
+    middle: list[str]
+    content: NotRequired[list[int]]
+    marks: NotRequired[list[logo_units.StripLogo]]
+
+
+class Matched[R](TypedDict):
+    """An edge block, piece or remainder a junk decision removed (match_blocks): rows, edge, deciding row, "match"."""
+
+    start: int
+    end: int
+    where: str
+    decision: R
+    why: str
+
+
+class LeftBlock(Piece):
+    """An edge block no junk decision removed: its edge, its non-uniform pieces as probes, rest for a remainder."""
+
+    where: str
+    probes: list[Piece]
+    rest: NotRequired[bool]
+
+
+class BlockUnit(LeftBlock):
+    """An undecided edge block, with the probes no decision covers."""
+
+    kind: Literal["block"]
+
+
+class PieceUnit(TypedDict):
+    """An undecided tail piece: its rows [start, end), its edge ("tail") and its signature text."""
+
+    kind: Literal["piece"]
+    start: int
+    end: int
+    where: str
+    sig: str
+
+
+class Removed(TypedDict):
+    """A range a junk decision removed: its rows, edge, the decision's id, why ("match") and the decision's key."""
+
+    start: int
+    end: int
+    where: str
+    decision: int
+    why: str
+    key: str
+
+
+class Drop(TypedDict):
+    """A range a tail rule or the join rule removes: its rows, edge, the deciding piece decision's id (None: a rule)."""
+
+    start: int
+    end: int
+    where: str
+    decision: int | None
+    why: str
+
+
+type Range = Removed | Drop
+
+
+class TailPiece(TypedDict):
+    """A tail piece (tail_pieces): kept rows [start, end) from the credit start, and whether they are a gap."""
+
+    start: int
+    end: int
+    gap: bool
+
+
+class BlankPiece(TailPiece):
+    """A tail piece that is a gap or holds no span row."""
+
+    blank: Literal[True]
+
+
+class MeasuredPiece(TailPiece, PieceMeasure):
+    """A tail piece holding span rows, with the scan's measurements of its rows."""
+
+    blank: Literal[False]
+
+
+type ClassedPiece = BlankPiece | MeasuredPiece
+
+
+class StripDecision(TypedDict):
+    """What decisions make of a strip scan (decide).
+
+    The final removed ranges (after the join rule), the undecided units, why the removal is refused (None: it is not)
+    and the keys of the decisions that removed a watermark.
+    """
+
+    removed: list[plan.RemovedRange]
+    undecided: list[PieceUnit | BlockUnit]
+    kept_problem: str | None
+    watermarks: list[str]
+
+
+def signable(im: Image.Image) -> str | None:
     """Return the signature text of an image, or None when it is uniform or unsignable."""
     if images.is_uniform(im):
         return None
@@ -45,7 +206,7 @@ def signable(im):
     return None if images.unsignable(sig) else images.sig_to_str(sig)
 
 
-def measure_piece(im):
+def measure_piece(im: Image.Image) -> PieceMeasure:
     """Measure what the tail rules read of a gap-free run.
 
     Luma std, ink (largest luma distance from its median), uniform, unsignable, signature text (None when uniform or
@@ -75,7 +236,7 @@ class _Part(NamedTuple):
     im: Image.Image
 
 
-def _hard_join_pieces(im, s, e, where):
+def _hard_join_pieces(im: Image.Image, s: int, e: int, where: str) -> Iterator[tuple[_Part, _Part]]:
     """Return (piece, rest) per hard join of the edge block `im`.
 
     im: strip rows [s, e), at the chapter's `where` edge. Walked from the chapter edge inward (strip.edge_pieces): the
@@ -87,19 +248,19 @@ def _hard_join_pieces(im, s, e, where):
         yield _Part(a, b, piece), _Part(x, y, rest)
 
 
-def _join(piece, rest, unit):
+def _join(piece: _Part, rest: _Part, unit: Callable[[int, int, Image.Image], Piece]) -> Join:
     """Return a hard join's entry.
 
     The piece's unit (a uniform one's signature only, never OCR), "uniform", and "rest", its remainder's {"start",
     "end", "sig"} (None when uniform).
     """
     uniform = images.is_uniform(piece.im)
-    join = (
+    join: Piece = (
         {"start": piece.start, "end": piece.end, "sig": images.sig_to_str(images.signature(piece.im))}
         if uniform
         else unit(piece.start, piece.end, piece.im)
     )
-    r = None
+    r: Rest | None = None
     if not images.is_uniform(rest.im):
         r = {"start": rest.start, "end": rest.end, "sig": images.sig_to_str(images.signature(rest.im))}
     return {**join, "uniform": uniform, "rest": r}
@@ -111,16 +272,23 @@ class _Edges(NamedTuple):
     {"start:end": measure_piece} of every tail block and every remainder of one.
     """
 
-    blocks: list[dict]
-    measured: dict[str, dict]
+    blocks: list[EdgeBlock]
+    measured: dict[str, PieceMeasure]
 
 
-def _edge_blocks(blocks, height, render, unit):
+def _edge_blocks(
+    blocks: Iterable[strip.Rows],
+    height: int,
+    render: Callable[[int, int], Image.Image],
+    unit: Callable[[int, int, Image.Image], Piece],
+) -> _Edges:
     """Return the edge blocks among a strip's content blocks [(start, end)].
 
     render(start, end) -> image, unit(start, end, image) -> a unit. A block under strip.MIN_EDGE_BLOCK_PX or uniform is
     no unit (a tail one is still measured).
     """
+    edge: list[EdgeBlock]
+    measured: dict[str, PieceMeasure]
     edge, measured = [], {}
     for s, e in blocks:
         where = strip.edge_region(s, e, height, EDGE_PX)
@@ -131,7 +299,7 @@ def _edge_blocks(blocks, height, render, unit):
             measured[f"{s}:{e}"] = measure_piece(im)
         if e - s < strip.MIN_EDGE_BLOCK_PX or images.is_uniform(im):
             continue
-        joins = []
+        joins: list[Join] = []
         for piece, rest in _hard_join_pieces(im, s, e, where):
             joins.append(_join(piece, rest, unit))
             if where == "tail":
@@ -140,14 +308,14 @@ def _edge_blocks(blocks, height, render, unit):
     return _Edges(edge, measured)
 
 
-def _middle_sigs(blocks, height, render):
+def _middle_sigs(blocks: Iterable[strip.Rows], height: int, render: Callable[[int, int], Image.Image]) -> list[str]:
     """Return the signature texts of the non-uniform middle blocks that could match a tail band.
 
     Middle blocks lie wholly outside both edge regions; one could match a tail band when at least
     strip.MIN_EDGE_BLOCK_PX tall and at most what an edge region allows.
     """
     tallest = EDGE_PX / (1 - images.ASPECT_TOLERANCE) ** 2  # a taller block can match no tail band
-    middle = []
+    middle: list[str] = []
     for s, e in blocks:
         if e - s < strip.MIN_EDGE_BLOCK_PX or e - s > tallest or e <= EDGE_PX or s >= height - EDGE_PX:
             continue
@@ -157,7 +325,11 @@ def _middle_sigs(blocks, height, render):
     return middle
 
 
-def scan(st, ocr_text=None, undecided=lambda _sig: True):
+def scan(
+    st: strip.Strip,
+    ocr_text: Callable[[Image.Image], str] | None = None,
+    undecided: Callable[[images.Signature], bool] = lambda _sig: True,
+) -> StripScan:
     """Scan a Strip (strip.make_strip over the chapter's non-cover pages).
 
     ocr_text(image) -> text, called for every edge block and non-uniform hard-join piece whose signature
@@ -168,9 +340,9 @@ def scan(st, ocr_text=None, undecided=lambda _sig: True):
     blocks_all = strip.content_blocks(st, gaps)
     render = functools.partial(strip.render_rows, st.pages, st.width, cache={})
 
-    def unit(s, e, im):
+    def unit(s: int, e: int, im: Image.Image) -> Piece:
         sig = images.signature(im)
-        u = {"start": s, "end": e, "sig": images.sig_to_str(sig)}
+        u: Piece = {"start": s, "end": e, "sig": images.sig_to_str(sig)}
         if ocr_text is not None and undecided(sig):
             u["text"] = ocr_text(im)
         return u
@@ -194,27 +366,29 @@ def scan(st, ocr_text=None, undecided=lambda _sig: True):
 class Layout:
     """The rows of a scanned strip: height, width, spans and gaps (sorted)."""
 
-    def __init__(self, sc):
+    def __init__(self, sc: StripScan) -> None:
         """Read the layout from scan sc: its height, width, spans and gaps, sorted."""
         self.height, self.width = sc["height"], sc["width"]
         self.spans = sorted(tuple(s) for s in sc["spans"])
         self.gaps = sorted(tuple(g) for g in sc["gaps"])
 
-    def runs(self):
+    def runs(self) -> list[strip.Rows]:
         """[(start, end)] of the walkable runs between and around the spans (0-row ones included)."""
+        out: list[strip.Rows]
         out, pos = [], 0
         for s, e in self.spans:
             out.append((pos, s))
             pos = e
         return [*out, (pos, self.height)]
 
-    def blank(self, a, b):
+    def blank(self, a: int, b: int) -> bool:
         """Return whether rows [a, b) hold no span row."""
         return not any(s < b and a < e for s, e in self.spans)
 
 
-def uncovered(a, b, taken):
+def uncovered(a: int, b: int, taken: Iterable[strip.Rows]) -> list[strip.Rows]:
     """Return the parts of [a, b) outside every (start, end) in taken, in order."""
+    out: list[strip.Rows]
     out, pos = [], a
     for s, e in sorted(taken):
         if e <= pos or s >= b:
@@ -227,11 +401,13 @@ def uncovered(a, b, taken):
     return out
 
 
-def _hits(a, b, taken):
+def _hits(a: int, b: int, taken: Iterable[strip.Rows]) -> bool:
     return any(s < b and a < e for s, e in taken)
 
 
-def match_blocks(blocks, approve):
+def match_blocks[R](
+    blocks: Iterable[EdgeBlock], approve: Callable[[str, str], R | None]
+) -> tuple[list[Matched[R]], list[LeftBlock]]:
     """Apply the stored decisions to the edge blocks; return (removed, left).
 
     removed [{"start", "end", "where", "decision", "why": "match"}]; left: the edge blocks no junk decision removed,
@@ -240,9 +416,11 @@ def match_blocks(blocks, approve):
     removed, then its remainder (removed when it matches, else left as a block without probes, marked "rest": 1 cut per
     block); else the block is left.
     """
+    removed: list[Matched[R]]
+    left: list[LeftBlock]
     removed, left = [], []
 
-    def gone(u, row, where):
+    def gone(u: strip.RowRange, row: R, where: str) -> None:
         removed.append({"start": u["start"], "end": u["end"], "where": where, "decision": row, "why": "match"})
 
     for b in blocks:
@@ -252,10 +430,8 @@ def match_blocks(blocks, approve):
             continue
         split = next(((j, h) for j in b["joins"] for h in [approve("probe", j["sig"])] if h is not None), None)
         if split is None:
-            probes = [
-                {k: v for k, v in j.items() if k not in ("uniform", "rest")} for j in b["joins"] if not j["uniform"]
-            ]
-            left.append({**{k: v for k, v in b.items() if k != "joins"}, "probes": probes})
+            probes = [_piece(j) for j in b["joins"] if not j["uniform"]]
+            left.append({**_piece(b), "where": b["where"], "probes": probes})
             continue
         j, row = split
         gone(j, row, b["where"])
@@ -270,7 +446,15 @@ def match_blocks(blocks, approve):
     return removed, left
 
 
-def watermarks(removed, middle, known=()):
+def _piece(u: Piece) -> Piece:
+    """Return a unit's own keys alone: its rows, its signature text and its OCR text when it was read."""
+    out: Piece = {"start": u["start"], "end": u["end"], "sig": u["sig"]}
+    if "text" in u:
+        out["text"] = u["text"]
+    return out
+
+
+def watermarks(removed: Iterable[Removed], middle: Iterable[str], known: Iterable[images.Signature] = ()) -> set[int]:
     """Return the decision ids of this chapter's removed tail bands that are watermarks, not credits.
 
     Removed as >= 2 tail bands, or whose key matches a middle block of the chapter (an unsignable one matches nothing)
@@ -286,12 +470,12 @@ def watermarks(removed, middle, known=()):
     return marks
 
 
-def tail_pieces(layout, removed, start):
+def tail_pieces(layout: Layout, removed: Iterable[strip.RowRange], start: int) -> list[TailPiece]:
     """Return the tail pieces from the credit start.
 
     The kept rows from `start` to the strip end split at every gap, [{"start", "end", "gap"}] in order.
     """
-    out = []
+    out: list[TailPiece] = []
     for s, e in uncovered(start, layout.height, [(r["start"], r["end"]) for r in removed]):
         pos = s
         for gs, ge in layout.gaps:
@@ -307,12 +491,16 @@ def tail_pieces(layout, removed, start):
     return out
 
 
-def is_blank(p):
+def is_blank(p: ClassedPiece) -> bool:
     """W1: a gap, all blank rows, uniform, unsignable, or flat (luma std < BLANK_STD and ink <= BLANK_INK)."""
-    return p["gap"] or p["blank"] or p["uniform"] or p["unsignable"] or (p["std"] < BLANK_STD and p["ink"] <= BLANK_INK)
+    if p["gap"] or p["blank"] is True:
+        return True
+    return p["uniform"] or p["unsignable"] or (p["std"] < BLANK_STD and p["ink"] <= BLANK_INK)
 
 
-def tail_classes(pieces, bands, others):
+def tail_classes(
+    pieces: Sequence[ClassedPiece], bands: Iterable[strip.Rows], others: Iterable[strip.Rows]
+) -> dict[int, str]:
     """Class each tail piece: {index: "blank" | "wedge" | "review"}.
 
     W1 blank; W3 wedge (a non-blank piece whose height plus its adjacent gap pieces is under WEDGE_PX and whose nearest
@@ -326,7 +514,7 @@ def tail_classes(pieces, bands, others):
         + [(p["start"], p["end"], "blank" if i in out else "piece") for i, p in enumerate(pieces)]
     )
 
-    def nearest(k, step):
+    def nearest(k: int, step: int) -> str | None:
         k += step
         while 0 <= k < len(seq) and seq[k][2] == "blank":
             k += step
@@ -344,8 +532,8 @@ def tail_classes(pieces, bands, others):
     return out
 
 
-def _merge(rows):
-    out = []
+def _merge(rows: Iterable[strip.Rows]) -> list[strip.Rows]:
+    out: list[strip.Rows] = []
     for s, e in sorted(rows):
         if out and s <= out[-1][1]:
             out[-1] = (out[-1][0], max(out[-1][1], e))
@@ -354,12 +542,12 @@ def _merge(rows):
     return out
 
 
-def soft(layout, r):
+def soft(layout: Layout, r: Range) -> bool:
     """Return whether r is a W1 drop of a gap piece (its rows within 1 gap): the join rule counts its rows as blank."""
     return r["why"] == "blank" and any(s <= r["start"] and r["end"] <= e for s, e in layout.gaps)
 
 
-def join_rule(layout, removed, gutter):
+def join_rule(layout: Layout, removed: Iterable[Range], gutter: int) -> list[Drop]:
     """Return the ranges of blank rows the join rule removes beside a chapter's removals.
 
     The blank rows a chapter's removals leave adjacent: at each join (removed ranges separated only by blank rows) the
@@ -368,20 +556,20 @@ def join_rule(layout, removed, gutter):
     whole. Returns the ranges it removes ({"why": "join"}), sorted.
     """
     rs = sorted((r["start"], r["end"], r["where"], soft(layout, r)) for r in removed)
-    merged = []  # [start, end, where, [rows a non-soft range removes]]
+    merged: list[tuple[int, int, str, list[strip.Rows]]] = []  # (start, end, where, rows a non-soft range removes)
     for s, e, w, f in rs:
-        hard = [] if f else [(s, e)]
+        hard: list[strip.Rows] = [] if f else [(s, e)]
         if merged and s <= merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], e)
-            merged[-1][3] = _merge(merged[-1][3] + hard)
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e), merged[-1][2], _merge(merged[-1][3] + hard))
         else:
-            merged.append([s, e, w, hard])
-    groups = []
+            merged.append((s, e, w, hard))
+    groups: list[list[tuple[int, int, str, list[strip.Rows]]]] = []
     for m in merged:
         if groups and layout.blank(groups[-1][-1][1], m[0]):
             groups[-1].append(m)
         else:
             groups.append([m])
+    out: list[Drop]
     runs, out = layout.runs(), []
     for g in groups:
         start, end, where = g[0][0], g[-1][1], g[0][2]
@@ -407,24 +595,26 @@ def join_rule(layout, removed, gutter):
         off = 0
         for x, y in c:
             parts = [(x, y)] if keep is None else uncovered(x, y, [(x + keep[0] - off, x + keep[1] - off)])
-            out += [{"start": s, "end": t, "where": where, "decision": None, "why": "join"} for s, t in parts if t > s]
+            out.extend(
+                {"start": s, "end": t, "where": where, "decision": None, "why": "join"} for s, t in parts if t > s
+            )
             off += y - x
     return sorted(out, key=lambda r: r["start"])
 
 
-def settle(layout, removed, gutter_px):
+def settle(layout: Layout, removed: Sequence[Range], gutter_px: int) -> list[Range]:
     """Return the removed set after the join rule: the removed ranges but the soft ones, plus join_rule's, sorted."""
     return sorted(
         [r for r in removed if not soft(layout, r)] + join_rule(layout, removed, gutter_px), key=lambda r: r["start"]
     )
 
 
-def gutter(width):
+def gutter(width: int) -> int:
     """1 gutter in px at strip width (gap_min_rows is given at 1000 px width)."""
     return max(1, round(strip.RESTITCH["gap_min_rows"] * width / 1000))
 
 
-def kept_problem(layout, removed):
+def kept_problem(layout: Layout, removed: Iterable[strip.RowRange]) -> str | None:
     """Return why cutting `removed` out is refused, or None.
 
     Refused when only blank rows are kept, or under MIN_PAGE from a strip at least that long.
@@ -440,33 +630,42 @@ def kept_problem(layout, removed):
     return None
 
 
-def _measured_pieces(layout, removed, start, measured):
+def _measured_pieces(
+    layout: Layout, removed: Iterable[strip.RowRange], start: int, measured: Mapping[str, PieceMeasure]
+) -> list[ClassedPiece]:
     """Return the tail pieces from `start` (tail_pieces), each with its blank flag and measurements.
 
     Each with "blank" (a gap, or no span row) and, when not blank, the scan's measurements of its rows (measured: the
     scan's "measured"); a piece the scan did not measure is an error.
     """
-    pieces = tail_pieces(layout, removed, start)
-    for p in pieces:
-        p["blank"] = p["gap"] or layout.blank(p["start"], p["end"])
-        if not p["blank"]:
-            m = measured.get(f"{p['start']}:{p['end']}")
-            if m is None:
-                msg = f"tail piece {p['start']}-{p['end']} was not measured by the scan"
-                raise ValueError(msg)
-            p.update(m)
+    pieces: list[ClassedPiece] = []
+    for p in tail_pieces(layout, removed, start):
+        if p["gap"] or layout.blank(p["start"], p["end"]):
+            pieces.append({**p, "blank": True})
+            continue
+        m = measured.get(f"{p['start']}:{p['end']}")
+        if m is None:
+            msg = f"tail piece {p['start']}-{p['end']} was not measured by the scan"
+            raise ValueError(msg)
+        pieces.append({**p, "blank": False, **m})
     return pieces
 
 
 class _Tail(NamedTuple):
     """The tail pass: its pieces, what it drops (W1, W3, piece decisions) and the pieces left for review."""
 
-    pieces: list[dict]
-    drops: list[dict]
-    review: list[dict]
+    pieces: list[ClassedPiece]
+    drops: list[Drop]
+    review: list[PieceUnit]
 
 
-def _tail_pass(layout, removed, bands, measured, decide_unit):
+def _tail_pass(
+    layout: Layout,
+    removed: list[Removed],
+    bands: list[Removed],
+    measured: Mapping[str, PieceMeasure],
+    decide_unit: store.DecideUnit,
+) -> _Tail:
     """Class and decide the tail pieces from the first credit band.
 
     `bands`: the removed tail bands that are no watermark. The pieces are classed (tail_classes) and decided: blank and
@@ -479,28 +678,34 @@ def _tail_pass(layout, removed, bands, measured, decide_unit):
     classes = tail_classes(
         pieces, [(r["start"], r["end"]) for r in bands], [(r["start"], r["end"]) for r in removed if r not in bands]
     )
+    drops: list[Drop]
+    review: list[PieceUnit]
     drops, review = [], []
     for i, why in sorted(classes.items()):
         p = pieces[i]
-        rng = {"start": p["start"], "end": p["end"], "where": "tail", "decision": None}
         if why != "review":
-            drops.append({**rng, "why": why})
+            drops.append({"start": p["start"], "end": p["end"], "where": "tail", "decision": None, "why": why})
             continue
+        if p["blank"] is True or p["sig"] is None:  # a review piece is no W1 blank: measured, signable
+            msg = f"tail piece {p['start']}-{p['end']} is left for review without a signature"
+            raise ValueError(msg)
         row = decide_unit("piece", p["sig"])
         if row is None:
             review.append({"kind": "piece", "start": p["start"], "end": p["end"], "where": "tail", "sig": p["sig"]})
         elif row["verdict"] == "junk":
-            drops.append({**rng, "decision": row["id"], "why": "piece"})
+            drops.append({"start": p["start"], "end": p["end"], "where": "tail", "decision": row["id"], "why": "piece"})
     return _Tail(pieces, drops, review)
 
 
-def _undecided_blocks(left, owned, decide_unit):
+def _undecided_blocks(
+    left: Iterable[LeftBlock], owned: Sequence[strip.Rows], decide_unit: store.DecideUnit
+) -> list[BlockUnit]:
     """Return the edge blocks match_blocks left that nothing removed touches and no block decision covers.
 
     No removed range or tail piece (`owned`, [(start, end)]) touches them and no block decision covers them; each with
     the probes no probe decision covers (a probe decided keep is no longer offered).
     """
-    out = []
+    out: list[BlockUnit] = []
     for b in left:
         if _hits(b["start"], b["end"], owned):
             continue
@@ -510,7 +715,7 @@ def _undecided_blocks(left, owned, decide_unit):
     return out
 
 
-def decide(sc, decide_unit, known=()):
+def decide(sc: StripScan, decide_unit: store.DecideUnit, known: Iterable[images.Signature] = ()) -> StripDecision:
     """Apply decisions to a strip scan.
 
     decide_unit(kind, sig text) -> the deciding row (dict-like with "id", "verdict", "key") or None; known: the series'
@@ -520,12 +725,22 @@ def decide(sc, decide_unit, known=()):
     """
     layout = Layout(sc)
 
-    def approve(kind, sig):
+    def approve(kind: str, sig: str) -> db.Row | None:
         row = decide_unit(kind, sig)
         return row if row is not None and row["verdict"] == "junk" else None
 
     found, left = match_blocks(sc["blocks"], approve)
-    removed = [{**r, "decision": r["decision"]["id"], "key": r["decision"]["key"]} for r in found]
+    removed: list[Removed] = [
+        {
+            "start": r["start"],
+            "end": r["end"],
+            "where": r["where"],
+            "decision": r["decision"]["id"],
+            "why": r["why"],
+            "key": r["decision"]["key"],
+        }
+        for r in found
+    ]
     marks = watermarks(removed, sc["middle"], known)
     bands = [r for r in removed if r["where"] == "tail" and r["decision"] not in marks]
     tail = _tail_pass(layout, removed, bands, sc["measured"], decide_unit)

@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -34,15 +35,14 @@ from manga_pipeline import (
     volumes,
     workflow,
 )
+from manga_pipeline.convert import plan
 from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates, logo_units, ocr, page_units, store, strip_units
-
-WORDS = ("keywords", "weak", "paired", "suppress")
 
 
 def run(ctx: workflow.Context, chapter):
     """Run the put-aside, library-copy and notice checks, then scan the chapter, or decide it from its current scan."""
-    series = ctx.conn.execute("SELECT * FROM series WHERE id = %s", (chapter["series_id"],)).fetchone()
+    series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     why = handled.put_aside(ctx, chapter, chapter["content_digest"])
     if why:
         return workflow.Dropped(why)
@@ -280,9 +280,9 @@ class _Applied(NamedTuple):
     the logos'), and why the edit is refused (strip_units' kept_problem; None when it is not).
     """
 
-    edit: dict
+    edit: plan.ChapterEdit
     watermarks: list[tuple[str, str]]
-    undecided: list[dict]
+    undecided: Sequence[candidates.Unit]
     problem: str | None
 
 
@@ -291,7 +291,14 @@ def _apply(conn, sc, key, decide_unit):
 
     A strip's layout decisions take the series' known watermarks; a refused strip edit stops before the logos.
     """
-    edit = {"drop_pages": [], "bands": [], "join": [], "split": False, "strip_removed": [], "blank": []}
+    edit: plan.ChapterEdit = {
+        "drop_pages": [],
+        "bands": [],
+        "join": [],
+        "split": False,
+        "strip_removed": [],
+        "blank": [],
+    }
     watermarks = []
     if sc["layout"] == "strip":
         known = conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
@@ -303,7 +310,7 @@ def _apply(conn, sc, key, decide_unit):
         survives = logo_units.strip_survives(edit["strip_removed"])
     else:
         got = page_units.decide(sc, decide_unit)
-        edit.update(got["edit"])
+        edit = {**edit, **got["edit"]}
         survives = logo_units.page_survives(edit)
     logos = logo_units.decide(sc["marks"], survives, decide_unit)
     edit["blank"] = logos["blank"]
@@ -364,8 +371,7 @@ def decide(ctx: workflow.Context, chapter, key, row):
     applied = _apply(ctx.conn, sc, key, decide_unit)
     if applied.problem:
         return workflow.NeedsHuman(applied.problem)
-    words = {w: ctx.cfg["junk"][w] for w in WORDS}
-    picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, words)
+    picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, ctx.cfg["junk"])
     if not picks:
         return _finished(ctx, chapter, applied.edit, applied.watermarks)
     limit = ctx.cfg["junk"]["review_limit"]

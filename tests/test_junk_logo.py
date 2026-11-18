@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline.junk import logo_units, marks
+from manga_pipeline.junk import logo_units, marks, store
 
-from tests.builders import present
+from tests.builders import db_row, present
 from tests.timing import budget
 from tests.world import logo_page
 
@@ -25,10 +25,10 @@ def solid(grey, w=40):
     return marks.Template(np.full((20, w, 3), grey, np.uint8), np.ones((20, w), bool))
 
 
-def logo(page, grey=200, ring_frac=1.0, tight=(100, 100, 140, 120), rows=None):
+def logo(page, grey=200, ring_frac=1.0, tight=(100, 100, 140, 120)) -> logo_units.Logo:
     """Return a scan's logo dict with a solid template of `grey` (grays 40 apart are 1 variant, 80 apart are not)."""
     x0, y0, x1, y1 = tight
-    out = {
+    return {
         "page": page,
         "tight": list(tight),
         "box": [x0 - 15, y0 - 15, x1 + 15, y1 + 15],
@@ -36,14 +36,16 @@ def logo(page, grey=200, ring_frac=1.0, tight=(100, 100, 140, 120), rows=None):
         "ring_frac": ring_frac,
         "template": solid(grey).key_text(),
     }
-    if rows is not None:
-        out["rows"] = list(rows)
-    return out
 
 
-def store_of(**decided):
+def strip_logo(page, rows) -> logo_units.StripLogo:
+    """Return a strip scan's logo dict (logo's) at these strip rows."""
+    return {**logo(page), "rows": list(rows)}
+
+
+def store_of(**decided) -> store.DecideUnit:
     """decide_unit over stored logo decisions {grey: verdict} (series-scoped rows), matched as the store matches."""
-    stored = [(solid(g), {"id": g, "verdict": v, "series_key": "S"}) for g, v in decided.items()]
+    stored = [(solid(g), db_row(id=g, verdict=v, series_key="S")) for g, v in decided.items()]
 
     def decide_unit(kind, key):
         assert kind == "logo", "logos are decided by logo decisions only"
@@ -147,7 +149,7 @@ def test_a_logo_survives_a_page_edit_unless_dropped_or_cropped_off(edit, kept):
     ids=["inside-1-range", "inside-2-ranges", "partly-removed", "between-ranges"],
 )
 def test_a_logo_survives_a_strip_edit_unless_its_rows_are_removed(removed, kept):
-    g = logo(2, rows=(1000, 1040))
+    g = strip_logo(2, (1000, 1040))
     out = logo_units.decide([g], logo_units.strip_survives(removed), store_of())
     assert bool(out["undecided"]) is kept, "a logo inside the removed rows is not offered"
 
@@ -155,7 +157,7 @@ def test_a_logo_survives_a_strip_edit_unless_its_rows_are_removed(removed, kept)
 @budget(0.5, load="pure")
 def test_review_images_show_the_badge_before_and_after_its_blank_and_the_page():
     page = page_rgb()
-    g = logo_units.measure(3, page)
+    g = present(logo_units.measure(3, page))
     unit, context = logo_units.review_images(page, g)
     assert unit.height == logo_units.UNIT_HEIGHT, "the unit image, then the page"
     assert context is page, "the unit image, then the page"

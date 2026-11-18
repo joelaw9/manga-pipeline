@@ -8,22 +8,68 @@
 - `review_images(page, logo)`: a logo candidate's 2 images.
 """
 
+from collections.abc import Callable, Iterable, Sequence
+from typing import Literal, TypedDict
+
 import numpy as np
 from PIL import Image
 
-from manga_pipeline import images
-from manga_pipeline.junk import marks
+from manga_pipeline import images, strip
+from manga_pipeline.convert import plan
+from manga_pipeline.junk import marks, store
 
 REASON = "logo badge"
 UNIT_HEIGHT = 300  # px: the before / after crops of a logo candidate are shown at this height
 GAP = 8  # px between the before and after crops
 
 
-def measure(index, rgb):
+class Logo(TypedDict):
+    """A gray-mark page's logo as the scan holds it (measure).
+
+    Its page (download index), tight box and padded box ([x0, y0, x1, y1], end-exclusive), ring fill [r, g, b], ring
+    share and template key text (marks.Template.key_text).
+    """
+
+    page: int
+    tight: list[int]
+    box: list[int]
+    fill: list[int]
+    ring_frac: float
+    template: str
+
+
+class StripLogo(Logo):
+    """A logo of a strip chapter, with its tight box's rows [start, end) in the strip."""
+
+    rows: list[int]
+
+
+class LogoUnit(TypedDict):
+    """An undecided logo variant: its first representative's key, every representative's key, its first member.
+
+    The member's page and logo, and its candidate reasons.
+    """
+
+    kind: Literal["logo"]
+    key: str
+    keys: list[str]
+    page: int
+    logo: Logo
+    reasons: list[str]
+
+
+class LogoDecision(TypedDict):
+    """What decisions make of a scan's logos: the chapter edit's blank entries and the undecided variants."""
+
+    blank: list[plan.Blank]
+    undecided: list[LogoUnit]
+
+
+def measure(index: int, rgb: Image.Image) -> Logo | None:
     """Return the logo of download page `index` (RGB array), or None when not gray-mark or its mark is faint."""
     a = np.asarray(rgb)
     cls, box = images.classify(a, images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)
-    if cls != images.GRAY_MARK:
+    if cls != images.GRAY_MARK or box is None:
         return None
     m = marks.measure(a, box)
     if m is None:
@@ -38,7 +84,7 @@ def measure(index, rgb):
     }
 
 
-def page_survives(edit):
+def page_survives(edit: plan.PageLayoutEdit) -> Callable[[Logo], bool]:
     """Return whether a logo survives a page-layout edit.
 
     Its page is not dropped, and any of its tight box lies inside the page's kept band crop.
@@ -46,7 +92,7 @@ def page_survives(edit):
     drops = set(edit["drop_pages"])
     crops = {b["page"]: b["box"] for b in edit["bands"]}
 
-    def survives(logo):
+    def survives(logo: Logo) -> bool:
         if logo["page"] in drops:
             return False
         crop = crops.get(logo["page"])
@@ -56,11 +102,11 @@ def page_survives(edit):
     return survives
 
 
-def strip_survives(removed):
+def strip_survives(removed: Iterable[strip.RowRange]) -> Callable[[StripLogo], bool]:
     """Whether a logo survives a strip edit: any of its rows in the strip (`rows`, end exclusive) is not removed."""
     ranges = sorted((r["start"], r["end"]) for r in removed)
 
-    def survives(logo):
+    def survives(logo: StripLogo) -> bool:
         at, end = logo["rows"]
         for start, stop in ranges:
             if start > at:
@@ -71,7 +117,7 @@ def strip_survives(removed):
     return survives
 
 
-def decide(found, survives, decide_unit):
+def decide[L: Logo](found: Sequence[L], survives: Callable[[L], bool], decide_unit: store.DecideUnit) -> LogoDecision:
     """Decide the scan's logos by variant: the edit's blank entries and the undecided units.
 
     found: the scan's logos; survives(logo) -> bool; decide_unit(kind, key text) -> the deciding row or None. Returns
@@ -80,6 +126,8 @@ def decide(found, survives, decide_unit):
     """
     live = [g for g in found if marks.blankable(g["ring_frac"]) and survives(g)]
     templates = [marks.Template.from_key(g["template"]) for g in live]
+    blank: list[plan.Blank]
+    undecided: list[LogoUnit]
     blank, undecided = [], []
     for group in marks.cluster(templates):
         reps = [t.key_text() for t in marks.representatives([templates[i] for i in group])]
@@ -87,14 +135,22 @@ def decide(found, survives, decide_unit):
         members = [live[i] for i in group]
         if row is None:
             first = members[0]
-            unit = {"kind": "logo", "key": reps[0], "keys": reps, "page": first["page"], "logo": first}
-            undecided.append({**unit, "reasons": [REASON]})
+            undecided.append(
+                {
+                    "kind": "logo",
+                    "key": reps[0],
+                    "keys": reps,
+                    "page": first["page"],
+                    "logo": first,
+                    "reasons": [REASON],
+                }
+            )
         elif row["verdict"] == "junk":
-            blank += [{"page": g["page"], "box": g["box"], "fill": g["fill"]} for g in members]
+            blank.extend({"page": g["page"], "box": g["box"], "fill": g["fill"]} for g in members)
     return {"blank": sorted(blank, key=lambda b: b["page"]), "undecided": undecided}
 
 
-def review_images(page, logo):
+def review_images(page: Image.Image, logo: Logo) -> tuple[Image.Image, Image.Image]:
     """Return (unit image, context image) of a logo candidate.
 
     The badge's surroundings before and after the blank, side by side; the page. page: the source page (PIL RGB).

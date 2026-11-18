@@ -10,6 +10,7 @@ Inputs: the download's measured pages (images.measure_pages), the extracted page
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypedDict
 
 from manga_pipeline import archive, images, strip
 from manga_pipeline.convert import pages as page_reads
@@ -26,6 +27,43 @@ TURNED = range(2, 9)  # EXIF orientations readers apply: a rotation or mirror
 EDIT_KEYS = {"drop_pages": list, "strip_removed": list, "bands": list, "join": list, "split": bool, "blank": list}
 BOX_SIDES = 4  # a box: [left, top, right, bottom]
 PAIR_LEN = 2  # a join entry: [page, sliver]
+
+
+class RemovedRange(strip.RowRange):
+    """A strip_removed entry: strip rows [start, end) taken out, and why (the junk rule that removed them)."""
+
+    why: str
+
+
+class BandCrop(TypedDict):
+    """A bands entry: a page (download index) cropped to its box [left, top, right, bottom], end-exclusive."""
+
+    page: int
+    box: list[int]
+
+
+class Blank(TypedDict):
+    """A blank entry: a logo's box [left, top, right, bottom] on a page (download index) filled with fill [r, g, b]."""
+
+    page: int
+    box: list[int]
+    fill: list[int]
+
+
+class PageLayoutEdit(TypedDict):
+    """The page-layout keys of a chapter edit: split, the dropped pages, the band crops and the [page, sliver] joins."""
+
+    split: bool
+    drop_pages: list[int]
+    bands: list[BandCrop]
+    join: list[list[int]]
+
+
+class ChapterEdit(PageLayoutEdit):
+    """A chapter_edit (EDIT_KEYS, checked by check_edit): the page-layout keys, the strip rows taken out, the blanks."""
+
+    strip_removed: list[RemovedRange]
+    blank: list[Blank]
 
 
 class EditError(ValueError):
