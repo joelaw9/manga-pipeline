@@ -77,7 +77,9 @@ def after_junk(
     pixel BPP_BETTER, less junk. Bits per pixel and junk count only where the file's are known (a bulk-converted file
     has no original bits per pixel).
     """
-    if chapter["published_file_id"] is not None:
+    # read again: judge may have made it name its file earlier in this junk call, after the claimed row was read
+    named = db.one_row(ctx.conn, "SELECT published_file_id FROM chapter WHERE id = %s", (chapter["id"],))
+    if named["published_file_id"] is not None:
         return None
     found = _copy_of(ctx, chapter)
     if found is None or isinstance(found, workflow.NeedsHuman):
@@ -235,13 +237,14 @@ def _original(ctx: workflow.Context, published: db.Row) -> Measures[float | None
     """Return the published copy's original measurements.
 
     As stored when the pipeline published it, else measured from the library file (the bulk converter's, or published
-    before they were stored). Each page is read whole and not decoded: an AVIF page gives no size from its first
-    bytes. bpp: the original's bits per pixel, None when not stored (a bulk file's pages are re-encoded).
+    before they were stored), its cover page left out. Each page is read whole and not decoded: an AVIF page gives no
+    size from its first bytes. bpp: the original's bits per pixel, None when not stored (a bulk file's pages are
+    re-encoded).
     """
     if published["pages_in"] is not None:  # publish stores the 3 measures together
         return _measured(published["library_path"], published, published["bpp"])
     with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
-        names = archive.archive_pages(z.namelist())
+        names = [n for n in archive.archive_pages(z.namelist()) if not rewrite_covers.is_cover(n)]
         sizes = [images.dimensions(z.read(n)) for n in names]
     known = [s for s in sizes if s is not None]
     if not sizes or len(known) < len(sizes):
@@ -254,10 +257,12 @@ def _original(ctx: workflow.Context, published: db.Row) -> Measures[float | None
 def _take(ctx: workflow.Context, chapter: db.Row, published: db.Row) -> workflow.NeedsHuman | None:
     """Make the better copy name its file (its 1 open chapter) and take the file's volume cover.
 
-    The cover: the series' stored image of that volume, else the old file's own cover page. Returns None (the copy goes
-    on), or NeedsHuman for a busy file.
+    The cover, when the file holds its own volume's: the series' stored image of that volume, else the old file's own
+    cover page; another volume's cover gives none. Returns None (the copy goes on), or NeedsHuman for a busy file.
     """
     volume = rewrite_covers.cover_volume(published["cover_state"])  # an old image too: the copy takes the new one
+    if volume is not None and names.to_volume(volume) != names.to_volume(published["comicinfo_volume"]):
+        volume = None
     if published["cover_state"] is None:  # not read yet (export reads it): the file's own cover page says
         with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
             if any(rewrite_covers.is_cover(n) for n in archive.archive_pages(z.namelist())):

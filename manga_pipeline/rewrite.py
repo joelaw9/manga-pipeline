@@ -706,8 +706,9 @@ def drop(conn: db.Connection, file_id: int, limit: int) -> db.Row:
     """`rewrite drop FILE_ID`: clear a stuck rewrite that has not renamed its file in, with its progress carry.
 
     Stuck: its attempts at workflow.attempt_limit, or its progress wait failed. The caller removes the staged file it
-    names; the next comparison of its series starts again. workflow.Refused otherwise: a rewrite export is still working
-    on, or one past its rename (`rewrite retry` finishes it).
+    names; the next comparison of its series starts again. A failed wait keeps its cover refresh due (carry_cover): the
+    file stays busy until refresh_covers runs. workflow.Refused otherwise: a rewrite export is still working on, or one
+    past its rename (`rewrite retry` finishes it).
     """
     row = conn.execute("SELECT * FROM published_file WHERE id = %s", (file_id,)).fetchone()
     if row is None or not (
@@ -724,7 +725,7 @@ def drop(conn: db.Connection, file_id: int, limit: int) -> db.Row:
         conn.execute(
             sql.SQL("""UPDATE published_file SET {},
                 pending_error = NULL, pending_attempts = 0, indexed_since = NULL, wait_charges = 0
-                WHERE id = %s""").format(_set_null((*PENDING, *CARRY))),
+                WHERE id = %s""").format(_set_null((*PENDING, *(CARRY if row["pending_path"] else PROGRESS)))),
             (file_id,),
         )
         conn.execute("DELETE FROM series_naming WHERE series_id = %s", (row["series_id"],))

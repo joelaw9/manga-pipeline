@@ -14,6 +14,7 @@ import pytest
 from PIL import Image
 
 from manga_pipeline import config, db, export, images, intake, library_copy, measures, process, retention, workflow
+from manga_pipeline.stages import junk
 
 from tests import pages as fx
 from tests.fakes.suwayomi import page as fake_page
@@ -161,6 +162,27 @@ def test_a_better_copy_takes_its_file_and_goes_on(world, published, why):
     through_junk(world, copies=[published])
     ((stage, status, file_id),) = world.rows("SELECT stage, status, published_file_id FROM chapter")
     assert (stage, status, file_id) == ("comicinfo", "ready", 2), f"{why}: it names its file and goes on"
+
+
+@budget(load="db")
+def test_a_higher_rated_copy_already_scanned_takes_its_file_in_1_junk_call(world, monkeypatch):
+    path = world.download(world.manga_id, "Chapter 5 [R18]", data=cbz(seed="new Chapter 5"))[1]
+    world.run(intake)
+
+    def killed(*_args):
+        raise KeyboardInterrupt
+
+    with monkeypatch.context() as m:
+        m.setattr(junk, "decide", killed)
+        with pytest.raises(KeyboardInterrupt):  # process killed once the scan is stored
+            world.run(process)
+    assert world.rows("SELECT count(*) FROM junk_scan") == [(1,)], "set up: the scan is stored"
+    published_copy(world)  # untagged, the same width: the uncensored copy is better by its rating alone
+    world.run(process)
+    ((stage, status, file_id),) = world.rows("SELECT stage, status, published_file_id FROM chapter")
+    assert (stage, status, file_id) == ("comicinfo", "ready", 2), "it names its file and goes on"
+    assert path.exists(), "not put aside: no duplicate"
+    assert world.rows("SELECT outcome FROM handled_chapter WHERE outcome = 'duplicate'") == [], "no duplicate"
 
 
 @budget(load="db")
