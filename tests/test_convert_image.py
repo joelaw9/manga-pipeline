@@ -248,6 +248,7 @@ def test_a_page_failing_after_its_retry_sends_the_chapter_to_lossless(tmp_path):
     rec = ch.run(ch.plan())
     assert rec["outcome"] == "lossless"
     assert "scored 75.0 at q90" in present(rec.get("avif_rejected"))
+    assert present(rec.get("avif_pages"))[0]["score"] == 75.0, "the record keeps the rejected attempt's pages"
     assert [o["name"] for o in rec["output"]] == ["001.jpg", "002.png"]
     assert rec["mean_score"] is None
     assert rec["scores"] == {}
@@ -355,6 +356,20 @@ def test_crop_and_join_render_numbered_avif_pages(tmp_path):
     assert rec.get("reshape") == {"kind": "rejoin", "pages_in": 3, "pages_out": 2}
     with Image.open(ch.rendered_dir / "001.png") as im:
         assert im.size == (96, 168), "the sliver is joined under its page"
+
+
+@budget(load="pool")
+def test_a_rendered_chapter_whose_avif_fails_goes_out_untouched_without_a_reshape(tmp_path):
+    fake.SCORE[0] = lambda _ref, _dec: 70.0
+    ch = Chapter(
+        tmp_path,
+        [("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour((96, 40), seed=7))), ("003.jpg", jpeg(colour(seed=8)))],
+    )
+    rec = ch.run(ch.plan({**NO_EDIT, "bands": [{"page": 2, "box": [0, 0, 96, 100]}], "join": [[0, 1]]}))
+    assert rec["outcome"] == "untouched"
+    assert "scored 70.0" in present(rec.get("avif_rejected"))
+    assert "reshape" not in rec, "a rendered attempt that was rejected leaves no reshape"
+    assert [o["name"] for o in rec["output"]] == ["001.jpg", "002.jpg", "003.jpg"], "the original pages, unedited"
 
 
 @budget(load="pool")
