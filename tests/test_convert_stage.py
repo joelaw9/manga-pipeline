@@ -20,10 +20,20 @@ import pytest
 from PIL import Image
 
 from manga_pipeline import archive, config, db, errors, images, page_store, process, workflow
-from manga_pipeline.convert import calibrate, check, covers, image
+from manga_pipeline.convert import calibrate, check, covers, image, record_reader
 from manga_pipeline.stages import convert
 
-from tests.builders import WinFileNotFoundError, add_chapter, add_series, adopted, chapter, claimed, download, present
+from tests.builders import (
+    WinFileNotFoundError,
+    add_chapter,
+    add_series,
+    adopted,
+    chapter,
+    claimed,
+    db_row,
+    download,
+    present,
+)
 from tests.convert_pages import NO_EDIT, colour, encoded, gray, jpeg, png, webp
 from tests.fakes import convert as fake
 from tests.timing import budget
@@ -218,14 +228,15 @@ def staged(tmp_path, members):
 @budget(load="pool")
 def test_the_post_check_names_what_is_wrong(tmp_path):
     a, b = jpeg(colour()), jpeg(gray().convert("RGB"))
-    rec = {
+    rec: check.Staged = {
         "outcome": "untouched",
         "gate": None,
+        "cover": None,
         "lossless": {},
         "scores": {},
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}, {"name": "002.jpg", "sha1": archive.sha1(b)}],
     }
-    kept = [{"name": "001.jpg", "bytes": len(a)}, {"name": "002.jpg", "bytes": len(b)}]
+    kept: list[check.SourceBytes] = [{"bytes": len(a)}, {"bytes": len(b)}]
     assert check.check(staged(tmp_path, [("001.jpg", a), ("002.jpg", b)]), rec, tmp_path, kept) == []
     assert any("page-count" in f for f in check.check(staged(tmp_path, [("001.jpg", a)]), rec, tmp_path, kept))
     swapped = check.check(staged(tmp_path, [("001.jpg", b), ("002.jpg", a)]), rec, tmp_path, kept)
@@ -241,7 +252,7 @@ def test_the_post_check_names_what_is_wrong(tmp_path):
 @budget(load="pool")
 def test_the_post_check_holds_avif_scores_lossless_pixels_and_size(tmp_path):
     a = jpeg(colour())
-    avif = {
+    avif: check.Staged = {
         "outcome": "avif",
         "gate": "floor+size",
         "lossless": {},
@@ -249,12 +260,12 @@ def test_the_post_check_holds_avif_scores_lossless_pixels_and_size(tmp_path):
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    fails = check.check(staged(tmp_path, [("001.jpg", a)]), avif, tmp_path, [{"name": "001.jpg", "bytes": 1}])
+    fails = check.check(staged(tmp_path, [("001.jpg", a)]), avif, tmp_path, [{"bytes": 1}])
     assert "score-missing: 001.jpg" in fails
     assert "mixed-formats: JPEG" in fails
     assert any(f.startswith("output-larger-than-input") for f in fails), "page bytes above the source pages'"
     (tmp_path / "001.jpg").write_bytes(jpeg(gray().convert("RGB")))
-    lossless = {
+    lossless: check.Staged = {
         "outcome": "lossless",
         "gate": None,
         "lossless": {"001.jpg": {"source": "001.jpg", "mode": "exact"}},
@@ -262,7 +273,7 @@ def test_the_post_check_holds_avif_scores_lossless_pixels_and_size(tmp_path):
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    fails = check.check(staged(tmp_path, [("001.jpg", a)]), lossless, tmp_path, [{"name": "001.jpg", "bytes": 10**6}])
+    fails = check.check(staged(tmp_path, [("001.jpg", a)]), lossless, tmp_path, [{"bytes": 10**6}])
     assert fails == ["lossless-mismatch (exact): 001.jpg"]
 
 
@@ -272,7 +283,7 @@ def test_the_post_check_refuses_a_deflated_archive(tmp_path):
     path = tmp_path / "d.cbz"
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("001.jpg", a)
-    rec = {
+    rec: check.Staged = {
         "outcome": "untouched",
         "gate": None,
         "lossless": {},
@@ -280,7 +291,7 @@ def test_the_post_check_refuses_a_deflated_archive(tmp_path):
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    assert check.check(path, rec, tmp_path, [{"name": "001.jpg", "bytes": len(a)}]) == ["not-store-mode"]
+    assert check.check(path, rec, tmp_path, [{"bytes": len(a)}]) == ["not-store-mode"]
 
 
 # ---------------------------------------------------------------- calibration
@@ -338,26 +349,47 @@ def test_samples_failing_at_q80_are_not_counted(site):
     assert row["fixed"] == 0, "18 counted samples are not enough to fix the group"
 
 
+def calibrated_record(calibration: record_reader.RecordCalibration) -> record_reader.Record:
+    """Return a bulk record holding this series.calibration, its other keys minimal."""
+    return {
+        "schema": record_reader.SCHEMA,
+        "stages": list(record_reader.STAGES),
+        "kavita": {},
+        "folders": [],
+        "runs": [],
+        "errors": [],
+        "flags": [],
+        "series": {
+            "layout": {"layout": "pages"},
+            "naming": {"series_name": "S", "restart": False},
+            "calibration": calibration,
+            "covers": {"volumes": {}},
+            "decisions": {},
+        },
+        "sources": [],
+        "chapters": [],
+    }
+
+
 @budget(load="pure")
 def test_a_record_fixes_only_the_groups_it_probed():
-    record = {
-        "series": {
-            "calibration": {
-                "groups": {
-                    "gray": {"q": 80, "n": 0, "why": "too few sample pages (0)", "probes": []},
-                    "colour": {"q": 70, "n": 40, "why": "q65 fails", "probes": [{"q": 75}, {"q": 70}, {"q": 65}]},
-                }
+    record = calibrated_record(
+        {
+            "groups": {
+                "gray": {"q": 80, "why": "too few sample pages (0)", "probes": []},
+                "colour": {"q": 70, "why": "q65 fails", "probes": [{"q": 75}, {"q": 70}, {"q": 65}]},
             }
         }
-    }
+    )
     assert calibrate.from_record(record) == {"colour": (70, "record: q65 fails")}
-    assert calibrate.from_record({"series": {"calibration": {}}}) == {}, "a record without calibration fixes nothing"
+    assert calibrate.from_record(calibrated_record({})) == {}, "a record without calibration fixes nothing"
 
 
 @budget(load="pure")
 def test_choose_follows_the_bulk_converters_rule():
-    def sample(chapter, by_q):
-        return {"chapter_id": chapter, "scores": {str(q): [by_q(q), 1] for q in (80, *calibrate.LADDER)}}
+    def sample(chapter, by_q) -> calibrate.Sample:
+        scores = {str(q): [by_q(q), 1] for q in (80, *calibrate.LADDER)}
+        return {"sha1": "", "rendered": False, "bytes_in": 1, "scores": scores, "chapter_id": chapter}
 
     passing = [sample(c % 3, lambda _q: 90.0) for c in range(20)]
     assert calibrate.choose(passing) == (50, "ladder floor q50 passes (20 samples)")
@@ -400,9 +432,22 @@ def test_a_split_chapter_is_split_at_its_series_page_aspect(site):
     assert json.loads(chapter(site.conn, split_id)["convert_result"])["pages_out"] == 2
 
 
+def unit(sha1) -> calibrate.Unit:
+    """Return a calibration unit of this sha1; its other fields are placeholders."""
+    return {
+        "path": Path(f"{sha1}.png"),
+        "sha1": sha1,
+        "class": images.COLOUR,
+        "yuv": "444",
+        "fmt": images.PNG,
+        "jpeg_feed": False,
+        "rendered": False,
+    }
+
+
 @budget(load="pure")
 def test_a_group_takes_no_more_than_40_samples():
-    units = [{"sha1": str(i)} for i in range(20)]
+    units = [unit(str(i)) for i in range(20)]
     assert len(calibrate.pick(units, {f"s{i}" for i in range(30)})) == 10, "room for 10 more"
     assert calibrate.pick(units, {f"s{i}" for i in range(40)}) == [], "a full group takes none"
 
@@ -421,21 +466,25 @@ def test_the_post_check_names_a_low_score_folders_and_an_ambiguous_order(tmp_pat
     buf = io.BytesIO()
     colour().save(buf, "AVIF", quality=80, speed=10)
     avif = buf.getvalue()
-    rec = {
+    rec: check.Staged = {
         "outcome": "avif",
         "gate": "floor",
+        "cover": None,
         "lossless": {},
         "scores": {"001.avif": 79.5},
         "output": [{"name": "001.avif", "sha1": archive.sha1(avif)}],
     }
     assert check.check(staged(tmp_path, [("001.avif", avif)]), rec, tmp_path, []) == ["score-below-min: 001.avif 79.50"]
-    nested = check.check(staged(tmp_path, [("a/001.avif", avif)]), dict(rec, scores={"a/001.avif": 90.0}), tmp_path, [])
+    nested = check.check(
+        staged(tmp_path, [("a/001.avif", avif)]), {**rec, "scores": {"a/001.avif": 90.0}}, tmp_path, []
+    )
     assert "nested-entries" in nested
     a, b, c = (jpeg(colour(seed=s)) for s in (1, 2, 3))
     names = [("1.jpg", a), ("2.jpg", b), ("10.jpg", c)]
     rec = {
         "outcome": "untouched",
         "gate": None,
+        "cover": None,
         "lossless": {},
         "scores": {},
         "output": [{"name": n, "sha1": archive.sha1(d)} for n, d in names],
@@ -446,7 +495,7 @@ def test_the_post_check_names_a_low_score_folders_and_an_ambiguous_order(tmp_pat
 
 @budget(load="pure")
 def test_a_repeated_page_is_sampled_once():
-    units = [{"sha1": "a"}, {"sha1": "b"}, {"sha1": "a"}, {"sha1": "c"}]
+    units = [unit(sha1) for sha1 in "abac"]
     assert [u["sha1"] for u in calibrate.pick(units, set())] == ["a", "b", "c"]
 
 
@@ -467,7 +516,7 @@ def test_lossless_and_untouched_chapters_through_the_stage(site):
 def test_a_luma_check_on_a_colour_page_is_done_exactly(tmp_path):
     a = jpeg(colour())
     (tmp_path / "001.jpg").write_bytes(a)
-    rec = {
+    rec: check.Staged = {
         "outcome": "lossless",
         "gate": None,
         "lossless": {"001.jpg": {"source": "001.jpg", "mode": "luma"}},
@@ -475,7 +524,7 @@ def test_a_luma_check_on_a_colour_page_is_done_exactly(tmp_path):
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    fails = check.check(staged(tmp_path, [("001.jpg", a)]), rec, tmp_path, [{"name": "001.jpg", "bytes": len(a)}])
+    fails = check.check(staged(tmp_path, [("001.jpg", a)]), rec, tmp_path, [{"bytes": len(a)}])
     assert fails == ["luma-check-on-colour-page: 001.jpg"], "a colour page may not be compared in luma only"
 
 
@@ -930,7 +979,7 @@ def test_a_dropped_share_while_reading_a_cover_reaches_the_caller_and_a_missing_
         raise error
 
     monkeypatch.setattr(Path, "read_bytes", gone)
-    row = {"path": "vol/1.jpg", "sha256": hashlib.sha256(COVER).hexdigest()}
+    row = db_row(path="vol/1.jpg", sha256=hashlib.sha256(COVER).hexdigest())
     if winerror is None:
         with pytest.raises(covers.CoverError, match="is missing"):
             covers.load(site.cfg, row)

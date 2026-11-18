@@ -4,6 +4,7 @@ Synthetic manga and webtoon pages scored on the real GPU (marked gpu: run with -
 Ported from the bulk converter's tests/test_vship.py.
 """
 
+import ctypes
 import io
 from concurrent.futures import ThreadPoolExecutor
 
@@ -149,9 +150,9 @@ def test_a_handle_vship_fails_to_free_raises_with_vships_message():
 
     Stubbed: a real double free crashes the process. A score at a new size frees the thread's handle of the old size.
     """
-    lib = type(
+    lib_class: type[ctypes.CDLL] = type(
         "Lib",
-        (),
+        (ctypes.CDLL,),
         {
             "Vship_GPUFullCheck": staticmethod(lambda _gpu: 0),
             "Vship_InitHandler": staticmethod(lambda _ptr, _init: 0),
@@ -159,7 +160,8 @@ def test_a_handle_vship_fails_to_free_raises_with_vships_message():
             "Vship_FreeHandler": staticmethod(lambda _ptr: 5),
             "Vship_GetDetailedLastError": staticmethod(lambda _buf, _n: 0),
         },
-    )()
+    )
+    lib = object.__new__(lib_class)  # a CDLL of the stubbed entry points: no library is loaded
     scorer = fake_convert.REAL_SCORER("stub", loader=lambda _path: lib)  # the autouse fake stands in for vship.Scorer
     scorer.score(np.zeros((500, 300, 3), np.uint8), np.zeros((500, 300, 3), np.uint8))
     with pytest.raises(vship.VshipError, match=r"free handle 300x500: Vship error 5"):
