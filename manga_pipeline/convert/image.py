@@ -227,19 +227,17 @@ type _PageFuture = _JobFuture | Future[LosslessPage]  # any page work in the poo
 
 @dataclass(frozen=True)
 class _Encoding:
-    """A page's encode in the workers: its task's index, the quality and the future of its Encoded."""
+    """A page's encode in the workers: its task's index and the future of its Encoded."""
 
     page: int
-    q: int
     future: Future[Encoded]
 
 
 @dataclass(frozen=True)
 class _Scoring:
-    """A page's score in the scorer's threads: its task's index, the quality, its encode and the future of its score."""
+    """A page's score in the scorer's threads: its task's index, its encode and the future of its score."""
 
     page: int
-    q: int
     encoded: Encoded
     future: Future[_Scored]
 
@@ -328,7 +326,7 @@ class Encoder:
             qs[i].append(q)
             job: EncodeTask = {**tasks[i], "tools": self.tool_paths}
             future = self.pool.submit(encode_page, (job, q))
-            jobs[future] = _Encoding(i, q, future)
+            jobs[future] = _Encoding(i, future)
 
         for i, t in enumerate(tasks):
             encode(i, t["q"])
@@ -343,7 +341,7 @@ class Encoder:
                         r = work.future.result()
                         secs[i] += r["sec"]
                         scoring = scorers.submit(self._score, r["ref"], r["dec"])
-                        jobs[scoring] = _Scoring(i, work.q, r, scoring)
+                        jobs[scoring] = _Scoring(i, r, scoring)
                         continue
                     score, sec = work.future.result()
                     task = tasks[i]
