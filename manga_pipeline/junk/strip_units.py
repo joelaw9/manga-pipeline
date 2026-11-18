@@ -191,7 +191,7 @@ type ClassedPiece = BlankPiece | MeasuredPiece
 
 
 class SignedPiece(TailPiece, Measure):
-    """A tail piece that is no W1 blank (is_blank): it holds span rows, is measured and signed."""
+    """A tail piece that is no W1 blank (inked): it holds span rows, is measured and signed."""
 
     blank: Literal[False]
     sig: str
@@ -503,16 +503,12 @@ def tail_pieces(layout: Layout, removed: Iterable[strip.RowRange], start: int) -
     return out
 
 
-def is_blank(p: ClassedPiece) -> bool:
-    """W1: a gap, all blank rows, uniform, unsignable, or flat (luma std < BLANK_STD and ink <= BLANK_INK)."""
-    return _inked(p) is None
+def inked(p: ClassedPiece) -> SignedPiece | None:
+    """Return a tail piece that is no W1 blank with its signature, else None (W1 blank).
 
-
-def _inked(p: ClassedPiece) -> SignedPiece | None:
-    """Return a tail piece that is no W1 blank (is_blank) with its signature, else None.
-
-    Such a piece holds span rows, is measured, and is signed: measure_piece signs every run that is neither uniform
-    nor unsignable.
+    W1 blank: a gap, all blank rows, uniform, unsignable, or flat (luma std < BLANK_STD and ink <= BLANK_INK). A piece
+    that is none of these holds span rows, is measured, and is signed: measure_piece signs every run that is neither
+    uniform nor unsignable.
     """
     if p["gap"] or p["blank"] is True:
         return None
@@ -524,22 +520,17 @@ def _inked(p: ClassedPiece) -> SignedPiece | None:
 
 def tail_classes(
     pieces: Sequence[ClassedPiece], bands: Iterable[strip.Rows], others: Iterable[strip.Rows]
-) -> dict[int, str]:
-    """Class each tail piece: {index: "blank" | "wedge" | "review"}.
-
-    W1 blank; W3 wedge (a non-blank piece whose height plus its adjacent gap pieces is under WEDGE_PX and whose nearest
-    non-blank neighbours on both sides are credit bands); review (the rest: decided by piece decisions, else a unit).
-    bands, others: [(start, end)] credit bands, every other removed range.
-    """
-    return {i: c if isinstance(c, str) else "review" for i, c in _classes(pieces, bands, others).items()}
-
-
-def _classes(
-    pieces: Sequence[ClassedPiece], bands: Iterable[strip.Rows], others: Iterable[strip.Rows]
 ) -> dict[int, Literal["blank", "wedge"] | SignedPiece]:
-    """Return tail_classes' classes with each review piece itself in place of "review" (a measured, signed piece)."""
-    inked = {i: q for i, p in enumerate(pieces) if (q := _inked(p)) is not None}
-    out: dict[int, Literal["blank", "wedge"] | SignedPiece] = {i: "blank" for i in range(len(pieces)) if i not in inked}
+    """Class each tail piece: {index: "blank" | "wedge" | the piece itself, for review}.
+
+    W1 blank (inked); W3 wedge (a non-blank piece whose height plus its adjacent gap pieces is under WEDGE_PX and whose
+    nearest non-blank neighbours on both sides are credit bands); review (the rest, a measured and signed piece:
+    decided by piece decisions, else a unit). bands, others: [(start, end)] credit bands, every other removed range.
+    """
+    signed = {i: q for i, p in enumerate(pieces) if (q := inked(p)) is not None}
+    out: dict[int, Literal["blank", "wedge"] | SignedPiece] = {
+        i: "blank" for i in range(len(pieces)) if i not in signed
+    }
     seq = sorted(
         [(s, e, "band") for s, e in bands]
         + [(s, e, "other") for s, e in others]
@@ -552,7 +543,7 @@ def _classes(
             k += step
         return seq[k][2] if 0 <= k < len(seq) else None
 
-    for i, p in inked.items():
+    for i, p in signed.items():
         k = seq.index((p["start"], p["end"], "piece"))
         gutters = sum(
             q["end"] - q["start"] for q in pieces if q["gap"] and (q["end"] == p["start"] or q["start"] == p["end"])
@@ -705,7 +696,7 @@ def _tail_pass(
     if not bands:
         return _Tail([], [], [])
     pieces = _measured_pieces(layout, removed, min(r["start"] for r in bands), measured)
-    classes = _classes(
+    classes = tail_classes(
         pieces, [(r["start"], r["end"]) for r in bands], [(r["start"], r["end"]) for r in removed if r not in bands]
     )
     drops: list[Drop]

@@ -608,7 +608,7 @@ def test_pieces_after_the_first_tail_band_measured(tmp_path):
     (s1, e1), (dot_s, dot_e), (s2, e2) = blocks[1], blocks[2], blocks[3]
     sc = su.scan(st)
     dot = sc["measured"][f"{dot_s}:{dot_e}"]
-    assert not su.is_blank({"start": dot_s, "end": dot_e, "gap": False, "blank": False, **dot}), (
+    assert su.inked({"start": dot_s, "end": dot_e, "gap": False, "blank": False, **dot}) is not None, (
         "the dot's rows alone: ink, no W1 blank"
     )
     assert (dot_e - dot_s) + (dot_s - e1) + (s2 - dot_e) >= su.WEDGE_PX
@@ -672,7 +672,7 @@ def test_w1_drops_gaps_blank_uniform_and_unsignable_pieces():
         "ink": 200,
         "sig": tsig("ink"),  # an inked run is signed
     }
-    assert not su.is_blank(p), "an inked piece is no blank"
+    assert su.inked(p) == p, "an inked piece is no blank: it is reviewed as it is"
     blank: su.BlankPiece = {"start": 0, "end": 50, "gap": False, "blank": True}
     flagged: list[tuple[str, su.ClassedPiece]] = [
         ("gap", {**p, "gap": True}),
@@ -681,8 +681,8 @@ def test_w1_drops_gaps_blank_uniform_and_unsignable_pieces():
         ("unsignable", {**p, "unsignable": True}),
     ]
     for k, q in flagged:
-        assert su.is_blank(q), f"a {k} piece is blank"
-    assert su.is_blank({**p, "std": 1.0, "ink": 20}), "a flat piece is blank"
+        assert su.inked(q) is None, f"a {k} piece is blank"
+    assert su.inked({**p, "std": 1.0, "ink": 20}) is None, "a flat piece is blank"
 
 
 @budget(load="pure")
@@ -705,9 +705,9 @@ def test_w3_reads_the_nearest_non_blank_neighbours():
     }
     blank: su.MeasuredPiece = {**piece_, "start": 1130, "end": 1180, "gap": True}
     assert su.tail_classes([piece_, blank], [(1000, 1100), (1180, 1300)], []) == {0: "wedge", 1: "blank"}
-    assert su.tail_classes([piece_, blank], [(1000, 1100)], [(1180, 1300)]) == {0: "review", 1: "blank"}
+    assert su.tail_classes([piece_, blank], [(1000, 1100)], [(1180, 1300)]) == {0: piece_, 1: "blank"}
     tall: su.MeasuredPiece = {**piece_, "end": 1100 + su.WEDGE_PX}
-    assert su.tail_classes([tall], [(1000, 1100), (tall["end"], 1300)], []) == {0: "review"}
+    assert su.tail_classes([tall], [(1000, 1100), (tall["end"], 1300)], []) == {0: tall}
 
 
 @budget(load="pure")
@@ -734,7 +734,7 @@ def test_w3_measures_a_piece_with_its_gutters():
     ]
     assert su.tail_classes([gaps[0], line, gaps[1]], [(1000, 1100), (1264, 1400)], []) == {
         0: "blank",
-        1: "review",
+        1: line,
         2: "blank",
     }
     short: su.MeasuredPiece = {**line, "start": 1120, "end": 1150}
