@@ -104,7 +104,7 @@ def after_junk(
 
 def _copy_of(
     ctx: workflow.Context, chapter: db.Row
-) -> tuple[db.Row, "Measures", "Measures"] | workflow.NeedsHuman | None:
+) -> tuple[db.Row, "Measures[float]", "Measures[float | None]"] | workflow.NeedsHuman | None:
     """Return (the published file, our measures, its original measures) of the chapter's published copy.
 
     Returned when the series has 1 confirmed published file of the chapter, still in the library and the same chapter;
@@ -150,32 +150,31 @@ def _copy_of(
     return published, ours, theirs
 
 
-def _worse(ours: "Measures", theirs: "Measures") -> bool:
+def _worse(ours: "Measures[float]", theirs: "Measures[float | None]") -> bool:
     """Return whether a page width, or bits per pixel where the file's is known, is below NOT_WORSE of the file's."""
     return ours.median_page_width < NOT_WORSE * theirs.median_page_width or _bpp_compared(
         ours, theirs, lambda a, b: a < NOT_WORSE * b
     )
 
 
-def _bpp_compared(ours: "Measures", theirs: "Measures", test: Callable[[float, float], bool]) -> bool:
+def _bpp_compared(
+    ours: "Measures[float]", theirs: "Measures[float | None]", test: Callable[[float, float], bool]
+) -> bool:
     """test(our bits per pixel, theirs), False where the published file's is not known; ours is always measured."""
-    if ours.bpp is None:
-        msg = "our copy's bits per pixel is always measured"
-        raise ValueError(msg)
     return theirs.bpp is not None and test(ours.bpp, theirs.bpp)
 
 
 @dataclass(frozen=True)
-class Measures:
-    """A copy's measurements the check compares."""
+class Measures[B: float | None]:
+    """A copy's measurements the check compares: our copy's bits per pixel is always measured (B float)."""
 
     pages_in: int
     median_page_width: int
     strip_length: int
-    bpp: float | None  # bits per pixel; None when not known (a bulk file's pages are re-encoded)
+    bpp: B  # bits per pixel; None when not known (a bulk file's pages are re-encoded)
 
 
-def _measured(what: str, summary: measures.Summary | db.Row, bpp: float | None) -> Measures:
+def _measured[B: float | None](what: str, summary: measures.Summary | db.Row, bpp: B) -> Measures[B]:
     """Build the measures from a measures.summary of a copy's pages and its bits per pixel.
 
     The summary may instead be a stored published row, which holds the same 3 measures. ValueError for a summary of no
@@ -232,7 +231,7 @@ def _duplicate(ctx: workflow.Context, chapter: db.Row, published: db.Row) -> wor
     return workflow.Dropped(f"a duplicate of the published {published['library_path']}", record)
 
 
-def _original(ctx: workflow.Context, published: db.Row) -> Measures:
+def _original(ctx: workflow.Context, published: db.Row) -> Measures[float | None]:
     """Return the published copy's original measurements.
 
     As stored when the pipeline published it, else measured from the library file (the bulk converter's, or published

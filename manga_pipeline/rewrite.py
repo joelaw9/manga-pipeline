@@ -224,10 +224,7 @@ def _plan(ctx: workflow.Context, series: db.Row) -> tuple[dict[int, Change], set
             elif (v := act[1]) in images:
                 cover[fid] = ("insert", v, images[v])
             else:
-                number = names.to_volume(v)
-                if number is None:  # cover_changes names volumes by fmt_num: always a number
-                    msg = f"cover change for {v!r}: not a volume number"
-                    raise ValueError(msg)
+                number = act[2]
                 if (
                     v not in given_up
                     and number == int(number)

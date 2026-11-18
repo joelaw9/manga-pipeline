@@ -349,7 +349,7 @@ def test_cover_changes_keep_a_held_cover_and_skip_a_taken_volume_and_an_unfit_im
     got = cover_changes(rows, {}, states=states, taken={"2"}, images={"3": "abc"})
     assert got == {}, "volume 1 held by a later file (kept); volume 2 taken by an open chapter; 3 unfit for its image"
     got = cover_changes(rows, {}, states=states, taken=set(), images={"3": "new"})
-    assert got == {3: ("insert", "2"), 5: ("insert", "3")}, "the lowest published file; a new image is tried"
+    assert got == {3: ("insert", "2", 2), 5: ("insert", "3", 3)}, "the lowest published file; a new image is tried"
 
 
 @budget(load="pure", seconds=1)
@@ -358,7 +358,7 @@ def test_cover_changes_replace_a_moved_files_cover_on_its_new_volumes_first():
     states = {1: "volume:1", 2: "none", 3: "volume:2"}
     moved = {1: (2, "override"), 3: (3, "override")}  # 1 is now volume 2's first; 3 moves on to volume 3
     got = cover_changes(rows, moved, states=states, taken=set(), images={})
-    assert got == {1: ("insert", "2"), 2: ("insert", "1"), 3: ("insert", "3")}
+    assert got == {1: ("insert", "2", 2), 2: ("insert", "1", 1), 3: ("insert", "3", 3)}
 
 
 @budget(load="pure", seconds=1)
