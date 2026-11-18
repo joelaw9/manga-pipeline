@@ -6,13 +6,24 @@ Which search hit is the series and which chapter of another source is ours, over
 import pytest
 
 from manga_pipeline import names, redownload
+from manga_pipeline.replies import suwayomi
 
 from tests.builders import present
 from tests.timing import budget
 
 
-def hit(manga_id, title):
-    return {"id": manga_id, "title": title}
+def hit(manga_id, title) -> suwayomi.Manga:
+    """Return a search hit: a manga of the source, not in the library."""
+    return {
+        "id": manga_id,
+        "title": title,
+        "status": "ONGOING",
+        "url": f"/manga/{manga_id}",
+        "inLibrary": False,
+        "sourceId": "1",
+        "source": None,
+        "trackRecords": {"nodes": []},
+    }
 
 
 def rows(names_, scanlator=None, start=1):

@@ -49,7 +49,7 @@ def site(tmp_path):
 class Site:
     """An adopted site's connection and process Context, with builders of series and convert-stage chapters."""
 
-    def __init__(self, cfg, conn):
+    def __init__(self, cfg: config.Config, conn: db.Connection):
         """Store the site's config and connection and build its process Context."""
         self.cfg, self.conn = cfg, conn
         self.ctx = workflow.context(cfg, conn, "process")
@@ -622,11 +622,12 @@ def test_1_scorer_serves_every_chapter_of_the_process(site):
 
 
 @budget(load="pool")
-def test_a_process_start_removes_chapter_scratch_folders_and_nothing_else(site):
+def test_a_process_start_removes_chapter_scratch_folders_and_nothing_else(site: Site):
     root = config.abs_path(site.cfg["paths"]["scratch"])
     for name in ("7-1", "7-2", "junk-review", "notes"):
         (root / name).mkdir(parents=True)
-    process.clean_scratch({**site.cfg, "lock": {"enabled": False}})
+    cfg: config.Config = {**site.cfg, "lock": {**site.cfg["lock"], "enabled": False}}
+    process.clean_scratch(cfg)
     assert sorted(p.name for p in root.iterdir()) == ["7-1", "7-2", "junk-review", "notes"], (
         "with locks off another run may be using them: nothing is removed"
     )

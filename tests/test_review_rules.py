@@ -122,7 +122,7 @@ def test_a_path_with_a_parent_step_is_never_stored(tmp_path):
 @budget(load="pure")
 @pytest.mark.parametrize("root", ["staging", None])
 def test_a_series_folder_under_another_root_or_none_is_refused(tmp_path, root):
-    cfg = {"paths": {r: str(tmp_path / "share" / r) for r in config.SHARE_ROOTS}}
+    cfg = share_paths(config.cached(), tmp_path / "share")
     folder = tmp_path / "share" / root / "S" if root else tmp_path / "elsewhere" / "S"
     with pytest.raises(config.PathError):
         kavita_link.library_folder(cfg, folder)

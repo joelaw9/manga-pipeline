@@ -431,33 +431,27 @@ def test_part_without_its_downloads_folder_exits_4(tmp_path, capsys):
 
 
 @budget(load="db")
-def test_status_sections_come_from_1_snapshot(tmp_path):
+def test_status_sections_come_from_1_snapshot(tmp_path, monkeypatch):
     cfg = adopted(tmp_path)
     with closing(db.connect(cfg)) as writer:
         series = add_series(writer, "Alpha")
+        with closing(db.read_only(cfg)) as conn:
+            read, reads = conn.execute, []
 
-        class WritesAfterFirstRead:
-            """A connection a part writes through between the report's first query and the rest."""
-
-            def __init__(self, conn):
-                self.conn, self.reads = conn, 0
-
-            def transaction(self):
-                return self.conn.transaction()
-
-            def execute(self, query, *params):
-                cursor = self.conn.execute(query, *params)
-                text = query.as_string(self.conn) if isinstance(query, sql.Composable) else query
+            def execute(query, *params):
+                """Run the report's query; a part writes through another connection after its first read."""
+                cursor = read(query, *params)
+                text = query.as_string(conn) if isinstance(query, sql.Composable) else query
                 if text.lstrip().upper().startswith("SELECT"):
-                    self.reads += 1
-                    if self.reads == 1:
+                    reads.append(text)
+                    if len(reads) == 1:
                         cursor = list(cursor)
                         add_chapter(writer, series, "c1", "junk", status="needs_human", last_error="x")
                         return _Rows(cursor)
                 return cursor
 
-        with closing(db.read_only(cfg)) as conn:
-            lines = status.report(WritesAfterFirstRead(conn))
+            monkeypatch.setattr(conn, "execute", execute)
+            lines = status.report(conn)
     entries = [line for line in lines if line.startswith("  ")]
     assert entries, "a chapter written mid-report shows in no section"
     assert all(line == "  none" for line in entries), "a chapter written mid-report shows in no section"

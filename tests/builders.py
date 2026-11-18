@@ -224,6 +224,15 @@ def config_file(tmp_path, cfg):
     return path
 
 
+def loaded_cfg(tmp_path, data) -> config.Config:
+    """Return data (a whole config as plain mappings) written as a config file and loaded as config.load loads one.
+
+    For values the example's check leaves open, which config.Config does not describe: a secret's of any type, a
+    mapping's contents, a list's elements (an unquoted number in series.only, say).
+    """
+    return config.load(config_file(tmp_path, data))
+
+
 def adopted(tmp_path, **changes):
     """site_cfg with its database built and owning the share."""
     cfg = site_cfg(tmp_path, **changes)

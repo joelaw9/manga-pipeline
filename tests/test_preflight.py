@@ -15,7 +15,7 @@ from manga_pipeline.convert import vship
 from manga_pipeline.preflight import HARD, SOFT, Check
 
 from tests import pg, real_load
-from tests.builders import problem_text, share_paths, site_cfg
+from tests.builders import loaded_cfg, problem_text, share_paths, site_cfg
 from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
@@ -31,8 +31,8 @@ def broken(text):
     return lambda _cfg: text
 
 
-def with_min_free(mb, folder=None):
-    cfg = {**config.cached(), "preflight": {"min_free_mb": mb}}
+def with_min_free(mb, folder=None) -> config.Config:
+    cfg: config.Config = {**config.cached(), "preflight": {"min_free_mb": mb}}
     if folder is not None:
         cfg["logging"] = {**cfg["logging"], "dir": str(folder)}
     return cfg
@@ -184,10 +184,13 @@ def test_owner_file_without_a_database_is_a_problem_and_creates_none(tmp_path):
     assert not db.built(cfg), "a check never creates the database"
 
 
-def layout(tmp_path, **paths):
+def layout(tmp_path, **paths) -> config.Config:
     """site() with some paths.* replaced."""
     cfg = site(tmp_path)
-    return {**cfg, "paths": {**cfg["paths"], **{k: str(v) for k, v in paths.items()}}}
+    changed: config.PathsConfig = {**cfg["paths"]}
+    for key, value in paths.items():
+        changed[key] = str(value)
+    return {**cfg, "paths": changed}
 
 
 @budget(load="pure")
@@ -260,7 +263,10 @@ def test_folder_layout_on_windows_ignores_letter_case(tmp_path):
 @budget(load="pure")
 def test_junk_word_lists_refuse_a_weak_or_paired_term_that_is_no_keyword():
     junk = config.cached()["junk"]
-    cfg = {**config.cached(), "junk": {**junk, "weak": [*junk["weak"], "stray"], "paired": [*junk["paired"], "odd"]}}
+    cfg: config.Config = {
+        **config.cached(),
+        "junk": {**junk, "weak": [*junk["weak"], "stray"], "paired": [*junk["paired"], "odd"]},
+    }
     assert preflight.junk_word_lists(cfg) == (
         "junk.weak terms not in junk.keywords: ['stray']; junk.paired terms not in junk.keywords: ['odd']"
     ), "a weak or paired term only restricts a keyword: one that is no keyword would do nothing"
@@ -269,30 +275,32 @@ def test_junk_word_lists_refuse_a_weak_or_paired_term_that_is_no_keyword():
 
 @budget(load="pure")
 def test_workflow_settings_refuse_an_attempt_limit_below_1():
-    cfg = {**config.cached(), "workflow": {"attempt_limit": 0}}
+    cfg: config.Config = {**config.cached(), "workflow": {"attempt_limit": 0}}
     assert preflight.workflow_settings(cfg) == "workflow.attempt_limit must be at least 1, got 0"
     assert preflight.workflow_settings(config.cached()) is None
 
 
-@budget(load="pure")
-def test_workflow_settings_refuse_a_series_named_by_a_number():
-    cfg = {**config.cached(), "series": {"only": ["Alpha", 86]}}  # YAML reads an unquoted 86 as a number
+@budget(load="fs")
+def test_workflow_settings_refuse_a_series_named_by_a_number(tmp_path):
+    cfg = loaded_cfg(
+        tmp_path, {**config.cached(), "series": {"only": ["Alpha", 86]}}
+    )  # YAML: an unquoted 86 is a number
     assert preflight.workflow_settings(cfg) == "series.only must list series names as text, got ['Alpha', 86]"
 
 
 @budget(load="pure")
 def test_workflow_settings_refuse_a_kavita_library_id_below_1():
-    cfg = {**config.cached(), "kavita": {**config.cached()["kavita"], "library_id": 0}}
+    cfg: config.Config = {**config.cached(), "kavita": {**config.cached()["kavita"], "library_id": 0}}
     assert preflight.workflow_settings(cfg) == "kavita.library_id must be at least 1, got 0", "scope reads it"
 
 
-def services(**changes):
-    """Return the test config with (section, key) = value changes, e.g. kavita__url="x"."""
+def services(tmp_path, **changes) -> config.Config:
+    """Return the test config with (section, key) = value changes, e.g. kavita__url="x", loaded from its file."""
     cfg = {**config.cached()}
     for name, value in changes.items():
         section, key = name.split("__")
         cfg[section] = {**cfg[section], key: value}
-    return cfg
+    return loaded_cfg(tmp_path, cfg)
 
 
 @budget(load="pure")
@@ -300,7 +308,7 @@ def test_service_settings_pass_with_urls_a_key_and_a_path_map():
     assert preflight.service_settings(config.cached()) is None
 
 
-@budget(load="pure")
+@budget(load="fs")
 @pytest.mark.parametrize(
     ("change", "problem"),
     [
@@ -318,16 +326,16 @@ def test_service_settings_pass_with_urls_a_key_and_a_path_map():
         ({"paths__kavita_path_map": {"/manga": "/mnt/a", "/manga/": "/mnt/b"}}, "same prefix but for a trailing /"),
     ],
 )
-def test_service_settings_name_what_is_missing(change, problem):
-    assert problem in preflight.service_settings(services(**change)), "SPEC 'Preflight': service settings"
+def test_service_settings_name_what_is_missing(tmp_path, change, problem):
+    assert problem in preflight.service_settings(services(tmp_path, **change)), "SPEC 'Preflight': service settings"
 
 
-@budget(load="pure")
-def test_service_settings_report_every_problem_and_never_show_a_value():
-    cfg = services(suwayomi__url="nope", kavita__api_key=None, paths__kavita_path_map={})
+@budget(load="fs")
+def test_service_settings_report_every_problem_and_never_show_a_value(tmp_path):
+    cfg = services(tmp_path, suwayomi__url="nope", kavita__api_key=None, paths__kavita_path_map={})
     got = preflight.service_settings(cfg)
     assert problem_text(got).count(";") == 2, "every problem is named"
-    cfg = services(kavita__url="secret-looking-value", kavita__api_key=0)
+    cfg = services(tmp_path, kavita__url="secret-looking-value", kavita__api_key=0)
     assert "secret-looking-value" not in problem_text(preflight.service_settings(cfg)), (
         "a setting's value is never shown"
     )
@@ -375,7 +383,7 @@ def test_share_ownership_applies_no_schema_step(tmp_path, monkeypatch):
     assert "0099_new" not in steps, "a check never upgrades the database"
 
 
-@budget(load="pure")
+@budget(load="fs")
 @pytest.mark.parametrize(
     ("section", "key", "value", "want"),
     [
@@ -384,8 +392,8 @@ def test_share_ownership_applies_no_schema_step(tmp_path, monkeypatch):
         ("intake", "settle_minutes", 0, "intake.settle_minutes must be at least 1, got 0"),
     ],
 )
-def test_workflow_settings_check_the_rescan_retention_and_settle_periods(section, key, value, want):
-    cfg = {**config.cached(), section: {**config.cached()[section], key: value}}
+def test_workflow_settings_check_the_rescan_retention_and_settle_periods(tmp_path, section, key, value, want):
+    cfg = loaded_cfg(tmp_path, {**config.cached(), section: {**config.cached()[section], key: value}})
     assert preflight.workflow_settings(cfg) == want, "a period below its floor is refused"
 
 
@@ -433,9 +441,20 @@ def test_folder_layout_refuses_retention_overlapping_a_share_folder(tmp_path, in
 # ---------------------------------------------------------------- process: image tools, scorer, scratch space
 
 
-def with_tools(folder, **paths):
-    names = ("avifenc", "avifdec", "jpegtran", "oxipng", "vship")
-    return {**config.cached(), "tools": {n: str(paths.get(n, folder / n)) for n in names}}
+def with_tools(folder, **paths) -> config.Config:
+    def path(name):
+        return str(paths.get(name, folder / name))
+
+    return {
+        **config.cached(),
+        "tools": {
+            "avifenc": path("avifenc"),
+            "avifdec": path("avifdec"),
+            "jpegtran": path("jpegtran"),
+            "oxipng": path("oxipng"),
+            "vship": path("vship"),
+        },
+    }
 
 
 @budget(load="fs")
@@ -462,7 +481,7 @@ def test_scorer_reports_a_library_that_does_not_load(tmp_path, monkeypatch):
 def test_scratch_space_measures_the_scratch_drive(tmp_path):
     free = shutil.disk_usage(tmp_path).free // preflight.MIB
 
-    def cfg(mb, folder):
+    def cfg(mb, folder) -> config.Config:
         return {
             **config.cached(),
             "paths": {**config.cached()["paths"], "scratch": str(folder)},
@@ -512,5 +531,5 @@ def test_long_paths_are_no_problem_off_windows(monkeypatch):
 
 @budget(load="pure")
 def test_workflow_settings_refuse_convert_workers_below_1():
-    cfg = {**config.cached(), "convert": {**config.cached()["convert"], "workers": 0}}
+    cfg: config.Config = {**config.cached(), "convert": {**config.cached()["convert"], "workers": 0}}
     assert preflight.workflow_settings(cfg) == "convert.workers must be at least 1, got 0"

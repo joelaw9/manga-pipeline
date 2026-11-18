@@ -373,15 +373,34 @@ def test_cover_changes_drop_a_moved_files_cover_where_its_new_volume_has_one():
 @budget(load="pure", seconds=1)
 def test_shift_pages_adds_a_front_cover_or_takes_the_dropped_page_out():
     entries = [{"Image": "0", "Type": "FrontCover"}, {"Image": "1"}, {"Image": "2", "DoublePage": "true"}]
-    dropped = rewrite_covers.shift_pages(entries, {"dropped_index": 0, "cover": None})
+    none_put: rewrite_covers.NoCoverPut = {
+        "cover": None,
+        "cover_skipped": None,
+        "dropped_index": 0,
+        "inserted_index": None,
+        "cover_state": "none",
+    }
+    dropped = rewrite_covers.shift_pages(entries, none_put)
     assert dropped == [{"Image": "0"}, {"Image": "1", "DoublePage": "true"}]
-    cover = {"bytes": 10, "width": 5, "height": 7}
-    added = rewrite_covers.shift_pages(dropped, {"dropped_index": None, "cover": cover, "inserted_index": 0})
+    cover: rewrite_covers.InsertedPage = {
+        "name": "000_cover.png", "format": "png", "score": None, "bytes": 10, "width": 5, "height": 7, "volume": "1"
+    }  # fmt: skip
+
+    def put(at: int) -> rewrite_covers.CoverPut:
+        return {
+            "cover": cover,
+            "cover_skipped": None,
+            "dropped_index": None,
+            "inserted_index": at,
+            "cover_state": "volume:1",
+        }
+
+    added = rewrite_covers.shift_pages(dropped, put(0))
     assert added[0] == {"Image": "0", "Type": "FrontCover", "ImageSize": "10", "ImageWidth": "5", "ImageHeight": "7"}
     assert [e["Image"] for e in added] == ["0", "1", "2"]
     assert added[2]["DoublePage"] == "true"
-    assert rewrite_covers.shift_pages([], {"dropped_index": None, "cover": cover, "inserted_index": 0}) == []
-    later = rewrite_covers.shift_pages(dropped, {"dropped_index": None, "cover": cover, "inserted_index": 1})
+    assert rewrite_covers.shift_pages([], put(0)) == []
+    later = rewrite_covers.shift_pages(dropped, put(1))
     assert [(e["Image"], e.get("Type")) for e in later] == [("0", None), ("1", "FrontCover"), ("2", None)], (
         "a source cover page sorting first keeps index 0; the inserted cover goes where it sorts"
     )

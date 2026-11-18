@@ -227,9 +227,7 @@ def test_series_link_refuses_the_manga_of_an_admitted_new_series(world):
     world.download(manga, "Chapter 1")
     world.run(intake)
     with closing(db.connect(world.cfg)) as conn, pytest.raises(workflow.Refused, match="admitted"):
-        identify.link(
-            world.cfg, conn, world.kavita, kavita_id, identify.manga_link_subject(world.suwayomi, manga)
-        )
+        identify.link(world.cfg, conn, world.kavita, kavita_id, identify.manga_link_subject(world.suwayomi, manga))
 
 
 @budget(load="db", seconds=2)

@@ -4,7 +4,7 @@ Each series of `kavita.library_id` in scope has a row, so it is checked whether 
 """
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Sequence
 
 from manga_pipeline import config, db, kavita_link, workflow
 from manga_pipeline.clients import kavita as kavita_client
@@ -14,7 +14,7 @@ from manga_pipeline.replies.kavita import Series
 log = logging.getLogger(__name__)
 
 
-def sync(ctx: workflow.Context, listing: Iterable[Series]) -> None:
+def sync(ctx: workflow.Context, listing: Sequence[Series]) -> None:
     """Store each listed series (the library's listing, `Kavita.series_in_library`) the database does not hold.
 
     A listed series no row holds the id of takes the row of a series Kavita no longer lists whose names match and whose

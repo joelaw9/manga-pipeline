@@ -197,14 +197,14 @@ def test_claude_may_read_only_the_candidates_folder_and_run_3_junk_commands(worl
 
 @budget(load="pure")
 def test_review_checks_need_claude_and_its_token(tmp_path):
-    cfg = {
+    cfg: config.Config = {
         **config.cached(),
         "junk": {**config.cached()["junk"], "claude_path": str(tmp_path / "none"), "claude_token": None},
     }
     problem = preflight.claude_settings(cfg)
     assert "claude_path" in problem_text(problem), "both are needed to start Claude"
     assert "claude_token" in problem_text(problem), "both are needed to start Claude"
-    blank = {**cfg, "junk": {**cfg["junk"], "claude_token": "  "}}
+    blank: config.Config = {**cfg, "junk": {**cfg["junk"], "claude_token": "  "}}
     assert "claude_token" in problem_text(preflight.claude_settings(blank)), "a blank token is no token"
     assert preflight.CLAUDE_SETTINGS in cli.COMMANDS["junk review"].checks
 
