@@ -757,3 +757,10 @@ def test_the_cover_width_is_the_most_common_non_cover_width_first_seen_on_a_tie(
     assert covers.width(p((300, True), (80, False), (90, False), (90, False))) == 90
     assert covers.width(p((80, False), (90, False))) == 80, "a tie goes to the first seen"
     assert covers.width(p((300, True))) == 300, "only cover pages: their width"
+
+
+@budget(load="pure")
+def test_every_cover_format_but_avif_has_its_encoder():
+    assert set(covers.SAVERS) == set(plan.COVER_FORMATS) - {images.AVIF}, (
+        "a volume cover matches its pages in AVIF (copied) or in a format encoded here: the 2 lists are 1"
+    )

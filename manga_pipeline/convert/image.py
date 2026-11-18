@@ -754,7 +754,7 @@ def process_chapter(
     stood, rejected = run.first_standing()
     o = stood.outcome
     avif = stood.pages if isinstance(stood, _AvifStood) else []
-    inserted = None if o["cover"] is None else _insert(out_dir, o["cover"])
+    inserted = None if o["cover"] is None else covers.insert(out_dir, o["cover"])
     outputs = sorted(out_dir.iterdir(), key=lambda p: archive.natural_key(p.name))
     if len(outputs) != o["pages_out"]:
         msg = f"{ch.name}: {len(outputs)} output pages, the outcome writes {o['pages_out']}"
@@ -783,13 +783,6 @@ def process_chapter(
     }
     _record_attempts(rec, stood, rejected)
     return rec
-
-
-def _insert(out_dir: Path, cover: plan.OutcomeCover) -> covers.InsertedCover:
-    """Write the outcome's volume cover into out_dir: its passed AVIF copied, else encoded in its format."""
-    if "avif" in cover:
-        return covers.copy_avif(out_dir, cover["avif"])
-    return covers.encode(out_dir, cover["data"], cover["format"], cover["width"])
 
 
 def _record_attempts(rec: ChapterRecord, stood: _Stood, rejected: list[_Rejected]) -> None:
