@@ -6,23 +6,13 @@ A record that parses is a finished series. Copied from the bulk converter's opti
 
 import json
 from pathlib import Path
-from typing import NotRequired, TypedDict
+from typing import NamedTuple, NotRequired, TypedDict
+
+from manga_pipeline.replies import Json
 
 RECORD_NAME = ".optimizer.json"
 SCHEMA, FROZEN = 4, 3  # schema 3 is read too; its decisions are history
 STAGES = ("structure", "image", "naming")  # a record written with fewer stages is partial
-TOP = {
-    "schema": int,
-    "stages": list,
-    "kavita": dict,
-    "folders": list,
-    "runs": list,
-    "errors": list,
-    "flags": list,
-    "series": dict,
-    "sources": list,
-    "chapters": list,
-}
 SERIES = ("layout", "naming", "calibration", "covers", "decisions")
 CHAPTER_KEYS = ("output", "file", "sources", "kind", "volume", "volume_source", "number", "title", "pages_out")
 # source fates
@@ -217,6 +207,17 @@ class Record(TypedDict):
     chapters: list[RecordChapter]
 
 
+class _Top(NamedTuple):
+    """The top keys of a record that the check reads further, each checked to be of its type."""
+
+    stages: list[Json]
+    folders: list[Json]
+    runs: list[Json]
+    series: dict[str, Json]
+    sources: list[Json]
+    chapters: list[Json]
+
+
 class RecordError(ValueError):
     """The series record cannot be used."""
 
@@ -237,7 +238,8 @@ def load(folder: Path) -> Record:
     except json.JSONDecodeError as e:
         msg = f"{path}: not JSON: {e}"
         raise RecordError(msg) from None
-    return parse(record)
+    parse(record)
+    return record
 
 
 def decisions(record: Record) -> DecisionBlock:
@@ -283,63 +285,105 @@ def decisions(record: Record) -> DecisionBlock:
     return {"rows": {"junk": junk, "frames": frames, "marks": marks}, "templates": block.get("templates", {})}
 
 
-def parse(rec):
-    """Validate a record dict and return it. Raises PartialRecordError or RecordError."""
-    check(rec)
-    missing = sorted(set(STAGES) - set(rec["stages"]))
+def parse(rec: Json) -> None:
+    """Validate a record (any JSON value): its structure (check), then that it was written with every stage.
+
+    Raises PartialRecordError or RecordError.
+    """
+    top = _checked(rec)
+    missing = sorted(set(STAGES).difference(top.stages))
     if missing:
         msg = f"record written without stage(s) {missing}"
         raise PartialRecordError(msg)
-    return rec
 
 
-def check(rec):
-    """Validate a record's structure.
+def check(rec: Json) -> None:
+    """Validate a record's structure (rec: any JSON value).
 
     Schema 3 or 4, every top key and series block, runs, folders, the naming restart flag, the calibration groups'
-    shape, unique outputs and chapter files, and sources that name existing outputs. Raises RecordError.
+    shape, chapters and sources that are objects, unique outputs (text) and chapter files, and sources that name
+    existing outputs. Raises RecordError.
     """
-    _check_top(rec)
-    _check_blocks(rec)
-    _check_naming(rec["series"]["naming"])
-    _check_calibration(rec["series"]["calibration"].get("groups", {}))
-    outputs = _check_chapters(rec["chapters"])
-    _check_sources(rec["sources"], outputs)
-    _check_chapter_sources(rec["chapters"], rec["sources"])
+    _checked(rec)
 
 
-def _check_top(rec):
-    """Check that the record is an object of schema 3 or 4 holding every top key with its type."""
+def _checked(rec: Json) -> _Top:
+    """Run check's rules and return the record's checked top keys."""
+    top = _check_top(rec)
+    blocks = _check_blocks(top)
+    _check_naming(blocks["naming"])
+    _check_calibration(blocks["calibration"].get("groups", {}))
+    outputs = _check_chapters(top.chapters)
+    sources = _check_sources(top.sources, outputs)
+    _check_chapter_sources(list(outputs.values()), sources)
+    return top
+
+
+def _missing(key: str, kind: str) -> str:
+    return f"record: {key!r} missing or not a {kind}"
+
+
+def _array(rec: dict[str, Json], key: str) -> list[Json]:
+    value = rec.get(key)
+    if not isinstance(value, list):
+        msg = _missing(key, "list")
+        raise RecordError(msg)
+    return value
+
+
+def _object(rec: dict[str, Json], key: str) -> dict[str, Json]:
+    value = rec.get(key)
+    if not isinstance(value, dict):
+        msg = _missing(key, "dict")
+        raise RecordError(msg)
+    return value
+
+
+def _check_top(rec: Json) -> _Top:
+    """Check that the record is an object of schema 3 or 4 holding every top key with its type, in this order.
+
+    schema an int; stages, folders, runs, errors, flags, sources and chapters lists; kavita and series objects.
+    """
     if not isinstance(rec, dict):
         msg = f"record is a {type(rec).__name__}, not an object"
         raise RecordError(msg)
     if rec.get("schema") not in (FROZEN, SCHEMA) or isinstance(rec.get("schema"), bool):
         msg = f"record schema {rec.get('schema')!r}: only schema {FROZEN} and {SCHEMA} are read"
         raise RecordError(msg)
-    for k, t in TOP.items():
-        if not isinstance(rec.get(k), t):
-            msg = f"record: {k!r} missing or not a {t.__name__}"
-            raise RecordError(msg)
+    if not isinstance(rec.get("schema"), int):
+        msg = _missing("schema", "int")
+        raise RecordError(msg)
+    stages = _array(rec, "stages")
+    _object(rec, "kavita")
+    folders, runs = _array(rec, "folders"), _array(rec, "runs")
+    _array(rec, "errors")
+    _array(rec, "flags")
+    series = _object(rec, "series")
+    return _Top(stages, folders, runs, series, _array(rec, "sources"), _array(rec, "chapters"))
 
 
-def _check_blocks(rec):
-    """Every series block an object, at least 1 run, and folders of [{name, from_run}]."""
+def _check_blocks(top: _Top) -> dict[str, dict[str, Json]]:
+    """Every series block an object, at least 1 run, and folders of [{name, from_run}]. Returns {block: object}."""
+    blocks: dict[str, dict[str, Json]] = {}
     for k in SERIES:
-        if not isinstance(rec["series"].get(k), dict):
+        block = top.series.get(k)
+        if not isinstance(block, dict):
             msg = f"record: series.{k} missing or not an object"
             raise RecordError(msg)
-    if not rec["runs"]:
+        blocks[k] = block
+    if not top.runs:
         msg = "record: no runs"
         raise RecordError(msg)
-    if not rec["folders"] or any(
+    if not top.folders or any(
         not isinstance(f, dict) or not isinstance(f.get("name"), str) or not isinstance(f.get("from_run"), str)
-        for f in rec["folders"]
+        for f in top.folders
     ):
         msg = "record: folders missing or not [{name, from_run}]"
         raise RecordError(msg)
+    return blocks
 
 
-def _check_naming(naming):
+def _check_naming(naming: dict[str, Json]) -> None:
     """series.naming: a restart bool and a series name."""
     if not isinstance(naming.get("restart"), bool):
         msg = "record: series.naming.restart missing or not a bool"
@@ -349,12 +393,12 @@ def _check_naming(naming):
         raise RecordError(msg)
 
 
-def _check_calibration(groups):
+def _check_calibration(groups: Json) -> None:
     """series.calibration.groups: {group: {q: integer 0-100, probes: list}}."""
     if not isinstance(groups, dict) or any(
         not isinstance(g, dict)
-        or type(g.get("q")) is not int
-        or not 0 <= g["q"] <= QUALITY_MAX
+        or type(q := g.get("q")) is not int
+        or not 0 <= q <= QUALITY_MAX
         or not isinstance(g.get("probes", []), list)
         for g in groups.values()
     ):
@@ -362,17 +406,28 @@ def _check_calibration(groups):
         raise RecordError(msg)
 
 
-def _check_chapters(chapters):
-    """Every chapter's keys, its output and its file each listed once. Returns {output, lower case: chapter}."""
-    outputs, files = {}, set()
+def _check_chapters(chapters: list[Json]) -> dict[str, dict[str, Json]]:
+    """Every chapter an object with its keys, its output (text) and its file each listed once.
+
+    Returns {output, lower case: chapter}, in the chapters' order.
+    """
+    outputs: dict[str, dict[str, Json]] = {}
+    files: set[Json] = set()
     for c in chapters:
+        if not isinstance(c, dict):
+            msg = f"record: chapter {c!r} is not an object"
+            raise RecordError(msg)
         absent = [k for k in CHAPTER_KEYS if k not in c]
         if absent:
             msg = f"record: chapter {c.get('output')!r} lacks {absent}"
             raise RecordError(msg)
-        low = c["output"].lower()
+        output = c["output"]
+        if not isinstance(output, str):
+            msg = f"record: chapter output {output!r} is not text"
+            raise RecordError(msg)
+        low = output.lower()
         if low in outputs:
-            msg = f"record: output {c['output']!r} listed twice"
+            msg = f"record: output {output!r} listed twice"
             raise RecordError(msg)
         outputs[low] = c
         if c["file"] in files:
@@ -382,22 +437,36 @@ def _check_chapters(chapters):
     return outputs
 
 
-def _check_sources(sources, outputs):
-    """Every source well formed and listed once; a chapter or merged source names an output (outputs: lower case)."""
-    seen = set()
-    for s in sources:
-        _check_source(s)
+def _check_sources(sources: list[Json], outputs: dict[str, dict[str, Json]]) -> list[dict[str, Json]]:
+    """Every source well formed and listed once; a chapter or merged source names an output (outputs: lower case).
+
+    Returns the sources, each an object.
+    """
+    seen: set[tuple[Json, Json]] = set()
+    checked: list[dict[str, Json]] = []
+    for entry in sources:
+        s = _check_source(entry)
         if (s["file"], s["sha256"]) in seen:
             msg = f"record: source {s['file']!r} listed twice"
             raise RecordError(msg)
         seen.add((s["file"], s["sha256"]))
-        if s["fate"] in (CHAPTER, MERGED) and (s.get("output") or "").lower() not in outputs:
-            msg = f"record: source {s['file']!r} names output {s.get('output')!r}, not a chapter"
-            raise RecordError(msg)
+        if s["fate"] in (CHAPTER, MERGED):
+            output = s.get("output") or ""
+            if not isinstance(output, str):
+                msg = f"record: source {s['file']!r} names output {output!r}, not text"
+                raise RecordError(msg)
+            if output.lower() not in outputs:
+                msg = f"record: source {s['file']!r} names output {s.get('output')!r}, not a chapter"
+                raise RecordError(msg)
+        checked.append(s)
+    return checked
 
 
-def _check_source(s):
-    """1 source: file, sha256 and a known fate; trash_run and trash_folder together."""
+def _check_source(s: Json) -> dict[str, Json]:
+    """1 source: an object of file, sha256 and a known fate; trash_run and trash_folder together. Returns it."""
+    if not isinstance(s, dict):
+        msg = f"record: source {s!r} is not an object"
+        raise RecordError(msg)
     for k in ("file", "sha256", "fate"):
         if not isinstance(s.get(k), str):
             msg = f"record: source {s.get('file')!r}: {k!r} missing"
@@ -408,15 +477,20 @@ def _check_source(s):
     if ("trash_run" in s) != ("trash_folder" in s) or (s.get("trash_run") is None) != (s.get("trash_folder") is None):
         msg = f"record: source {s['file']!r}: trash_run and trash_folder go together"
         raise RecordError(msg)
+    return s
 
 
-def _check_chapter_sources(chapters, sources):
-    """Every source a chapter lists is a chapter or merged source of that output."""
-    by_name = {}
+def _check_chapter_sources(chapters: list[dict[str, Json]], sources: list[dict[str, Json]]) -> None:
+    """Every chapter's sources a list, each a chapter or merged source of that output."""
+    by_name: dict[Json, list[dict[str, Json]]] = {}
     for s in sources:
         by_name.setdefault(s["file"], []).append(s)
     for c in chapters:
-        for f in c["sources"]:
+        listed = c["sources"]
+        if not isinstance(listed, list):
+            msg = f"record: chapter {c['output']!r}: sources {listed!r} is not a list"
+            raise RecordError(msg)
+        for f in listed:
             if not any(s["fate"] in (CHAPTER, MERGED) and s.get("output") == c["output"] for s in by_name.get(f, [])):
                 msg = f"record: chapter {c['output']!r}: source {f!r} not in sources"
                 raise RecordError(msg)
