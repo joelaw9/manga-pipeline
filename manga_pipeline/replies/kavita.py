@@ -1,6 +1,7 @@
-"""Kavita's replies (SPEC "Services"): the fields the program reads, as Kavita v0.9.1.4 sends them.
+"""Kavita's replies (SPEC "Services"), as Kavita v0.9.1.4 sends them (local library kavita.md).
 
-Type-only (local library kavita.md); the program reads each reply unchecked.
+Each type holds a subset of its reply's fields. A field a reply may lack is NotRequired; one it may send as null is
+X | None. Types only.
 """
 
 from typing import NotRequired, TypedDict
@@ -15,11 +16,11 @@ class Library(TypedDict):
 
 
 class Series(TypedDict):
-    """A series DTO (GET /api/Series/{id}, POST /api/Series/all-v2): the fields the program reads.
+    """A series DTO (GET /api/Series/{id}, POST /api/Series/all-v2).
 
-    The names Kavita matches files on (the localized and original names can be null), its library, its cover image's
-    file name (null when it has none), the provider ids (0 when unset), and the other fields POST /api/Series/update
-    reads, which the program resends as they came, unread (typed object); Kavita v0.9.1.4 sends each of them.
+    Its id, the names Kavita matches files on (the localized and original names can be null), its library, its cover
+    image's file name (null when it has none), the provider ids (0 when unset), and the other fields of the update DTO
+    (POST /api/Series/update) as opaque values (object).
     """
 
     id: int
@@ -58,10 +59,10 @@ class Person(TypedDict):
 
 
 class SeriesMetadata(TypedDict):
-    """A series' metadata (GET /api/Series/metadata): the fields the program reads, each with its lock.
+    """A series' metadata (GET /api/Series/metadata; POST /api/Series/metadata takes it back whole).
 
-    Changed in place and posted back whole (POST /api/Series/metadata), so it carries every field Kavita sent,
-    seriesId (the series it updates) among them. webLinks is a comma-separated list of URLs.
+    seriesId (the series it describes), the summary, publication status, age rating and language, the genre, tag,
+    writer and penciller lists, each with its lock flag, and webLinks, a comma-separated list of URLs.
     """
 
     seriesId: int

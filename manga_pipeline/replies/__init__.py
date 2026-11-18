@@ -1,4 +1,4 @@
-"""The services' replies the program reads (SPEC "Services"), as types only.
+"""Service replies as types (SPEC "Services"): TypedDicts of Kavita's, Suwayomi's and the metadata sources' replies.
 
-They import nothing of the program, so the clients and the pure metadata modules (contract C9) can both use them.
+Types only: the package imports nothing of the program.
 """

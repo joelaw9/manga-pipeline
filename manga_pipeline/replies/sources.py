@@ -1,7 +1,8 @@
-"""The metadata sources' records (SPEC "Source ids", "Metadata checks"): the fields the program reads.
+"""The metadata sources' records (SPEC "Source ids", "Metadata checks") and a platform list's episode.
 
-MangaBaka, MangaUpdates, MangaDex and AniList records, fresh or stored as fetched (local library
-manga-metadata/), and a platform list's episode. Type-only; the program reads each reply unchecked.
+MangaBaka, MangaUpdates and MangaDex records come from REST APIs: a field a record may lack is NotRequired, one it may
+send as null X | None. AniList records come from GraphQL: a reply carries every field its query asks for, null where
+AniList's schema allows (local library manga-metadata/). Each type holds a subset of its record's fields. Types only.
 """
 
 from typing import NotRequired, TypedDict
@@ -14,7 +15,7 @@ class MangaBakaLink(TypedDict):
 
 
 class MangaBakaLinks(TypedDict):
-    """A MangaBaka series' `source`: the sites it links the series to that the program reads (the cross-link hub)."""
+    """A MangaBaka series' `source`: the AniList, MangaUpdates and MyAnimeList links (the cross-link hub)."""
 
     anilist: NotRequired[MangaBakaLink | None]
     manga_updates: NotRequired[MangaBakaLink | None]
@@ -102,7 +103,7 @@ class MangaUpdatesResult(TypedDict):
 
 
 class MangaDexLinks(TypedDict):
-    """The sites a MangaDex manga links to that the program reads: AniList, MangaUpdates (base36 or numeric), MAL.
+    """A MangaDex manga's AniList, MangaUpdates (base36 or numeric) and MyAnimeList links.
 
     A key is there only for a site the manga links to.
     """
@@ -126,7 +127,7 @@ class MangaDexTag(TypedDict):
 
 
 class MangaDexAttributes(TypedDict):
-    """A MangaDex manga's attributes the program reads: its links, original language, description per language, tags."""
+    """A MangaDex manga's attributes: its links, original language, description per language and tags."""
 
     links: NotRequired[MangaDexLinks | None]
     originalLanguage: NotRequired[str | None]
@@ -247,7 +248,7 @@ class AniListLink(TypedDict):
 
 
 class AniListMedia(TypedDict):
-    """An AniList manga's Media: the fields the program's Media query asks for, nullable as AniList's schema says."""
+    """An AniList manga's Media: ids, format, status, titles, description, genres, tags, cover, dates, staff, links."""
 
     id: int
     idMal: int | None
@@ -265,7 +266,7 @@ class AniListMedia(TypedDict):
 
 
 class AniListHit(TypedDict):
-    """A media of AniList's title search: the fields the program's search query asks for."""
+    """A media of AniList's title search: its id, format, titles and synonyms."""
 
     id: int
     format: str | None

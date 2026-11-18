@@ -1,7 +1,7 @@
-"""Suwayomi's replies (SPEC "Services"): the fields the program's GraphQL queries ask for.
+"""Suwayomi's replies (SPEC "Services"): manga, chapters, sources and the download queue from its GraphQL API.
 
-A GraphQL reply carries every field its query asks for; nullable ones are as the schema declares them (local
-library suwayomi-graphql.md). Type-only; the program reads each reply unchecked.
+A GraphQL reply carries every field its query asks for, nullable ones as the schema declares them (local library
+suwayomi-graphql.md). Types only.
 """
 
 from typing import TypedDict
