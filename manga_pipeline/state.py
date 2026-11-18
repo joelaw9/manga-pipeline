@@ -12,7 +12,7 @@ from manga_pipeline import config, db, fleet, preflight, workflow
 log = logging.getLogger(__name__)
 
 
-def reset(cfg, conn):
+def reset(cfg: config.Config, conn: db.Connection) -> None:
     """Empty the workflow tables and set every series ok, then empty the staging, scratch and junk candidates folders.
 
     The staging folder keeps the owner file and the staged files of queued rewrites (SPEC "Retroactive updates").
@@ -39,7 +39,7 @@ def reset(cfg, conn):
     log.info("workflow state reset; staging, scratch and candidates emptied")
 
 
-def adopt(cfg, conn):
+def adopt(cfg: config.Config, conn: db.Connection) -> None:
     """Write this database's id to the owner file.
 
     The staging folder is never created (preflight requires it), so an unmounted share is never written under its mount
@@ -51,7 +51,7 @@ def adopt(cfg, conn):
     log.info("%s now holds database id %s", path, database_id)
 
 
-def version(cfg, conn):
+def version(cfg: config.Config, conn: db.Connection) -> None:
     """Store this machine's digest as the fleet's version (SPEC "State").
 
     Run once per deploy or change of a shared setting, while nothing else runs (the exclusive lock).

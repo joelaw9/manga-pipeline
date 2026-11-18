@@ -1,5 +1,6 @@
 """The `smoke` command (SPEC "Services"): check Suwayomi and Kavita with reads only, print what they answer."""
 
+from manga_pipeline import config
 from manga_pipeline.clients import kavita, suwayomi
 
 SHOWN = 3  # chapter names and files printed
@@ -9,9 +10,9 @@ class SmokeError(Exception):
     """A smoke check failed; the entry point exits 1."""
 
 
-def run(cfg):
+def run(cfg: config.Config) -> None:
     """Check both services, whatever the first one answers. Raises SmokeError naming every problem."""
-    problems = []
+    problems: list[str] = []
     for name, check in (("suwayomi", _suwayomi), ("kavita", _kavita)):
         try:
             check(cfg)
@@ -22,7 +23,7 @@ def run(cfg):
         raise SmokeError("; ".join(problems))
 
 
-def _suwayomi(cfg):
+def _suwayomi(cfg: config.Config) -> None:
     client = suwayomi.from_config(cfg)
     print(f"suwayomi: {client.library_size()} manga in the library, {len(client.sources())} sources")
     manga = next(client.library_manga(), None)
@@ -37,7 +38,7 @@ def _suwayomi(cfg):
         print(f"  {suwayomi.chapter_file(chapter['scanlator'], chapter['name'])}")
 
 
-def _kavita(cfg):
+def _kavita(cfg: config.Config) -> None:
     client = kavita.from_config(cfg)
     libraries = client.libraries()
     listed = ", ".join(f'{library["id"]} "{library["name"]}"' for library in libraries)

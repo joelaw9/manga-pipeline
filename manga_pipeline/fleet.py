@@ -13,9 +13,11 @@ import ctypes
 import hashlib
 import json
 import tomllib
+from collections.abc import Iterator
 from importlib import metadata
+from typing import Literal
 
-from manga_pipeline import config
+from manga_pipeline import config, db
 from manga_pipeline.convert import tools
 
 META_KEY = "fleet.version"
@@ -38,12 +40,12 @@ class _VshipVersion(ctypes.Structure):
     _fields_ = [("major", ctypes.c_int), ("minor", ctypes.c_int), ("patch", ctypes.c_int), ("backend", ctypes.c_int)]
 
 
-def digest(cfg):
+def digest(cfg: config.Config) -> dict[str, str]:
     """{part: sha256 hex} for PART_NAMES, of this machine."""
     return {name: hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest() for name, value in _parts(cfg)}
 
 
-def store(conn, cfg):
+def store(conn: db.Connection, cfg: config.Config) -> None:
     """Make this machine's digest the fleet's; inside the caller's transaction."""
     conn.execute(
         "INSERT INTO meta (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
@@ -51,12 +53,12 @@ def store(conn, cfg):
     )
 
 
-def problem(conn, cfg):
+def problem(conn: db.Connection, cfg: config.Config) -> str | None:
     """Why this machine may not work (no fleet digest stored, or which parts differ), or None."""
     row = conn.execute("SELECT value FROM meta WHERE key = %s", (META_KEY,)).fetchone()
     if row is None:
         return "the database holds no fleet version: run state version --yes once the fleet is deployed"
-    fleet, mine = json.loads(row[0]), digest(cfg)
+    fleet, mine = _read_digest(row[0]), digest(cfg)
     differ = [name for name in PART_NAMES if fleet.get(name) != mine[name]]
     if differ:
         return (
@@ -66,17 +68,22 @@ def problem(conn, cfg):
     return None
 
 
-def _parts(cfg):
+def _read_digest(text: str) -> dict[str, str]:
+    """Return the fleet's stored digest (meta fleet.version, JSON text: {part: sha256 hex}). Unchecked."""
+    return json.loads(text)
+
+
+def _parts(cfg: config.Config) -> Iterator[tuple[str, object]]:
     yield "program", _program()
     yield "shared settings", shared_settings(cfg)
     yield "runtime packages", _packages()
     yield "tools", _tools(cfg)
 
 
-def shared_settings(cfg):
+def shared_settings(cfg: config.Config) -> dict[str, dict[str, object]]:
     """Return the config's shared keys and values: {section: {key: value}}."""
     left_out = set(MACHINE_LOCAL_KEYS) | set(config.secret_keys())
-    out = {}
+    out: dict[str, dict[str, object]] = {}
     for section, values in cfg.items():
         if section in MACHINE_LOCAL_SECTIONS:
             continue
@@ -86,7 +93,7 @@ def shared_settings(cfg):
     return out
 
 
-def _program():
+def _program() -> dict[str, str]:
     """{relative path: sha256} of every file of the package but compiled ones (LF on every machine: .gitattributes)."""
     root = config.ROOT / "manga_pipeline"
     files = sorted(
@@ -95,32 +102,33 @@ def _program():
     return {p.relative_to(config.ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
 
 
-def _packages():
+def _packages() -> dict[str, str]:
     """{distribution: installed version} of pyproject's runtime group."""
     with (config.ROOT / "pyproject.toml").open("rb") as f:
         runtime = tomllib.load(f)["dependency-groups"]["runtime"]
     return {package_name(spec): metadata.version(package_name(spec)) for spec in runtime}
 
 
-def package_name(spec):
+def package_name(spec: str) -> str:
     """Return the distribution name at the start of a requirement ("psycopg[binary]==3.3.9" -> "psycopg")."""
     end = next((i for i, ch in enumerate(spec) if not (ch.isalnum() or ch in "._-")), len(spec))
     return spec[:end]
 
 
-def _tools(cfg):
+def _tools(cfg: config.Config) -> dict[str, str]:
     """Return {tool: its version}.
 
     The first line each executable prints (jpegtran's build date left out) and the scorer library's major.minor.patch
     and backend.
     """
-    out = {}
-    for name, flag in (
+    out: dict[str, str] = {}
+    flags: tuple[tuple[Literal["avifenc", "avifdec", "jpegtran", "oxipng"], str], ...] = (
         ("avifenc", "--version"),
         ("avifdec", "--version"),
         ("jpegtran", "-version"),
         ("oxipng", "--version"),
-    ):
+    )
+    for name, flag in flags:
         done = tools.run(config.abs_path(cfg["tools"][name]), flag)
         lines = (done.stdout or done.stderr).decode(errors="replace").strip().splitlines()
         if not lines:
