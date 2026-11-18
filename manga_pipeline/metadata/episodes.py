@@ -15,10 +15,60 @@ the volume the converter would give it (flat text heuristics, not a structured f
 """
 
 import re
+from collections.abc import Iterable, Sequence
+from typing import Literal, TypedDict
 
 from manga_pipeline import names
+from manga_pipeline.replies.sources import Episode
 
 MAIN, SPECIAL, NON_CHAPTER = "main", "special", "non-chapter"
+
+
+class SeasonEdge(TypedDict):
+    """An end or start season marker of a post: the season it ends or starts (the season in line when unnumbered)."""
+
+    type: Literal["end", "start"]
+    season: int
+
+
+class MainEnd(TypedDict):
+    """A "Main Story Finale" marker of a post: it names no season."""
+
+    type: Literal["main_end"]
+    season: None
+
+
+type SeasonMarker = SeasonEdge | MainEnd
+
+
+class EpisodeRecord(TypedDict):
+    """An episode record (module doc): a site's post classified, its title cleaned, its season marker read."""
+
+    number: int
+    chapter: str | None
+    raw_title: str
+    title: str | None
+    kind: str
+    season_marker: SeasonMarker | None
+    date: str | None
+    id: int | None
+
+
+class SeasonRange(TypedDict):
+    """A season's range of main chapters (season_breaks): first and last as text, last None while open."""
+
+    season: int
+    first: str
+    last: str | None
+    side: bool
+
+
+class Coverage(TypedDict):
+    """How much of the series an episode list covers: complete, partial or unknown, and why (None: complete)."""
+
+    status: str
+    reason: str | None
+
 
 # labels as in: Ep. 1 - Memento Mortem; Episode 30 (Season Finale); Chapter 4: X; 1. The Grand Sorcerer
 LABEL = re.compile(
@@ -54,6 +104,10 @@ START_MARKERS = [  # "Season 3 is Coming Soon!" / "Season 2 Teaser" posts sit be
     re.compile(r"\[Season\s*(\d+)\]", re.IGNORECASE),
     re.compile(r"\bSeason\s*" + _NUM + r"\s*(?:Teaser|Preview|Trailer|(?:is\s+)?Coming)\b", re.IGNORECASE),
 ]
+SEASON_MARKERS: tuple[tuple[Literal["end", "start"], list[re.Pattern[str]]], ...] = (
+    ("end", END_MARKERS),
+    ("start", START_MARKERS),
+)
 MAIN_END = re.compile(r"\bMain\s+Story\s+Finale\b|\bEnd\s+of\s+(?:the\s+)?Main\s+Story\b", re.IGNORECASE)
 # bracketed markers removed from titles once read: "(Season Finale)", "(Season 2 Premiere)", "[S1 END]",
 # and "(End of Season 1)", "(Main Story Finale)", "(Series Finale)", "(Season 1 Prequel Finale)", "(End)"
@@ -70,10 +124,10 @@ BARE_MARKER = re.compile(
 )
 
 
-def read_markers(title):
+def read_markers(title: str | None) -> list[tuple[Literal["end", "start"], int | None]]:
     """[(kind "end" | "start", season or None)] of every season marker in a title, end markers first."""
-    out = []
-    for kind, patterns in (("end", END_MARKERS), ("start", START_MARKERS)):
+    out: list[tuple[Literal["end", "start"], int | None]] = []
+    for kind, patterns in SEASON_MARKERS:
         for p in patterns:
             for m in p.finditer(title or ""):
                 g = (m.group(1) or "").lower()
@@ -81,18 +135,7 @@ def read_markers(title):
     return out
 
 
-def read_marker(title):
-    """Return the title's first season marker as an episode record holds it, or None.
-
-    Markers are tried in order: end, start, then "Main Story Finale".
-    """
-    found = read_markers(title)
-    if found:
-        return {"type": found[0][0], "season": found[0][1]}
-    return {"type": "main_end", "season": None} if MAIN_END.search(title or "") else None
-
-
-def close_seasons(ends, starts):
+def close_seasons[K: dict[int, float] | dict[float, float]](ends: K, starts: Iterable[tuple[int, float | None]]) -> K:
     """Close each season a later season's start marker ends; return ends.
 
     A start marker for season N closes season N-1 at the last chapter before it, unless an end marker already closed
@@ -105,7 +148,7 @@ def close_seasons(ends, starts):
     return ends
 
 
-def norm_number(n):
+def norm_number(n: str | None) -> str | None:
     """'01' -> '1', '17.50' -> '17.5', '3.0' -> '3'; None / '' / 'none' -> None; non-numeric kept as is."""
     if n is None:
         return None
@@ -119,19 +162,19 @@ def norm_number(n):
     return f"{whole}.{frac}" if frac else whole
 
 
-def _same(a, b):
+def _same(a: str, b: float | None) -> bool:
     try:
-        return float(a) == float(b)
-    except (TypeError, ValueError):
+        return b is not None and float(a) == float(b)
+    except ValueError:
         return False
 
 
-def _tidy(t):
+def _tidy(t: str | None) -> str | None:
     t = re.sub(r"\s+", " ", t or "").strip()
     return re.sub(r"^[\s\-\u2013\u2014:|.]+|[\s\-\u2013\u2014:|]+$", "", t) or None
 
 
-def classify(raw_title):
+def classify(raw_title: str | None) -> tuple[str, str | None, str]:
     """Classify a post's title: return (kind, stated number, rest of the title after its label).
 
     A stated chapter number ("Ep. 3 - X", "3. X") makes it a chapter; otherwise announcement-type words make it a
@@ -153,7 +196,7 @@ def classify(raw_title):
     return MAIN, None, t
 
 
-def build(items):
+def build(items: Iterable[Episode]) -> list[EpisodeRecord]:
     """Build the episode records (module doc) from a site's posts.
 
     items: [(site number, raw title, date, id)] in site order -> episode records. When most posts state a chapter
@@ -164,7 +207,8 @@ def build(items):
     kinds = [classify(raw) for _, raw, _, _ in parsed]
     numbered = sum(1 for k, stated, _ in kinds if k == MAIN and stated is not None)
     unnumbered_are_chapters = numbered < len(parsed) / 2
-    out, prev_main, line = [], None, _SeasonLine()
+    out: list[EpisodeRecord] = []
+    prev_main, line = None, _SeasonLine()
     for (number, raw, date, eid), (classified, stated, rest) in zip(parsed, kinds, strict=True):
         chapter, title = None, raw
         kind = NON_CHAPTER if classified == MAIN and stated is None and not unnumbered_are_chapters else classified
@@ -193,7 +237,9 @@ def build(items):
     return out
 
 
-def _main_chapter(stated, number, prev_main, *, numbered_series):
+def _main_chapter(
+    stated: str | None, number: int, prev_main: float | None, *, numbered_series: bool
+) -> tuple[str | None, bool]:
     """Return (chapter number text, whether it is the label's own) of a main post.
 
     stated, its label's number (None: none); number, its site index; prev_main, the chapter before it (None: none
@@ -219,25 +265,30 @@ class _SeasonLine:
     The last ended season and the season started since (None: none).
     """
 
-    def __init__(self):
-        self.last_end, self.started = 0, None
+    def __init__(self) -> None:
+        self.last_end: int = 0
+        self.started: int | None = None
 
-    def marker(self, raw):
-        """Return the next post's season marker (read_marker).
+    def marker(self, raw: str) -> SeasonMarker | None:
+        """Return the next post's season marker as an episode record holds it, or None.
 
-        "(Season Finale)" / "(Season Premiere)" without a number takes the season in line. The line moves on past it.
+        Markers are tried in order: end, start, then "Main Story Finale". "(Season Finale)" / "(Season Premiere)"
+        without a number takes the season in line. The line moves on past it.
         """
-        marker = read_marker(raw)
-        if marker and marker["type"] in ("end", "start") and marker["season"] is None:
-            marker["season"] = (self.started or self.last_end + 1) if marker["type"] == "end" else self.last_end + 1
-        if marker and marker["type"] == "end":
-            self.last_end, self.started = max(self.last_end, marker["season"]), None
-        elif marker and marker["type"] == "start":
-            self.started = marker["season"]
-        return marker
+        found = read_markers(raw)
+        if not found:
+            return {"type": "main_end", "season": None} if MAIN_END.search(raw) else None
+        kind, season = found[0]
+        if season is None:
+            season = (self.started or self.last_end + 1) if kind == "end" else self.last_end + 1
+        if kind == "end":
+            self.last_end, self.started = max(self.last_end, season), None
+        else:
+            self.started = season
+        return {"type": kind, "season": season}
 
 
-def _episode_title(title, kind):
+def _episode_title(title: str, kind: str) -> str | None:
     """Return a post's title cleaned: season markers read off.
 
     None when nothing is left (or a main post's bare label).
@@ -245,13 +296,13 @@ def _episode_title(title, kind):
     title = BRACKETED_MARKER.sub("", title)
     if BARE_MARKER.match(title):
         title = ""
-    title = _tidy(title)
-    if title and kind == MAIN and names.BARE_LABEL.fullmatch(title):
+    tidy = _tidy(title)
+    if tidy and kind == MAIN and names.BARE_LABEL.fullmatch(tidy):
         return None  # a bare label left over carries no title
-    return title
+    return tidy
 
 
-def season_breaks(episodes):
+def season_breaks(episodes: Sequence[EpisodeRecord]) -> list[SeasonRange]:
     """Return the season ranges over main chapters from the episodes' markers.
 
     [{"season": n, "first": chapter, "last": chapter or None (open: no end marker yet), "side": bool}]. An end marker
@@ -265,20 +316,24 @@ def season_breaks(episodes):
         return []
     if main_end is not None and not any(end >= main_end for end in ends.values()):
         ends[max(ends, default=0) + 1] = main_end
-    mains = sorted({float(e["chapter"]) for e in episodes if e["kind"] == MAIN and e.get("chapter") is not None})
+    mains = sorted({float(c) for e in episodes if e["kind"] == MAIN and (c := e["chapter"]) is not None})
     return _season_ranges(ends, mains, main_end)
 
 
-def _season_points(episodes):
+def _season_points(
+    episodes: Iterable[EpisodeRecord],
+) -> tuple[dict[int, float], list[tuple[int, float | None]], float | None]:
     """Return (ends, starts, main end) the episodes' markers give.
 
     ends {season: last chapter} (an end marker on a non-chapter post: the last chapter before it), starts [(season,
     the last chapter before its start marker)] in site order, and the chapter of "Main Story Finale" (None: none).
     """
-    ends, starts, main_end, last_main = {}, [], None, None
+    ends: dict[int, float] = {}
+    starts: list[tuple[int, float | None]] = []
+    main_end, last_main = None, None
     for e in episodes:
         m = e.get("season_marker")
-        here = float(e["chapter"]) if e["kind"] == MAIN and e.get("chapter") is not None else None
+        here = float(c) if e["kind"] == MAIN and (c := e["chapter"]) is not None else None
         at = here if here is not None else last_main
         if m and m["type"] == "end" and at is not None:
             ends[m["season"]] = max(ends.get(m["season"], at), at)
@@ -291,14 +346,15 @@ def _season_points(episodes):
     return ends, starts, main_end
 
 
-def _season_ranges(ends, mains, main_end):
+def _season_ranges(ends: dict[int, float], mains: list[float], main_end: float | None) -> list[SeasonRange]:
     """Return season_breaks' ranges from the closed seasons over the main chapter numbers.
 
     ends: {season: last chapter}; mains: the main chapter numbers, ascending. A season whose end does not pass the one
     before, or that holds no chapter, is left out; the chapters after the last end form 1 more open range, a side one
     past the main-story finale (main_end).
     """
-    out, prev, last_season = [], None, 0
+    out: list[SeasonRange] = []
+    prev, last_season = None, 0
     for season, end in sorted(ends.items()):
         if prev is not None and end <= prev:
             continue
@@ -314,13 +370,13 @@ def _season_ranges(ends, mains, main_end):
     return out
 
 
-def gaps(episodes, key="number"):
+def gaps(episodes: Iterable[EpisodeRecord], key: Literal["number", "chapter"] = "number") -> list[int]:
     """Site numbers (or chapter numbers) missing from a run expected to be 1..max; [] when contiguous."""
     nums = sorted(
         {
-            int(float(e[key]))
+            int(float(n))
             for e in episodes
-            if e.get(key) is not None and (key == "number" or e["kind"] == MAIN) and float(e[key]) == int(float(e[key]))
+            if (n := e[key]) is not None and (key == "number" or e["kind"] == MAIN) and float(n) == int(float(n))
         }
     )
     if not nums:
@@ -329,13 +385,19 @@ def gaps(episodes, key="number"):
     return [n for n in range(1, nums[-1] + 1) if n not in have]
 
 
-def coverage(episodes, listed_total=None, *, app_only=False, list_page_read=True):
+def coverage(
+    episodes: Sequence[EpisodeRecord],
+    listed_total: int | None = None,
+    *,
+    app_only: bool = False,
+    list_page_read: bool = True,
+) -> Coverage:
     """Return how much of the series an episode list covers: {"status": complete | partial | unknown, "reason"}.
 
     partial when the site lists fewer episodes than it says it has, when site numbers are missing, when none is
     listed, or when the platform keeps episodes to its app; unknown when the page that tells is unread.
     """
-    reasons = []
+    reasons: list[str] = []
     if listed_total and len(episodes) < listed_total:
         reasons.append(f"{len(episodes)} of {listed_total} episodes listed")
     missing = gaps(episodes)

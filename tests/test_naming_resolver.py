@@ -11,7 +11,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from manga_pipeline import names
+from manga_pipeline import names, volumes
 from manga_pipeline.metadata import naming
 from manga_pipeline.metadata.naming import Row, VolumeError, mangadex_volumes, resolve
 from manga_pipeline.names import MAIN, SIDE
@@ -19,10 +19,10 @@ from manga_pipeline.names import MAIN, SIDE
 from tests.timing import budget
 
 RECORDS = Path(__file__).with_name("fixtures_api") / "records"
-OVERRIDE_1_2 = {"volumes": {1: "1-2", 2: "3-"}}
+OVERRIDE_1_2: volumes.Overrides = {"volumes": {1: "1-2", 2: "3-"}}
 
 
-def settled(number, volume, source, marker="", *, season=None):
+def settled(number, volume, source, marker="", *, season=None) -> Row[tuple[str, float, str]]:
     """Return a settled main chapter."""
     return Row(
         key=("p", number, MAIN),
@@ -40,12 +40,12 @@ def settled(number, volume, source, marker="", *, season=None):
     )
 
 
-def settled_side(number, volume):
+def settled_side(number, volume) -> Row[tuple[str, float, str]]:
     """Return a settled side story, its volume from the side-story rule."""
     return dataclasses.replace(settled(number, volume, "side"), key=("p", number, SIDE), kind=SIDE)
 
 
-def new(number, src_volume=None, season=None, marker=""):
+def new(number, src_volume=None, season=None, marker="") -> Row[tuple[str, float, str]]:
     """Return an open main chapter."""
     return Row(
         key=("c", number, MAIN),
@@ -63,7 +63,7 @@ def new(number, src_volume=None, season=None, marker=""):
     )
 
 
-def new_side(number, *, src_volume=None, title="", date=None, order=0):
+def new_side(number, *, src_volume=None, title="", date=None, order=0) -> Row[tuple[str, float, str]]:
     """Return an open side story."""
     return dataclasses.replace(
         new(number, src_volume), key=("c", number, SIDE), kind=SIDE, title=title, date=date, order=order

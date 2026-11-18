@@ -6,10 +6,14 @@ is; MangaUpdates also accepts 1 of its top 3 results whose associated names hold
 library is comics. Each function returns the found id in its source's form, or None.
 """
 
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
+
 from rapidfuzz import fuzz
 
 from manga_pipeline import names
-from manga_pipeline.metadata import ids
+from manga_pipeline.metadata import ids, sources
+from manga_pipeline.replies.sources import AniListHit, MangaBakaSeries
 
 CLOSE_RATIO = 90  # rapidfuzz ratio of the lenient keys (D7.18's threshold)
 PREFIX_LENGTH = 15  # a lenient key at least this long that starts the other counts as close (a cut-off title)
@@ -18,7 +22,7 @@ MANGADEX_NAMES_TRIED = 8
 MANGAUPDATES_ASSOCIATED_CHECKED = 3
 
 
-def close(a, b):
+def close(a: str, b: str) -> bool:
     """Return whether 2 titles are close under the lenient key.
 
     Close: 1 key of at least PREFIX_LENGTH starts the other (a cut-off title), or their rapidfuzz ratio is at least
@@ -32,16 +36,21 @@ def close(a, b):
     return fuzz.ratio(ka, kb) >= CLOSE_RATIO
 
 
-def _exactly_one(results, wanted, titles_of, id_of):
+def _exactly_one[R](
+    results: Iterable[R],
+    wanted: AbstractSet[str],
+    titles_of: Callable[[R], Iterable[str | None]],
+    id_of: Callable[[R], int],
+) -> int | None:
     hits = {id_of(r) for r in results if wanted & {names.key(t) for t in titles_of(r) if t}}
     return hits.pop() if len(hits) == 1 else None
 
 
-def _wanted(series_names):
+def _wanted(series_names: Iterable[str]) -> set[str]:
     return {names.key(n) for n in series_names if names.key(n)}
 
 
-def mangabaka_titles(record):
+def mangabaka_titles(record: MangaBakaSeries) -> list[str]:
     """Return a MangaBaka record's titles: its title, romanized and native titles, then its secondary titles."""
     titles = [record.get("title"), record.get("romanized_title"), record.get("native_title")]
     for group in (record.get("secondary_titles") or {}).values():
@@ -49,7 +58,7 @@ def mangabaka_titles(record):
     return [t for t in titles if t]
 
 
-def mangabaka(client, series_names, agreed):
+def mangabaka(client: sources.MangaBaka, series_names: Sequence[str], agreed: Mapping[str, str]) -> str | None:
     """Find the series' MangaBaka id: by the series' AniList id, else its MangaUpdates id.
 
     A title search only when it holds neither, or when they lead to a novel (a manga's ids pointing at its light
@@ -59,13 +68,13 @@ def mangabaka(client, series_names, agreed):
     return _mangabaka_by_title(client, series_names) if search else found
 
 
-def _mangabaka_by_ids(client, agreed):
+def _mangabaka_by_ids(client: sources.MangaBaka, agreed: Mapping[str, str]) -> tuple[str | None, bool]:
     """Return (the MangaBaka id the series' ids lead to, or None; whether to search by title instead).
 
     The id is the one the series' AniList id, else its MangaUpdates id, leads to. A search when the series holds
     neither id, or they lead only to novels.
     """
-    lookups = []
+    lookups: list[tuple[str, str]] = []
     if "anilist" in agreed:
         lookups.append(("anilist", agreed["anilist"]))
     if "mangaupdates" in agreed:
@@ -79,12 +88,13 @@ def _mangabaka_by_ids(client, agreed):
     return None, novel or not lookups
 
 
-def _mangabaka_by_title(client, series_names):
+def _mangabaka_by_title(client: sources.MangaBaka, series_names: Sequence[str]) -> str | None:
     """Return the 1 result whose title is a name, searched name by name.
 
     Else the first name's top result when it is close and no other result is.
     """
-    wanted, first = _wanted(series_names), None
+    wanted = _wanted(series_names)
+    first: list[MangaBakaSeries] | None = None
     for name in series_names[:NAMES_TRIED]:
         results = [r for r in client.search(name) if not _novel(r)]
         if first is None:
@@ -99,13 +109,14 @@ def _mangabaka_by_title(client, series_names):
     return None
 
 
-def mangaupdates(client, series_names):
+def mangaupdates(client: sources.MangaUpdates, series_names: Sequence[str]) -> str | None:
     """Find the series' MangaUpdates id by title search, name by name.
 
     Exactly 1 series whose title or hit title is a name; else, when no result's title matches, 1 of the top
     MANGAUPDATES_ASSOCIATED_CHECKED results whose associated names hold a name. Novels are left out.
     """
-    wanted, checked = _wanted(series_names), set()
+    wanted = _wanted(series_names)
+    checked: set[int] = set()
     for name in series_names[:NAMES_TRIED]:
         results = [r for r in client.search(name) if (r["record"].get("type") or "").lower() != "novel"]
         hits = {
@@ -129,7 +140,7 @@ def mangaupdates(client, series_names):
     return None
 
 
-def mangadex(client, series_names, agreed):
+def mangadex(client: sources.MangaDex, series_names: Iterable[str], agreed: Mapping[str, str]) -> str | None:
     """Return the MangaDex entry whose MangaUpdates link is the series' MangaUpdates id; none without one."""
     if "mangaupdates" not in agreed:
         return None
@@ -140,12 +151,14 @@ def mangadex(client, series_names, agreed):
     return None
 
 
-def anilist_titles(media):
+def anilist_titles(media: AniListHit) -> list[str | None]:
     """Return an AniList record's titles: each of its title forms, then its synonyms."""
-    return [*(media.get("title") or {}).values(), *(media.get("synonyms") or [])]
+    title = media.get("title")
+    forms = [title["romaji"], title["english"], title["native"]] if title else []
+    return [*forms, *(media.get("synonyms") or [])]
 
 
-def anilist(client, series_names):
+def anilist(client: sources.AniList, series_names: Sequence[str]) -> str | None:
     """Find the series' AniList id by title search: the 1 non-novel result whose title or synonym is a name."""
     wanted = _wanted(series_names)
     for name in series_names[:NAMES_TRIED]:
@@ -156,11 +169,11 @@ def anilist(client, series_names):
     return None
 
 
-def _novel(record):
+def _novel(record: MangaBakaSeries) -> bool:
     return (record.get("type") or "").lower() == "novel"
 
 
-def _base36(number):
+def _base36(number: int) -> str:
     """Return a MangaUpdates id as the 7 base-36 digits MangaBaka and MangaDex keep ("04gtb06")."""
     digits = "0123456789abcdefghijklmnopqrstuvwxyz"
     out = ""

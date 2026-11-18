@@ -3,12 +3,18 @@
 And the search acceptance rules.
 """
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from manga_pipeline.metadata import ids, search
 
 from tests.fakes.sources import fake_sources
 from tests.timing import budget
+
+if TYPE_CHECKING:
+    from manga_pipeline.replies.sources import AniListHit, AniListTitle, MangaBakaSeries, MangaDexManga
+    from manga_pipeline.replies.suwayomi import Manga
 
 MD = "2bdf5af2-7d55-4c03-8a1b-8b6b1b9a2b4c"
 
@@ -39,9 +45,18 @@ def test_a_link_gives_its_sources_id_in_its_form(url, expected):
 @budget()
 def test_every_origin_of_a_mangaupdates_id_compares_equal():
     number = str(int("04gtb06", 36))
-    record_mb = {"id": 9, "source": {"manga_updates": {"id": "04gtb06"}}}
-    record_md = {"id": MD, "attributes": {"links": {"mu": "4gtb06"}}}
-    manga = {"source": {"name": "X"}, "url": "", "trackRecords": {"nodes": [{"trackerId": 7, "remoteId": number}]}}
+    record_mb: MangaBakaSeries = {"id": 9, "source": {"manga_updates": {"id": "04gtb06"}}}
+    record_md: MangaDexManga = {"id": MD, "attributes": {"links": {"mu": "4gtb06"}}}
+    manga: Manga = {
+        "id": 1,
+        "title": "X",
+        "status": "ONGOING",
+        "url": "",
+        "inLibrary": True,
+        "sourceId": "1",
+        "source": {"id": "1", "name": "X", "lang": "en", "displayName": "X (EN)"},
+        "trackRecords": {"nodes": [{"trackerId": 7, "remoteId": number}]},
+    }
     found = {
         ("mangabaka",): ids.mangabaka_ids(record_mb),
         ("mangadex",): ids.mangadex_ids(record_md),
@@ -87,10 +102,12 @@ def test_mangabaka_is_searched_by_title_only_without_ids_or_when_they_lead_to_a_
 def test_a_search_never_takes_a_novel_or_a_name_2_series_share():
     clients = fake_sources()
     al = clients.anilist
-    al.results["Omniscient Reader"] = [
-        {"id": 1, "format": "NOVEL", "title": {"english": "Omniscient Reader"}},
-        {"id": 2, "format": "MANGA", "title": {"english": "Omniscient Reader"}},
+    title: AniListTitle = {"romaji": None, "english": "Omniscient Reader", "native": None}
+    hits: list[AniListHit] = [
+        {"id": 1, "format": "NOVEL", "title": title, "synonyms": None},
+        {"id": 2, "format": "MANGA", "title": title, "synonyms": None},
     ]
+    al.results["Omniscient Reader"] = hits
     assert search.anilist(al, ["Omniscient Reader"]) == "2", "the novel is skipped"
-    al.results["Omniscient Reader"].append({"id": 3, "format": "MANGA", "synonyms": ["omniscient reader"]})
+    hits.append({"id": 3, "format": "MANGA", "title": None, "synonyms": ["omniscient reader"]})
     assert search.anilist(al, ["Omniscient Reader"]) is None, "2 manga share the name: none is taken"

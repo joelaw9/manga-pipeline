@@ -16,6 +16,8 @@ from manga_pipeline.metadata import kavita_write
 from tests.timing import budget
 from tests.world import World
 
+MD = "2bdf5af2-7d55-4c03-8a1b-8b6b1b9a2b4c"
+
 
 @pytest.fixture
 def world(tmp_path):
@@ -27,9 +29,15 @@ def execute(world, sql, *params):
         conn.execute(sql, params)
 
 
-def checked(world, **mb):
-    """Add a Kavita series checked by intake, its MangaBaka record found by search with the given fields."""
+def checked(world, *, language=None, **mb):
+    """Add a Kavita series checked by intake, its MangaBaka record found by search with the given fields.
+
+    language: also a MangaDex record (by the series' Kavita link) of that original language.
+    """
     kavita_id = world.kavita_series("Solo Leveling")
+    if language is not None:
+        world.kavita.metadata_rows[kavita_id] = {"seriesId": kavita_id, "webLinks": f"https://mangadex.org/title/{MD}"}
+        world.sources.mangadex.records[("manga", MD)] = {"id": MD, "attributes": {"originalLanguage": language}}
     record = {"id": 50, "title": "Solo Leveling", "status": "completed", "content_rating": "suggestive"}
     record |= {"genres": ["action", "fantasy"], "tags_v2": [], "description": "Hunters <b>rise</b>."} | mb
     world.sources.mangabaka.results["Solo Leveling"] = [{"id": 50, "title": "Solo Leveling"}]
@@ -48,14 +56,17 @@ def field_writes(world):
 
 @budget(load="db")
 def test_export_writes_the_series_fields_locked_and_then_nothing_while_they_hold(world):
-    kavita_id = checked(world)
+    kavita_id = checked(world, language="ko")
     world.run(export)
     m = meta(world, kavita_id)
-    assert (m["summary"], m["summaryLocked"]) == ("Hunters rise.", True), "summary from MangaBaka, HTML dropped"
+    assert (m["summary"], m["publicationStatus"], m["ageRating"], m["language"]) == ("Hunters rise.", 2, 8, "ko"), (
+        "summary from MangaBaka, HTML dropped; completed; suggestive is Teen; MangaDex's original language"
+    )
+    locks = (m["summaryLocked"], m["publicationStatusLocked"], m["ageRatingLocked"], m["languageLocked"])
+    assert locks == (True, True, True, True), "each scalar written locks its own field"
     genres = sorted(g["title"] for g in m["genres"])
     assert genres == ["Action", "Completed", "Fantasy"], "MangaBaka's genres and the status rule"
     assert m["genresLocked"], "MangaBaka's genres and the status rule"
-    assert (m["publicationStatus"], m["ageRating"]) == (2, 8), "completed; suggestive is Teen"
     assert "https://mangabaka.org/50" in m["webLinks"]
     before = len(field_writes(world))
     world.run(export)

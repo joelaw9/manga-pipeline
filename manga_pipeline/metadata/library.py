@@ -4,15 +4,17 @@ Each series of `kavita.library_id` in scope has a row, so it is checked whether 
 """
 
 import logging
+from collections.abc import Iterable
 
 from manga_pipeline import config, db, kavita_link, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
+from manga_pipeline.replies.kavita import Series
 
 log = logging.getLogger(__name__)
 
 
-def sync(ctx: workflow.Context, listing):
+def sync(ctx: workflow.Context, listing: Iterable[Series]) -> None:
     """Store each listed series (the library's listing, `Kavita.series_in_library`) the database does not hold.
 
     A listed series no row holds the id of takes the row of a series Kavita no longer lists whose names match and whose
@@ -63,7 +65,7 @@ def sync(ctx: workflow.Context, listing):
             )
 
 
-def _recreated(ctx: workflow.Context, kseries, gone):
+def _recreated(ctx: workflow.Context, kseries: Series, gone: list[db.Row]) -> db.Row | None:
     """Return the row of gone matching the listed series.
 
     It matches by names, and by folder when the row has one; a row with no folder (nothing published or downloaded)

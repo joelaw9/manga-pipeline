@@ -9,7 +9,10 @@ import yaml
 
 from manga_pipeline import config, db, fleet, lock, state, workflow
 from manga_pipeline.db import sql
+from manga_pipeline.metadata import episodes, platforms
+from manga_pipeline.metadata.records import SeriesRecords
 from manga_pipeline.replies import kavita
+from manga_pipeline.replies import sources as source_replies
 
 from tests import pg
 
@@ -55,6 +58,80 @@ def kavita_series(series_id: int, name: str) -> kavita.Series:
         "hardcoverId": None,
         "metronId": 0,
         "metadataProviderOverride": None,
+    }
+
+
+class AniListFields(TypedDict, total=False):
+    """The fields of an AniList media a test gives (anilist_media): any of replies.sources.AniListMedia's."""
+
+    id: int
+    idMal: int | None
+    format: str | None
+    status: str | None
+    title: source_replies.AniListTitle | None
+    synonyms: list[str] | None
+    description: str | None
+    genres: list[str] | None
+    tags: list[source_replies.AniListTag] | None
+    coverImage: source_replies.AniListCover | None
+    startDate: source_replies.AniListDate | None
+    staff: source_replies.AniListStaffConnection | None
+    externalLinks: list[source_replies.AniListLink] | None
+
+
+def anilist_media(**fields: Unpack[AniListFields]) -> source_replies.AniListMedia:
+    """Return an AniList media as AniList sends it: media 1, a manga, every field the test does not give null."""
+    return {
+        "id": 1,
+        "idMal": None,
+        "format": "MANGA",
+        "status": None,
+        "title": None,
+        "synonyms": None,
+        "description": None,
+        "genres": None,
+        "tags": None,
+        "coverImage": None,
+        "startDate": None,
+        "staff": None,
+        "externalLinks": None,
+        **fields,
+    }
+
+
+def series_records(
+    *,
+    mangabaka: source_replies.MangaBakaSeries | None = None,
+    mangaupdates: source_replies.MangaUpdatesSeries | None = None,
+    mangadex: source_replies.MangaDexManga | None = None,
+    anilist: source_replies.AniListMedia | None = None,
+) -> SeriesRecords:
+    """Return a series' records as a check stores them: None for a source the test gives none."""
+    return {"mangabaka": mangabaka, "mangaupdates": mangaupdates, "mangadex": mangadex, "anilist": anilist}
+
+
+def episode_record(kind: str, chapter: str | None, title: str | None, number: int = 0) -> episodes.EpisodeRecord:
+    """Return an episode record of a platform list (episodes.build's), with no marker, date or id."""
+    return {
+        "number": number,
+        "chapter": chapter,
+        "raw_title": title or "",
+        "title": title,
+        "kind": kind,
+        "season_marker": None,
+        "date": None,
+        "id": None,
+    }
+
+
+def platform_list(eps: list[episodes.EpisodeRecord]) -> platforms.PlatformList:
+    """Return a stored Webtoons list of these episode records, with no season ranges and unread coverage."""
+    return {
+        "name": platforms.WEBTOONS,
+        "ref": "webtoon:1",
+        "episodes": eps,
+        "coverage": {"status": "unknown", "reason": "unread"},
+        "seasons": [],
     }
 
 

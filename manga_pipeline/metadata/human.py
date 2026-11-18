@@ -9,7 +9,7 @@ from manga_pipeline import db, workflow
 from manga_pipeline.metadata import check, ids
 
 
-def set_id(conn, series_id, source, value):
+def set_id(conn: db.Connection, series_id: int, source: str, value: str) -> str:
     """Store the id, replacing the series' earlier human id for that source.
 
     Refused for an unknown series or source, or an id not in the source's form.
@@ -33,7 +33,7 @@ def set_id(conn, series_id, source, value):
     return found
 
 
-def refetch_covers(conn, series_id):
+def refetch_covers(conn: db.Connection, series_id: int) -> None:
     """Make the series' check due at once (`series refetch-covers SERIES_ID`).
 
     The next intake then fetches its MangaDex cover list and refreshes every stored volume cover image MangaDex now
@@ -46,7 +46,7 @@ def refetch_covers(conn, series_id):
         check.make_urgent(conn, series_id)
 
 
-def new_series(conn, series_id, name=None):
+def new_series(conn: db.Connection, series_id: int, name: str | None = None) -> None:
     """Make a held new series not yet admitted pending again (status ok), under name when given.
 
     Its check is made due at once: the next intake checks it and admits it (metadata/admit.py). Refused for any other

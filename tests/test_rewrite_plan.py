@@ -19,7 +19,7 @@ from tests.timing import budget
 MAIN, SIDE = names.MAIN, names.SIDE
 
 
-def pub(file_id, number, volume, source, kind=MAIN):
+def pub(file_id, number, volume, source, kind=MAIN) -> Row[naming.RowKey]:
     return Row(
         key=("published", file_id),
         settled=True,
@@ -36,7 +36,7 @@ def pub(file_id, number, volume, source, kind=MAIN):
     )
 
 
-def new(key, number, src_volume=None):
+def new(key, number, src_volume=None) -> Row[naming.RowKey]:
     return Row(
         key=key,
         settled=False,

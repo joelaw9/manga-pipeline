@@ -14,7 +14,7 @@ from manga_pipeline import db, intake, names
 from manga_pipeline.clients import http
 from manga_pipeline.metadata import episodes, naming, platforms, sources
 
-from tests.builders import present
+from tests.builders import anilist_media, episode_record, platform_list, present
 from tests.fakes.http import CannedService, reply
 from tests.test_naming_resolver import _rows
 from tests.timing import budget
@@ -56,10 +56,10 @@ def stored_list(platform, ref):
         client = tapas_client(ref)
         series_id = client.series_id(ref)
         items, total = present(client.episodes(present(series_id)))
-        return platforms.tapas_record(ref, items, total, series_id)
+        return platforms.tapas_record(ref, items, total, present(series_id))
     client = webtoons_client(*ref.split(":"))
     app_only = client.app_only(ref)
-    return platforms.webtoons_record(ref, client.episodes(ref), app_only)
+    return platforms.webtoons_record(ref, present(client.episodes(ref)), app_only=app_only)
 
 
 @budget(load="pure")
@@ -95,14 +95,14 @@ def test_a_webtoons_link_gives_its_type_and_number(url, want):
 
 @budget(load="pure")
 def test_anilist_links_are_the_english_streaming_ones():
-    media = {
-        "externalLinks": [
+    media = anilist_media(
+        externalLinks=[
             {"site": "WEBTOON", "type": "STREAMING", "url": f"{WT}/fr/x/list?title_no=9", "language": "French"},
             {"site": "WEBTOON", "type": "STREAMING", "url": f"{WT}/en/x/list?title_no=8", "language": "English"},
             {"site": "Tapas", "type": "STREAMING", "url": "https://tapas.io/series/x", "language": "English"},
             {"site": "Twitter", "type": "SOCIAL", "url": "https://twitter.com/x", "language": None},
         ]
-    }  # fmt: skip
+    )  # fmt: skip
     assert platforms.anilist_links(media) == [
         "https://www.webtoons.com/en/x/list?title_no=8",
         "https://tapas.io/series/x",
@@ -190,12 +190,9 @@ def test_the_webtoons_list_reads_its_coverage_from_the_web_page():
 
 @budget(load="pure")
 def test_a_side_story_title_does_not_depend_on_the_order_chapters_are_named_in():
-    platform = {
-        "episodes": [
-            {"kind": episodes.SPECIAL, "chapter": "1", "title": "First"},
-            {"kind": episodes.SPECIAL, "chapter": "2", "title": "Second"},
-        ]
-    }
+    platform = platform_list(
+        [episode_record(episodes.SPECIAL, "1", "First"), episode_record(episodes.SPECIAL, "2", "Second")]
+    )
 
     def row(key, number, title, *, settled):
         return naming.Row(
@@ -337,7 +334,7 @@ def test_a_page_gone_after_the_first_is_an_error_not_no_list():
 @budget(load="pure")
 def test_a_titled_episode_past_the_finale_names_its_side_story():
     items = [(1, "1. Start (Main Story Finale)", None, 1), (2, "2. After Story", None, 2)]
-    platform = platforms.tapas_record("x", items, 2, None)
+    platform = platforms.tapas_record("x", items, 2, "1")
 
     def row(key, number):
         return naming.Row(

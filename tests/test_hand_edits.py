@@ -5,7 +5,6 @@ into published files by 7e's rewrite (progress carried), are never reverted by a
 brings the sources' values back.
 """
 
-import dataclasses
 import zipfile
 from contextlib import closing
 
@@ -17,7 +16,8 @@ from manga_pipeline.metadata import naming, rewrite_plan
 
 from tests import test_better_copies as copies
 from tests.test_cover_rewrites import members, png, store_image
-from tests.test_naming_resolver import new, new_side, settled, settled_side
+from tests.test_naming_resolver import new, new_side, settled
+from tests.test_rewrite_plan import pub
 from tests.test_rewrites import SERIES, crash_after, files, library, progress, read, scan
 from tests.timing import budget
 from tests.world import World, cbz, comicinfo
@@ -195,7 +195,7 @@ def test_an_edited_volume_names_the_chapters_around_it_and_a_side_storys_title_k
 
 @budget(load="pure", seconds=1)
 def test_an_edit_back_to_the_sources_volume_restores_their_source():
-    rows = [dataclasses.replace(settled(1, 3, "edit"), key=("published", 1))]
+    rows = [pub(1, 1, 3, "edit")]
     edits = {naming.edit_key(names.MAIN, None, 1): naming.Edit(None, 2)}
     got = rewrite_plan.edit_changes(rows, edits, {1: {"volume": "2", "volume_source": "mangadex"}})
     assert got == {1: (2, "mangadex", "", None)}
@@ -221,8 +221,7 @@ def test_a_same_name_file_is_the_rewritten_one_only_with_the_new_title(tmp_path,
 
 @budget(load="pure", seconds=1)
 def test_edit_changes_apply_an_edit_and_restore_a_removed_one():
-    rows = [settled(1, 1, "filename"), settled_side(1, 2)]
-    rows = [dataclasses.replace(r, key=("published", i)) for i, r in enumerate(rows, 1)]
+    rows = [pub(1, 1, 1, "filename"), pub(2, 1, 2, "side", names.SIDE)]
     edits = {naming.edit_key(names.SIDE, None, 1): naming.Edit("Beach Day", 3)}
     got = rewrite_plan.edit_changes(rows, edits, {1: {"volume": "2", "volume_source": "mangadex"}})
     assert got == {

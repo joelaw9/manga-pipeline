@@ -1,10 +1,16 @@
 """Series fields from stored records (SPEC "Metadata", Series fields)."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from manga_pipeline.metadata import merge, tags
 
+from tests.builders import anilist_media, series_records
 from tests.timing import budget
+
+if TYPE_CHECKING:
+    from manga_pipeline.replies.sources import AniListStaffConnection
 
 
 @pytest.fixture(scope="module")
@@ -14,13 +20,13 @@ def rules():
 
 @budget()
 def test_the_summary_is_the_first_source_that_has_one_as_plain_text(rules):
-    records = {
-        ("anilist", "media"): {"description": None},
-        ("mangadex", "manga"): {"attributes": {"description": {"en": "**Bold** [link](http://x)\n\n---\nCredits"}}},
-        ("mangabaka", "series"): {"description": "Third"},
-    }
+    records = series_records(
+        anilist=anilist_media(description=None),
+        mangadex={"id": "uuid", "attributes": {"description": {"en": "**Bold** [link](http://x)\n\n---\nCredits"}}},
+        mangabaka={"id": 5, "description": "Third"},
+    )
     assert merge.fields(records, {}, rules).summary == "Bold link", "MangaDex next: Markdown read, cut at the rule"
-    records[("anilist", "media")] = {"description": "A &amp; B<br>\nC<br>\n(Source: X)"}
+    records["anilist"] = anilist_media(description="A &amp; B<br>\nC<br>\n(Source: X)")
     assert merge.fields(records, {}, rules).summary == "A & B\n\nC", "AniList first: HTML read, source note dropped"
 
 
@@ -35,24 +41,24 @@ def test_the_summary_is_the_first_source_that_has_one_as_plain_text(rules):
     ],
 )
 def test_the_age_rating_maps_mangabakas_content_rating(rules, rating, comicinfo, kavita):
-    got = merge.fields({("mangabaka", "series"): {"content_rating": rating}}, {}, rules)
+    got = merge.fields(series_records(mangabaka={"id": 5, "content_rating": rating}), {}, rules)
     assert (got.age_rating, got.age_rating_kavita) == (comicinfo, kavita)
 
 
 @budget()
 def test_people_language_status_and_links(rules):
-    staff = {
+    staff: AniListStaffConnection = {
         "edges": [
             {"role": "Story & Art", "node": {"name": {"full": "A"}}},
             {"role": "Art", "node": {"name": {"full": "B"}}},
             {"role": "Original Story", "node": {"name": {"full": "C"}}},
         ]
     }
-    records = {
-        ("anilist", "media"): {"staff": staff},
-        ("mangadex", "manga"): {"attributes": {"originalLanguage": "ko"}},
-        ("mangabaka", "series"): {"status": "hiatus", "canonical_url": "https://mangabaka.org/manhwa/5/x"},
-    }
+    records = series_records(
+        anilist=anilist_media(staff=staff),
+        mangadex={"id": "uuid", "attributes": {"originalLanguage": "ko"}},
+        mangabaka={"id": 5, "status": "hiatus", "canonical_url": "https://mangabaka.org/manhwa/5/x"},
+    )
     agreed = {
         "anilist": "7",
         "mangadex": "uuid",
@@ -74,10 +80,10 @@ def test_people_language_status_and_links(rules):
 
 @budget()
 def test_a_markdown_summary_loses_its_closing_source_note(rules):
-    records = {("mangabaka", "series"): {"description": "Story here.\n\n*(Source: Yen Press)*"}}
+    records = series_records(mangabaka={"id": 5, "description": "Story here.\n\n*(Source: Yen Press)*"})
     assert merge.fields(records, {}, rules).summary == "Story here.", "the note goes, as from HTML"
 
 
 @budget()
 def test_no_mangabaka_link_without_a_url_or_an_agreed_id(rules):
-    assert merge.fields({("mangabaka", "series"): {"status": "completed"}}, {}, rules).links == ()
+    assert merge.fields(series_records(mangabaka={"id": 5, "status": "completed"}), {}, rules).links == ()
