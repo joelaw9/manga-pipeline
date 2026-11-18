@@ -284,7 +284,7 @@ class Suwayomi:
             "mutation ($source: LongString!, $query: String!) { fetchSourceManga(input:"
             f" {{source: $source, type: SEARCH, page: 1, query: $query}}) {{ mangas {{ {MANGA} }} }} }}"
         )
-        return self._source_call(query, _source_search, {"source": str(source_id), "query": title})["fetchSourceManga"][
+        return self._source_call(query, _source_search, {"source": source_id, "query": title})["fetchSourceManga"][
             "mangas"
         ]
 

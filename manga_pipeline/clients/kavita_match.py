@@ -5,7 +5,7 @@ Copied from the bulk converter (optimizer/kavita_match.py).
 
 import unicodedata
 
-from manga_pipeline.clients.kavita import Series
+from manga_pipeline.replies.kavita import Series
 
 SERIES_NAME_KEYS = ("name", "localizedName", "originalName")  # the names a Kavita series DTO matches on
 NORMALIZE_KEEP = frozenset("0123456789+!\uff0a\uff01\uff0b")  # kept by normalize besides letters (Kavita's class)
