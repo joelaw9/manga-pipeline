@@ -186,8 +186,9 @@ def test_an_attached_new_series_kavita_recreates_keeps_its_row_through_its_comic
     del world.kavita.series_rows[old]
     new = world.kavita.add_series("Shiny Title", "Shiny Title", LIBRARY_ID)  # Kavita recreated it under a new id
     world.run(intake)
-    assert world.rows("SELECT id, name, kavita_series_id FROM series") == [(sid, "Brand New Thing", new)], (
-        "matched by its ComicInfo name (not its row name) and its folder: the row takes the new id"
+    assert world.rows("SELECT id, name, kavita_series_id FROM series") == [(sid, "Shiny Title", new)], (
+        "matched by its ComicInfo name (not its row name, still the arrival name) and its folder: the row takes the "
+        "new id, then Kavita's current name"
     )
 
 
