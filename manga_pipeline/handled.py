@@ -5,12 +5,11 @@ download whose pages a handled chapter of its series already had is put aside, n
 discover stage and by the junk stage once the series' baseline exists.
 """
 
-from typing import Literal, get_args
+from typing import Literal
 
 from manga_pipeline import config, db, retention, workflow
 
 type Outcome = Literal["published", "rejected", "duplicate", "dropped"]
-OUTCOMES: tuple[Outcome, ...] = get_args(Outcome.__value__)
 
 
 def put_aside(ctx: workflow.Context, chapter: db.Row, digest: str) -> str | None:

@@ -11,7 +11,7 @@ import yaml
 
 from manga_pipeline import config, db, fleet, preflight, workflow
 
-from tests.builders import WinOSError, add_chapter, add_series, adopted, present, problem_text
+from tests.builders import WinOSError, add_chapter, add_series, adopted, loaded_cfg, present, problem_text
 from tests.fakes import convert as fake_convert
 from tests.timing import budget
 
@@ -46,14 +46,18 @@ def test_a_machine_local_key_may_differ(cfg, section, key, value):
     assert problem({**cfg, section: {**cfg[section], key: value}}) is None, f"{section}.{key} is machine-local"
 
 
-@budget(load="pure")
+@budget(load="fs")
 def test_a_secret_in_a_shared_section_is_left_out(tmp_path, monkeypatch):
     example = yaml.safe_load(config.EXAMPLE.read_text(encoding="utf-8"))
     example["sources"]["token"] = None  # a later secret: its example value is null
     path = tmp_path / "config.yaml.example"
     path.write_text(yaml.safe_dump(example), encoding="utf-8")
     monkeypatch.setattr(config, "EXAMPLE", path)
-    shared = [fleet.shared_settings({"sources": {"ranking": [], "token": token}}) for token in ("a", "b")]
+    sources = config.cached()["sources"]
+    shared = [
+        fleet.shared_settings(loaded_cfg(tmp_path, {**config.cached(), "sources": {**sources, "token": token}}))
+        for token in ("a", "b")
+    ]
     assert shared[0] == shared[1], "a secret differs between machines and never enters the fleet digest"
 
 

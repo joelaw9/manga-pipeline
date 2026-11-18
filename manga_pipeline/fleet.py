@@ -87,7 +87,9 @@ def shared_settings(cfg: config.Config) -> dict[str, dict[str, object]]:
     for section, values in cfg.items():
         if section in MACHINE_LOCAL_SECTIONS:
             continue
-        kept = {k: v for k, v in values.items() if (section, k) not in left_out}
+        # Every section is a mapping once config.load has checked it, but a TypedDict is never assignable to
+        # Mapping[str, Mapping[str, object]]: to the checker each section is an object.
+        kept = {k: v for k, v in values.items() if (section, k) not in left_out}  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
         if kept:
             out[section] = kept
     return out
