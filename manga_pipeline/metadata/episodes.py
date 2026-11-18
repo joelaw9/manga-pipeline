@@ -277,7 +277,7 @@ class _SeasonLine:
         """
         found = read_markers(raw)
         if not found:
-            return {"type": "main_end", "season": None} if MAIN_END.search(raw or "") else None
+            return {"type": "main_end", "season": None} if MAIN_END.search(raw) else None
         kind, season = found[0]
         if season is None:
             season = (self.started or self.last_end + 1) if kind == "end" else self.last_end + 1

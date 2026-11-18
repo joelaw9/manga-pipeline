@@ -145,7 +145,9 @@ def _record(
 
 def main_episodes(platform: PlatformList | None) -> int:
     """Return how many main-story episodes a stored platform list holds; 0 for no list."""
-    return sum(1 for e in (platform or {}).get("episodes") or [] if e["kind"] == episodes.MAIN)
+    if platform is None:
+        return 0
+    return sum(1 for e in platform["episodes"] if e["kind"] == episodes.MAIN)
 
 
 def volumes(platform: PlatformList | None, numbers: Mapping[int, float]) -> tuple[dict[int, int], set[int]]:
@@ -158,7 +160,7 @@ def volumes(platform: PlatformList | None, numbers: Mapping[int, float]) -> tupl
     """
     if platform is None:
         return {}, set()
-    ranges = [b for b in platform.get("seasons") or [] if b.get("first") is not None]
+    ranges = platform["seasons"]
     if not ranges or not numbers:
         return {}, set()
 
@@ -166,21 +168,21 @@ def volumes(platform: PlatformList | None, numbers: Mapping[int, float]) -> tupl
         return n >= float(b["first"]) and (b["last"] is None or n <= float(b["last"]))
 
     outside = [k for k, n in numbers.items() if not any(inside(n, b) for b in ranges)]
-    if (platform.get("coverage") or {}).get("status") != "complete" and outside:
+    if platform["coverage"]["status"] != "complete" and outside:
         return {}, set()
-    story = [b for b in ranges if not b.get("side")]
-    main_ended = any((e.get("season_marker") or {}).get("type") == "main_end" for e in platform.get("episodes") or [])
+    story = [b for b in ranges if not b["side"]]
+    main_ended = any((m := e["season_marker"]) is not None and m["type"] == "main_end" for e in platform["episodes"])
     last = story[-1]["last"] if story else None
     vols: dict[int, int] = {}
     side: set[int] = set()
     for k, n in numbers.items():
         b = next((b for b in ranges if inside(n, b)), None)
-        if b is not None and b.get("side"):
+        if b is not None and b["side"]:
             side.add(k)
         elif b is not None:
             vols[k] = story.index(b) + 1
         elif last is not None and n > float(last):
-            if main_ended or any(x.get("side") for x in ranges):
+            if main_ended or any(x["side"] for x in ranges):
                 side.add(k)
             else:
                 vols[k] = len(story) + 1
@@ -191,12 +193,14 @@ def volumes(platform: PlatformList | None, numbers: Mapping[int, float]) -> tupl
 
 def chapter_titles(platform: PlatformList | None) -> dict[str, str]:
     """{chapter number text: title} of the list's main episodes (the first of a number)."""
+    if platform is None:
+        return {}
     out: dict[str, str] = {}
-    for e in (platform or {}).get("episodes") or []:
+    for e in platform["episodes"]:
         if (
             e["kind"] == episodes.MAIN
-            and (chapter := e.get("chapter")) is not None
-            and (title := e.get("title"))
+            and (chapter := e["chapter"]) is not None
+            and (title := e["title"])
             and chapter not in out
         ):
             out[chapter] = title
@@ -208,7 +212,9 @@ def side_titles(platform: PlatformList | None, side_count: int) -> dict[int, str
 
     Only when the list has exactly as many specials as the series has side stories (published and open).
     """
-    specials = [e for e in (platform or {}).get("episodes") or [] if e["kind"] == episodes.SPECIAL]
+    if platform is None:
+        return {}
+    specials = [e for e in platform["episodes"] if e["kind"] == episodes.SPECIAL]
     if not specials or len(specials) != side_count:
         return {}
-    return {k: title for k, e in enumerate(specials, 1) if (title := e.get("title"))}
+    return {k: title for k, e in enumerate(specials, 1) if (title := e["title"])}
