@@ -14,7 +14,7 @@ from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.metadata import sources
 from manga_pipeline.stages import comicinfo, confirm, junk, publish
 
-from tests.builders import add_chapter, add_series, config_file, run_part
+from tests.builders import add_chapter, add_series, config_file, present, run_part
 from tests.timing import budget
 from tests.world import World, cbz, decide_junk
 
@@ -269,7 +269,7 @@ def test_an_export_stage_that_lost_its_claim_leaves_every_file_untouched(site):
                 conn.execute("UPDATE chapter SET status = 'ready', claimed_by = NULL WHERE id = %s", (row["id"],))
 
         def done(stage, run):
-            assert isinstance(workflow.work(ctx, workflow.claim(ctx, (stage,)), run), workflow.Done)
+            assert isinstance(workflow.work(ctx, present(workflow.claim(ctx, (stage,))), run), workflow.Done)
 
         ((stored,),) = rows(site.cfg, "SELECT staged_path FROM chapter")
         staged = config.to_local(site.cfg, stored)

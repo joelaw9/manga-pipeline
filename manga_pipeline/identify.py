@@ -341,7 +341,7 @@ def _with_folder(ctx: workflow.Context, row):
         return row
     folder, problem = _folder(ctx, row["kavita_series_id"])
     with db.transaction(ctx.conn):
-        if folder is not None:
+        if problem is None:
             ctx.conn.execute("UPDATE series SET folder = %s WHERE id = %s", (folder, row["id"]))
         else:
             workflow.needs_human(ctx.conn, "series", row["id"], problem)

@@ -30,9 +30,9 @@ def library_folder(cfg, folder):
 
 def listing(ctx: workflow.Context):
     """Return the library's series (`series_in_library`, unfiltered), read once per run."""
-    if "listing" not in ctx.kavita_cache:
-        ctx.kavita_cache["listing"] = ctx.kavita.series_in_library(ctx.cfg["kavita"]["library_id"])
-    return ctx.kavita_cache["listing"]
+    if ctx.kavita_cache.listing is None:
+        ctx.kavita_cache.listing = ctx.kavita.series_in_library(ctx.cfg["kavita"]["library_id"])
+    return ctx.kavita_cache.listing
 
 
 def attach(ctx: workflow.Context, series_id, rows):
@@ -46,7 +46,7 @@ def attach(ctx: workflow.Context, series_id, rows):
     series = db.one_row(conn, query, (series_id,))
     if series["kavita_series_id"] is not None or not series["unattached"]:
         return series["kavita_series_id"]
-    tried = ctx.kavita_cache.setdefault("attach", {})
+    tried = ctx.kavita_cache.attach
     if series_id in tried:
         return tried[series_id]
     found = _find(ctx, series, rows)

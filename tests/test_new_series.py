@@ -13,7 +13,7 @@ from manga_pipeline import config, db, discovery, identify, intake, process, wor
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import human, naming
 
-from tests.builders import one, settle
+from tests.builders import one, present, scope_cfg, settle
 from tests.timing import budget
 from tests.world import World, cbz, comicinfo
 
@@ -259,8 +259,8 @@ def test_series_only_names_a_series_by_any_of_its_names_in_sql_and_python(world,
             if column != "name"
             else "INSERT INTO series (name, origin) VALUES ('Wanted', 'new') RETURNING id",
         )
-        cfg = {"kavita": {"library_id": 4}, "series": {"only": ["Wanted"]}}
-        row = conn.execute("SELECT * FROM series WHERE id = %s", (sid,)).fetchone()
+        cfg = scope_cfg(4, ["Wanted"])
+        row = present(conn.execute("SELECT * FROM series WHERE id = %s", (sid,)).fetchone())
         found = conn.execute(
             sql.SQL("SELECT 1 FROM series s WHERE s.id = %(id)s AND {}").format(workflow.SCOPE),
             {**workflow.scope_params(cfg), "id": sid},

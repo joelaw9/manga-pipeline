@@ -14,7 +14,7 @@ from manga_pipeline.db import sql
 from manga_pipeline.metadata import sources as metadata_sources
 from manga_pipeline.workflow import Done, Dropped, Failed, NeedsHuman, Waiting
 
-from tests.builders import add_chapter, add_series, chapter, one, present, site_cfg
+from tests.builders import add_chapter, add_series, chapter, one, present, scope_cfg, site_cfg
 from tests.timing import budget
 
 
@@ -83,7 +83,7 @@ def test_junk_that_failed_this_run_does_not_hold_its_series_conversions(ctx):
     series = add_series(ctx.conn, "S")
     junk = add_chapter(ctx.conn, series, "c1", "junk", "2026-01-01T00:00:00+00:00")
     convert = add_chapter(ctx.conn, series, "c2", "convert", "2026-01-02T00:00:00+00:00")
-    workflow.work(ctx, workflow.claim(ctx, ("junk", "convert")), returns(Failed("bad page")))
+    workflow.work(ctx, present(workflow.claim(ctx, ("junk", "convert"))), returns(Failed("bad page")))
     assert chapter(ctx.conn, junk)["status"] == "ready"
     assert present(workflow.claim(ctx, ("junk", "convert")))["id"] == convert, (
         "1 failing chapter never holds its series"
@@ -118,7 +118,7 @@ SCOPE_CASES = [
 @budget(load="pure")
 @pytest.mark.parametrize(("only", "library", "want"), [c[1:] for c in SCOPE_CASES], ids=[c[0] for c in SCOPE_CASES])
 def test_in_scope_needs_the_configured_library_and_a_name_in_series_only(only, library, want):
-    cfg = {"kavita": {"library_id": 4}, "series": {"only": only}}
+    cfg = scope_cfg(4, only)
     assert workflow.in_scope(cfg, ["S"], library) is want, "SPEC 'Parts': its library or new, and named"
 
 
@@ -135,7 +135,7 @@ def test_the_sql_scope_agrees_with_in_scope_on_every_case(ctx):
             for library in {c[2] for c in SCOPE_CASES}
         }
     for case, only, library, want in SCOPE_CASES:
-        cfg = {"kavita": {"library_id": 4}, "series": {"only": only}}
+        cfg = scope_cfg(4, only)
         got = ctx.conn.execute(
             sql.SQL("SELECT 1 FROM series s WHERE s.id = %(id)s AND {}").format(workflow.SCOPE),
             {**workflow.scope_params(cfg), "id": ids[library]},
@@ -333,9 +333,12 @@ def test_end_waits_never_checks_a_wait_of_an_out_of_scope_series(ctx: workflow.C
     workflow.work(ctx, row, returns(Waiting("junk_decision")))
     cfg: config.Config = {**ctx.cfg, "series": {"only": ["Other"]}}
     asked = []
-    workflow.end_waits(
-        workflow.context(cfg, ctx.conn, "process"), "junk_decision", lambda _ctx, chapter: asked.append(chapter["id"])
-    )
+
+    def ask(_ctx: workflow.Context, chapter: db.Row) -> bool:
+        asked.append(chapter["id"])
+        return False
+
+    workflow.end_waits(workflow.context(cfg, ctx.conn, "process"), "junk_decision", ask)
     assert asked == [], "SPEC 'Parts': nothing out of scope is read"
     assert chapter(ctx.conn, row["id"])["status"] == "waiting"
 

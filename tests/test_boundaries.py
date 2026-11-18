@@ -89,7 +89,7 @@ READERS = {
     ("status.py", "_redownload"),
     ("validation.py", "chapter_key"),
     ("volumes.py", "override_file"),
-    ("workflow.py", "droppable"),
+    ("workflow.py", "read_redownload"),
 }
 
 
