@@ -5,22 +5,36 @@ itself (the database is not read: a test database holds few series) and prints t
 sources no origin gives an id for, and the Suwayomi library manga no series matches by name.
 """
 
+from collections.abc import Iterable
+
+from manga_pipeline import config
+from manga_pipeline.clients.kavita import Kavita
 from manga_pipeline.clients.kavita_match import normalize, series_names
-from manga_pipeline.metadata import ids, importer
+from manga_pipeline.clients.suwayomi import Suwayomi
+from manga_pipeline.metadata import ids, importer, sources
+from manga_pipeline.replies.kavita import Series
+from manga_pipeline.replies.suwayomi import Manga
 
 
-def run(cfg, kavita, suwayomi, clients, state=None):
+def run(
+    cfg: config.Config,
+    kavita: Kavita,
+    suwayomi: Suwayomi,
+    clients: sources.Sources,
+    state: importer.OldState | None = None,
+) -> None:
     """Print the audit.
 
     clients: the metadata sources' clients; state: the old tool's state file as importer.read_state gives it, or None.
     """
     listing = kavita.series_in_library(cfg["kavita"]["library_id"])
     manga = list(suwayomi.library_manga())
-    by_title = {}
+    by_title: dict[str, list[Manga]] = {}
     for m in manga:
         by_title.setdefault(normalize(m["title"]), []).append(m)
-    matched = set()
-    disagree, lacking = [], {}
+    matched: set[int] = set()
+    disagree: list[str] = []
+    lacking: dict[str, list[str]] = {}
     for kseries in listing:
         mine = list({m["id"]: m for n in series_names(kseries) for m in by_title.get(normalize(n), [])}.values())
         matched |= {m["id"] for m in mine}
@@ -38,8 +52,10 @@ def run(cfg, kavita, suwayomi, clients, state=None):
     _print("Suwayomi library manga no series matches by name", unmatched)
 
 
-def _known(kavita, clients, kseries, mangas, state):
-    known = [(s, "kavita", v) for s, v in ids.kavita_ids(kseries, kavita.metadata(kseries["id"]))]
+def _known(
+    kavita: Kavita, clients: sources.Sources, kseries: Series, mangas: Iterable[Manga], state: importer.OldState | None
+) -> list[ids.Known]:
+    known: list[ids.Known] = [(s, "kavita", v) for s, v in ids.kavita_ids(kseries, kavita.metadata(kseries["id"]))]
     for m in mangas:
         known += [(s, "suwayomi", v) for s, v in ids.suwayomi_ids(m)]
     if state is not None:
@@ -58,7 +74,7 @@ def _known(kavita, clients, kseries, mangas, state):
     return known
 
 
-def _print(title, lines):
+def _print(title: str, lines: list[str]) -> None:
     print(f"{title}: {len(lines)}")
     for line in sorted(lines):
         print(f"  {line}")

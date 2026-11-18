@@ -6,7 +6,9 @@ again, it replaces what it imported before.
 
 import json
 import logging
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 
 import yaml
 
@@ -14,13 +16,42 @@ from manga_pipeline import db, identify, workflow
 from manga_pipeline.clients.kavita_match import normalize
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import ids, library
+from manga_pipeline.replies.kavita import Series
+
+if TYPE_CHECKING:
+    from manga_pipeline.replies.suwayomi import Manga
 
 log = logging.getLogger(__name__)
 SHOWN = 20  # skipped Kavita ids named in the log line
 OLD_SOURCES = {"al": "anilist", "mu": "mangaupdates", "md": "mangadex", "mal": "myanimelist", "mb": "mangabaka"}
 
 
-def read_state(path):
+class OldCover(TypedDict, total=False):
+    """The old tool's record of the cover it uploaded to a Kavita series."""
+
+    sha256: str | None
+
+
+class OldWritten(TypedDict, total=False):
+    """The old tool's record of what it wrote to a Kavita series: the fields it wrote."""
+
+    fields: list[str] | None
+
+
+class OldState(TypedDict):
+    """The old metadata tool's state file as the import reads it, keyed by Kavita series id (text).
+
+    ids: {Kavita id: {old source key (OLD_SOURCES): id}}; covers, metadata (written fields) and status (Kavita's
+    publication status it wrote). Read unchecked but for `ids` being a mapping.
+    """
+
+    ids: dict[str, dict[str, str | int | None] | None]
+    covers: dict[str, OldCover | None]
+    metadata: dict[str, OldWritten | None]
+    status: dict[str, int | None]
+
+
+def read_state(path: str | Path) -> OldState:
     """Return the state file's parts the import reads; Refused when it is not the old tool's state file."""
     try:
         state = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -30,10 +61,15 @@ def read_state(path):
     if not isinstance(state, dict) or not isinstance(state.get("ids"), dict):
         msg = f"{path} is not the old metadata tool's state file: it has no `ids`"
         raise workflow.Refused(msg)
-    return {part: state.get(part) or {} for part in ("ids", "covers", "metadata", "status")}
+    return {
+        "ids": state.get("ids") or {},
+        "covers": state.get("covers") or {},
+        "metadata": state.get("metadata") or {},
+        "status": state.get("status") or {},
+    }
 
 
-def read_overrides(path):
+def read_overrides(path: str | Path) -> dict[str, int | str]:
     """Return the config's manga overrides as {Kavita series name: Suwayomi manga id or title}.
 
     The config's `overrides`, then its `map` file's (a path relative to the config's folder).
@@ -46,7 +82,7 @@ def read_overrides(path):
     if not isinstance(old, dict):
         msg = f"{path} is not the old metadata tool's config"
         raise workflow.Refused(msg)
-    found = {}
+    found: dict[str, int | str] = {}
     if old.get("map"):
         map_path = Path(path).parent / old["map"]
         try:
@@ -58,7 +94,7 @@ def read_overrides(path):
     return found
 
 
-def run(ctx: workflow.Context, state, overrides):
+def run(ctx: workflow.Context, state: OldState, overrides: Mapping[str, int | str]) -> None:
     """Import the state file's ids, covers and written fields of each in-scope library series, then link the overrides.
 
     The library's series are synced to rows first; a series the state file no longer names loses what an earlier
@@ -104,7 +140,9 @@ def run(ctx: workflow.Context, state, overrides):
     )
 
 
-def _import_series(conn, series_id, kavita_id, entry, state):
+def _import_series(
+    conn: db.Connection, series_id: int, kavita_id: str, entry: Mapping[str, str | int | None], state: OldState
+) -> None:
     conn.execute("DELETE FROM series_source_id WHERE series_id = %s AND origin = 'import'", (series_id,))
     for key, value in entry.items():
         source = OLD_SOURCES.get(key)
@@ -124,19 +162,22 @@ def _import_series(conn, series_id, kavita_id, entry, state):
     )
 
 
-def _link_overrides(ctx: workflow.Context, listing, overrides):
+def _link_overrides(
+    ctx: workflow.Context, listing: Sequence[Series], overrides: Mapping[str, int | str]
+) -> tuple[int, list[str]]:
     """Link each override's Suwayomi manga to the Kavita series it names. Returns (links made, names not found)."""
-    by_name = {}
+    by_name: dict[str, Series] = {}
     for kseries in listing:
         for name in (kseries.get("name"), kseries.get("localizedName"), kseries.get("originalName")):
             if name:
                 by_name.setdefault(normalize(name), kseries)
     manga = list(ctx.suwayomi.library_manga())
     by_id = {m["id"]: m for m in manga}
-    by_title = {}
+    by_title: dict[str, Manga] = {}
     for m in manga:
         by_title.setdefault(normalize(m["title"]), m)
-    linked, unknown = 0, []
+    linked = 0
+    unknown: list[str] = []
     for name, target in overrides.items():
         kseries = by_name.get(normalize(name))
         found = by_id.get(target) if isinstance(target, int) else by_title.get(normalize(str(target)))

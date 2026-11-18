@@ -30,7 +30,7 @@ CHECK_FAILURES = (
 BASELINE_PASS_AT = "intake.baseline_pass_at"  # meta: when the last baseline pass completed
 
 
-def run(ctx: workflow.Context, clients):
+def run(ctx: workflow.Context, clients: sources.Sources) -> None:
     """Run the metadata step: sync and link the library, the baseline pass, wanted covers, the due checks, admission.
 
     A service failure while syncing or linking skips the rest; a baseline pass, a cover fetch or a check that does not
@@ -68,7 +68,7 @@ def run(ctx: workflow.Context, clients):
     admit.run(ctx, kavita_series.rows())
 
 
-def baseline_pass(ctx: workflow.Context):
+def baseline_pass(ctx: workflow.Context) -> None:
     """Take, once a day, the baseline of the library's record series that have none.
 
     Those are every in-scope ok series Kavita holds that has none (or lacks its naming fields) and whose folder holds a
@@ -102,7 +102,7 @@ def baseline_pass(ctx: workflow.Context):
         log.info("%s: baseline pass: %d series", ctx.part, taken)
 
 
-def _with_folder(ctx: workflow.Context, series):
+def _with_folder(ctx: workflow.Context, series: db.Row) -> db.Row | None:
     """Return the series row once its folder, as Kavita gives it, is stored.
 
     None when Kavita gives no usable one (logged).
@@ -119,7 +119,7 @@ def _with_folder(ctx: workflow.Context, series):
     return db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series["id"],))
 
 
-def _take(ctx: workflow.Context, series):
+def _take(ctx: workflow.Context, series: db.Row) -> bool:
     """Take the series' baseline; return whether it was taken (why not logged).
 
     The database, the share or a service down raises: the run's problem (the pass is tried again); any other failure

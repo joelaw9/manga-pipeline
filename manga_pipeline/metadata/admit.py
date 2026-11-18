@@ -9,16 +9,19 @@ under the library root, and must leave a folder name once made safe; else the se
 """
 
 import logging
+from collections.abc import Iterable, Sequence
+from pathlib import Path
 
 from manga_pipeline import config, db, names, workflow
 from manga_pipeline.clients.kavita_match import normalize, series_names
 from manga_pipeline.db import sql
+from manga_pipeline.replies.kavita import Series
 
 log = logging.getLogger(__name__)
 ANILIST_SUFFIX = " @COMIC"  # AniList's mark on a title also used by an anime, dropped as the old tool did
 
 
-def run(ctx: workflow.Context, listing):
+def run(ctx: workflow.Context, listing: Sequence[Series]) -> None:
     """Admit every in-scope pending new series whose check completed and is not due again at once.
 
     `series new` makes it due at once: the check runs first. listing: the library's series (Kavita's
@@ -45,19 +48,19 @@ class _Library:
     Its series' names as Kavita normalises them, and the folders under its root (read once per admission run).
     """
 
-    def __init__(self, listing, root):
+    def __init__(self, listing: Iterable[Series], root: Path) -> None:
         self.root = root
         self._kavita_keys = {normalize(n): s for s in listing for n in series_names(s) if normalize(n)}
         self._on_disk = [p.name for p in root.iterdir()]
 
-    def series_clash(self, key):
+    def series_clash(self, key: str) -> str | None:
         """Why a Kavita series holds the name of normalised key, or None."""
         if key not in self._kavita_keys:
             return None
         found = self._kavita_keys[key]
         return f"Kavita series {found['id']} ({found['name']}) has that name"
 
-    def folder_clash(self, key, safe):
+    def folder_clash(self, key: str, safe: str) -> str | None:
         """Why a folder under the root holds the name (of normalised key, safe folder name), or None."""
         for folder in self._on_disk:
             if folder.casefold() == safe.casefold() or normalize(folder) == key:
@@ -65,7 +68,7 @@ class _Library:
         return None
 
 
-def name_for(conn, series):
+def name_for(conn: db.Connection, series: db.Row) -> str:
     """Return the series' name by SPEC "Series identification"."""
     if series["admit_name"]:
         return series["admit_name"]
@@ -78,7 +81,7 @@ def name_for(conn, series):
     return english or series["alt_name"] or series["name"]
 
 
-def _admit(ctx: workflow.Context, series, library):
+def _admit(ctx: workflow.Context, series: db.Row, library: _Library) -> None:
     conn = ctx.conn
     name = name_for(conn, series)
     safe = names.folder_name(name)
@@ -99,7 +102,7 @@ def _admit(ctx: workflow.Context, series, library):
         log.info("series %s (%s): admitted as new series %r, folder %r", series["id"], series["name"], name, safe)
 
 
-def _clash(conn, series, name, safe, library):
+def _clash(conn: db.Connection, series: db.Row, name: str, safe: str, library: _Library) -> str | None:
     """Return why the name cannot be the series', or None.
 
     Runs inside the admission's transaction, so 2 admissions never both take a name.
@@ -112,7 +115,7 @@ def _clash(conn, series, name, safe, library):
     return library.series_clash(key) or _new_series_clash(conn, series, key) or library.folder_clash(key, safe)
 
 
-def _new_series_clash(conn, series, key):
+def _new_series_clash(conn: db.Connection, series: db.Row, key: str) -> str | None:
     """Why another new series Kavita does not hold yet has the name of normalised key, or None."""
     others = conn.execute(
         """SELECT id, comicinfo_series FROM series

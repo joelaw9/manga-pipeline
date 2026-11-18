@@ -5,15 +5,18 @@ chapters that refresh added and the series lacks.
 """
 
 import logging
+from collections.abc import Iterable
 
-from manga_pipeline import names, validation, workflow
+from manga_pipeline import db, names, validation, workflow
 from manga_pipeline.clients import suwayomi as suwayomi_client
+from manga_pipeline.replies.suwayomi import Chapter, Manga
 
 log = logging.getLogger(__name__)
 COMPLETED = "COMPLETED"
+type ChapterKey = tuple[str | None, str | None, str | None]  # (season, side label, number)
 
 
-def completed(ctx: workflow.Context, series_id, manga_rows):
+def completed(ctx: workflow.Context, series_id: int, manga_rows: Iterable[Manga]) -> None:
     """Refresh the chapter list of each completed Suwayomi manga of the series, and queue the chapters it added.
 
     Only a chapter the refresh added whose key the series does not hold is queued (1 per key), and the downloader
@@ -31,7 +34,7 @@ def completed(ctx: workflow.Context, series_id, manga_rows):
             continue
         # Queued at once, manga by manga: the next refresh counts these chapters as listed before it.
         # ponytail: a failure between the fetch and the enqueue loses them; persist the added ids if that bites.
-        queued = []
+        queued: list[int] = []
         for chapter in after:
             if chapter["id"] not in before and key(chapter) not in held:
                 held.add(key(chapter))  # 1 copy per chapter key, whichever manga or scanlator lists it
@@ -44,13 +47,13 @@ def completed(ctx: workflow.Context, series_id, manga_rows):
             )
 
 
-def key(chapter):
+def key(chapter: Chapter) -> ChapterKey:
     """(season, side label, number) of a Suwayomi chapter, as its download's name gives it."""
     item = names.parse(suwayomi_client.chapter_file(chapter["scanlator"], chapter["name"])[: -len(".cbz")])
     return validation.chapter_key(names.identity(item))
 
 
-def _held_keys(conn, series_id):
+def _held_keys(conn: db.Connection, series_id: int) -> set[ChapterKey]:
     """Return the chapter keys of the series' published files, unfinished chapters and handled chapters."""
     rows = conn.execute(
         """SELECT identity FROM published_file WHERE series_id = %(id)s
