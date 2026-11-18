@@ -13,12 +13,23 @@ import csv
 import hashlib
 import io
 import re
+from collections.abc import Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NotRequired, TypedDict
 
 import yaml
 
 from manga_pipeline import names
+from manga_pipeline.config import Yaml
+from manga_pipeline.metadata.records import SeriesRecords
+from manga_pipeline.replies.sources import (
+    AniListMedia,
+    MangaBakaSeries,
+    MangaBakaTag,
+    MangaDexManga,
+    MangaUpdatesSeries,
+)
 
 RULES = Path(__file__).with_name("tag_rules")
 FILES = ("consolidation.csv", "derived_tags.yaml", "promote_tags.txt", "tag_allowlist.txt", "top_up_exclude.txt")
@@ -32,22 +43,39 @@ RULE_WEIGHTS = ("core", "defining", "recurrent", "incidental")
 SMALL_WORDS = {"a", "an", "and", "as", "at", "for", "in", "of", "on", "or", "the", "to"}
 PLURAL_MARKER = re.compile(r"/(?:ies|ves|e?s)\b", re.IGNORECASE)  # MangaUpdates' "Concubine/s", "Elf/ves"
 SHORT_KEY_MAX = 4  # a key this short keeps its final "s"
+type Table = dict[tuple[str, str], tuple[str, str]]  # {(kind, term key): (to kind, to name)}; to kind "remove" drops it
+
+
+class DerivedRule(TypedDict):
+    """A rule of a derived tag: every group shares a term with the series', none of none does, min_weight met."""
+
+    all: list[set[str]]
+    none: set[str]
+    min_weight: NotRequired[tuple[str, int]]  # (term key, rank in RULE_WEIGHTS) MangaBaka must weight it at least
+
+
+class Derived(TypedDict):
+    """A derived or promoted tag: its name, kind (tag or genre) and rules (any one gives it)."""
+
+    tag: str
+    kind: str
+    rules: list[DerivedRule]
 
 
 @dataclass(frozen=True)
 class Rules:
     """The loaded tag rules: consolidation table, derived and promoted tags, allowlists, exclusions, fingerprint."""
 
-    table: dict  # {(kind, term key): (to kind, to name)}; to kind "remove" drops it
-    derived: list  # derived and promoted tags: [{"tag", "kind", "rules": [{"all", "none", "min_weight"?}]}]
-    allow_genres: dict  # {term key: name} a top-up may add
-    allow_tags: dict
-    always_tags: frozenset  # allowlisted tags: added past MIN_TAGS too, at a strong weight
-    exclude: frozenset  # term keys a top-up never adds
+    table: Table
+    derived: list[Derived]  # derived and promoted tags
+    allow_genres: dict[str, str]  # {term key: name} a top-up may add
+    allow_tags: dict[str, str]
+    always_tags: frozenset[str]  # allowlisted tags: added past MIN_TAGS too, at a strong weight
+    exclude: frozenset[str]  # term keys a top-up never adds
     fingerprint: str  # sha256 of the rule files and of the code that applies them
 
 
-def load(folder=RULES):
+def load(folder: Path = RULES) -> Rules:
     """Load the rules of the rule files in folder.
 
     A file that is not valid raises ValueError naming it and the line or entry.
@@ -65,7 +93,8 @@ def load(folder=RULES):
         raise ValueError(msg) from None
     derived = _derived(entries, table) + _promoted(_lines(text["promote_tags.txt"]), table)
     allowlisted = _lines(text["tag_allowlist.txt"])
-    allow_genres, allow_tags = {}, {}
+    allow_genres: dict[str, str] = {}
+    allow_tags: dict[str, str] = {}
     for to_kind, to in table.values():
         if to_kind in ("genre", "tag"):
             (allow_genres if to_kind == "genre" else allow_tags).setdefault(term_key(to), to)
@@ -82,10 +111,10 @@ def load(folder=RULES):
     )
 
 
-def compute(records, rules):
-    """(genres, tags) of a series from its records ({(source, kind): payload or None}, as a check stores them)."""
-    mb, mu = records.get(("mangabaka", "series")), records.get(("mangaupdates", "series"))
-    md, al = records.get(("mangadex", "manga")), records.get(("anilist", "media"))
+def compute(records: SeriesRecords, rules: Rules) -> tuple[list[str], list[str]]:
+    """(genres, tags) of a series from its records, as a check stores them."""
+    mb, mu = records["mangabaka"], records["mangaupdates"]
+    md, al = records["mangadex"], records["anilist"]
     genres, tags = _sourced(mb, mu, md, al)
     genres, tags = _consolidate(genres, tags, rules.table)
     mb_tags, other_terms = _rule_terms(mb, mu)
@@ -102,12 +131,12 @@ def compute(records, rules):
 # --- names
 
 
-def display_name(name):
+def display_name(name: str) -> str:
     """Return a source's name without MangaUpdates' plural marker ("Concubine/s" -> "Concubine")."""
     return PLURAL_MARKER.sub("", name or "").strip()
 
 
-def term_key(term):
+def term_key(term: str) -> str:
     """Return the key a tag or genre name matches by.
 
     Plural markers and a final "s" dropped, case and punctuation ignored.
@@ -116,9 +145,10 @@ def term_key(term):
     return key[:-1] if len(key) > SHORT_KEY_MAX and key.endswith("s") else key
 
 
-def _unique(values):
+def _unique(values: Iterable[str]) -> list[str]:
     """Blanks and duplicates (by names.key) dropped, the first spelling kept."""
-    seen, out = set(), []
+    seen: set[str] = set()
+    out: list[str] = []
     for value in values:
         key = names.key(value)
         if key and key not in seen:
@@ -127,7 +157,7 @@ def _unique(values):
     return out
 
 
-def _canonical(name, kind, table):
+def _canonical(name: str, kind: str, table: Table) -> tuple[str, str] | None:
     """Return the (kind, name) a source's name converts to, or None when the table removes it."""
     key = term_key(name)
     hit = table.get((kind, key)) or table.get(("tag" if kind == "genre" else "genre", key))
@@ -136,7 +166,7 @@ def _canonical(name, kind, table):
     return kind, display_name(name)
 
 
-def _canonical_key(name, table):
+def _canonical_key(name: str, table: Table) -> str | None:
     found = _canonical(name, "tag", table)
     return term_key(found[1]) if found else None
 
@@ -144,13 +174,13 @@ def _canonical_key(name, table):
 # --- rule files
 
 
-def _consolidation(text):
+def _consolidation(text: str) -> Table:
     reader = csv.DictReader(io.StringIO(text))
     missing = {"from_kind", "from", "to_kind", "to"} - set(reader.fieldnames or ())
     if missing:
         msg = f"consolidation.csv: no column {', '.join(sorted(missing))}"
         raise ValueError(msg)
-    table = {}
+    table: Table = {}
     for row in reader:
         kind, name = (row["from_kind"] or "").strip().lower(), (row["from"] or "").strip()
         to_kind, to = (row["to_kind"] or "").strip().lower(), (row["to"] or "").strip()
@@ -164,18 +194,18 @@ def _consolidation(text):
     return table
 
 
-def _lines(text):
+def _lines(text: str) -> list[str]:
     return [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
 
 
-def _derived(entries, table):
+def _derived(entries: Yaml, table: Table) -> list[Derived]:
     if not isinstance(entries, list):
         msg = "derived_tags.yaml: not a list of entries"
         raise ValueError(msg)
     return [_derived_entry(entry, table) for entry in entries]
 
 
-def _derived_entry(entry, table):
+def _derived_entry(entry: Yaml, table: Table) -> Derived:
     """1 derived_tags.yaml entry as {tag, kind, rules}; ValueError naming what is wrong with it."""
     if not isinstance(entry, dict) or set(entry) - {"tag", "kind", "rules"} or not entry.get("tag"):
         msg = f"derived_tags.yaml: not an entry of tag, kind and rules: {entry!r}"
@@ -190,32 +220,33 @@ def _derived_entry(entry, table):
     return {"tag": tag, "kind": kind.lower(), "rules": [_derived_rule(rule, tag, table) for rule in rules]}
 
 
-def _derived_rule(rule, tag, table):
+def _derived_rule(rule: Yaml, tag: str, table: Table) -> DerivedRule:
     """1 rule of the entry for tag as {all: [term key sets], none: term key set}; ValueError naming what is wrong."""
     groups = rule.get("all") if isinstance(rule, dict) else None
-    if set(rule if isinstance(rule, dict) else ()) - {"all", "none"} or not isinstance(groups, list):
+    if not isinstance(rule, dict) or set(rule) - {"all", "none"} or not isinstance(groups, list):
         msg = f"derived_tags.yaml: {tag}: a rule is all (a list of groups) and none: {rule!r}"
         raise ValueError(msg)
     if not groups or not all(isinstance(g, list) and g for g in groups):
         msg = f"derived_tags.yaml: {tag}: a rule needs at least 1 group, each with a term: {rule!r}"
         raise ValueError(msg)
     return {
-        "all": [_rule_keys(group, tag, table) for group in rule["all"]],
+        "all": [_rule_keys(group, tag, table) for group in groups],
         "none": _rule_keys(rule.get("none") or [], tag, table),
     }
 
 
-def _rule_keys(terms, tag, table):
+def _rule_keys(terms: Yaml, tag: str, table: Table) -> set[str]:
     """Return a rule's list of terms as their canonical keys; ValueError when it is not a list of names."""
-    if not isinstance(terms, list) or not all(isinstance(t, str) for t in terms):
+    words = [t for t in terms if isinstance(t, str)] if isinstance(terms, list) else []
+    if not isinstance(terms, list) or len(words) != len(terms):
         msg = f"derived_tags.yaml: {tag}: not a list of names: {terms!r}"
         raise ValueError(msg)
-    return {k for k in (_canonical_key(t, table) for t in terms) if k}
+    return {k for k in (_canonical_key(t, table) for t in words) if k}
 
 
-def _promoted(lines, table):
+def _promoted(lines: Iterable[str], table: Table) -> list[Derived]:
     """Promoted tags as 1-term derived rules; "Tag: weight" also needs MangaBaka to weight it at least that."""
-    promoted = []
+    promoted: list[Derived] = []
     for line in lines:
         name, _, min_weight = (p.strip() for p in line.partition(":"))
         if min_weight and min_weight.lower() not in RULE_WEIGHTS:
@@ -223,7 +254,7 @@ def _promoted(lines, table):
             raise ValueError(msg)
         found = _canonical(name, "tag", table)
         if found:
-            rule = {"all": [{term_key(found[1])}], "none": set()}
+            rule: DerivedRule = {"all": [{term_key(found[1])}], "none": set()}
             if min_weight:
                 rule["min_weight"] = (term_key(found[1]), RULE_WEIGHTS.index(min_weight.lower()))
             promoted.append({"tag": found[1], "kind": found[0], "rules": [rule]})
@@ -233,10 +264,10 @@ def _promoted(lines, table):
 # --- sources
 
 
-def _mangabaka_genres(mb):
+def _mangabaka_genres(mb: MangaBakaSeries) -> list[str]:
     """MangaBaka's genre slugs ("martial_arts", "sci-fi") as names ("Martial Arts", "Sci-Fi")."""
 
-    def title(slug):
+    def title(slug: str) -> str:
         words = slug.replace("_", " ").split()
         return " ".join(
             w if i and w in SMALL_WORDS else "-".join(p.capitalize() for p in w.split("-")) for i, w in enumerate(words)
@@ -245,15 +276,20 @@ def _mangabaka_genres(mb):
     return [title(g) for g in mb.get("genres") or []]
 
 
-def _mu_genres(mu):
+def _mu_genres(mu: MangaUpdatesSeries) -> list[str]:
     return [g["genre"] for g in mu.get("genres") or []]
 
 
-def _mu_categories(mu):
+def _mu_categories(mu: MangaUpdatesSeries) -> list[str]:
     return [c["category"] for c in mu.get("categories") or []]
 
 
-def _sourced(mb, mu, md, al):
+def _sourced(
+    mb: MangaBakaSeries | None,
+    mu: MangaUpdatesSeries | None,
+    md: MangaDexManga | None,
+    al: AniListMedia | None,
+) -> tuple[list[str], list[str]]:
     """Return the sources' own genre and tag lists.
 
     Genres from MangaBaka (else MangaUpdates), AniList and MangaDex's genre tags; tags from AniList (rank at least 60,
@@ -280,9 +316,9 @@ def _sourced(mb, mu, md, al):
     return genres, tags
 
 
-def _consolidate(genres, tags, table):
+def _consolidate(genres: list[str], tags: list[str], table: Table) -> tuple[list[str], list[str]]:
     """Both lists through the table; a tag that ends up equal to a genre is dropped."""
-    out = {"genre": [], "tag": []}
+    out: dict[str, list[str]] = {"genre": [], "tag": []}
     for kind, values in (("genre", genres), ("tag", tags)):
         for value in values:
             found = _canonical(value, kind, table)
@@ -293,7 +329,7 @@ def _consolidate(genres, tags, table):
     return new_genres, [t for t in _unique(out["tag"]) if term_key(t) not in genre_keys]
 
 
-def _rule_terms(mb, mu):
+def _rule_terms(mb: MangaBakaSeries | None, mu: MangaUpdatesSeries | None) -> tuple[list[str], list[str]]:
     """Return (MangaBaka's tags, the other terms) derived-tag rules match.
 
     MangaBaka's tags carry weights; the other terms carry none to judge: MangaBaka's genres, status, content rating and
@@ -302,18 +338,18 @@ def _rule_terms(mb, mu):
     """
     mu_terms = (_mu_categories(mu) + _mu_genres(mu)) if mu else []
     if not mb:
-        return [], mu_terms + ([f"Type: {mu['type']}"] if mu and mu.get("type") else [])
+        return [], mu_terms + ([f"Type: {mu_type}"] if mu and (mu_type := mu.get("type")) else [])
     tags = [t["name"] for t in mb.get("tags_v2") or []]
     other = list(mb.get("genres") or [])
-    other += [f"Status: {mb['status']}"] if mb.get("status") else []
-    other += [f"Content Rating: {mb['content_rating']}"] if mb.get("content_rating") else []
-    other += [f"Type: {mb['type']}"] if mb.get("type") else []
+    other += [f"Status: {status}"] if (status := mb.get("status")) else []
+    other += [f"Content Rating: {rating}"] if (rating := mb.get("content_rating")) else []
+    other += [f"Type: {mb_type}"] if (mb_type := mb.get("type")) else []
     if len(tags) < MANGABAKA_SPARSE_TAGS:
         other += mu_terms
     return tags, other
 
 
-def _term_weights(mb, other_terms, table):
+def _term_weights(mb: MangaBakaSeries | None, other_terms: Iterable[str], table: Table) -> dict[str, int]:
     """Return {term key: rank in RULE_WEIGHTS}: each MangaBaka tag's best weight.
 
     Another term ranks 0 unless it is spelt exactly as a MangaBaka tag. MangaBaka carries MangaUpdates' categories and
@@ -321,8 +357,8 @@ def _term_weights(mb, other_terms, table):
     """
     if not mb:
         return {}
-    ranks = {}
-    tag_names = set()
+    ranks: dict[str, int] = {}
+    tag_names: set[str] = set()
     for tag in mb.get("tags_v2") or []:
         tag_names.add(tag["name"])
         key = _canonical_key(tag["name"], table)
@@ -336,10 +372,10 @@ def _term_weights(mb, other_terms, table):
     return ranks
 
 
-def _derive(terms, rules, weights):
+def _derive(terms: Iterable[str], rules: Rules, weights: Mapping[str, int]) -> list[tuple[str, str]]:
     have = {k for k in (_canonical_key(t, rules.table) for t in terms) if k}
 
-    def strong(rule):
+    def strong(rule: DerivedRule) -> bool:
         return "min_weight" not in rule or weights.get(rule["min_weight"][0], 0) <= rule["min_weight"][1]
 
     return [
@@ -349,30 +385,37 @@ def _derive(terms, rules, weights):
     ]
 
 
-def _top_up(genres, tags, mb, rules, mu_categories):
+def _top_up(
+    genres: list[str], tags: list[str], mb: MangaBakaSeries | None, rules: Rules, mu_categories: Sequence[str]
+) -> tuple[list[str], list[str]]:
     """Return (genres, tags) to add toward MIN_GENRES / MIN_TAGS.
 
     They come from MangaBaka's genres and weighted tags, then MangaUpdates categories MangaBaka lacks; only names in the
     allowlists, never excluded ones. Allowlisted tags, and tags the table makes genres, are added past the minimum too,
     at a strong weight only.
     """
-    cand_g, cand_t = _top_up_candidates(mb or {}, rules, mu_categories)
+    cand_g, cand_t = _top_up_candidates(mb, rules, mu_categories)
     have_g = {term_key(g) for g in genres}
     genre_keys = _top_up_genres(cand_g, have_g, rules)
     tag_keys = _top_up_tags(cand_t, {term_key(t) for t in tags}, have_g | set(genre_keys), rules)
     return [rules.allow_genres[k] for k in genre_keys], [rules.allow_tags[k] for k in tag_keys]
 
 
-def _top_up_candidates(mb, rules, mu_categories):
+def _top_up_candidates(
+    mb: MangaBakaSeries | None, rules: Rules, mu_categories: Sequence[str]
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Return ([(genre, weight)], [(tag, weight)]) a top-up may take, in order.
 
     The order: MangaBaka's genres, its strong tags (strongest first), then MangaUpdates categories MangaBaka has no tag
-    for; each as the table names it, removed ones left out.
+    for; each as the table names it, removed ones left out. No MangaBaka record: its categories alone.
     """
     table = rules.table
-    cand_g, cand_t = [], []
+    cand_g: list[tuple[str, str]] = []
+    cand_t: list[tuple[str, str]] = []
+    mb_genres = _mangabaka_genres(mb) if mb else []
+    mb_tags = (mb.get("tags_v2") or []) if mb else []
 
-    def candidate(name, kind, weight="unweighted", skip=()):
+    def candidate(name: str, kind: str, weight: str = "unweighted", skip: Container[str | None] = ()) -> None:
         found = _canonical(name, kind, table)
         if not found or term_key(found[1]) in skip:
             return
@@ -381,22 +424,22 @@ def _top_up_candidates(mb, rules, mu_categories):
         else:
             cand_t.append((found[1], weight))
 
-    for genre in _mangabaka_genres(mb):
+    for genre in mb_genres:
         candidate(genre, "genre")
 
-    def weight(tag):
+    def weight(tag: MangaBakaTag) -> str:
         return (tag.get("weight") or "unweighted").lower()
 
-    strong = [t for t in mb.get("tags_v2") or [] if weight(t) in TOP_UP_WEIGHTS]
+    strong = [t for t in mb_tags if weight(t) in TOP_UP_WEIGHTS]
     for tag in sorted(strong, key=lambda t: TOP_UP_WEIGHTS.index(weight(t))):
         candidate(tag["name"], "tag", weight(tag))
-    mb_keys = {_canonical_key(t["name"], table) for t in mb.get("tags_v2") or []}
+    mb_keys = {_canonical_key(t["name"], table) for t in mb_tags}
     for name in mu_categories:
         candidate(name, "tag", skip=mb_keys)
     return cand_g, cand_t
 
 
-def _top_up_genres(candidates, have, rules):
+def _top_up_genres(candidates: Iterable[tuple[str, str]], have: set[str], rules: Rules) -> list[str]:
     """Return the keys of the allowlisted, not excluded genres the top-up adds, in order.
 
     Up to MIN_GENRES held, past it at a strong weight only.
@@ -412,7 +455,9 @@ def _top_up_genres(candidates, have, rules):
     return added
 
 
-def _top_up_tags(candidates, have, genre_keys, rules):
+def _top_up_tags(
+    candidates: Iterable[tuple[str, str]], have: set[str], genre_keys: Container[str], rules: Rules
+) -> list[str]:
     """Return the keys of the allowlisted, not excluded tags the top-up adds, in order, none a genre.
 
     genre_keys are the genres held and added. Up to MIN_TAGS held, past it an always-added tag at a strong weight only.

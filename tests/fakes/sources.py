@@ -24,7 +24,7 @@ class _Fake:
         return list(self.results.get(name, []))
 
 
-class FakeMangaBaka(_Fake):
+class FakeMangaBaka(_Fake, sources.MangaBaka):
     def series(self, mb_id):
         return self._get("series", mb_id)
 
@@ -32,12 +32,12 @@ class FakeMangaBaka(_Fake):
         return self._get(source, source_id)
 
 
-class FakeMangaUpdates(_Fake):
+class FakeMangaUpdates(_Fake, sources.MangaUpdates):
     def series(self, mu_id):
         return self._get("series", mu_id)
 
 
-class FakeMangaDex(_Fake):
+class FakeMangaDex(_Fake, sources.MangaDex):
     def manga(self, md_id):
         return self._get("manga", md_id)
 
@@ -54,7 +54,7 @@ class FakeMangaDex(_Fake):
         return self.images[(md_id, file_name)]
 
 
-class FakeAniList(_Fake):
+class FakeAniList(_Fake, sources.AniList):
     def media(self, al_id):
         return self._get("media", al_id)
 
@@ -62,7 +62,7 @@ class FakeAniList(_Fake):
         return self.images[url]
 
 
-class FakeTapas(_Fake):
+class FakeTapas(_Fake, sources.Tapas):
     """records: ("series_id", slug) -> id; ("episodes", id) -> (items, listed total)."""
 
     def series_id(self, slug):
@@ -72,7 +72,7 @@ class FakeTapas(_Fake):
         return self._get("episodes", series_id)
 
 
-class FakeWebtoons(_Fake):
+class FakeWebtoons(_Fake, sources.Webtoons):
     """records: ("episodes", ref) -> items; ("app_only", ref) -> True, False or None (unread)."""
 
     def episodes(self, ref):

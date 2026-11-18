@@ -8,12 +8,23 @@ D7.11): age rating from MangaBaka, language from MangaDex, writers and penciller
 """
 
 import html.parser
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import override
 
 from markdown_it import MarkdownIt
 
+from manga_pipeline import db
 from manga_pipeline.metadata import ids, tags
+from manga_pipeline.metadata.records import STORED, SeriesRecords
+from manga_pipeline.replies.sources import (
+    AniListMedia,
+    AniListStaffEdge,
+    MangaBakaSeries,
+    MangaDexAttributes,
+    MangaDexManga,
+    MangaUpdatesSeries,
+)
 
 # MangaBaka status -> Kavita's publication status (0 Ongoing, 1 Hiatus, 2 Completed, 3 Cancelled; Ended is never set)
 KAVITA_STATUS = {"releasing": 0, "upcoming": 0, "hiatus": 1, "completed": 2, "cancelled": 3}
@@ -34,22 +45,22 @@ class SeriesFields:
     """A series' fields, as `fields` builds them: what Kavita's API and every `ComicInfo.xml` written receive."""
 
     summary: str | None
-    genres: tuple
-    tags: tuple
+    genres: tuple[str, ...]
+    tags: tuple[str, ...]
     status: int | None  # Kavita publication status
     age_rating: str | None  # ComicInfo AgeRating
     age_rating_kavita: int | None
     language: str | None  # ISO code
-    writers: tuple
-    pencillers: tuple
-    links: tuple  # series page URLs, 1 per source
-    kavita_ids: dict  # {"aniListId", "malId", "mangaBakaId"}: ints, None when unknown
+    writers: tuple[str, ...]
+    pencillers: tuple[str, ...]
+    links: tuple[str, ...]  # series page URLs, 1 per source
+    kavita_ids: dict[str, int | None]  # {"aniListId", "malId", "mangaBakaId"}: ints, None when unknown
 
 
-def fields(records, agreed, rules):
-    """Return the series' fields from its records ({(source, kind): payload or None}) and agreed ids ({source: id})."""
-    mb, mu = records.get(("mangabaka", "series")), records.get(("mangaupdates", "series"))
-    md, al = records.get(("mangadex", "manga")), records.get(("anilist", "media"))
+def fields(records: SeriesRecords, agreed: Mapping[str, str], rules: tags.Rules) -> SeriesFields:
+    """Return the series' fields from its records and agreed ids ({source: id})."""
+    mb, mu = records["mangabaka"], records["mangaupdates"]
+    md, al = records["mangadex"], records["anilist"]
     md_attr = (md or {}).get("attributes") or {}
     genres, tag_list = tags.compute(records, rules)
     rating = AGE_RATING.get(((mb or {}).get("content_rating") or "").lower())
@@ -73,11 +84,17 @@ def fields(records, agreed, rules):
     )
 
 
-def stored(conn, series_id, rules):
+def stored(conn: db.Connection, series_id: int, rules: tags.Rules) -> SeriesFields:
     """Return the series' fields from its stored records and agreed ids."""
-    records = {
+    payloads = {
         (r["source"], r["kind"]): r["payload"]
         for r in conn.execute("SELECT source, kind, payload FROM fetched WHERE series_id = %s", (series_id,))
+    }
+    records: SeriesRecords = {
+        "mangabaka": payloads.get(STORED["mangabaka"]),
+        "mangaupdates": payloads.get(STORED["mangaupdates"]),
+        "mangadex": payloads.get(STORED["mangadex"]),
+        "anilist": payloads.get(STORED["anilist"]),
     }
     known = conn.execute(
         "SELECT source, origin, source_id FROM series_source_id WHERE series_id = %s", (series_id,)
@@ -86,11 +103,13 @@ def stored(conn, series_id, rules):
     return fields(records, agreed, rules)
 
 
-def _edges(al):
+def _edges(al: AniListMedia | None) -> list[AniListStaffEdge]:
     return ((al or {}).get("staff") or {}).get("edges") or []
 
 
-def _summary(al, md_attr, mb, mu):
+def _summary(
+    al: AniListMedia | None, md_attr: MangaDexAttributes, mb: MangaBakaSeries | None, mu: MangaUpdatesSeries | None
+) -> str | None:
     """Return the first non-empty summary of its sources, in order.
 
     AniList (HTML), MangaDex English (Markdown), MangaBaka (Markdown and HTML), MangaUpdates (HTML).
@@ -104,9 +123,15 @@ def _summary(al, md_attr, mb, mu):
     return next((text for text in found if text), None)
 
 
-def _links(agreed, mb, mu, md, al):
+def _links(
+    agreed: Mapping[str, str],
+    mb: MangaBakaSeries | None,
+    mu: MangaUpdatesSeries | None,
+    md: MangaDexManga | None,
+    al: AniListMedia | None,
+) -> list[str]:
     """1 page per source whose record was found (a record a check dropped as a novel's gives none)."""
-    found = []
+    found: list[str] = []
     if al and agreed.get("anilist"):
         found.append(f"https://anilist.co/manga/{agreed['anilist']}")
     if mu and agreed.get("mangaupdates"):
@@ -120,11 +145,11 @@ def _links(agreed, mb, mu, md, al):
     return found
 
 
-def _int(value):
+def _int(value: str | None) -> int | None:
     return int(value) if value is not None else None
 
 
-def _base36(number):
+def _base36(number: int) -> str:
     out = ""
     while number:
         number, rest = divmod(number, 36)
@@ -140,24 +165,24 @@ class _Text(html.parser.HTMLParser):
 
     BREAKS = frozenset({"br", "p"})
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.parts = []
+        self.parts: list[str] = []
 
     @override
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in self.BREAKS:
             self.parts.append("\n")
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag == "p":
             self.parts.append("\n")
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         self.parts.append(data)
 
 
-def html_text(text):
+def html_text(text: str | None) -> str | None:
     """Return the plain text of an HTML summary.
 
     Paragraphs kept (at most 1 blank line between), a trailing "(Source: ...)" note dropped.
@@ -173,7 +198,7 @@ def html_text(text):
     return _paragraphs(lines)
 
 
-def markdown_text(text):
+def markdown_text(text: str | None) -> str | None:
     """Return the plain text of a Markdown summary, cut at its first horizontal rule.
 
     MangaDex appends links and credits under one. Links keep their text, emphasis marks go.
@@ -186,8 +211,9 @@ def markdown_text(text):
     return html_text(md.renderer.render(tokens[:cut], md.options, {}))
 
 
-def _paragraphs(lines):
-    out, blank = [], False
+def _paragraphs(lines: list[str]) -> str | None:
+    out: list[str] = []
+    blank = False
     for line in lines:
         if line:
             if blank and out:

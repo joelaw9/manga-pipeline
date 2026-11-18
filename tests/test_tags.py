@@ -11,14 +11,22 @@ from pathlib import Path
 import pytest
 
 from manga_pipeline.metadata import tags
+from manga_pipeline.replies.sources import MangaBakaSeries, MangaBakaTag, MangaUpdatesSeries
 
+from tests.builders import anilist_media, series_records
 from tests.timing import budget
 
 GOLDEN = Path(__file__).parent / "fixtures_api" / "tags"
 
 
 def records(fixture):
-    return {tuple(key.split(".")): fixture[key] for key in fixture if "." in key}
+    """Return a golden fixture's records ("<source>.<kind>" keys) as a check stores them."""
+    return series_records(
+        mangabaka=fixture.get("mangabaka.series"),
+        mangaupdates=fixture.get("mangaupdates.series"),
+        mangadex=fixture.get("mangadex.manga"),
+        anilist=fixture.get("anilist.media"),
+    )
 
 
 @pytest.fixture(scope="module")
@@ -50,7 +58,7 @@ def test_a_rule_edit_changes_the_lists_and_the_fingerprint(tmp_path, rules):
 
 @budget()
 def test_a_series_no_source_knows_has_no_genres_or_tags(rules):
-    assert tags.compute({}, rules) == ([], []), "no record, no list"
+    assert tags.compute(series_records(), rules) == ([], []), "no record, no list"
 
 
 @budget()
@@ -63,58 +71,66 @@ def test_mangaupdates_plural_markers_and_a_final_s_are_one_name():
 @budget()
 def test_a_top_up_adds_only_allowlisted_names_and_never_an_excluded_one(rules):
     assert tags.term_key("Full Color") in rules.allow_tags, "the case needs an excluded name that is also allowed"
-    mb = {"genres": [], "tags_v2": [{"name": n, "weight": "core"} for n in ("Full Color", "Nobility", "Made-Up Tag")]}
-    _, tag_list = tags.compute({("mangabaka", "series"): mb}, rules)
+    mb: MangaBakaSeries = {
+        "id": 1,
+        "genres": [],
+        "tags_v2": [{"name": n, "weight": "core"} for n in ("Full Color", "Nobility", "Made-Up Tag")],
+    }
+    _, tag_list = tags.compute(series_records(mangabaka=mb), rules)
     assert "Nobility" in tag_list, "an allowlisted tag fills a short list"
     assert "Full Color" not in tag_list, "an excluded name is never added, allowed or not"
     assert "Made-Up Tag" not in tag_list, "a name in no allowlist is never added"
 
 
-def mb_with(*named, genres=()):
+def mb_with(*named, genres=()) -> MangaBakaSeries:
     """Return a MangaBaka record with at least 10 tags (not sparse): the named (name, weight) ones plus fillers."""
-    filler = [{"name": f"Filler {i}", "weight": "incidental"} for i in range(10)]
-    return {"genres": list(genres), "tags_v2": [{"name": n, "weight": w} for n, w in named] + filler}
+    filler: list[MangaBakaTag] = [{"name": f"Filler {i}", "weight": "incidental"} for i in range(10)]
+    tags_v2: list[MangaBakaTag] = [{"name": n, "weight": w} for n, w in named]
+    return {"id": 1, "genres": list(genres), "tags_v2": tags_v2 + filler}
 
 
 @budget()
 def test_a_promoted_tag_needs_its_minimum_mangabaka_weight(rules):
-    weak = tags.compute({("mangabaka", "series"): mb_with(("Revenge", "incidental"))}, rules)[1]
-    strong = tags.compute({("mangabaka", "series"): mb_with(("Revenge", "recurrent"))}, rules)[1]
+    weak = tags.compute(series_records(mangabaka=mb_with(("Revenge", "incidental"))), rules)[1]
+    strong = tags.compute(series_records(mangabaka=mb_with(("Revenge", "recurrent"))), rules)[1]
     assert "Revenge" not in weak, "promote_tags.txt: Revenge: recurrent"
     assert "Revenge" in strong, "promote_tags.txt: Revenge: recurrent"
 
 
 @budget()
 def test_a_mangaupdates_category_mangabaka_repeats_keeps_mangabakas_weight(rules):
-    mb = {"genres": [], "tags_v2": [{"name": "Revenge", "weight": "incidental"}]}
-    mu = {"genres": [], "categories": [{"category": "Revenge"}]}
-    _, tag_list = tags.compute({("mangabaka", "series"): mb, ("mangaupdates", "series"): mu}, rules)
+    mb: MangaBakaSeries = {"id": 1, "genres": [], "tags_v2": [{"name": "Revenge", "weight": "incidental"}]}
+    mu: MangaUpdatesSeries = {"genres": [], "categories": [{"category": "Revenge"}]}
+    _, tag_list = tags.compute(series_records(mangabaka=mb, mangaupdates=mu), rules)
     assert "Revenge" not in tag_list, "MangaBaka weighs MangaUpdates' low-vote category: incidental is too weak"
     mu = {"genres": [], "categories": [{"category": "Revenge/s"}]}
-    _, tag_list = tags.compute({("mangabaka", "series"): mb, ("mangaupdates", "series"): mu}, rules)
+    _, tag_list = tags.compute(series_records(mangabaka=mb, mangaupdates=mu), rules)
     assert "Revenge" in tag_list, "spelt otherwise, the category is another source's term: any weight"
 
 
 @budget()
 def test_without_mangabaka_mangaupdates_gives_the_genres_and_rule_terms(rules):
-    mu = {"genres": [{"genre": "Fantasy"}, {"genre": "Romance"}], "categories": [{"category": "Revenge"}]}
-    genres, tag_list = tags.compute({("mangaupdates", "series"): mu}, rules)
+    mu: MangaUpdatesSeries = {
+        "genres": [{"genre": "Fantasy"}, {"genre": "Romance"}],
+        "categories": [{"category": "Revenge"}],
+    }
+    genres, tag_list = tags.compute(series_records(mangaupdates=mu), rules)
     assert genres[:2] == ["Fantasy", "Romance"], "MangaUpdates' genres stand in for MangaBaka's"
     assert "Revenge" in tag_list, "its categories are rule terms"
 
 
 @budget()
 def test_a_genre_short_series_is_topped_up_from_mangabaka_genres(rules):
-    al = {"genres": ["Action"], "tags": []}
+    al = anilist_media(genres=["Action"], tags=[])
     mb = mb_with(("Martial Artist", "core"), genres=["action"])
-    genres, _ = tags.compute({("mangabaka", "series"): mb, ("anilist", "media"): al}, rules)
+    genres, _ = tags.compute(series_records(mangabaka=mb, anilist=al), rules)
     assert "Martial Arts" in genres, "a MangaBaka tag the table makes a genre fills a genre-short series"
 
 
 @budget()
 def test_null_anilist_fields_read_as_empty(rules):
-    media = {"genres": None, "tags": [{"name": "Magic", "rank": None, "isMediaSpoiler": None}]}
-    assert tags.compute({("anilist", "media"): media}, rules) == ([], []), "a null list or rank is none"
+    media = anilist_media(genres=None, tags=[{"name": "Magic", "rank": None, "isMediaSpoiler": None}])
+    assert tags.compute(series_records(anilist=media), rules) == ([], []), "a null list or rank is none"
 
 
 @budget(load="fs")
