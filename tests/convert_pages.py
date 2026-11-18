@@ -96,12 +96,11 @@ class Chapter:
             "test chapter", self.measured, self.files, edit or NO_EDIT, plan.SeriesLayout(layout, page_aspect)
         )
         p.quality = dict(quality)
-        plan.routes(p)
-        return p
+        return plan.routes(p)
 
     def run(self, chapter_plan):
         """Execute `chapter_plan` on the extracted pages, without a cover; return image.process_chapter's record."""
-        avif_first = chapter_plan.outcomes[0]["outcome"] == "avif"
+        avif_first = chapter_plan.outcomes.avif is not None
         blanked = image.blank_pages(chapter_plan, self.x, self.root / "blank") if avif_first else {}
         src = image.sources(chapter_plan, self.x, blanked, self.root / "sources")
         rendered = image.render(chapter_plan, src, self.rendered_dir) if chapter_plan.render else []

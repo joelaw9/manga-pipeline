@@ -137,7 +137,7 @@ def _samples_wanted(row: calibrate.Group | None, chapter_id: int) -> bool:
     )
 
 
-def _sampling(stored: Mapping[str, calibrate.Group], chapter_plan: plan.ChapterPlan, chapter_id: int) -> bool:
+def _sampling(stored: Mapping[str, calibrate.Group], chapter_plan: plan.RoutedPlan, chapter_id: int) -> bool:
     """Return whether a group the plan's AVIF outcome encodes takes samples from this chapter.
 
     stored: calibrate.rows.
@@ -338,16 +338,16 @@ def _encode(
     with encoder(ctx.cfg) as enc:
         # before the route: an AVIF cover that passed can make the chapter AVIF
         cover = None if cover_file is None else _cover(enc, cover_file, work / "cover")
-        _route(chapter, chapter_plan, None if cover is None else cover.cover)
-        sampling = _sampling(calibrate.rows(ctx.conn, chapter["series_id"]), chapter_plan, chapter["id"])
-        prepared = _pages(chapter_plan, scratch, sampling=sampling)
-        chapter_plan.quality = _calibrate(ctx, chapter, prepared.units, encoder=enc, work=work)
+        routed = _route(chapter, chapter_plan, None if cover is None else cover.cover)
+        sampling = _sampling(calibrate.rows(ctx.conn, chapter["series_id"]), routed, chapter["id"])
+        prepared = _pages(routed, scratch, sampling=sampling)
+        routed.quality = _calibrate(ctx, chapter, prepared.units, encoder=enc, work=work)
         rec = image.process_chapter(
             image.PageFiles.of(scratch / EXTRACTED, prepared.encoded, prepared.blanked),
             scratch / OUTPUT,
             work_dir=work / "encode",
             encoder=enc,
-            chapter_plan=chapter_plan,
+            chapter_plan=routed,
         )
         return rec, cover
 
@@ -358,18 +358,19 @@ def _cover(enc: image.Encoder, cover_file: _CoverFile, work_dir: Path) -> _Encod
     return _EncodedCover(cover_file.volume, {"data": cover_file.data, "width": cover_file.width, "avif": avif})
 
 
-def _route(chapter: db.Row, chapter_plan: plan.ChapterPlan, cover: plan.VolumeCover | None) -> None:
-    """Set the plan's route and outcomes (cover: the volume cover with its AVIF encode, when it takes one).
+def _route(chapter: db.Row, chapter_plan: plan.ChapterPlan, cover: plan.VolumeCover | None) -> plan.RoutedPlan:
+    """Return the plan with its route and outcomes (cover: the volume cover with its AVIF encode, when it takes one).
 
     A mix of formats that stays untouched is logged.
     """
-    plan.routes(chapter_plan, cover=cover)
-    if chapter_plan.route == "untouched-flag":
+    routed = plan.routes(chapter_plan, cover=cover)
+    if routed.route == "untouched-flag":
         log.warning(
             "chapter %s: formats %s mix with others: untouched",
             chapter["id"],
             sorted({q["format"] for q in chapter_plan.kept()}),
         )
+    return routed
 
 
 @dataclass
@@ -385,14 +386,14 @@ class _Pages:
     units: dict[str, list[calibrate.Unit]]
 
 
-def _pages(chapter_plan: plan.ChapterPlan, scratch: Path, *, sampling: bool) -> _Pages:
+def _pages(chapter_plan: plan.RoutedPlan, scratch: Path, *, sampling: bool) -> _Pages:
     """Make the pages the encode and the calibration read.
 
     Logo blanks apply to the AVIF outcomes only; calibration samples take the unblanked pages (as the bulk converter),
     so a rendered chapter with blanks is rendered unblanked too when a group wants its samples (sampling).
     """
     x_dir = scratch / EXTRACTED
-    avif_first = chapter_plan.outcomes[0]["outcome"] == "avif"
+    avif_first = chapter_plan.outcomes.avif is not None
     blanked = image.blank_pages(chapter_plan, x_dir, scratch / "blank") if avif_first else {}
     rendered: list[Path]
     encoded: list[Path]
