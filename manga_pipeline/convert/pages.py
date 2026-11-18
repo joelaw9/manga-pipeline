@@ -7,9 +7,11 @@ extracted under. Copied from the bulk converter's optimizer/image.py (jpeg_feed)
 
 import io
 from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 
 import numpy as np
+from numpy.typing import NDArray
 from PIL import Image
 
 from manga_pipeline import archive, images
@@ -21,7 +23,7 @@ RGB_COMPONENT_IDS = [ord("R"), ord("G"), ord("B")]  # libjpeg reads these ids as
 COLOUR_COMPONENTS = 3  # a JPEG's colour components (Pillow's layers): Y, Cb, Cr or R, G, B
 
 
-def jpeg_feed(data):
+def jpeg_feed(data: bytes) -> bool:
     """Return whether avifenc can be fed this JPEG itself instead of our decoded PNG.
 
     Only when it reads the pixels open_image decodes: a YCbCr or RGB-coded JPEG (Pillow mode RGB) with no colour profile
@@ -36,7 +38,7 @@ def jpeg_feed(data):
         )
 
 
-def _jpeg_kind(im):
+def _jpeg_kind(im: Image.Image) -> str | None:
     """Return 'ycc' for a 3-component YCbCr JPEG, 'gray' for a 1-component one, else None.
 
     None for CMYK and RGB-coded ones (an Adobe transform 0, or no JFIF / Adobe marker and component ids 'R', 'G', 'B',
@@ -61,7 +63,7 @@ def _jpeg_kind(im):
     return None
 
 
-def jpeg_gray(data):
+def jpeg_gray(data: bytes) -> bool:
     """Return whether `jpegtran -grayscale` grays this JPEG by keeping its stored Y plane.
 
     True for YCbCr or 1-component (it refuses CMYK, YCCK and RGB-coded ones). Header only.
@@ -73,11 +75,13 @@ def jpeg_gray(data):
 class Page:
     """1 page's bytes and its decodes, each made at most once (the post-check reads a page several ways)."""
 
-    def __init__(self, data):
+    def __init__(self, data: bytes) -> None:
         """Store the page's bytes; nothing is decoded yet."""
+        self._raw: Image.Image | None
+        self._image: tuple[Image.Image, bool] | None
         self.data, self._raw, self._image = data, None, None
 
-    def raw(self):
+    def raw(self) -> Image.Image:
         """Pillow's own full decode."""
         if self._raw is None:
             im = Image.open(io.BytesIO(self.data))
@@ -85,14 +89,14 @@ class Page:
             self._raw = im
         return self._raw
 
-    def image(self):
+    def image(self) -> tuple[Image.Image, bool]:
         """images.open_image's (image, has_alpha), made from raw()."""
         if self._image is None:
             self._image = images.from_loaded(self.raw())
         return self._image
 
 
-def _pixels(page, mode):
+def _pixels(page: Page, mode: str) -> NDArray[np.uint8]:
     """Return the page's pixels for comparison: RGBA (exact) or LA (luma).
 
     So a changed alpha channel does not match (beyond LUMA_TOLERANCE in luma mode) and a dropped fully-opaque one still
@@ -101,7 +105,7 @@ def _pixels(page, mode):
     return np.asarray(page.image()[0].convert("LA" if mode == "luma" else "RGBA"))
 
 
-def _native_luma(page):
+def _native_luma(page: Page) -> NDArray[np.uint8] | None:
     """Return the Y plane exactly as stored, for a YCbCr or 1-component JPEG; None for anything else.
 
     jpegtran -grayscale keeps Y untouched, while RGB->L of the decoded colour page can differ by a few levels where
@@ -117,7 +121,7 @@ def _native_luma(page):
         return np.asarray(im)[..., 0]
 
 
-def pixels_match(original, output, mode):
+def pixels_match(original: bytes | Page, output: bytes | Page, mode: str) -> tuple[bool, int | None]:
     """Check that an output page (bytes or Page) matches its original losslessly: exact (RGBA) or luma.
 
     Luma of a YCbCr JPEG source against a JPEG output compares the stored Y planes exactly; other luma comparisons go
@@ -126,6 +130,8 @@ def pixels_match(original, output, mode):
     """
     original = original if isinstance(original, Page) else Page(original)
     output = output if isinstance(output, Page) else Page(output)
+    a: NDArray[np.uint8] | None
+    b: NDArray[np.uint8] | None
     a = b = None
     tol = 0
     if mode == "luma":
@@ -143,7 +149,7 @@ def pixels_match(original, output, mode):
     return diff <= tol, diff
 
 
-def has_colour(page):
+def has_colour(page: Page) -> bool:
     """Return whether the page has colour the luma comparison cannot ignore.
 
     The colour page class (images.classify, judged on the page composited onto white); a gray-mark page (1 compact
@@ -154,7 +160,7 @@ def has_colour(page):
     return images.classify(rgb, images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)[0] == images.COLOUR
 
 
-def _page_ext(name, fmt):
+def _page_ext(name: str, fmt: str) -> str:
     """Return the extension a page of format fmt is extracted under.
 
     A correct existing extension is kept (e.g. .jpeg), so renaming does not churn names.
@@ -165,7 +171,7 @@ def _page_ext(name, fmt):
     return images.EXTENSION[fmt]
 
 
-def target_names(names_formats):
+def target_names(names_formats: Sequence[tuple[str, str]]) -> list[str]:
     """Return the page file names the bulk converter extracts to ([(archive member name, format)] in reading order).
 
     001, 002, ... (at least 3 digits) in reading order. Cover-named pages (archive.is_cover_name) keep their names when
@@ -174,7 +180,8 @@ def target_names(names_formats):
     """
     width = max(3, len(str(sum(not archive.is_cover_name(n) for n, _ in names_formats))))
 
-    def names(prefix):
+    def names(*, prefix: bool) -> list[str]:
+        out: list[str]
         out, k = [], 0
         for n, f in names_formats:
             stem = PurePosixPath(n.replace("\\", "/")).stem
@@ -190,11 +197,11 @@ def target_names(names_formats):
     return plain if _order_kept(plain) else names(prefix=True)
 
 
-def _order_kept(names):
+def _order_kept(names: list[str]) -> bool:
     return sorted(names, key=archive.natural_key) == names
 
 
-def name_problems(names):
+def name_problems(names: list[str]) -> list[str]:
     """Return why target names cannot stand for the pages ([] when they can).
 
     2 stems equal ignoring case (their outputs would share 1 name), an order the names do not keep, or names whose
@@ -202,7 +209,7 @@ def name_problems(names):
     the output).
     """
     stems = Counter(PurePosixPath(n).stem.lower() for n in names)
-    out = []
+    out: list[str] = []
     dup = sorted(n for n in names if stems[PurePosixPath(n).stem.lower()] > 1)
     if dup:
         out.append(f"2 pages share a name stem: {', '.join(dup[:5])}")
@@ -213,7 +220,7 @@ def name_problems(names):
     return out
 
 
-def extract(cbz, x_dir):
+def extract(cbz: Path, x_dir: Path) -> tuple[list[Path], list[str]]:
     """Write a CBZ's pages (archive.archive_pages order) into x_dir under target_names.
 
     Returns (their paths, the name_problems); with a problem nothing is written.

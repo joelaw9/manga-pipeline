@@ -17,7 +17,7 @@ from manga_pipeline.convert import calibrate
 from manga_pipeline.db import sql
 from manga_pipeline.workflow import Failed, Waiting
 
-from tests.builders import add_chapter, add_series, chapter, one, present, site_cfg
+from tests.builders import add_chapter, add_series, chapter, db_row, one, present, site_cfg
 from tests.timing import budget
 from tests.world import cbz
 
@@ -199,7 +199,7 @@ def test_a_lost_claim_puts_no_download_aside_and_adds_no_calibration_sample(flee
             "UPDATE chapter SET download_path = %s, content_digest = 'd' WHERE id = %s", (str(download), stale["id"])
         )
         handled.record(fleet.conn, stale["series_id"], "c0", "published", "d")
-    stale = {**dict(zip(stale.keys(), stale, strict=True)), "download_path": str(download)}
+    stale = db_row(**{**dict(zip(stale.keys(), stale, strict=True)), "download_path": str(download)})
     with pytest.raises(workflow.ClaimLost):
         handled.put_aside(a, stale, "d")
     assert download.exists(), "no download is put aside under a lost claim"

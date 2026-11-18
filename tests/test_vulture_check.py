@@ -51,6 +51,20 @@ def test_a_typeddict_inheriting_one_of_another_module_is_found():
     assert vulture_check.typeddict_fields(trees) == {(base, 3), (child, 3)}, "a subclass of a TypedDict is one too"
 
 
+@budget(load="pure")
+def test_a_class_inheriting_a_functional_typeddict_is_one():
+    path = Path("m.py")
+    tree = ast.parse(
+        "from typing import TypedDict\n"
+        'Keyword = TypedDict("Keyword", {"class": str})\n'
+        "class Child(Keyword):\n"
+        "    a: int\n"
+    )
+    assert vulture_check.typeddict_fields({path: tree}) == {(path, 4)}, (
+        "a class whose base is a functional TypedDict is a TypedDict: its fields are located"
+    )
+
+
 @budget(load="fs")
 def test_a_report_line_gives_its_file_resolved_under_the_root_and_its_line(tmp_path):
     line = "manga_pipeline/clients/x.py:12: unused variable 'a' (60% confidence)"

@@ -8,7 +8,6 @@ import io
 import json
 import re
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -35,6 +34,28 @@ def score_by_q(scores):
         return scores.get(int(present(re.search(r"\.q(\d+)\.png$", dec.name)).group(1)), 90.0)
 
     return f
+
+
+def plan_page(fmt=images.JPEG, *, jpeg_feed=False, size=(96, 128), cover=False) -> plan.PlanPage:
+    """Return a plan page of this format, JPEG feed, size and cover name; its other fields are placeholders."""
+    return {
+        "name": "001.jpg",
+        "index": 0,
+        "sha1": "",
+        "format": fmt,
+        "chroma": "420",
+        "jpeg_feed": jpeg_feed,
+        "jpeg_gray": False,
+        "size": size,
+        "bytes": 0,
+        "cover": cover,
+    }
+
+
+def page_plan(pages) -> plan.ChapterPlan:
+    """Return a plan of these plan pages with no edit."""
+    edits: plan.PlannedEdits = {"drop": [], "crop": [], "join": [], "split": None, "strip": None, "blank": []}
+    return plan.ChapterPlan(name="test chapter", pages=pages, edits=edits, classes={})
 
 
 # ---------------------------------------------------------------- route, chroma, feeds
@@ -71,10 +92,10 @@ def test_yuv_and_quality_group():
 
 @budget(load="pure")
 def test_only_a_colour_encode_of_a_feedable_jpeg_feeds_the_jpeg():
-    q = {"format": images.JPEG, "jpeg_feed": True}
+    q = plan_page(images.JPEG, jpeg_feed=True)
     assert plan.feeds_jpeg(q, "420")
     assert not plan.feeds_jpeg(q, "400")
-    assert not plan.feeds_jpeg({"format": images.PNG, "jpeg_feed": False}, "444")
+    assert not plan.feeds_jpeg(plan_page(images.PNG), "444")
 
 
 @budget(load="pure")
@@ -215,9 +236,9 @@ def test_a_page_under_the_floor_retries_once_at_q90(tmp_path, monkeypatch):
     ch = Chapter(tmp_path, [("001.png", png(colour()))])
     rec = ch.run(ch.plan())
     assert rec["outcome"] == "avif"
-    assert rec["avif_pages"][0]["retried"]
-    assert rec["avif_pages"][0]["q"] == 90
-    assert rec["avif_pages"][0]["score"] == 85.0
+    assert present(rec.get("avif_pages"))[0]["retried"]
+    assert present(rec.get("avif_pages"))[0]["q"] == 90
+    assert present(rec.get("avif_pages"))[0]["score"] == 85.0
 
 
 @budget(load="pool")
@@ -226,7 +247,8 @@ def test_a_page_failing_after_its_retry_sends_the_chapter_to_lossless(tmp_path):
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.png", png(gray()))])
     rec = ch.run(ch.plan())
     assert rec["outcome"] == "lossless"
-    assert "scored 75.0 at q90" in rec["avif_rejected"]
+    assert "scored 75.0 at q90" in present(rec.get("avif_rejected"))
+    assert present(rec.get("avif_pages"))[0]["score"] == 75.0, "the record keeps the rejected attempt's pages"
     assert [o["name"] for o in rec["output"]] == ["001.jpg", "002.png"]
     assert rec["mean_score"] is None
     assert rec["scores"] == {}
@@ -239,7 +261,7 @@ def test_the_size_gate_rejects_avif_over_the_ratio(tmp_path, monkeypatch):
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour()))])
     rec = ch.run(ch.plan())
     assert rec["outcome"] == "lossless"
-    assert "of original > 0%" in rec["avif_rejected"]
+    assert "of original > 0%" in present(rec.get("avif_rejected"))
 
 
 @budget(load="pool")
@@ -280,7 +302,7 @@ def test_lossless_output_not_smaller_keeps_the_source_bytes(tmp_path):
     data = jpeg(colour())
     ch = Chapter(tmp_path, [("001.jpg", data)])
     rec = ch.run(ch.plan())
-    assert rec["lossless_pages"][0]["verify"] == "exact"
+    assert present(rec.get("lossless_pages"))[0]["verify"] == "exact"
     assert (ch.out / "001.jpg").read_bytes() == data
 
 
@@ -331,9 +353,23 @@ def test_crop_and_join_render_numbered_avif_pages(tmp_path):
     assert rec["outcome"] == "avif"
     assert [o["name"] for o in rec["output"]] == ["001.avif", "002.avif"]
     assert [r["src"] for r in p.render] == [["001.jpg", "002.jpg"], ["003.jpg"]]
-    assert rec["reshape"] == {"kind": "rejoin", "pages_in": 3, "pages_out": 2}
+    assert rec.get("reshape") == {"kind": "rejoin", "pages_in": 3, "pages_out": 2}
     with Image.open(ch.rendered_dir / "001.png") as im:
         assert im.size == (96, 168), "the sliver is joined under its page"
+
+
+@budget(load="pool")
+def test_a_rendered_chapter_whose_avif_fails_goes_out_untouched_without_a_reshape(tmp_path):
+    fake.SCORE[0] = lambda _ref, _dec: 70.0
+    ch = Chapter(
+        tmp_path,
+        [("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour((96, 40), seed=7))), ("003.jpg", jpeg(colour(seed=8)))],
+    )
+    rec = ch.run(ch.plan({**NO_EDIT, "bands": [{"page": 2, "box": [0, 0, 96, 100]}], "join": [[0, 1]]}))
+    assert rec["outcome"] == "untouched"
+    assert "scored 70.0" in present(rec.get("avif_rejected"))
+    assert "reshape" not in rec, "a rendered attempt that was rejected leaves no reshape"
+    assert [o["name"] for o in rec["output"]] == ["001.jpg", "002.jpg", "003.jpg"], "the original pages, unedited"
 
 
 @budget(load="pool")
@@ -354,7 +390,7 @@ def test_strip_chapter_restitches_and_keeps_a_cover_page_first(tmp_path):
     ch = Chapter(tmp_path, members)
     p = ch.plan(layout="strip")
     rec = ch.run(p)
-    assert p.edits["strip"]["pages"][0]["name"] == "001.jpg", "the cover-named page is not in the strip"
+    assert present(p.edits["strip"])["pages"][0]["name"] == "001.jpg", "the cover-named page is not in the strip"
     names = [o["name"] for o in rec["output"]]
     assert names[0] == "000_cover.avif"
     assert names[1:] == [f"{n:03d}.avif" for n in range(1, len(names))]
@@ -367,8 +403,8 @@ def test_strip_chapter_restitches_and_keeps_a_cover_page_first(tmp_path):
 def test_strip_removed_rows_are_cut_out(tmp_path):
     ch = Chapter(tmp_path, [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=i))) for i in range(1, 4)])
     p = ch.plan({**NO_EDIT, "strip_removed": [{"start": 3900, "end": 4200, "why": "credits"}]}, layout="strip")
-    assert p.edits["strip"]["kept"] == [(0, 3900)]
-    assert p.edits["strip"]["cuts"][-1] == 3900
+    assert present(p.edits["strip"])["kept"] == [(0, 3900)]
+    assert present(p.edits["strip"])["cuts"][-1] == 3900
 
 
 @budget(load="pool")
@@ -383,7 +419,7 @@ def test_a_split_chapter_is_cut_at_the_series_page_aspect(tmp_path):
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour((100, 280)))), ("002.jpg", jpeg(colour((100, 280), seed=3)))])
     p = ch.plan({**NO_EDIT, "split": True}, page_aspect=[1.4])
     rec = ch.run(p)
-    assert rec["reshape"]["kind"] == "split", "2 stitched pages of 2 pages each"
+    assert present(rec.get("reshape"))["kind"] == "split", "2 stitched pages of 2 pages each"
     assert len(rec["output"]) == 4, "2 stitched pages of 2 pages each"
 
 
@@ -507,7 +543,7 @@ def test_a_blanked_page_is_encoded_from_its_blanked_pixels_and_keeps_its_name_an
     assert by_page["001"][-2].endswith("001.ref.png"), "no JPEG feed"
     assert "--ignore-exif" not in by_page["001"], "no JPEG feed"
     assert by_page["002"][-2].endswith("002.jpg"), "an unblanked page keeps its JPEG feed"
-    first = rec["avif_pages"][0]
+    first = present(rec.get("avif_pages"))[0]
     assert (first["name"], first["bytes_in"], first["fmt"]) == ("001.jpg", len(data), image.RENDERED_FMT)
     assert [o["name"] for o in rec["output"]] == ["001.avif", "002.avif"]
 
@@ -550,7 +586,7 @@ def test_a_strip_chapter_is_blanked_before_it_is_stacked(tmp_path):
     p = ch.plan({**BLANK, "blank": [{"page": 1, "box": [10, 10, 40, 30], "fill": FILL}]}, layout="strip")
     rec = ch.run(p)
     assert rec["blanked"] == ["002.jpg"]
-    top = p.edits["strip"]["pages"][1]["top"]  # page 002 starts here in the stacked strip
+    top = present(p.edits["strip"])["pages"][1]["top"]  # page 002 starts here in the stacked strip
     with Image.open(ch.rendered_dir / "001.png") as first:
         h = first.height
     assert top + 30 <= h
@@ -731,8 +767,15 @@ def test_a_page_mode_gets_the_bulk_converters_lossless_and_avif_decisions(tmp_pa
 @budget(load="pure")
 def test_the_cover_width_is_the_most_common_non_cover_width_first_seen_on_a_tie():
     def p(*pages):
-        return SimpleNamespace(pages=[{"size": [w, 10], "cover": c} for w, c in pages])
+        return page_plan([plan_page(size=(w, 10), cover=c) for w, c in pages])
 
     assert covers.width(p((300, True), (80, False), (90, False), (90, False))) == 90
     assert covers.width(p((80, False), (90, False))) == 80, "a tie goes to the first seen"
     assert covers.width(p((300, True))) == 300, "only cover pages: their width"
+
+
+@budget(load="pure")
+def test_every_cover_format_but_avif_has_its_encoder():
+    assert set(covers.SAVERS) == set(plan.COVER_FORMATS) - {images.AVIF}, (
+        "a volume cover matches its pages in AVIF (copied) or in a format encoded here: the 2 lists are 1"
+    )

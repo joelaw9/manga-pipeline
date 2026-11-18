@@ -194,15 +194,18 @@ def _encode(cfg, data, kept, scratch):
     if fmt is None:
         return None, f"its pages ({', '.join(sorted({f for f, _ in pages}))}) share no cover format"
     width = Counter(w for _, w in pages).most_common(1)[0][0]
-    avif = None
+    taken: plan.OutcomeCover
     if fmt == images.AVIF:
         with convert.encoder(cfg) as encoder:
             avif = encoder.cover(data, width, scratch / "cover")
-        if not avif["ok"]:
+        if avif["ok"] is False:
             return None, f"its AVIF cover scored {avif['score']}, below the floor"
+        taken = {"avif": avif}
+    else:
+        taken = {"format": fmt, "data": data, "width": width}
     out_dir = scratch / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
-    got = covers.insert(out_dir, data, fmt, width, avif)
+    got = covers.insert(out_dir, taken)
     cover = (out_dir / got["name"]).read_bytes()
     w, h = _size(cover)
     return {**got, "data": cover, "width": w, "height": h}, None

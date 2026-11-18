@@ -228,6 +228,45 @@ def test_unusable_file_is_refused(tmp_path, rec, msg):
         ),
         pytest.param(_dangling, record.RecordError, "names output 'gone.cbz', not a chapter", id="dangling-output"),
         pytest.param(
+            _set(("chapters", 0), CH1),
+            record.RecordError,
+            "chapter 'Vol.1 Ch.1.cbz' is not an object",
+            id="chapter-text",
+        ),
+        pytest.param(
+            _set(("chapters", 0, "output"), 1), record.RecordError, "chapter output 1 is not text", id="output-not-text"
+        ),
+        pytest.param(
+            _set(("sources", 0), "source 1.cbz"),
+            record.RecordError,
+            "source 'source 1.cbz' is not an object",
+            id="source-text",
+        ),
+        pytest.param(
+            _set(("sources", 0, "output"), 5),
+            record.RecordError,
+            "source 'source 1.cbz' names output 5, not text",
+            id="source-output-not-text",
+        ),
+        pytest.param(
+            _set(("chapters", 0, "sources"), ""),
+            record.RecordError,
+            "chapter 'Vol.1 Ch.1.cbz': sources '' is not a list",
+            id="chapter-sources-not-a-list",
+        ),
+        pytest.param(
+            _set(("chapters", 0, "file"), ["x"]),
+            record.RecordError,
+            r"chapter 'Vol.1 Ch.1.cbz': file \['x'\] is not text",
+            id="chapter-file-not-text",
+        ),
+        pytest.param(
+            _set(("chapters", 0, "sources"), [{"a": 1}]),
+            record.RecordError,
+            r"chapter 'Vol.1 Ch.1.cbz': source \{'a': 1\} is not text",
+            id="chapter-source-not-text",
+        ),
+        pytest.param(
             _delete(("chapters", 0, "pages_out")), record.RecordError, r"lacks \['pages_out'\]", id="chapter-lacks-key"
         ),
         pytest.param(_delete(("series", "naming", "restart")), record.RecordError, "naming.restart", id="no-restart"),
@@ -278,14 +317,18 @@ def test_check_accepts_a_partial_stages_record_parse_does_not():
 @budget(load="pure")
 def test_a_schema_3_record_parses():
     rec = series_record([CH1], schema=3)
-    assert record.parse(copy.deepcopy(rec)) == rec, "a frozen schema-3 record is read too"
+    before = copy.deepcopy(rec)
+    record.parse(rec)
+    assert rec == before, "a frozen schema-3 record is read too, and left as it was"
 
 
 @budget(load="pure")
 def test_decisions_of_any_object_shape_pass():
     rec = pilot_record()
     rec["series"]["decisions"] = {"rows": {"junk": [{"decision": "maybe"}]}}
-    assert record.parse(rec) is rec, "the decision rows are not checked by the reader"
+    before = copy.deepcopy(rec)
+    record.parse(rec)
+    assert rec == before, "the decision rows are not checked by the reader, and left as they were"
 
 
 @budget(load="pure")

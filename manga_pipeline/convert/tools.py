@@ -7,6 +7,7 @@ optimizer/tools.py without its config read, WinGet search and version listing.
 import logging
 import subprocess
 import time
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -16,21 +17,21 @@ NAMES = ("avifenc", "avifdec", "jpegtran", "oxipng")  # the executables; tools.v
 class ToolError(subprocess.CalledProcessError):
     """A tool's non-zero exit, with its stderr in the message."""
 
-    def __str__(self):
+    def __str__(self) -> str:
         """Return the exit message followed by the tool's stderr, '(empty)' when it wrote none."""
         err = self.stderr.decode(errors="replace") if isinstance(self.stderr, bytes) else (self.stderr or "")
         return f"{super().__str__()} stderr: {err.strip() or '(empty)'}"
 
 
-def run(*args):
+def run(*args: str | int | Path) -> subprocess.CompletedProcess[bytes]:
     """Run a tool (output captured) and return its CompletedProcess; raises ToolError on a non-zero exit.
 
     Logs the command, exit and seconds at DEBUG.
     """
-    args = [str(a) for a in args]
+    argv = [str(a) for a in args]
     t0 = time.perf_counter()
-    p = subprocess.run(args, capture_output=True, check=False)  # the exit is checked below
-    log.debug("%s -> exit %d %.3fs", subprocess.list2cmdline(args), p.returncode, time.perf_counter() - t0)
+    p = subprocess.run(argv, capture_output=True, check=False)  # the exit is checked below
+    log.debug("%s -> exit %d %.3fs", subprocess.list2cmdline(argv), p.returncode, time.perf_counter() - t0)
     if p.returncode:
         raise ToolError(p.returncode, p.args, p.stdout, p.stderr)
     return p

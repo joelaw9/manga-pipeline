@@ -212,7 +212,7 @@ def published_junk(ctx: workflow.Context, published, layout, width):
     if c is None or not isinstance(edits := c.get("edits"), dict):  # an older record keeps no edits: not known
         return None
     removed = (edits.get("reshape") or {}).get("removed") or []
-    edit = {"drop_pages": edits.get("drops") or [], "strip_removed": removed}
+    edit: measures.JunkEdit = {"drop_pages": edits.get("drops") or [], "strip_removed": removed}
     return measures.junk(edit, layout, width)
 
 
@@ -242,7 +242,7 @@ def _original(ctx: workflow.Context, published):
     if not sizes or len(known) < len(sizes):
         msg = f"{published['library_path']}: page sizes cannot be read"
         raise ValueError(msg)
-    pages = [{"width": w, "height": h, "phash": None, "blank": True} for w, h in known]
+    pages: list[measures.SummaryPage] = [{"width": w, "height": h, "phash": None} for w, h in known]
     return _measured(published["library_path"], measures.summary(pages), None)
 
 

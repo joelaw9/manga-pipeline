@@ -14,7 +14,14 @@ from PIL import Image, ImageDraw
 from manga_pipeline import archive, config, images
 from manga_pipeline.convert import image, pages, plan, vship
 
-NO_EDIT = {"drop_pages": [], "strip_removed": [], "bands": [], "join": [], "split": False, "blank": []}
+NO_EDIT: plan.ChapterEdit = {
+    "drop_pages": [],
+    "strip_removed": [],
+    "bands": [],
+    "join": [],
+    "split": False,
+    "blank": [],
+}
 QUALITY = {"gray": 80, "colour": 80}
 
 
@@ -101,7 +108,6 @@ class Chapter:
         with ThreadPoolExecutor(2) as pool:
             return image.process_chapter(
                 image.PageFiles.of(self.x, rendered, blanked),
-                None,
                 self.out,
                 work_dir=self.work,
                 encoder=image.Encoder(pool, scorer(), tool_paths()),

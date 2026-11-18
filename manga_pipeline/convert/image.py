@@ -22,15 +22,17 @@ import multiprocessing
 import shutil
 import time
 from collections import Counter
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from collections.abc import Collection, Iterable, Mapping, Sequence
+from concurrent.futures import FIRST_COMPLETED, Executor, Future, ProcessPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NotRequired, Self, TypedDict
 
 import numpy as np
 from PIL import Image
 
 from manga_pipeline import archive, images, strip
-from manga_pipeline.convert import covers, pages, plan, tools
+from manga_pipeline.convert import covers, pages, plan, tools, vship
 
 AVIF_QUALITY = 80  # the uncalibrated quality, and the ceiling (SPEC "Calibration")
 RETRY_QUALITY = 90  # a page under the floor is encoded once more at this
@@ -41,7 +43,136 @@ RENDERED_FMT = "RENDERED"  # task format of a rendered PNG page
 LOSSLESS_GRAY = (images.GRAY, images.GRAY_MARK)  # the lossless path drops their colour channels
 
 
-def pool(workers):
+class PageTask(TypedDict):
+    """1 AVIF page to encode: its source, output and work folder, format, class, avifenc --yuv, JPEG feed, qualities.
+
+    q: the quality encoded first; retry_q: the quality of the one retry under the floor (None: no retry).
+    """
+
+    src: str
+    out: str
+    tmp: str
+    fmt: str
+    cls: str
+    yuv: str
+    jpeg_feed: bool
+    q: int
+    retry_q: int | None
+
+
+class EncodeTask(PageTask):
+    """A PageTask as a worker takes it: with the image tools' paths by tool name."""
+
+    tools: dict[str, str]
+
+
+class Encoded(TypedDict):
+    """1 encode's worker result: its score reference and AVIF decode (paths), the AVIF's bytes, its seconds."""
+
+    ref: str
+    dec: str
+    bytes_out: int
+    sec: float
+
+
+class AvifPage(plan.PageClass):
+    """A finished AVIF page's record: its name, source format and bytes, --yuv, feed, last quality, score, outcome."""
+
+    name: str
+    fmt: str
+    yuv: str
+    jpeg_feed: bool
+    bytes_in: int
+    q: int
+    score: float
+    bytes_out: int
+    ok: bool
+    retried: bool
+    sec: float
+
+
+class LosslessTask(TypedDict):
+    """1 page for the lossless path: its source, output and work folder, format, class and jpeg_gray."""
+
+    src: str
+    out: str
+    tmp: str
+    fmt: str
+    cls: str
+    jpeg_gray: bool
+
+
+class LosslessJob(LosslessTask):
+    """A LosslessTask as a worker takes it: with the image tools' paths by tool name."""
+
+    tools: dict[str, str]
+
+
+class LosslessPage(plan.PageClass):
+    """A lossless page's record: its name, format, bytes in and out, its pixel check (verify) and whether it grayed."""
+
+    name: str
+    fmt: str
+    bytes_in: int
+    bytes_out: int
+    verify: str
+    grayed: bool
+
+
+class Reshape(TypedDict):
+    """A rendered outcome's reshape: its kind (reshape_kind), pages in and out."""
+
+    kind: str
+    pages_in: int
+    pages_out: int
+
+
+class OutputPage(TypedDict):
+    """An output page: its file name and sha1."""
+
+    name: str
+    sha1: str
+
+
+class LosslessSource(TypedDict):
+    """A lossless output page's source page name and the pixel check it passed ("exact" or "luma")."""
+
+    source: str
+    mode: str
+
+
+class ChapterRecord(TypedDict):
+    """process_chapter's record (its docstring names each key); avif_rejected, the page records and reshape only set.
+
+    avif_rejected: why the first AVIF attempt failed; avif_pages: the last AVIF attempt's; lossless_pages: the lossless
+    outcome's; reshape: the rendered outcome's, when it stood.
+    """
+
+    route: str | None
+    pages: int
+    formats: dict[str, int]
+    dropped: list[str]
+    bytes_in: int
+    outcome: str
+    edits: str
+    gate: str | None
+    avif_rejected: NotRequired[str]
+    avif_pages: NotRequired[list[AvifPage]]
+    lossless_pages: NotRequired[list[LosslessPage]]
+    reshape: NotRequired[Reshape]
+    quality: dict[str, int]
+    blanked: list[str]
+    mean_score: float | None
+    min_score: float | None
+    gray: bool
+    cover: covers.InsertedCover | None
+    bytes_out: int
+    output: list[OutputPage]
+    scores: dict[str, float]
+    lossless: dict[str, LosslessSource]
+
+
+def pool(workers: int) -> ProcessPoolExecutor:
     """Return the page workers of 1 chapter: fresh processes.
 
     Spawned: never a fork of a process holding the GPU context and scorer threads.
@@ -49,12 +180,12 @@ def pool(workers):
     return ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn"))
 
 
-def _tmp(tmp, src, tag, ext="png"):
+def _tmp(tmp: str | Path, src: str | Path, tag: str, ext: str = "png") -> Path:
     # built by concatenation: Path.with_suffix would cut dotted stems ("Ch.5_p001" -> "Ch.ref.png")
     return Path(tmp) / f"{Path(src).stem}.{tag}.{ext}"
 
 
-def encode_page(job):
+def encode_page(job: tuple[EncodeTask, int]) -> Encoded:
     """Run the worker half of 1 AVIF page attempt (job: (task, q)).
 
     Decode the page, write its score reference, encode at q at the planned chroma, decode the AVIF with avifdec. The
@@ -82,35 +213,59 @@ def encode_page(job):
     return {"ref": str(ref), "dec": str(dec), "bytes_out": out.stat().st_size, "sec": time.perf_counter() - t0}
 
 
-def _cleanup(task, qs):
+def _cleanup(task: PageTask, qs: list[int]) -> None:
     """Remove a page's reference and decodes (the .avif is the output)."""
     src, tmp = Path(task["src"]), Path(task["tmp"])
     for tag in ("ref", "gray", *(f"q{q}" for q in qs)):
         _tmp(tmp, src, tag).unlink(missing_ok=True)
 
 
-def _cancel(jobs):
+type _Scored = tuple[float, float]  # a page's score and the seconds scoring took
+type _JobFuture = Future[Encoded] | Future[_Scored]  # avif_pages' jobs: a page's encode or its score
+type _PageFuture = _JobFuture | Future[LosslessPage]  # any page work in the pool or the scorer's threads
+
+
+@dataclass(frozen=True)
+class _Encoding:
+    """A page's encode in the workers: its task's index and the future of its Encoded."""
+
+    page: int
+    future: Future[Encoded]
+
+
+@dataclass(frozen=True)
+class _Scoring:
+    """A page's score in the scorer's threads: its task's index, its encode and the future of its score."""
+
+    page: int
+    encoded: Encoded
+    future: Future[_Scored]
+
+
+def _cancel(jobs: Collection[_PageFuture]) -> None:
     """Cancel queued work and wait for running work, so no page is still writing into the chapter's folders."""
     for g in jobs:
         g.cancel()
-    wait([g for g in jobs if not g.cancelled()])
+    for g in jobs:
+        if not g.cancelled():
+            g.exception()  # waits for it to finish; its own error is not raised here
 
 
-def _retries(task, score, tried):
-    """Return whether a page scored under SCORE_FLOOR at its first quality is encoded once more.
+def _retry_q(task: PageTask, score: float, tried: list[int]) -> int | None:
+    """Return the quality a page scored under SCORE_FLOOR at its first quality is encoded at once more, else None.
 
     tried: the qualities encoded.
     """
-    return score < SCORE_FLOOR and task["retry_q"] is not None and len(tried) == 1
+    return task["retry_q"] if score < SCORE_FLOOR and len(tried) == 1 else None
 
 
-def _drop_queued(jobs):
+def _drop_queued(jobs: dict[_JobFuture, _Encoding | _Scoring]) -> None:
     """Cancel the queued jobs and forget them; the running ones stay."""
     for g in [g for g in jobs if g.cancel()]:
         jobs.pop(g)
 
 
-def _page_record(task, tried, score, bytes_out, sec):
+def _page_record(task: PageTask, tried: list[int], score: float, bytes_out: int, sec: float) -> AvifPage:
     """Return a finished AVIF page's record; tried: the qualities encoded, the last the one scored."""
     src = Path(task["src"])
     return {
@@ -136,15 +291,17 @@ class Encoder:
     tools: the Encoder gives each its own.
     """
 
-    def __init__(self, pool, scorer, tool_paths):
+    def __init__(self, pool: Executor, scorer: vship.Scorer, tool_paths: dict[str, str]) -> None:
         """Store the run's page workers (pool), the GPU scorer and the image tools' paths."""
         self.pool, self.scorer, self.tool_paths = pool, scorer, tool_paths
 
-    def _score(self, ref, dec):
+    def _score(self, ref: str, dec: str) -> tuple[float, float]:
         t0 = time.perf_counter()
         return self.scorer.score_files(ref, dec), time.perf_counter() - t0
 
-    def avif_pages(self, tasks, *, stop_on_fail=False):
+    def avif_pages(
+        self, tasks: Sequence[PageTask], *, stop_on_fail: bool = False
+    ) -> tuple[list[AvifPage], AvifPage | None]:
         """Encode and score AVIF pages.
 
         Workers in the pool encode and decode each page (encode_page); scorer threads in this process score each decode
@@ -156,39 +313,49 @@ class Encoder:
         Returns (the finished pages' records in task order, the failing page's record or None): {"name", "fmt",
         "class", "yuv", "jpeg_feed", "bytes_in", "q", "score", "bytes_out", "ok", "retried", "sec"}.
         """
+        jobs: dict[_JobFuture, _Encoding | _Scoring]
+        recs: dict[int, AvifPage]
+        failed: AvifPage | None
         jobs, recs, failed = {}, {}, None
-        qs = [[] for _ in tasks]
+        qs: list[list[int]] = [[] for _ in tasks]
         secs = [0.0] * len(tasks)
 
         scorers = self.scorer.threads  # the scorer's own threads: their GPU handles live as long as it does
 
-        def encode(i, q):
+        def encode(i: int, q: int) -> None:
             qs[i].append(q)
-            jobs[self.pool.submit(encode_page, (tasks[i] | {"tools": self.tool_paths}, q))] = (i, q, None)
+            job: EncodeTask = {**tasks[i], "tools": self.tool_paths}
+            future = self.pool.submit(encode_page, (job, q))
+            jobs[future] = _Encoding(i, future)
 
         for i, t in enumerate(tasks):
             encode(i, t["q"])
         try:
             while jobs:
-                done, _ = wait(jobs, return_when=FIRST_COMPLETED)
+                # Future is invariant: typeshed's wait takes futures of 1 result type, these are encodes and scores.
+                done, _ = wait(jobs, return_when=FIRST_COMPLETED)  # pyright: ignore[reportArgumentType]
                 for f in done:
-                    i, q, enc = jobs.pop(f)
-                    r = f.result()
-                    if enc is None:  # encoded: score it
+                    work = jobs.pop(f)
+                    i = work.page
+                    if isinstance(work, _Encoding):  # encoded: score it
+                        r = work.future.result()
                         secs[i] += r["sec"]
-                        jobs[scorers.submit(self._score, r["ref"], r["dec"])] = (i, q, r)
+                        scoring = scorers.submit(self._score, r["ref"], r["dec"])
+                        jobs[scoring] = _Scoring(i, r, scoring)
                         continue
+                    score, sec = work.future.result()
                     task = tasks[i]
-                    s = round(r[0], 2)
-                    secs[i] += r[1]
-                    if _retries(task, s, qs[i]):
+                    s = round(score, 2)
+                    secs[i] += sec
+                    retry = _retry_q(task, s, qs[i])
+                    if retry is not None:
                         if failed is None:
-                            encode(i, task["retry_q"])
+                            encode(i, retry)
                         else:
                             _cleanup(task, qs[i])
                         continue
                     _cleanup(task, qs[i])
-                    recs[i] = _page_record(task, qs[i], s, enc["bytes_out"], secs[i])
+                    recs[i] = _page_record(task, qs[i], s, work.encoded["bytes_out"], secs[i])
                     if stop_on_fail and failed is None and not recs[i]["ok"]:
                         failed = recs[i]
                         _drop_queued(jobs)
@@ -197,18 +364,18 @@ class Encoder:
             raise
         return [recs[i] for i in sorted(recs)], failed
 
-    def cover(self, data, page_width, work_dir):
+    def cover(self, data: bytes, page_width: int, work_dir: Path) -> plan.CoverAvif:
         """Encode a volume cover's AVIF (covers) at page_width, through the AVIF gate at q80 (q90 retry).
 
-        At its own class and chroma. Returns {"path" (in work_dir; None when it failed), "score", "bytes", "ok",
-        "class", "yuv"}.
+        At its own class and chroma. Returns {"ok", "score", "class", "yuv"} and, when it passed, "path" (in work_dir)
+        and "bytes".
         """
         work_dir = Path(work_dir)
         work_dir.mkdir(parents=True)
         cls, yuv = covers.cover_class(data)
         src = work_dir / f"{archive.COVER_STEM}.png"
         covers.scaled(data, page_width).save(src, "PNG")
-        task = {
+        task: PageTask = {
             "src": str(src),
             "out": str(work_dir / f"{archive.COVER_STEM}.avif"),
             "tmp": str(work_dir),
@@ -220,25 +387,27 @@ class Encoder:
             "retry_q": RETRY_QUALITY,
         }
         (r,), _ = self.avif_pages([task])
-        out = Path(task["out"])
+        if not r["ok"]:
+            return {"ok": False, "score": r["score"], "class": cls, "yuv": yuv}
         return {
-            "path": out if r["ok"] else None,
+            "ok": True,
+            "path": Path(task["out"]),
             "score": r["score"],
-            "bytes": r["bytes_out"] if r["ok"] else None,
-            "ok": r["ok"],
+            "bytes": r["bytes_out"],
             "class": cls,
             "yuv": yuv,
         }
 
-    def lossless_pages(self, tasks):
+    def lossless_pages(self, tasks: Sequence[LosslessTask]) -> list[LosslessPage]:
         """Run each page through lossless_page in the workers (task: lossless_page's, without "tools").
 
         An exception cancels the rest, waits for what runs and is raised.
         """
-        return _run_all(self.pool, lossless_page, [t | {"tools": self.tool_paths} for t in tasks])
+        jobs: list[LosslessJob] = [{**t, "tools": self.tool_paths} for t in tasks]
+        return _run_all(self.pool, jobs)
 
 
-def grays_losslessly(cls, entry):
+def grays_losslessly(cls: str, entry: plan.PlanPage) -> bool:
     """Return whether the lossless path stores this page gray.
 
     It does for a gray or gray-mark PNG, or such a JPEG jpegtran can gray (jpeg_gray); a CMYK, YCCK or RGB-coded JPEG
@@ -248,7 +417,7 @@ def grays_losslessly(cls, entry):
     return cls in LOSSLESS_GRAY and (fmt == images.PNG or (fmt == images.JPEG and entry["jpeg_gray"]))
 
 
-def lossless_page(task):
+def lossless_page(task: LosslessJob) -> LosslessPage:
     """Store 1 page on the lossless path with jpegtran / oxipng.
 
     Gray and gray-mark JPEG / PNG pages lose their colour channels (a JPEG only when jpeg_gray), a lossless WebP passes
@@ -305,9 +474,9 @@ def lossless_page(task):
     }
 
 
-def _run_all(pool, fn, tasks):
-    """Run page tasks; an exception cancels the rest, waits for what runs and is raised."""
-    futures = [pool.submit(fn, t) for t in tasks]
+def _run_all(pool: Executor, tasks: Sequence[LosslessJob]) -> list[LosslessPage]:
+    """Run lossless_page on each task in the workers; an exception cancels the rest, waits for what runs, is raised."""
+    futures = [pool.submit(lossless_page, t) for t in tasks]
     try:
         return [f.result() for f in futures]
     except BaseException:
@@ -315,14 +484,14 @@ def _run_all(pool, fn, tasks):
         raise
 
 
-def reshape_kind(edits):
+def reshape_kind(edits: plan.PlannedEdits) -> str:
     """Return a rendered chapter's reshape: restitch (long strip), split (stitched pages) or rejoin (crops, joins)."""
     return "restitch" if edits["strip"] else "split" if edits["split"] else "rejoin"
 
 
-def blank_pages(chapter_plan, x_dir, out_dir):
+def blank_pages(chapter_plan: plan.ChapterPlan, x_dir: Path, out_dir: Path) -> dict[str, Path]:
     """Apply the plan's logo blanks: {page name: its blanked PNG in out_dir}, alpha kept ({} when it has none)."""
-    out = {}
+    out: dict[str, Path] = {}
     for b in chapter_plan.edits["blank"]:
         im, alpha = images.open_image(Path(x_dir) / b["page"])
         blanked = Image.fromarray(images.blank(np.asarray(im.convert("RGB")), b["box"], b["fill"]))
@@ -335,7 +504,7 @@ def blank_pages(chapter_plan, x_dir, out_dir):
     return out
 
 
-def sources(chapter_plan, x_dir, blanked, out_dir):
+def sources(chapter_plan: plan.ChapterPlan, x_dir: Path, blanked: Mapping[str, Path], out_dir: Path) -> Path:
     """Return the folder a render reads the pages from.
 
     x_dir, or (with blanks) out_dir holding every kept page under its own name, a blanked one as its blanked PNG (pages
@@ -349,7 +518,7 @@ def sources(chapter_plan, x_dir, blanked, out_dir):
     return Path(out_dir)
 
 
-def render(chapter_plan, x_dir, out_dir):
+def render(chapter_plan: plan.ChapterPlan, x_dir: Path, out_dir: Path) -> list[Path]:
     """Render the plan's pages as PNGs in out_dir (strip.render), in order."""
     st = chapter_plan.edits["strip"] or chapter_plan.edits["split"]
     return strip.render(chapter_plan.render, x_dir, out_dir, st)
@@ -368,28 +537,65 @@ class PageFiles:
     blanked: dict[str, Path]
 
     @classmethod
-    def of(cls, extracted, rendered, blanked):
+    def of(cls, extracted: Path, rendered: Iterable[Path], blanked: Mapping[str, Path]) -> Self:
         """Build the PageFiles of the folder, rendered paths and blanked mapping as the plan's steps give them."""
         return cls(Path(extracted), [Path(p) for p in rendered], {name: Path(p) for name, p in blanked.items()})
 
-    def original(self, name):
+    def original(self, name: str) -> Path:
         """Return the page as downloaded."""
         return self.extracted / name
 
-    def is_blanked(self, name):
+    def is_blanked(self, name: str) -> bool:
         """Return whether the page has a blanked PNG."""
         return name in self.blanked
+
+
+@dataclass(frozen=True)
+class _AvifStood:
+    """An AVIF attempt that stood: its outcome, its pages' records and its reshape (a rendered one's, else None)."""
+
+    outcome: plan.Outcome
+    pages: list[AvifPage]
+    reshape: Reshape | None
+
+
+@dataclass(frozen=True)
+class _LosslessStood:
+    """The lossless attempt (it always stands): its outcome and its pages' records."""
+
+    outcome: plan.Outcome
+    pages: list[LosslessPage]
+
+
+@dataclass(frozen=True)
+class _UntouchedStood:
+    """The untouched attempt (it always stands): its outcome."""
+
+    outcome: plan.Outcome
+
+
+type _Stood = _AvifStood | _LosslessStood | _UntouchedStood
+
+
+@dataclass(frozen=True)
+class _Rejected:
+    """A rejected AVIF attempt: why, and the records of the pages it encoded."""
+
+    why: str
+    pages: list[AvifPage]
 
 
 class _Chapter:
     """1 chapter plan executed into out_dir (the attempts of process_chapter)."""
 
-    def __init__(self, pages: PageFiles, out_dir, tmp, *, encoder, chapter_plan):
+    def __init__(
+        self, pages: PageFiles, out_dir: Path, tmp: Path, *, encoder: Encoder, chapter_plan: plan.ChapterPlan
+    ) -> None:
         self.pages, self.out, self.tmp = pages, out_dir, tmp
         self.encoder, self.plan = encoder, chapter_plan
         self.kept = chapter_plan.kept()
 
-    def task(self, src, cls, yuv, fmt, jpeg_feed):
+    def task(self, src: Path, cls: str, yuv: str, fmt: str, *, jpeg_feed: bool) -> PageTask:
         return {
             "src": str(src),
             "out": str(self.tmp / (Path(src).stem + ".avif")),
@@ -402,7 +608,7 @@ class _Chapter:
             "retry_q": RETRY_QUALITY,
         }
 
-    def avif(self, results, failed, size_gate):
+    def avif(self, results: list[AvifPage], failed: AvifPage | None, *, size_gate: bool) -> str | None:
         """Accept or reject an AVIF attempt: None when accepted, else why not."""
         if failed:
             return f"page {failed['name']} scored {failed['score']} at q{failed['q']}"
@@ -414,38 +620,40 @@ class _Chapter:
             shutil.move(self.tmp / f"{stem}.avif", self.out / f"{stem}.avif")
         return None
 
-    def rendered_avif(self, rec):
+    def rendered_avif(self, o: plan.Outcome) -> _AvifStood | _Rejected:
         ch = self.plan
         tasks = [
             self.task(p, r["class"], r["yuv"], RENDERED_FMT, jpeg_feed=False)
             for p, r in zip(self.pages.rendered, ch.render, strict=True)
         ]
         results, failed = self.encoder.avif_pages(tasks, stop_on_fail=True)
-        rec["avif_pages"] = results
-        rec["reshape"] = {"kind": reshape_kind(ch.edits), "pages_in": len(self.kept), "pages_out": len(tasks)}
-        return self.avif(results, failed, size_gate=False)
+        reshape: Reshape = {"kind": reshape_kind(ch.edits), "pages_in": len(self.kept), "pages_out": len(tasks)}
+        why = self.avif(results, failed, size_gate=False)
+        return _Rejected(why, results) if why is not None else _AvifStood(o, results, reshape)
 
-    def pages_avif(self, rec, size_gate):
+    def pages_avif(self, o: plan.Outcome, *, size_gate: bool) -> _AvifStood | _Rejected:
         ch = self.plan
-        tasks = []
+        tasks: list[PageTask] = []
         for q in self.kept:
             cls = ch.classes[q["name"]]
             yuv = plan.yuv_for(cls, q["chroma"])
             if self.pages.is_blanked(q["name"]):  # a new image: encoded from its blanked PNG and scored against it
                 tasks.append(self.task(self.pages.blanked[q["name"]], cls, yuv, RENDERED_FMT, jpeg_feed=False))
             else:
-                tasks.append(self.task(self.pages.original(q["name"]), cls, yuv, q["format"], plan.feeds_jpeg(q, yuv)))
+                tasks.append(
+                    self.task(self.pages.original(q["name"]), cls, yuv, q["format"], jpeg_feed=plan.feeds_jpeg(q, yuv))
+                )
         results, failed = self.encoder.avif_pages(tasks, stop_on_fail=True)
         by_stem = {Path(q["name"]).stem: q for q in self.kept}
         for r in results:  # a blanked page: record the page's own name and source bytes
             q = by_stem[Path(r["name"]).stem]
             if self.pages.is_blanked(q["name"]):
                 r.update(name=q["name"], bytes_in=q["bytes"])
-        rec["avif_pages"] = results
-        return self.avif(results, failed, size_gate)
+        why = self.avif(results, failed, size_gate=size_gate)
+        return _Rejected(why, results) if why is not None else _AvifStood(o, results, None)
 
-    def lossless(self, rec):
-        tasks = [
+    def lossless(self, o: plan.Outcome) -> _LosslessStood:
+        tasks: list[LosslessTask] = [
             {
                 "src": str(self.pages.original(q["name"])),
                 "out": str(self.out / (Path(q["name"]).stem + images.EXTENSION[q["format"]])),
@@ -456,32 +664,50 @@ class _Chapter:
             }
             for q in self.kept
         ]
-        rec["lossless_pages"] = self.encoder.lossless_pages(tasks)
+        return _LosslessStood(o, self.encoder.lossless_pages(tasks))
 
-    def untouched(self):
+    def untouched(self, o: plan.Outcome) -> _UntouchedStood:
         for q in self.kept:
             shutil.copyfile(self.pages.original(q["name"]), self.out / q["name"])
+        return _UntouchedStood(o)
 
-    def attempt(self, o, rec):
-        """Run 1 outcome into out_dir. None when it stands, else why it was rejected."""
+    def first_standing(self) -> tuple[_Stood, list[_Rejected]]:
+        """Try the plan's outcomes in order; return the attempt that stood and the rejected ones before it, in order.
+
+        A rejected attempt's output pages and AVIFs are cleared. RuntimeError when none stands.
+        """
+        rejected: list[_Rejected] = []
+        for o in self.plan.outcomes:
+            tried = self.attempt(o)
+            if not isinstance(tried, _Rejected):
+                return tried, rejected
+            rejected.append(tried)
+            _clear(self.out)
+            for f in self.tmp.glob("*.avif"):
+                f.unlink()
+        msg = f"{self.plan.name}: no outcome stood"
+        raise RuntimeError(msg)
+
+    def attempt(self, o: plan.Outcome) -> _Stood | _Rejected:
+        """Run 1 outcome into out_dir: the attempt that stood, or the rejected one."""
         if o["outcome"] == "avif" and o["edits"] == "all":
-            return self.rendered_avif(rec)
+            return self.rendered_avif(o)
         if o["outcome"] == "avif":
-            return self.pages_avif(rec, o["gate"] == "floor+size")
+            return self.pages_avif(o, size_gate=o["gate"] == "floor+size")
         if o["outcome"] == "lossless":
-            return self.lossless(rec)
+            return self.lossless(o)
         if o["outcome"] == "untouched":
-            return self.untouched()
+            return self.untouched(o)
         msg = f"{self.plan.name}: unknown outcome {o['outcome']!r}"
         raise ValueError(msg)
 
 
-def _clear(d):
+def _clear(d: Path) -> None:
     for p in Path(d).iterdir():
         p.unlink()
 
 
-def output_gray(chapter_plan, outcome):
+def output_gray(chapter_plan: plan.ChapterPlan, outcome: plan.Outcome) -> bool:
     """Return whether every page the outcome stores is gray, from the plan's page classes (no decode).
 
     ComicInfo BlackAndWhite. An AVIF page of a gray / tinted / gray-mark class is 4:0:0; the lossless path grays gray
@@ -490,7 +716,7 @@ def output_gray(chapter_plan, outcome):
     """
     kind = outcome["outcome"]
 
-    def replaced(name):
+    def replaced(name: str) -> bool:
         return bool(outcome["cover"]) and Path(name).stem == archive.COVER_STEM
 
     if outcome["edits"] == "all":
@@ -503,13 +729,15 @@ def output_gray(chapter_plan, outcome):
     return all(cls == images.GRAY for cls, _ in kept)
 
 
-def process_chapter(pages: PageFiles, cover, out_dir, *, work_dir, encoder, chapter_plan):  # noqa: PLR0913  # each a distinct input: PageFiles, cover, out_dir, work_dir, encoder, plan
+def process_chapter(
+    pages: PageFiles, out_dir: Path, *, work_dir: Path, encoder: Encoder, chapter_plan: plan.ChapterPlan
+) -> ChapterRecord:
     """Execute a chapter plan and return its record.
 
-    pages (its PageFiles), cover (the volume cover: None, or {"data", "width", "avif": Encoder.cover's result}), output
-    pages in out_dir, work files in work_dir; encoder: the run's Encoder. Tries the outcomes in order; the last one
-    (untouched or lossless) always stands, and gets the cover in its planned format, in place of a page named
-    000_cover. Returns the record: {"outcome", "edits", "route", "pages", "formats", "dropped",
+    pages (its PageFiles), output pages in out_dir, work files in work_dir; encoder: the run's Encoder. Tries the
+    outcomes in order; the last one (untouched or lossless) always stands. The one that stands inserts the volume cover
+    its plan gave it (plan.routes), in place of a page named 000_cover. Returns the record: {"outcome", "edits",
+    "route", "pages", "formats", "dropped",
     "bytes_in", "bytes_out", "avif_rejected"? (why the first AVIF attempt failed), "avif_pages"?, "lossless_pages"?,
     "reshape"?, "blanked" (the pages blanked: an AVIF outcome's only), "cover" (the inserted cover {"name", "format",
     "score", "bytes"} or None), "quality", "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else
@@ -521,52 +749,74 @@ def process_chapter(pages: PageFiles, cover, out_dir, *, work_dir, encoder, chap
     tmp.mkdir(parents=True, exist_ok=True)
     ch = chapter_plan
     run = _Chapter(pages, out_dir, tmp, encoder=encoder, chapter_plan=ch)
-    rec = {
+    stood, rejected = run.first_standing()
+    o = stood.outcome
+    avif = stood.pages if isinstance(stood, _AvifStood) else []
+    inserted = None if o["cover"] is None else covers.insert(out_dir, o["cover"])
+    outputs = sorted(out_dir.iterdir(), key=lambda p: archive.natural_key(p.name))
+    if len(outputs) != o["pages_out"]:
+        msg = f"{ch.name}: {len(outputs)} output pages, the outcome writes {o['pages_out']}"
+        raise RuntimeError(msg)
+    lossless_pages = stood.pages if isinstance(stood, _LosslessStood) else []
+    scores, lossless = _output_checks(avif, lossless_pages, outputs, inserted)
+    rec: ChapterRecord = {
         "route": ch.route,
         "pages": len(run.kept),
         "formats": dict(Counter(q["format"] for q in run.kept)),
         "dropped": [d["page"] for d in ch.edits["drop"]],
         "bytes_in": sum(q["bytes"] for q in run.kept),
+        "outcome": o["outcome"],
+        "edits": o["edits"],
+        "gate": o["gate"],
+        "quality": ch.quality,
+        "blanked": sorted(pages.blanked, key=archive.natural_key) if o["outcome"] == "avif" else [],
+        "mean_score": round(sum(r["score"] for r in avif) / len(avif), 2) if avif else None,
+        "min_score": min((r["score"] for r in avif), default=None),
+        "gray": output_gray(ch, o),
+        "cover": inserted,
+        "bytes_out": sum(p.stat().st_size for p in outputs),
+        "output": [{"name": p.name, "sha1": archive.sha1(p.read_bytes())} for p in outputs],
+        "scores": scores,
+        "lossless": lossless,
     }
-    for o in ch.outcomes:
-        why = run.attempt(o, rec)
-        if why is None:
-            rec.update(outcome=o["outcome"], edits=o["edits"], gate=o["gate"])
-            break
-        rec.setdefault("avif_rejected", why)
-        rec.pop("reshape", None)
-        _clear(out_dir)
-        for f in tmp.glob("*.avif"):
-            f.unlink()
-    else:
-        msg = f"{ch.name}: no outcome stood"
-        raise RuntimeError(msg)
-    rec["quality"] = ch.quality
-    rec["blanked"] = sorted(pages.blanked, key=archive.natural_key) if rec["outcome"] == "avif" else []
-    avif = rec["avif_pages"] if rec["outcome"] == "avif" else []
-    rec["mean_score"] = round(sum(r["score"] for r in avif) / len(avif), 2) if avif else None
-    rec["min_score"] = min((r["score"] for r in avif), default=None)
-    rec["gray"] = output_gray(ch, o)
-    rec["cover"] = None
-    if o["cover"]:
-        rec["cover"] = covers.insert(out_dir, cover["data"], o["cover"], cover["width"], cover["avif"])
-    outputs = sorted(out_dir.iterdir(), key=lambda p: archive.natural_key(p.name))
-    if len(outputs) != o["pages_out"]:
-        msg = f"{ch.name}: {len(outputs)} output pages, the outcome writes {o['pages_out']}"
-        raise RuntimeError(msg)
-    rec["bytes_out"] = sum(p.stat().st_size for p in outputs)
-    rec["output"] = [{"name": p.name, "sha1": archive.sha1(p.read_bytes())} for p in outputs]
-    rec["scores"] = {Path(r["name"]).stem + ".avif": r["score"] for r in avif}
-    rec["lossless"] = {}
-    if rec["outcome"] == "lossless":
-        stems = {Path(p.name).stem: p.name for p in outputs}
-        rec["lossless"] = {
-            stems[Path(r["name"]).stem]: {"source": r["name"], "mode": r["verify"]} for r in rec["lossless_pages"]
-        }
-    if rec["cover"]:  # the inserted cover replaced any page of its stem: its own score stands, nothing is lossless
-        stem = archive.COVER_STEM
-        rec["scores"] = {k: v for k, v in rec["scores"].items() if Path(k).stem != stem}
-        rec["lossless"] = {k: v for k, v in rec["lossless"].items() if Path(k).stem != stem}
-        if rec["cover"]["score"] is not None:
-            rec["scores"][rec["cover"]["name"]] = rec["cover"]["score"]
+    _record_attempts(rec, stood, rejected)
     return rec
+
+
+def _record_attempts(rec: ChapterRecord, stood: _Stood, rejected: list[_Rejected]) -> None:
+    """Add to the record what the attempts left.
+
+    The first rejection's reason, the last AVIF attempt's pages, the lossless pages and a rendered reshape that stood.
+    """
+    if rejected:
+        rec["avif_rejected"] = rejected[0].why
+    if isinstance(stood, _AvifStood):
+        rec["avif_pages"] = stood.pages
+        if stood.reshape is not None:
+            rec["reshape"] = stood.reshape
+    elif rejected:
+        rec["avif_pages"] = rejected[-1].pages
+    if isinstance(stood, _LosslessStood):
+        rec["lossless_pages"] = stood.pages
+
+
+def _output_checks(
+    avif: list[AvifPage], lossless_pages: list[LosslessPage], outputs: list[Path], inserted: covers.InsertedCover | None
+) -> tuple[dict[str, float], dict[str, LosslessSource]]:
+    """Return the output pages' scores ({output name: score}) and lossless sources ({output name: {source, mode}}).
+
+    avif: the AVIF pages of an AVIF outcome that stood, lossless_pages those of a lossless one ([] for another). The
+    inserted cover replaced any page of its stem: its own score stands, nothing of that stem is lossless.
+    """
+    scores = {Path(r["name"]).stem + ".avif": r["score"] for r in avif}
+    stems = {Path(p.name).stem: p.name for p in outputs}
+    lossless: dict[str, LosslessSource] = {
+        stems[Path(r["name"]).stem]: {"source": r["name"], "mode": r["verify"]} for r in lossless_pages
+    }
+    if inserted:
+        stem = archive.COVER_STEM
+        scores = {k: v for k, v in scores.items() if Path(k).stem != stem}
+        lossless = {k: v for k, v in lossless.items() if Path(k).stem != stem}
+        if inserted["score"] is not None:
+            scores[inserted["name"]] = inserted["score"]
+    return scores, lossless

@@ -12,23 +12,34 @@ no cover format convert to AVIF (plan.routes, force_avif). Each outcome takes th
 import hashlib
 import shutil
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 from PIL import Image
 
-from manga_pipeline import archive, config, errors, images
+from manga_pipeline import archive, config, db, errors, images
 from manga_pipeline.convert import plan
 
 JPEG_QUALITY = 92
 WEBP_QUALITY = 90
 
 
+class InsertedCover(TypedDict):
+    """The cover insert wrote: its file name, format, score (AVIF only, else None) and size in bytes."""
+
+    name: str
+    format: str
+    score: float | None
+    bytes: int
+
+
 class CoverError(RuntimeError):
     """The chapter's volume cover cannot be read as handed over (bad path, missing file, other sha256)."""
 
 
-def load(cfg, row):
+def load(cfg: config.Config, row: db.Row) -> bytes:
     """Return the cover file's bytes of a volume_cover row, checked.
 
     Checked: its path relative to paths.covers and inside it, the file there, its sha256 the row's. Raises CoverError
@@ -53,7 +64,7 @@ def load(cfg, row):
     return data
 
 
-def width(chapter_plan):
+def width(chapter_plan: plan.ChapterPlan) -> int:
     """Return the chapter's page width: the most common width of its non-cover pages.
 
     Of all its pages when it has none; the first seen wins a tie.
@@ -62,14 +73,14 @@ def width(chapter_plan):
     return Counter(q["size"][0] for q in pages).most_common(1)[0][0]
 
 
-def cover_class(data):
+def cover_class(data: bytes) -> tuple[str, str]:
     """(page class, avifenc --yuv) of a cover: its class from its pixels, its own chroma for a colour cover."""
     rgb = np.asarray(images.open_image(data)[0].convert("RGB"))
     cls = images.page_class(rgb, images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)
     return cls, plan.yuv_for(cls, images.chroma(data, images.detect(data)))
 
 
-def scaled(data, page_width):
+def scaled(data: bytes, page_width: int) -> Image.Image:
     """Return the cover decoded, no wider than page_width (aspect kept; never upscaled)."""
     im, alpha = images.open_image(data)
     im = im.convert("RGBA" if alpha else "RGB")
@@ -78,29 +89,50 @@ def scaled(data, page_width):
     return im
 
 
-def insert(out_dir, data, fmt, page_width, avif):
-    """Write 000_cover.<ext> in format fmt into out_dir, in place of any page of that stem there.
-
-    AVIF: the encoded cover (avif: image.Encoder.cover's result), copied; JPEG (q92), PNG, lossy WebP (q90): encoded
-    here from the cover scaled to page_width. Returns {"name", "format", "score" (AVIF only), "bytes"}.
-    """
-    if fmt not in plan.COVER_FORMATS:
-        msg = f"no volume cover encoding for {fmt}"
-        raise ValueError(msg)
+def _replacing(out_dir: Path, fmt: str) -> Path:
+    """Remove any page of the cover stem from out_dir; return 000_cover.<ext> of format fmt there."""
     out_dir = Path(out_dir)
     for old in out_dir.glob(f"{archive.COVER_STEM}.*"):
         old.unlink()
-    out = out_dir / (archive.COVER_STEM + images.EXTENSION[fmt])
-    score = None
-    if fmt == images.AVIF:
-        shutil.copyfile(avif["path"], out)
-        score = avif["score"]
-    else:
-        im = scaled(data, page_width)
-        if fmt == images.JPEG:
-            im.convert("RGB").save(out, "JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
-        elif fmt == images.PNG:
-            im.save(out, "PNG", optimize=True)
-        else:
-            im.save(out, "WEBP", quality=WEBP_QUALITY, method=6)
-    return {"name": out.name, "format": fmt, "score": score, "bytes": out.stat().st_size}
+    return out_dir / (archive.COVER_STEM + images.EXTENSION[fmt])
+
+
+def _save_jpeg(im: Image.Image, out: Path) -> None:
+    im.convert("RGB").save(out, "JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
+
+
+def _save_png(im: Image.Image, out: Path) -> None:
+    im.save(out, "PNG", optimize=True)
+
+
+def _save_webp(im: Image.Image, out: Path) -> None:
+    im.save(out, "WEBP", quality=WEBP_QUALITY, method=6)
+
+
+# The cover formats encoded here (plan.COVER_FORMATS but AVIF, which is copied), each with its writer.
+SAVERS: dict[str, Callable[[Image.Image, Path], None]] = {
+    images.JPEG: _save_jpeg,
+    images.PNG: _save_png,
+    images.WEBP_LOSSY: _save_webp,
+}
+
+
+def insert(out_dir: Path, cover: plan.OutcomeCover) -> InsertedCover:
+    """Write an outcome's volume cover into out_dir as 000_cover.<ext>, in place of any page of that stem there.
+
+    Its AVIF that passed the gate (image.Encoder.cover) is copied; another format (SAVERS: JPEG q92, PNG, lossy WebP
+    q90) is encoded from the cover scaled to its page width. Returns {"name", "format", "score" (AVIF only, else
+    None), "bytes"}. Raises ValueError for a format with no encoding, before anything is removed.
+    """
+    if "avif" in cover:
+        out = _replacing(out_dir, images.AVIF)
+        shutil.copyfile(cover["avif"]["path"], out)
+        return {"name": out.name, "format": images.AVIF, "score": cover["avif"]["score"], "bytes": out.stat().st_size}
+    fmt = cover["format"]
+    save = SAVERS.get(fmt)
+    if save is None:
+        msg = f"no volume cover encoding for {fmt}"
+        raise ValueError(msg)
+    out = _replacing(out_dir, fmt)
+    save(scaled(cover["data"], cover["width"]), out)
+    return {"name": out.name, "format": fmt, "score": None, "bytes": out.stat().st_size}
