@@ -80,10 +80,68 @@ class RecordCovers(TypedDict):
     volumes: dict[str, CoverRef]
 
 
+class RecordDecisionRow(TypedDict):
+    """A junk decision row a run used: its row number, series (None: global), decision, the time it was added.
+
+    decision: "approve" or "keep"; added: SQLite CURRENT_TIMESTAMP text (UTC).
+    """
+
+    row: int
+    series: str | None
+    decision: str
+    added: str
+
+
+class RecordJunkRow(RecordDecisionRow):
+    """A junk table row: its origin and its key, the JSON array [tiles text, aspect] read by position."""
+
+    origin: str
+    key: tuple[str, float]
+
+
+class FrameVector(TypedDict):
+    """A frame's stored vector, base64."""
+
+    b64: str
+
+
+class RecordFrameRow(RecordDecisionRow):
+    """A frames table row: its key, the JSON array [vector, aspect] read by position."""
+
+    key: tuple[FrameVector, float]
+
+
+class TemplateRef(TypedDict):
+    """A marks row's template: its name in series.decisions.templates."""
+
+    tpl: str
+
+
+class RecordMarkRow(RecordDecisionRow):
+    """A marks table row: its key, the JSON array [template, width, height] read by position."""
+
+    key: tuple[TemplateRef, int, int]
+
+
+class DecisionRows(TypedDict):
+    """The decision rows the runs used, by the bulk converter's table."""
+
+    junk: list[RecordJunkRow]
+    frames: list[RecordFrameRow]
+    marks: list[RecordMarkRow]
+
+
+class DecisionBlock(TypedDict):
+    """series.decisions of a schema-4 record: its decision rows and {template name: RGBA PNG, base64}."""
+
+    rows: DecisionRows
+    templates: dict[str, str]
+
+
 class RecordSeries(TypedDict):
     """The record's series blocks (each an object, checked).
 
-    decisions: the junk decision rows the runs used; not checked, so object (read where it is narrowed).
+    decisions: the junk decision rows the runs used; not checked, so object (decisions reads it as a DecisionBlock).
     """
 
     layout: RecordLayout
@@ -180,6 +238,14 @@ def load(folder: Path) -> Record:
         msg = f"{path}: not JSON: {e}"
         raise RecordError(msg) from None
     return parse(record)
+
+
+def decisions(record: Record) -> DecisionBlock:
+    """Return a record's series.decisions block as a DecisionBlock, copied through JSON.
+
+    Unchecked: check does not read the block; a malformed one fails where it is read.
+    """
+    return json.loads(json.dumps(record["series"]["decisions"]))
 
 
 def parse(rec):

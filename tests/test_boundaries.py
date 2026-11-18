@@ -52,6 +52,7 @@ READERS = {
     ("convert/calibrate.py", "add"),
     ("convert/calibrate.py", "rows"),
     ("convert/plan.py", "check_edit"),
+    ("convert/record_reader.py", "decisions"),
     ("convert/record_reader.py", "load"),
     ("fleet.py", "problem"),
     ("hand_edits.py", "load"),

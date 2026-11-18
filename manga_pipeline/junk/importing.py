@@ -157,7 +157,9 @@ def logo_key(png: bytes, size: Sequence[int], source: str) -> str:
     return template.key_text()
 
 
-def _row(series: str | None, kind: str, key: str, r: DecisionColumns, source: str) -> store.Decision:
+def _row(
+    series: str | None, kind: str, key: str, r: DecisionColumns | record_reader.RecordDecisionRow, source: str
+) -> store.Decision:
     if r["decision"] not in VERDICT:
         msg = f"{source}: decision {r['decision']!r} is neither approve nor keep"
         raise SourceError(msg)
@@ -181,11 +183,8 @@ def record_rows(record: record_reader.Record) -> list[store.Decision]:
     """
     if record["schema"] != record_reader.SCHEMA:
         return []
-    block = record["series"]["decisions"]
-    if not isinstance(block, dict):
-        msg = f"record series.decisions is a {type(block).__name__}, not an object"
-        raise record_reader.RecordError(msg)
     try:
+        block = record_reader.decisions(record)
         junk, frame_rows = block["rows"]["junk"], block["rows"]["frames"]
         out: list[store.Decision] = []
         for r in junk:
