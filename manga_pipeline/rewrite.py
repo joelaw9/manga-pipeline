@@ -271,10 +271,11 @@ def _hash(ctx: workflow.Context, series: db.Row) -> str:
         (sid,),
     ).fetchall()
     downloads = conn.execute(  # the rows chapter_names reads: claims coming and going change nothing
-        """SELECT id, download_path, naming_kind, comicinfo_number, comicinfo_volume FROM chapter
-        WHERE series_id = %s AND kind = 'download' AND stage != 'discover' AND published_file_id IS NULL
-            AND (status = ANY(%s) OR (status = 'needs_human' AND naming_kind IS NOT NULL)) ORDER BY id""",
-        (sid, list(chapter_names.OPEN)),
+        sql.SQL(
+            """SELECT id, download_path, naming_kind, comicinfo_number, comicinfo_volume FROM chapter
+            WHERE {open} ORDER BY id"""
+        ).format(open=chapter_names.OPEN_WHERE),
+        {"series": sid, "open": list(chapter_names.OPEN)},
     ).fetchall()
     rewrites = conn.execute(  # a file skipped for its open rewrite is compared again once that chapter ends
         "SELECT id FROM chapter WHERE series_id = %s AND published_file_id IS NOT NULL AND status <> 'done'"

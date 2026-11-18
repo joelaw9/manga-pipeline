@@ -26,9 +26,13 @@ class EditChange(TypedDict, total=False):
 
 
 class NamedChapter(TypedDict):
-    """A chapter of the series as the edits would leave it (_chapters): its key and naming, and its file name."""
+    """A chapter of the series as the edits would leave it (_chapters): its key and naming, and its file name.
+
+    settled: a published file or a chapter comicinfo named; an open side story not settled can still be renumbered.
+    """
 
     key: naming.EditKey
+    settled: bool
     kind: str
     season: int | None
     number: float
@@ -48,20 +52,36 @@ def apply(ctx: workflow.Context, data: Json, series_id: int | None = None) -> li
     wanted = _wanted(chapters, problems)
     if series is None:
         raise workflow.Refused("\n".join(problems))
+    # read before the write lock (the downloads' ComicInfo.xml among them): the transaction reads only the stored edits
+    try:
+        found = chapter_names.inputs(ctx, series)
+    except volumes.VolumeError as e:
+        raise _unnamable(problems, e) from None
+    files = {
+        r["id"]: r
+        for r in ctx.conn.execute(
+            "SELECT id, library_path, origin FROM published_file WHERE series_id = %s", (series["id"],)
+        )
+    }
     # 1 transaction (the write lock): 2 edits of 1 series at once never merge against stale stored edits.
     with db.transaction(ctx.conn):
         stored = chapter_names.edits(ctx.conn, series["id"])
         merged = _merged(stored, wanted)
         try:
-            after = _chapters(ctx, series, merged)
+            after = _chapters(series, found, files, merged)
         except volumes.VolumeError as e:
-            raise workflow.Refused("\n".join([*problems, f"the series' chapters cannot be named: {e}"])) from None
+            raise _unnamable(problems, e) from None
         problems += _unmatched(after, wanted)
-        problems += _new_clashes(ctx, series, stored, after)
+        problems += _new_clashes(series, found, files, stored, after)
         if problems:
             raise workflow.Refused("\n".join(problems))
         lines = _store(ctx.conn, series["id"], stored, merged, wanted)
     return [f"series {series['id']} ({series['name']}): {line}" for line in lines]
+
+
+def _unnamable(problems: list[str], e: volumes.VolumeError) -> workflow.Refused:
+    """Return the refusal of a series whose chapters cannot be named, with the problems found before."""
+    return workflow.Refused("\n".join([*problems, f"the series' chapters cannot be named: {e}"]))
 
 
 def _edit_object(data: Json) -> Mapping[str, Json]:
@@ -151,25 +171,39 @@ def _merged(
 def _unmatched(after: list[NamedChapter], wanted: dict[naming.EditKey, tuple[str, EditChange | None]]) -> list[str]:
     """Return a problem for each wanted chapter that does not match exactly 1 of the series' chapters.
 
+    Or that sets a field of an open side story not named yet (its side number can still change; a null is accepted).
     after: _chapters.
     """
     problems: list[str] = []
-    for key, (token, _) in wanted.items():
+    for key, (token, change) in wanted.items():
         found = [c for c in after if c["key"] == key]
         if len(found) != 1:
             problems.append(f"chapter {token!r}: {len(found) or 'no'} chapters of the series match")
+        elif (
+            found[0]["kind"] == names.SIDE
+            and not found[0]["settled"]
+            and change is not None
+            and any(v is not None for v in change.values())
+        ):
+            problems.append(
+                f"chapter {token!r}: side {names.fmt_num(key[2])} is open and not named yet: edit it once it is named"
+            )
     return problems
 
 
 def _new_clashes(
-    ctx: workflow.Context, series: db.Row, stored: Mapping[naming.EditKey, naming.Edit], after: list[NamedChapter]
+    series: db.Row,
+    found: chapter_names.Inputs,
+    files: Mapping[int, db.Row],
+    stored: Mapping[naming.EditKey, naming.Edit],
+    after: list[NamedChapter],
 ) -> list[str]:
     """Return the clashes of the series' chapters as the edits leave them (after) that the stored edits do not have.
 
-    Only what these edits make, wherever it lands.
+    Only what these edits make, wherever it lands. found, files: as _chapters takes them.
     """
     try:
-        existing = _clashes(_chapters(ctx, series, stored))
+        existing = _clashes(_chapters(series, found, files, stored))
     except volumes.VolumeError:  # unnamable as it stands (a volume that is not whole): these edits may fix it
         existing: dict[tuple[str, frozenset[naming.EditKey]], str] = {}
     return [m for k, m in _clashes(after).items() if k not in existing]
@@ -242,29 +276,21 @@ def _series(ctx: workflow.Context, name: Json, series_id: int | None, problems: 
     return rows[0]
 
 
-def _chapters(ctx: workflow.Context, series: db.Row, edits: Mapping[naming.EditKey, naming.Edit]) -> list[NamedChapter]:
-    """Return the series' chapters as the edits would leave them: [{key, kind, season, number, volume, title, name}].
+def _chapters(
+    series: db.Row,
+    found: chapter_names.Inputs,
+    files: Mapping[int, db.Row],
+    edits: Mapping[naming.EditKey, naming.Edit],
+) -> list[NamedChapter]:
+    """Return the series' chapters as the edits would leave them: [{key, settled, kind, season, number, volume, name}].
 
-    name: the file name it holds or would get.
+    found: chapter_names.inputs of the series; files: {id: its published_file row (id, library_path, origin)}.
+    name: the file name it holds or would get. VolumeError when the chapters cannot be named.
     """
-    rows, overrides, mangadex, platform = chapter_names.inputs(ctx, series)
+    rows, overrides, mangadex, platform = found
     named = naming.resolve(series["naming_basis"], rows, overrides, mangadex, platform, edits=edits)
-    files = {
-        r["id"]: r
-        for r in ctx.conn.execute(
-            "SELECT id, library_path, origin FROM published_file WHERE series_id = %s", (series["id"],)
-        )
-    }
-    published = ctx.conn.execute(  # a chapter published and waiting to be confirmed: its file is its row
-        """SELECT c.id FROM chapter c JOIN published_file p ON p.library_path = c.library_path
-        WHERE c.series_id = %s""",
-        (series["id"],),
-    ).fetchall()
-    published = {r[0] for r in published}
     out: list[NamedChapter] = []
     for r in rows:
-        if r.key in published:
-            continue
         if r.settled:
             e = naming.apply_edit(r, edits)
             kind, volume, number, title = r.kind, e.volume, r.number, e.title
@@ -279,8 +305,8 @@ def _chapters(ctx: workflow.Context, series: db.Row, edits: Mapping[naming.EditK
             if file is not None and file["origin"] != "pipeline"
             else names.file_name(number, title, volume)
         )
-        out.append({"key": naming.edit_key(kind, r.season, number), "kind": kind, "season": r.season,
-                    "number": number, "volume": volume, "name": name})  # fmt: skip
+        out.append({"key": naming.edit_key(kind, r.season, number), "settled": r.settled, "kind": kind,
+                    "season": r.season, "number": number, "volume": volume, "name": name})  # fmt: skip
     return out
 
 

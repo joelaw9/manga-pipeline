@@ -11,9 +11,20 @@ from pathlib import Path
 from xml.etree.ElementTree import ParseError
 
 from manga_pipeline import archive, comicinfo, config, db, errors, names, volumes, workflow
+from manga_pipeline.db import sql
 from manga_pipeline.metadata import naming, platforms
 
 OPEN = ("ready", "claimed", "waiting")  # an unnamed needs_human chapter may never be published: no number
+# A series' open download chapters, the resolver's open rows (params: series, open = list(OPEN)); a chapter at confirm
+# is its published file's row already (publish wrote it), so it is not counted twice.
+OPEN_WHERE = sql.SQL(
+    """series_id = %(series)s AND kind = 'download' AND stage NOT IN ('discover', 'confirm')
+    AND published_file_id IS NULL
+    AND (status = ANY(%(open)s) OR (status = 'needs_human' AND naming_kind IS NOT NULL))"""
+)
+type Inputs = tuple[
+    list[naming.Row[naming.RowKey]], volumes.Overrides | None, dict[str, str | None], platforms.PlatformList | None
+]
 
 
 def resolve(
@@ -57,11 +68,7 @@ def choose_basis(ctx: workflow.Context, series: db.Row, downloads: Mapping[int, 
         return db.one_row(ctx.conn, "SELECT naming_basis FROM series WHERE id = %s", (series["id"],))[0]
 
 
-def inputs(
-    ctx: workflow.Context, series: db.Row, downloads: Mapping[int, str] | None = None
-) -> tuple[
-    list[naming.Row[naming.RowKey]], volumes.Overrides | None, dict[str, str | None], platforms.PlatformList | None
-]:
+def inputs(ctx: workflow.Context, series: db.Row, downloads: Mapping[int, str] | None = None) -> Inputs:
     """(rows, override mapping or None, MangaDex volume map, stored platform list or None) of the series."""
     overrides = volumes.override_file(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
     row = ctx.conn.execute(
@@ -107,10 +114,8 @@ def _published(conn: db.Connection, series_id: int) -> list[naming.Row[naming.Ro
 def _open(ctx: workflow.Context, series_id: int, downloads: Mapping[int, str]) -> list[naming.Row[naming.RowKey]]:
     out: list[naming.Row[naming.RowKey]] = []
     chapters = ctx.conn.execute(
-        """SELECT * FROM chapter WHERE series_id = %s AND kind = 'download' AND stage != 'discover'
-            AND published_file_id IS NULL
-            AND (status = ANY(%s) OR (status = 'needs_human' AND naming_kind IS NOT NULL))""",
-        (series_id, list(OPEN)),
+        sql.SQL("SELECT * FROM chapter WHERE {open}").format(open=OPEN_WHERE),
+        {"series": series_id, "open": list(OPEN)},
     )
     for c in chapters:
         if c["naming_kind"] is not None:  # comicinfo named it: fixed from then on (held or not, it keeps the name)
