@@ -6,12 +6,42 @@ with the rename's outcome. The scan itself is `export`'s 1 library scan, after a
 
 import json
 from pathlib import PurePosixPath
+from typing import TypedDict
 
 from manga_pipeline import config, db, errors, measures, page_store, rewrite_covers, workflow
+from manga_pipeline.convert import plan
 from manga_pipeline.db import sql
+from manga_pipeline.stages import convert
 
 
-def row_values(conn, chapter):
+class FileValues(TypedDict):
+    """The published_file columns publish records of a chapter's download (row_values)."""
+
+    series_id: int
+    identity: str
+    source: str | None
+    size: int
+    median_page_width: int | None
+    strip_length: int | None
+    page_phashes: str | None  # JSON text
+    pages_in: int | None
+    bpp: float | None
+    junk: float | None
+    pages_out: None
+    parse_fields: None
+    comicinfo_series: str
+    comicinfo_volume: str | None
+    comicinfo_number: str
+    comicinfo_title: str | None
+    comicinfo_date: str | None
+    origin: str
+    source_name: str
+    kind: str
+    volume_source: str
+    cover_state: str
+
+
+def row_values(conn: db.Connection, chapter: db.Row) -> FileValues:
     """Return {published_file column: value} of a chapter's download as publish records it.
 
     A better copy's are applied to its file's row (SPEC "Retroactive updates"). The values: its identity, source, names
@@ -20,14 +50,14 @@ def row_values(conn, chapter):
     """
     pages = list(page_store.load(conn, chapter["id"]).values())
     m = measures.summary(pages)
-    cover = json.loads(chapter["convert_result"])["cover"]
+    cover = convert.read_result(chapter["convert_result"])["cover"]
     edit = conn.execute("SELECT edit FROM chapter_edit WHERE chapter_id = %s", (chapter["id"],)).fetchone()
     layout = conn.execute(
         "SELECT layout FROM series_conversion WHERE series_id = %s", (chapter["series_id"],)
     ).fetchone()
     junk = None
     if (width := m["median_page_width"]) is not None and edit is not None and layout is not None:
-        junk = measures.junk(json.loads(edit["edit"]), layout["layout"], width)
+        junk = measures.junk(plan.check_edit(edit["edit"]), layout["layout"], width)
     return {
         "series_id": chapter["series_id"],
         "identity": chapter["identity"],
@@ -57,7 +87,7 @@ def row_values(conn, chapter):
     }
 
 
-def run(ctx: workflow.Context, chapter):
+def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     """Rename the staged CBZ into the series' folder as it is now, never over a library file, and record the result.
 
     A target already in the library, or one left at another size by a lost staged file, is needs_human; a rename done
@@ -85,8 +115,8 @@ def run(ctx: workflow.Context, chapter):
         return workflow.NeedsHuman(f"{target} is already in the library at another size; the staged file is gone")
     # else: the rename happened before a crash; carry on
 
-    def record(conn):
-        values = {"library_path": library_path, "state": "unconfirmed", **row_values(conn, chapter)}
+    def record(conn: db.Connection) -> None:
+        values: dict[str, object] = {"library_path": library_path, "state": "unconfirmed", **row_values(conn, chapter)}
         values["unedited"] = None if chapter["naming_unedited"] is None else json.dumps(chapter["naming_unedited"])
         # A row already at the target describes a file that is gone (the target was free): the new file replaces it.
         conn.execute(

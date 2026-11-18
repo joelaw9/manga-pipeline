@@ -88,6 +88,21 @@ def test_parts_in_turn_publish_every_chapter_once_and_remove_the_downloads(site)
     assert [p.name for p in staging.iterdir()] == [".pipeline-owner"], "nothing is left in staging"
 
 
+@budget(load="db", seconds=6)
+def test_publish_fails_on_a_malformed_chapter_edit_naming_what_is_wrong(site):
+    site.download("Alpha", 2)
+    run_part(site.cfg, intake)
+    run_part(site.cfg, process)
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("""UPDATE chapter_edit SET edit = '{"split": false}'""")
+    run_part(site.cfg, export)
+    ((stage, status, attempts, error, _),) = rows(
+        site.cfg, "SELECT stage, status, attempts, last_error, waiting_on FROM chapter"
+    )
+    assert (stage, status, attempts) == ("publish", "ready", 1), "publish checks the edit it measures junk from"
+    assert "EditError: chapter_edit keys must be" in error, "the failure names what is wrong with the edit"
+
+
 @budget(load="db", seconds=3)
 def test_waiting_chapter_moves_on_once_its_candidate_is_decided(site):
     held = site.download("Alpha", 2, data=cbz(credit=True))

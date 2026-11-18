@@ -17,6 +17,7 @@ from PIL import Image
 from manga_pipeline import comicinfo, config, db, export, intake, process
 from manga_pipeline.metadata import merge, tags
 from manga_pipeline.stages import comicinfo as stage
+from manga_pipeline.stages import convert
 
 from tests.builders import present, settle
 from tests.fakes.suwayomi import cbz
@@ -169,7 +170,7 @@ def test_the_override_files_series_group_is_written(world):
 
 @budget()
 def test_page_entries_mark_the_inserted_cover_and_spreads_in_a_page_series():
-    pages = [
+    pages: list[convert.StagedPage] = [
         {"index": 0, "name": "000_cover.avif", "width": 800, "height": 1200, "bytes": 10},
         {"index": 1, "name": "001.avif", "width": 1600, "height": 1200, "bytes": 20},
     ]

@@ -15,7 +15,10 @@ import functools
 import json
 import logging
 import shutil
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
+from typing import NamedTuple, TypedDict
 
 from manga_pipeline import archive, config, db, images, page_store, workflow
 from manga_pipeline.convert import calibrate, check, covers, image, pages, plan, tools, vship
@@ -25,8 +28,55 @@ log = logging.getLogger(__name__)
 EXTRACTED, OUTPUT = "x", "out"
 
 
+class ResultCover(covers.InsertedCover):
+    """The volume cover a convert_result records: the cover the encode inserted, and the volume it is the cover of."""
+
+    volume: str | None
+
+
+class ConvertResult(TypedDict):
+    """A chapter's convert_result (JSON): what the encode's record (image.process_chapter) says of the staged file."""
+
+    route: str | None
+    outcome: str
+    quality: dict[str, int]
+    mean_score: float | None
+    min_score: float | None
+    pages_in: int
+    pages_out: int
+    dropped: list[str]
+    reshape: image.Reshape | None
+    blanked: list[str]
+    cover: ResultCover | None
+    cover_skipped: str | None
+    gray: bool
+    avif_rejected: str | None
+    bytes_in: int
+    bytes_out: int
+
+
+class StagedPage(TypedDict):
+    """An output page of the staged file as chapter.output_pages records it: index, name, width, height, bytes."""
+
+    index: int
+    name: str
+    width: int
+    height: int
+    bytes: int
+
+
+def read_result(text: str) -> ConvertResult:
+    """Return a converted chapter's convert_result (JSON text). Unchecked."""
+    return json.loads(text)
+
+
+def read_output_pages(text: str) -> list[StagedPage]:
+    """Return a converted chapter's output_pages (JSON text). Unchecked."""
+    return json.loads(text)
+
+
 @functools.cache
-def loaded_scorer(kind, path):
+def loaded_scorer(kind: type[vship.Scorer], path: Path) -> vship.Scorer:
     """Return 1 loaded, GPU-checked scorer per library path for the process.
 
     The library and its CUDA context are made once, not per chapter. kind: the scorer class (vship.Scorer).
@@ -35,7 +85,7 @@ def loaded_scorer(kind, path):
 
 
 @contextlib.contextmanager
-def encoder(cfg):
+def encoder(cfg: config.Config) -> Iterator[image.Encoder]:
     """Provide the image.Encoder of 1 chapter's (or 1 cover's) encodes.
 
     It holds the configured image tools, the process's loaded scorer and fresh page workers, stopped on leaving.
@@ -46,12 +96,12 @@ def encoder(cfg):
         yield image.Encoder(workers, scorer, tool_paths)
 
 
-def staged_name(conn, chapter):
+def staged_name(conn: db.Connection, chapter: db.Row) -> str:
     """<database id, 8 characters>-<chapter id>-<claim count>.cbz: 2 claims of 1 chapter never write 1 name."""
     return f"{db.database_id(conn)[:8]}-{workflow.claim_name(chapter)}.cbz"
 
 
-def _edit(conn, chapter_id):
+def _edit(conn: db.Connection, chapter_id: int) -> plan.ChapterEdit:
     """Return the chapter's checked edit.
 
     Raises plan.EditError when the row is missing or malformed (a program error).
@@ -63,7 +113,7 @@ def _edit(conn, chapter_id):
     return plan.check_edit(row[0])
 
 
-def _layout(conn, series_id):
+def _layout(conn: db.Connection, series_id: int) -> plan.SeriesLayout:
     """Return the series' plan.SeriesLayout (series_conversion; page_aspect is JSON text)."""
     row = conn.execute(
         "SELECT layout, page_aspect FROM series_conversion WHERE series_id = %s", (series_id,)
@@ -71,16 +121,11 @@ def _layout(conn, series_id):
     if row is None:
         msg = f"series {series_id} has no layout (series_conversion)"
         raise RuntimeError(msg)
-    aspect = None if row["page_aspect"] is None else json.loads(row["page_aspect"])
-    if aspect is not None and (
-        not isinstance(aspect, list) or not aspect or not all(isinstance(a, (int, float)) for a in aspect)
-    ):
-        msg = f"series {series_id} page_aspect must be a non-empty list of numbers, got {aspect!r}"
-        raise RuntimeError(msg)
+    aspect = None if row["page_aspect"] is None else plan.read_page_aspect(series_id, row["page_aspect"])
     return plan.SeriesLayout(row["layout"], aspect)
 
 
-def _samples_wanted(row, chapter_id):
+def _samples_wanted(row: calibrate.Group | None, chapter_id: int) -> bool:
     """Return whether this group takes samples from this chapter.
 
     It does with no row yet, or open, short of calibrate.MAX_SAMPLES and none from this chapter yet.
@@ -92,7 +137,7 @@ def _samples_wanted(row, chapter_id):
     )
 
 
-def _sampling(stored, chapter_plan, chapter_id):
+def _sampling(stored: Mapping[str, calibrate.Group], chapter_plan: plan.ChapterPlan, chapter_id: int) -> bool:
     """Return whether a group the plan's AVIF outcome encodes takes samples from this chapter.
 
     stored: calibrate.rows.
@@ -100,7 +145,14 @@ def _sampling(stored, chapter_plan, chapter_id):
     return any(_samples_wanted(stored.get(g), chapter_id) for g in plan.avif_groups(chapter_plan))
 
 
-def _calibrate(ctx: workflow.Context, chapter, groups, *, encoder, work):
+def _calibrate(
+    ctx: workflow.Context,
+    chapter: db.Row,
+    groups: Mapping[str, Sequence[calibrate.Unit]],
+    *,
+    encoder: image.Encoder,
+    work: Path,
+) -> dict[str, int]:
     """Add this chapter's samples to the series' open groups; return {group: q} after.
 
     groups is calibrate.units of the pages it samples ({} when no group wants samples).
@@ -121,7 +173,7 @@ def _calibrate(ctx: workflow.Context, chapter, groups, *, encoder, work):
     return calibrate.quality(stored)
 
 
-def _samples(encoder, picked, work_dir) -> list[calibrate.NewSample]:
+def _samples(encoder: image.Encoder, picked: Sequence[calibrate.Unit], work_dir: Path) -> list[calibrate.NewSample]:
     """Probe the picked units (calibrate.pick); return them as the samples calibrate.add stores."""
     scores = calibrate.probe(encoder, picked, work_dir)
     return [
@@ -135,7 +187,9 @@ def _samples(encoder, picked, work_dir) -> list[calibrate.NewSample]:
     ]
 
 
-def _cover_skipped(chapter_plan, rec, cover):
+def _cover_skipped(
+    chapter_plan: plan.ChapterPlan, rec: image.ChapterRecord, cover: plan.VolumeCover | None
+) -> str | None:
     """Why a chapter that takes a volume cover went out without it (None when it has it, or takes none)."""
     if cover is None or rec["cover"]:
         return None
@@ -146,8 +200,8 @@ def _cover_skipped(chapter_plan, rec, cover):
     return f"its {rec['outcome']} pages ({', '.join(fmts)}) share no cover format"
 
 
-def _output_pages(out_dir, rec):
-    out = []
+def _output_pages(out_dir: Path, rec: image.ChapterRecord) -> list[StagedPage]:
+    out: list[StagedPage] = []
     for i, p in enumerate(rec["output"]):
         w, h = images.page_size(out_dir / p["name"])
         out.append(
@@ -156,7 +210,7 @@ def _output_pages(out_dir, rec):
     return out
 
 
-def _post_check(staged, rec, x_dir, chapter_plan):
+def _post_check(staged: Path, rec: image.ChapterRecord, x_dir: Path, chapter_plan: plan.ChapterPlan) -> None:
     """RuntimeError naming every failed post-check of the staged file."""
     fails = check.check(staged, rec, x_dir, chapter_plan.kept())
     if fails:
@@ -164,7 +218,7 @@ def _post_check(staged, rec, x_dir, chapter_plan):
         raise RuntimeError(msg)
 
 
-def run(ctx: workflow.Context, chapter):
+def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     """Convert the chapter's download into its staged CBZ in its own scratch folder, removed whatever the outcome.
 
     A missing or malformed edit, a page that cannot be taken or an edit that drops every page is needs_human.
@@ -187,27 +241,30 @@ def run(ctx: workflow.Context, chapter):
             log.warning("chapter %s: scratch folder %s not removed: %s", chapter["id"], scratch, e)
 
 
-def _convert(ctx: workflow.Context, chapter, edit, layout, *, scratch):
+def _convert(
+    ctx: workflow.Context, chapter: db.Row, edit: plan.ChapterEdit, layout: plan.SeriesLayout, *, scratch: Path
+) -> workflow.Done | workflow.NeedsHuman:
     x_dir, out_dir = scratch / EXTRACTED, scratch / OUTPUT
     try:
         chapter_plan = _plan(ctx, chapter, edit, layout, x_dir)
     except (plan.NeedsHuman, plan.EditError) as e:
         return workflow.NeedsHuman(str(e))
-    cover = _volume_cover(ctx, chapter, chapter_plan)
-    rec = _encode(ctx, chapter, chapter_plan, cover, scratch)
+    cover_file = _volume_cover(ctx, chapter, chapter_plan)
+    rec, cover = _encode(ctx, chapter, chapter_plan, cover_file, scratch)
     staged = config.abs_path(ctx.cfg["paths"]["staging"]) / staged_name(ctx.conn, chapter)
     size = _write_staged(staged, rec, out_dir, x_dir, chapter_plan)
-    result = _result(chapter_plan, rec, cover)
+    volume = None if cover_file is None else cover_file.volume
+    result = _result(chapter_plan, rec, cover, volume)
     output_pages = _output_pages(out_dir, rec)
     if result["cover_skipped"]:
         log.warning(
             "chapter %s: volume %s cover not inserted: %s",
             chapter["id"],
-            cover and cover["volume"],
+            volume,
             result["cover_skipped"],
         )
 
-    def record(conn):
+    def record(conn: db.Connection) -> None:
         conn.execute(
             "UPDATE chapter SET staged_path = %s, staged_size = %s, convert_result = %s,"
             " output_pages = %s WHERE id = %s",
@@ -227,7 +284,9 @@ def _convert(ctx: workflow.Context, chapter, edit, layout, *, scratch):
     return workflow.Done(record)
 
 
-def _plan(ctx: workflow.Context, chapter, edit, layout, x_dir):
+def _plan(
+    ctx: workflow.Context, chapter: db.Row, edit: plan.ChapterEdit, layout: plan.SeriesLayout, x_dir: Path
+) -> plan.ChapterPlan:
     """Return the chapter's plan: its download extracted into x_dir and measured.
 
     The stored page rows are used where they exist. Raises plan.NeedsHuman (a page that cannot be taken, an edit that
@@ -246,41 +305,57 @@ def _plan(ctx: workflow.Context, chapter, edit, layout, x_dir):
     return chapter_plan
 
 
-def _volume_cover(ctx: workflow.Context, chapter, chapter_plan):
+class _CoverFile(NamedTuple):
+    """A chapter's volume cover as handed over (volume_cover): its volume, its file's bytes, the width it goes in at."""
+
+    volume: str
+    data: bytes
+    width: int
+
+
+def _volume_cover(ctx: workflow.Context, chapter: db.Row, chapter_plan: plan.ChapterPlan) -> _CoverFile | None:
     """Return the chapter's volume cover, or None when it takes none.
 
-    The cover is {"volume", "data", "width"}: read and checked, at the width it goes in at.
+    The cover's volume and file: read and checked, at the width it goes in at.
     """
     row = ctx.conn.execute("SELECT * FROM volume_cover WHERE chapter_id = %s", (chapter["id"],)).fetchone()
     if row is None:
         return None
-    return {"volume": row["volume"], "data": covers.load(ctx.cfg, row), "width": covers.width(chapter_plan)}
+    return _CoverFile(row["volume"], covers.load(ctx.cfg, row), covers.width(chapter_plan))
 
 
-def _encode(ctx: workflow.Context, chapter, chapter_plan, cover, scratch):
-    """Execute the plan with the run's encoder; return image.process_chapter's record.
+def _encode(
+    ctx: workflow.Context, chapter: db.Row, chapter_plan: plan.ChapterPlan, cover_file: _CoverFile | None, scratch: Path
+) -> tuple[image.ChapterRecord, plan.VolumeCover | None]:
+    """Execute the plan with the run's encoder; return image.process_chapter's record and the volume cover encoded.
 
-    The volume cover's AVIF first (its result in cover["avif"]), then the route, the pages, the calibration samples and
-    the encode.
+    The volume cover's AVIF first, then the route, the pages, the calibration samples and the encode.
     """
     work = scratch / "work"
     with encoder(ctx.cfg) as enc:
-        if cover is not None:  # before the route: an AVIF cover that passed can make the chapter AVIF
-            cover["avif"] = enc.cover(cover["data"], cover["width"], work / "cover")
+        # before the route: an AVIF cover that passed can make the chapter AVIF
+        cover = None if cover_file is None else _cover(enc, cover_file, work / "cover")
         _route(chapter, chapter_plan, cover)
         sampling = _sampling(calibrate.rows(ctx.conn, chapter["series_id"]), chapter_plan, chapter["id"])
         prepared = _pages(chapter_plan, scratch, sampling=sampling)
         chapter_plan.quality = _calibrate(ctx, chapter, prepared.units, encoder=enc, work=work)
-        return image.process_chapter(
+        rec = image.process_chapter(
             image.PageFiles.of(scratch / EXTRACTED, prepared.encoded, prepared.blanked),
             scratch / OUTPUT,
             work_dir=work / "encode",
             encoder=enc,
             chapter_plan=chapter_plan,
         )
+        return rec, cover
 
 
-def _route(chapter, chapter_plan, cover):
+def _cover(enc: image.Encoder, cover_file: _CoverFile, work_dir: Path) -> plan.VolumeCover:
+    """Return the volume cover with its AVIF encode (image.Encoder.cover), as plan.routes reads it."""
+    avif = enc.cover(cover_file.data, cover_file.width, work_dir)
+    return {"data": cover_file.data, "width": cover_file.width, "avif": avif}
+
+
+def _route(chapter: db.Row, chapter_plan: plan.ChapterPlan, cover: plan.VolumeCover | None) -> None:
     """Set the plan's route and outcomes (cover: the volume cover with its AVIF encode, when it takes one).
 
     A mix of formats that stays untouched is logged.
@@ -302,12 +377,12 @@ class _Pages:
     calibration units of the pages the chapter samples ({} when it samples none).
     """
 
-    blanked: dict
-    encoded: list
-    units: dict
+    blanked: dict[str, Path]
+    encoded: list[Path]
+    units: dict[str, list[calibrate.Unit]]
 
 
-def _pages(chapter_plan, scratch, *, sampling):
+def _pages(chapter_plan: plan.ChapterPlan, scratch: Path, *, sampling: bool) -> _Pages:
     """Make the pages the encode and the calibration read.
 
     Logo blanks apply to the AVIF outcomes only; calibration samples take the unblanked pages (as the bulk converter),
@@ -316,6 +391,8 @@ def _pages(chapter_plan, scratch, *, sampling):
     x_dir = scratch / EXTRACTED
     avif_first = chapter_plan.outcomes[0]["outcome"] == "avif"
     blanked = image.blank_pages(chapter_plan, x_dir, scratch / "blank") if avif_first else {}
+    rendered: list[Path]
+    encoded: list[Path]
     rendered = encoded = []
     if chapter_plan.render:
         if not blanked or sampling:
@@ -326,7 +403,9 @@ def _pages(chapter_plan, scratch, *, sampling):
     return _Pages(blanked, encoded, calibrate.units(chapter_plan, x_dir, rendered) if sampling else {})
 
 
-def _write_staged(staged, rec, out_dir, x_dir, chapter_plan):
+def _write_staged(
+    staged: Path, rec: image.ChapterRecord, out_dir: Path, x_dir: Path, chapter_plan: plan.ChapterPlan
+) -> int:
     """Write the output pages as the staged CBZ and post-check it; return its size.
 
     A staged file that fails is deleted: none is left behind without its chapter's record.
@@ -340,7 +419,9 @@ def _write_staged(staged, rec, out_dir, x_dir, chapter_plan):
     return size
 
 
-def _result(chapter_plan, rec, cover):
+def _result(
+    chapter_plan: plan.ChapterPlan, rec: image.ChapterRecord, cover: plan.VolumeCover | None, volume: str | None
+) -> ConvertResult:
     """Return the chapter's convert_result from the encode's record."""
     return {
         "route": rec["route"],
@@ -353,7 +434,7 @@ def _result(chapter_plan, rec, cover):
         "dropped": rec["dropped"],
         "reshape": rec.get("reshape"),
         "blanked": rec["blanked"],
-        "cover": rec["cover"] and rec["cover"] | {"volume": cover and cover["volume"]},
+        "cover": None if rec["cover"] is None else {**rec["cover"], "volume": volume},
         "cover_skipped": _cover_skipped(chapter_plan, rec, cover),
         "gray": rec["gray"],
         "avif_rejected": rec.get("avif_rejected"),

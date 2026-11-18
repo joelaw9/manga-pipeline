@@ -280,6 +280,22 @@ def check_edit(text: str) -> ChapterEdit:
     return edit
 
 
+def read_page_aspect(series_id: int, text: str) -> list[float]:
+    """Return a series' page aspects (series_conversion.page_aspect, JSON text), checked.
+
+    RuntimeError unless they are a non-empty list of numbers.
+    """
+    aspect = json.loads(text)
+    _check_page_aspect(series_id, aspect)
+    return aspect
+
+
+def _check_page_aspect(series_id: int, aspect: Json) -> None:
+    if not isinstance(aspect, list) or not aspect or not all(isinstance(a, (int, float)) for a in aspect):
+        msg = f"series {series_id} page_aspect must be a non-empty list of numbers, got {aspect!r}"
+        raise RuntimeError(msg)
+
+
 def _ints(values: Sequence[Json], what: str) -> list[int]:
     ints = [v for v in values if type(v) is int]
     if len(ints) < len(values):

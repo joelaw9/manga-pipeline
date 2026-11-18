@@ -398,10 +398,10 @@ def comicinfo_run(ctx: workflow.Context, chapter):
         group = volumes.series_group(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
     except volumes.VolumeError as e:
         return workflow.NeedsHuman(str(e))
-    fields = comicinfo_stage.series_fields(ctx, series, {"source_url": None, "source": None}, group)
+    elements = comicinfo_stage.series_fields(ctx, series, None, None, group)
     old_links = (comicinfo.read_all(old).get("Web") or "").split()
-    links = (fields["Web"] or "").split()
-    fields.update(kept)
+    links = (elements["Web"] or "").split()
+    fields: dict[str, str | int | None] = {**elements, **kept}
     fields["Web"] = " ".join([*links, *(u for u in old_links if u not in links)])
     fields["Series"] = series["comicinfo_series"]
     if series["localized_name"]:

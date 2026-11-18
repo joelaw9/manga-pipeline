@@ -10,9 +10,11 @@ Number, Title, Volume and the file name are the bulk converter's, resolved with 
 """
 
 import json
+from collections.abc import Sequence
 
 from manga_pipeline import archive, baseline, chapter_names, comicinfo, config, db, names, volumes, workflow
 from manga_pipeline.metadata import merge, naming, tags
+from manga_pipeline.stages import convert
 
 # Elements this stage writes itself: the download's own are never kept (Count is never written: SPEC "Metadata").
 OWN = {
@@ -34,7 +36,7 @@ OWN = {
 LEFT_TO_RIGHT = {"manhwa", "manhua", "korean", "chinese", "webtoon", "long strip", "web comic"}  # genres and tags
 
 
-def run(ctx: workflow.Context, chapter):
+def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     """Write the staged CBZ's ComicInfo.xml and settle its library path; record both with the chapter's naming.
 
     Waits on bulk_conversion when a baseline the series needs cannot be taken yet; a VolumeError from naming is
@@ -49,7 +51,7 @@ def run(ctx: workflow.Context, chapter):
         if why:
             return workflow.Waiting("bulk_conversion", {"why": why})
     read, _ = comicinfo.read_download(config.to_local(ctx.cfg, chapter["download_path"]))
-    fields: dict[str, str | int] = {k: v for k, v in read.items() if k not in OWN}
+    fields: dict[str, str | int | None] = {k: v for k, v in read.items() if k not in OWN}
     overrides = config.abs_path(ctx.cfg["paths"]["naming_overrides"])
     try:
         named = _copy_name(ctx, chapter) or chapter_names.resolve(ctx, series)[chapter["id"]]
@@ -68,9 +70,10 @@ def run(ctx: workflow.Context, chapter):
     fields.pop("LocalizedSeries", None)
     if series["localized_name"]:
         fields["LocalizedSeries"] = series["localized_name"]
-    fields.update(series_fields(ctx, series, chapter, group))
-    result, pages = json.loads(chapter["convert_result"]), json.loads(chapter["output_pages"])
-    entries = page_entries(pages, bool(result["cover"]), _layout(ctx.conn, series["id"]) == "pages")
+    fields.update(series_fields(ctx, series, chapter["source"], chapter["source_url"], group))
+    result = convert.read_result(chapter["convert_result"])
+    pages = convert.read_output_pages(chapter["output_pages"])
+    entries = page_entries(pages, cover=bool(result["cover"]), spreads=_layout(ctx.conn, series["id"]) == "pages")
     fields["PageCount"] = len(entries)
     fields["BlackAndWhite"] = "Yes" if result["gray"] else "No"
     xml = comicinfo.build(fields, entries)
@@ -80,7 +83,7 @@ def run(ctx: workflow.Context, chapter):
     if chapter["published_file_id"] is not None:  # a better copy takes its file's place, under its name
         target = config.to_local(ctx.cfg, _file(ctx, chapter)["library_path"])
 
-    def record(conn):
+    def record(conn: db.Connection) -> None:
         conn.execute(
             """UPDATE chapter SET staged_size = %s, library_path = %s, comicinfo_series = %s, comicinfo_volume = %s,
                 comicinfo_number = %s, comicinfo_title = %s, comicinfo_date = %s, naming_kind = %s,
@@ -93,7 +96,7 @@ def run(ctx: workflow.Context, chapter):
                 fields.get("Volume"),
                 fields["Number"],
                 named.title or None,  # an untitled chapter is recorded with no title, as the baseline records one
-                names.ci_date(fields),
+                names.ci_date(read),  # the download's own Year, Month and Day: fields keeps them as they are
                 named.kind,
                 named.volume_source,
                 None if unedited is None else json.dumps(unedited),
@@ -104,11 +107,11 @@ def run(ctx: workflow.Context, chapter):
     return workflow.Done(record)
 
 
-def _file(ctx: workflow.Context, chapter):
+def _file(ctx: workflow.Context, chapter: db.Row) -> db.Row:
     return db.one_row(ctx.conn, "SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],))
 
 
-def _copy_name(ctx: workflow.Context, chapter):
+def _copy_name(ctx: workflow.Context, chapter: db.Row) -> naming.Naming | None:
     """Return a better copy's naming: its file's as it is now (SPEC "Retroactive updates").
 
     None for any other chapter.
@@ -127,10 +130,12 @@ def _copy_name(ctx: workflow.Context, chapter):
     )
 
 
-def series_fields(ctx: workflow.Context, series, chapter, group):
-    """Return the elements the series' stored fields and the chapter's source give."""
+def series_fields(
+    ctx: workflow.Context, series: db.Row, source: str | None, source_url: str | None, group: str | None
+) -> dict[str, str | None]:
+    """Return the ComicInfo elements the series' stored fields and the chapter's source (and its page) give."""
     got = merge.stored(ctx.conn, series["id"], tags.load())
-    web = [*got.links, *([chapter["source_url"]] if chapter["source_url"] else [])]
+    web = [*got.links, *([source_url] if source_url else [])]
     genres = {g.lower() for g in (*got.genres, *got.tags)}
     strip = _layout(ctx.conn, series["id"]) == "strip"
     return {
@@ -142,21 +147,21 @@ def series_fields(ctx: workflow.Context, series, chapter, group):
         "Writer": ", ".join(got.writers),
         "Penciller": ", ".join(got.pencillers),
         "Web": " ".join(web),
-        "Notes": f"Source: {chapter['source']}" if chapter["source"] else None,
+        "Notes": f"Source: {source}" if source else None,
         "Manga": "Yes" if strip or genres & LEFT_TO_RIGHT else "YesAndRightToLeft",
         "SeriesGroup": group,
     }
 
 
-def page_entries(pages, cover, spreads):
+def page_entries(pages: Sequence[convert.StagedPage], *, cover: bool, spreads: bool) -> list[dict[str, str | int]]:
     """Return the ComicInfo Page entries of convert's output pages.
 
     pages: [{index, name, width, height, bytes}] in archive order. FrontCover on the inserted volume cover (cover: one
     was inserted), DoublePage on a page wider than tall in a page series (spreads).
     """
-    out = []
+    out: list[dict[str, str | int]] = []
     for page in pages:
-        entry = {"Image": page["index"]}
+        entry: dict[str, str | int] = {"Image": page["index"]}
         if cover and page["name"].rpartition(".")[0] == archive.COVER_STEM:
             entry["Type"] = "FrontCover"
         if spreads and page["width"] > page["height"]:
@@ -166,7 +171,7 @@ def page_entries(pages, cover, spreads):
     return out
 
 
-def _layout(conn, series_id):
+def _layout(conn: db.Connection, series_id: int) -> str:
     row = conn.execute("SELECT layout FROM series_conversion WHERE series_id = %s", (series_id,)).fetchone()
     if row is None:
         msg = f"series {series_id} has no layout (series_conversion)"
