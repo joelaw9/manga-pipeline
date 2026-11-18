@@ -187,16 +187,21 @@ def _samples(encoder: image.Encoder, picked: Sequence[calibrate.Unit], work_dir:
     ]
 
 
-def _cover_skipped(
-    chapter_plan: plan.ChapterPlan, rec: image.ChapterRecord, cover: plan.VolumeCover | None
-) -> str | None:
+class _EncodedCover(NamedTuple):
+    """A chapter's volume cover once its AVIF is encoded: the volume it is the cover of, and the cover routes reads."""
+
+    volume: str
+    cover: plan.VolumeCover
+
+
+def _cover_skipped(chapter_plan: plan.ChapterPlan, rec: image.ChapterRecord, cover: _EncodedCover | None) -> str | None:
     """Why a chapter that takes a volume cover went out without it (None when it has it, or takes none)."""
     if cover is None or rec["cover"]:
         return None
     fmts = sorted({q["format"] for q in chapter_plan.kept() if not q["cover"]})
     wanted = images.AVIF if rec["outcome"] == "avif" else plan.cover_format(fmts)
     if wanted == images.AVIF:
-        return f"its AVIF cover scored {cover['avif']['score']}, below the floor"
+        return f"its AVIF cover scored {cover.cover['avif']['score']}, below the floor"
     return f"its {rec['outcome']} pages ({', '.join(fmts)}) share no cover format"
 
 
@@ -249,18 +254,16 @@ def _convert(
         chapter_plan = _plan(ctx, chapter, edit, layout, x_dir)
     except (plan.NeedsHuman, plan.EditError) as e:
         return workflow.NeedsHuman(str(e))
-    cover_file = _volume_cover(ctx, chapter, chapter_plan)
-    rec, cover = _encode(ctx, chapter, chapter_plan, cover_file, scratch)
+    rec, cover = _encode(ctx, chapter, chapter_plan, _volume_cover(ctx, chapter, chapter_plan), scratch)
     staged = config.abs_path(ctx.cfg["paths"]["staging"]) / staged_name(ctx.conn, chapter)
     size = _write_staged(staged, rec, out_dir, x_dir, chapter_plan)
-    volume = None if cover_file is None else cover_file.volume
-    result = _result(chapter_plan, rec, cover, volume)
+    result = _result(chapter_plan, rec, cover)
     output_pages = _output_pages(out_dir, rec)
     if result["cover_skipped"]:
         log.warning(
             "chapter %s: volume %s cover not inserted: %s",
             chapter["id"],
-            volume,
+            None if cover is None else cover.volume,
             result["cover_skipped"],
         )
 
@@ -326,7 +329,7 @@ def _volume_cover(ctx: workflow.Context, chapter: db.Row, chapter_plan: plan.Cha
 
 def _encode(
     ctx: workflow.Context, chapter: db.Row, chapter_plan: plan.ChapterPlan, cover_file: _CoverFile | None, scratch: Path
-) -> tuple[image.ChapterRecord, plan.VolumeCover | None]:
+) -> tuple[image.ChapterRecord, _EncodedCover | None]:
     """Execute the plan with the run's encoder; return image.process_chapter's record and the volume cover encoded.
 
     The volume cover's AVIF first, then the route, the pages, the calibration samples and the encode.
@@ -335,7 +338,7 @@ def _encode(
     with encoder(ctx.cfg) as enc:
         # before the route: an AVIF cover that passed can make the chapter AVIF
         cover = None if cover_file is None else _cover(enc, cover_file, work / "cover")
-        _route(chapter, chapter_plan, cover)
+        _route(chapter, chapter_plan, None if cover is None else cover.cover)
         sampling = _sampling(calibrate.rows(ctx.conn, chapter["series_id"]), chapter_plan, chapter["id"])
         prepared = _pages(chapter_plan, scratch, sampling=sampling)
         chapter_plan.quality = _calibrate(ctx, chapter, prepared.units, encoder=enc, work=work)
@@ -349,10 +352,10 @@ def _encode(
         return rec, cover
 
 
-def _cover(enc: image.Encoder, cover_file: _CoverFile, work_dir: Path) -> plan.VolumeCover:
-    """Return the volume cover with its AVIF encode (image.Encoder.cover), as plan.routes reads it."""
+def _cover(enc: image.Encoder, cover_file: _CoverFile, work_dir: Path) -> _EncodedCover:
+    """Return the volume cover with its AVIF encode (image.Encoder.cover), and its volume."""
     avif = enc.cover(cover_file.data, cover_file.width, work_dir)
-    return {"data": cover_file.data, "width": cover_file.width, "avif": avif}
+    return _EncodedCover(cover_file.volume, {"data": cover_file.data, "width": cover_file.width, "avif": avif})
 
 
 def _route(chapter: db.Row, chapter_plan: plan.ChapterPlan, cover: plan.VolumeCover | None) -> None:
@@ -419,10 +422,8 @@ def _write_staged(
     return size
 
 
-def _result(
-    chapter_plan: plan.ChapterPlan, rec: image.ChapterRecord, cover: plan.VolumeCover | None, volume: str | None
-) -> ConvertResult:
-    """Return the chapter's convert_result from the encode's record."""
+def _result(chapter_plan: plan.ChapterPlan, rec: image.ChapterRecord, cover: _EncodedCover | None) -> ConvertResult:
+    """Return the chapter's convert_result from the encode's record and the volume cover it was given."""
     return {
         "route": rec["route"],
         "outcome": rec["outcome"],
@@ -434,7 +435,7 @@ def _result(
         "dropped": rec["dropped"],
         "reshape": rec.get("reshape"),
         "blanked": rec["blanked"],
-        "cover": None if rec["cover"] is None else {**rec["cover"], "volume": volume},
+        "cover": None if rec["cover"] is None else {**rec["cover"], "volume": None if cover is None else cover.volume},
         "cover_skipped": _cover_skipped(chapter_plan, rec, cover),
         "gray": rec["gray"],
         "avif_rejected": rec.get("avif_rejected"),
