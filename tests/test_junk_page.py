@@ -6,7 +6,6 @@ and tests/test_segmentation.py; the page sizes are recorded from real chapters.
 """
 
 import functools
-from collections.abc import Mapping
 from pathlib import Path
 from unittest import mock
 
@@ -31,7 +30,7 @@ def art(h=852, seed=1):
     return fx.manga_page((600, h), seed=seed, noise=3)
 
 
-def find_band(page, where, aspect=ASPECT, cfg: Mapping[str, float] = BAND):
+def find_band(page, where, aspect=ASPECT, cfg: page_units.BandSettings = BAND):
     return page_units.find_band(page, aspect, where, cfg)
 
 
@@ -126,7 +125,7 @@ def test_the_gutter_nearest_the_naive_cut_wins():
 def test_only_a_page_taller_than_the_limit_is_band_checked(gutter, found):
     """Shape 1.0 at 600 px, band_tolerance 0.5: a 900 px page (band + gutter + page) is not examined, 901 px is."""
     page = fx.stack(fx.warning_banner(), (gutter, 600), art(600))
-    b = find_band(page, "top", aspect=1.0, cfg=dict(BAND, band_tolerance=0.5))
+    b = find_band(page, "top", aspect=1.0, cfg={**BAND, "band_tolerance": 0.5})
     assert (b is not None) is found, "only a page strictly taller than the limit is band-checked"
 
 

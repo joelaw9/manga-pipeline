@@ -19,7 +19,7 @@ from collections import Counter
 from collections.abc import Callable, Container, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, NamedTuple, NotRequired, TypedDict
+from typing import Literal, NamedTuple, NotRequired, ReadOnly, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
@@ -29,17 +29,55 @@ from manga_pipeline import db, images, strip
 from manga_pipeline.convert import plan
 from manga_pipeline.junk import frames, logo_units, store
 
-BAND = MappingProxyType(
-    {
-        **strip.SLICE_REPAIR,
-        **strip.RESTITCH,
-        "band_min_px": 16,  # a band (and what it leaves of the page) is at least this tall
-        "band_seam_min_px": 100,  # a band cut on a seam (no gutter) is at least this tall
-        "band_search": 0.12,  # the cut is looked for within this share of the page height around the naive cut
-        "page_review_width_tolerance": 0.05,  # size rule: a width this far off the modal width is another size
-        "page_review_aspect_margin": 0.01,  # size rule: the middle pages' aspect range widened by this
-    }
-)
+
+class BandSettings(TypedDict):
+    """The band and page-review rules' settings: strip.SLICE_REPAIR's and strip.RESTITCH's, then their own.
+
+    Read only. The slice-repair values are typed as strip.SLICE_REPAIR holds them (float), the restitch ones are ints.
+    """
+
+    max_sliver_ratio: ReadOnly[float]
+    max_seam_score: ReadOnly[float]
+    min_edge_texture: ReadOnly[float]
+    pattern_min_joins: ReadOnly[float]
+    stitched_ratio: ReadOnly[float]
+    fallback_page_aspect: ReadOnly[float]
+    snap_window: ReadOnly[float]
+    band_tolerance: ReadOnly[float]
+    min_page: ReadOnly[int]
+    max_page: ReadOnly[int]
+    analysis_width: ReadOnly[int]
+    gap_min_rows: ReadOnly[int]
+    gap_row_std: ReadOnly[int]
+    gap_row_range: ReadOnly[int]
+    band_min_px: ReadOnly[int]
+    band_seam_min_px: ReadOnly[int]
+    band_search: ReadOnly[float]
+    page_review_width_tolerance: ReadOnly[float]
+    page_review_aspect_margin: ReadOnly[float]
+
+
+BAND: BandSettings = {
+    "max_sliver_ratio": strip.SLICE_REPAIR["max_sliver_ratio"],
+    "max_seam_score": strip.SLICE_REPAIR["max_seam_score"],
+    "min_edge_texture": strip.SLICE_REPAIR["min_edge_texture"],
+    "pattern_min_joins": strip.SLICE_REPAIR["pattern_min_joins"],
+    "stitched_ratio": strip.SLICE_REPAIR["stitched_ratio"],
+    "fallback_page_aspect": strip.SLICE_REPAIR["fallback_page_aspect"],
+    "snap_window": strip.SLICE_REPAIR["snap_window"],
+    "band_tolerance": strip.SLICE_REPAIR["band_tolerance"],
+    "min_page": strip.RESTITCH["min_page"],
+    "max_page": strip.RESTITCH["max_page"],
+    "analysis_width": strip.RESTITCH["analysis_width"],
+    "gap_min_rows": strip.RESTITCH["gap_min_rows"],
+    "gap_row_std": strip.RESTITCH["gap_row_std"],
+    "gap_row_range": strip.RESTITCH["gap_row_range"],
+    "band_min_px": 16,  # a band (and what it leaves of the page) is at least this tall
+    "band_seam_min_px": 100,  # a band cut on a seam (no gutter) is at least this tall
+    "band_search": 0.12,  # the cut is looked for within this share of the page height around the naive cut
+    "page_review_width_tolerance": 0.05,  # size rule: a width this far off the modal width is another size
+    "page_review_aspect_margin": 0.01,  # size rule: the middle pages' aspect range widened by this
+}
 END_PAGES = MappingProxyType(
     {
         "same_size": 0.05,
@@ -238,7 +276,7 @@ def _nearest_seam(a: NDArray[np.float32], step: float, naive: float, reach: floa
     return None if best is None else best[1]
 
 
-def _band_cut(im: Image.Image, page_h: float, where: str, cfg: Mapping[str, float]) -> _Cut | None:
+def _band_cut(im: Image.Image, page_h: float, where: str, cfg: BandSettings) -> _Cut | None:
     """Return where to cut a band at `where` off a page whose own part is page_h tall.
 
     The gutter point nearest the naive cut within band_search of page_h (moved to the gutter edge's sharpest row when it
@@ -246,14 +284,15 @@ def _band_cut(im: Image.Image, page_h: float, where: str, cfg: Mapping[str, floa
     art).
     """
     w, h = im.size
-    aw = int(cfg["analysis_width"])
+    aw = cfg["analysis_width"]
     n = max(2 * strip.SEAM_ROWS + 2, round(h * aw / w))
     step = h / n
     g = im.convert("L")
     a = np.asarray(g.resize((aw, n)), np.float32)
     naive = h - page_h if where == "top" else page_h
     reach = cfg["band_search"] * page_h
-    gap = _nearest_gutter(_gutters(strip.blank_rows(a, cfg), step), naive, reach, h)
+    gap_rows = {"gap_row_std": cfg["gap_row_std"], "gap_row_range": cfg["gap_row_range"]}
+    gap = _nearest_gutter(_gutters(strip.blank_rows(a, gap_rows), step), naive, reach, h)
     if gap is not None:
         cut, run = gap
         if cut != naive:  # on the gutter's edge
@@ -267,7 +306,7 @@ def _band_cut(im: Image.Image, page_h: float, where: str, cfg: Mapping[str, floa
     return _Cut(round(_sharpest_row(g, k * step, step)), "seam", None)
 
 
-def _band(im: Image.Image, where: str, cut: _Cut, cfg: Mapping[str, float]) -> Band | None:
+def _band(im: Image.Image, where: str, cut: _Cut, cfg: BandSettings) -> Band | None:
     """Return the band `cut` makes at `where`: {"where", "cut", "height", "how", "sig" (text), "box"}, or None.
 
     None when it is no band (it or what it leaves under band_min_px, a seam band under band_seam_min_px, its content
@@ -291,7 +330,7 @@ def _band(im: Image.Image, where: str, cut: _Cut, cfg: Mapping[str, float]) -> B
     return {"where": where, "cut": cut.at, "height": height, "how": cut.how, "sig": sig, "box": list(box)}
 
 
-def find_band(im: Image.Image, aspect: float, where: str, cfg: Mapping[str, float] = BAND) -> Band | None:
+def find_band(im: Image.Image, aspect: float, where: str, cfg: BandSettings = BAND) -> Band | None:
     """Find a credit band stitched onto the top or bottom of a page taller than the series shape.
 
     It is cut at the gutter nearest the naive cut within band_search of the page height, else at the strongest seam
@@ -308,7 +347,7 @@ def find_band(im: Image.Image, aspect: float, where: str, cfg: Mapping[str, floa
     return None if cut is None else _band(im, where, cut, cfg)
 
 
-def page_bands(im: Image.Image, aspect: float, cfg: Mapping[str, float] = BAND) -> list[Band]:
+def page_bands(im: Image.Image, aspect: float, cfg: BandSettings = BAND) -> list[Band]:
     """find_band at both edges of a page."""
     return [b for b in (find_band(im, aspect, wh, cfg) for wh in ("top", "bottom")) if b]
 
@@ -347,7 +386,7 @@ def page_candidates(
     aspects: Sequence[float] | None,
     banded: Container[int],
     joined: Container[int],
-    cfg: Mapping[str, float] = BAND,
+    cfg: BandSettings = BAND,
 ) -> list[tuple[int, str]]:
     """Return the edge pages (of the content pages, `sizes` in order) whose size no middle page of the chapter has.
 
