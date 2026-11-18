@@ -98,7 +98,7 @@ class Command:
     log: str | None  # log file name (<log>.log); None = console only
     checks: tuple[preflight.Check, ...]
     # handler(cfg, args, conn): conn is the command's connection holding its locks, None for a command without any
-    handler: Callable[[dict, argparse.Namespace, object], None]
+    handler: Callable[[config.Config, argparse.Namespace, db.Connection | None], None]
     builds: bool = False  # creates the database when the server has none, and builds one holding no schema record
 
     @property
@@ -340,6 +340,14 @@ def junk_decide(cfg, args):
     log.info("junk candidate %s decided %s by %s", args.id, args.verdict, decider)
 
 
+def locked_connection(conn: db.Connection | None) -> db.Connection:
+    """Return a locked command's connection; RuntimeError when it has none (its row in COMMANDS takes no lock)."""
+    if conn is None:
+        msg = "a command that takes locks runs without its connection"
+        raise RuntimeError(msg)
+    return conn
+
+
 def _unlocked(handler):
     """Return the command-table handler of a command without locks: its handler opens what it needs itself."""
     return lambda cfg, args, _conn: handler(cfg, args)
@@ -370,7 +378,11 @@ COMMANDS = {
     "junk show": Command((), None, None, (), _unlocked(junk_show)),
     "junk decide": Command((), None, None, (), _unlocked(junk_decide)),
     "junk review": Command(
-        ("junk-review",), S, "junk-review", REVIEW_CHECKS, lambda cfg, _args, conn: review_run.run(cfg, conn)
+        ("junk-review",),
+        S,
+        "junk-review",
+        REVIEW_CHECKS,
+        lambda cfg, _args, conn: review_run.run(cfg, locked_connection(conn)),
     ),
     "state reset": Command((), X, None, RESET_CHECKS, lambda cfg, _args, conn: state.reset(cfg, conn)),
     "state adopt": Command((), X, None, ADOPT_CHECKS, lambda cfg, _args, conn: state.adopt(cfg, conn), builds=True),

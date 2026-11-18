@@ -70,7 +70,7 @@ def encode_page(job):
     im, alpha = images.open_image(src)
     if task["yuv"] == "400":
         ref = _tmp(tmp, src, "gray")
-        images.save_png(images.to_gray(im, alpha), ref)
+        images.save_png(images.to_gray(im, alpha=alpha), ref)
     else:
         ref = _tmp(tmp, src, "ref")
         images.save_png(im.convert("RGBA" if alpha else "RGB"), ref)
@@ -281,7 +281,7 @@ def lossless_page(task):
         feed = src
         if gray and src_mode in ("RGB", "RGBA", "P", "PA"):  # 8-bit colour container -> true gray
             feed = _tmp(tmp, src, "gray")
-            images.save_png(images.to_gray(im, alpha), feed)
+            images.save_png(images.to_gray(im, alpha=alpha), feed)
         tools.run(t["oxipng"], "-o", "4", "--strip", "safe", "-t", "1", "--out", out, feed)
     else:  # lossless WebP passes through
         shutil.copyfile(src, out)

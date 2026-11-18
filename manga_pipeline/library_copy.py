@@ -209,9 +209,8 @@ def published_junk(ctx: workflow.Context, published, layout, width):
         return None
     name = PurePosixPath(published["library_path"]).name
     c = next((c for c in record["chapters"] if c["output"] == name), None)
-    if c is None or not isinstance(c.get("edits"), dict):  # an older record keeps no edits: not known
+    if c is None or not isinstance(edits := c.get("edits"), dict):  # an older record keeps no edits: not known
         return None
-    edits = c["edits"]
     removed = (edits.get("reshape") or {}).get("removed") or []
     edit = {"drop_pages": edits.get("drops") or [], "strip_removed": removed}
     return measures.junk(edit, layout, width)

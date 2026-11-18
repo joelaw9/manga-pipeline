@@ -6,12 +6,17 @@ converter's optimizer/formats.py (its archive half is archive.py); reads no conf
 
 import functools
 import io
+import os
 import struct
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from typing import IO, ReadOnly, TypedDict
 
 import imagehash
 import numpy as np
+from numpy.typing import NDArray
 from PIL import ExifTags, Image, ImageCms, JpegImagePlugin
+from PIL._imagingcms import CmsProfile
 
 from manga_pipeline import archive
 
@@ -39,8 +44,10 @@ VP8L_SIGNATURE = 0x2F  # a lossless bitstream's first byte
 CHANNEL_MAX = 255  # an 8-bit channel's top value (opaque, for alpha)
 RGB_CHANNELS = 3  # an RGB pixel's channels (r, g, b)
 
+type Box = tuple[int, int, int, int]  # (x0, y0, x1, y1) in px, end-exclusive
 
-def _webp_kind(data):
+
+def _webp_kind(data: bytes) -> str:
     """Classify a RIFF/WEBP stream by walking its chunks (VP8X wraps the real one)."""
     pos = 12
     while pos + 8 <= len(data):
@@ -56,7 +63,7 @@ def _webp_kind(data):
     return UNKNOWN
 
 
-def _avif_brand(data):
+def _avif_brand(data: bytes) -> bool:
     if data[4:8] != b"ftyp":
         return False
     box = struct.unpack(">I", data[:4])[0]
@@ -75,7 +82,7 @@ _SIGNATURES = (
 )
 
 
-def detect(data):
+def detect(data: bytes) -> str:
     """Return the format constant for image bytes (needs the whole file for VP8X WebP).
 
     The first _SIGNATURES entry the bytes start with, else a RIFF/WEBP stream's kind, else AVIF by its brand, else
@@ -91,7 +98,7 @@ def detect(data):
     return UNKNOWN
 
 
-def dimensions(head):
+def dimensions(head: bytes) -> tuple[int, int] | None:
     """Return (width, height) from the first bytes of an image, without decoding.
 
     WebP needs this because Pillow decodes the whole stream to learn the size. Returns None if the header isn't
@@ -113,20 +120,20 @@ def dimensions(head):
         return None
 
 
-def file_dimensions(src):
+def file_dimensions(src: str | os.PathLike[str] | IO[bytes]) -> tuple[int, int] | None:
     """dimensions() from a file path or an open binary file, reading only its first HEADER_BYTES."""
-    if hasattr(src, "read"):
+    if not isinstance(src, (str, os.PathLike)):
         return dimensions(src.read(HEADER_BYTES))
     with Path(src).open("rb") as f:
         return dimensions(f.read(HEADER_BYTES))
 
 
-def page_size(path):
+def page_size(path: str | Path) -> tuple[int, int]:
     """(width, height) of a page file: from its header, else by decoding it."""
     return file_dimensions(path) or open_image(path)[0].size
 
 
-def exif_orientation(data):
+def exif_orientation(data: bytes) -> int:
     """Return a page's EXIF orientation from its header (1: none, or upright; XMP tiff:Orientation counts too).
 
     Image.getexif of the base class reads only what the header holds: PngImageFile.getexif would decode the whole page
@@ -136,7 +143,7 @@ def exif_orientation(data):
         return Image.Image.getexif(im).get(ExifTags.Base.Orientation, 1)
 
 
-def is_srgb(icc):
+def is_srgb(icc: bytes | None) -> bool:
     """Return whether icc is no profile or an sRGB profile (description read properly, incl. UTF-16 ICC v4 text)."""
     if not icc:
         return True
@@ -146,7 +153,7 @@ def is_srgb(icc):
         return b"sRGB" in icc
 
 
-def open_image(src):
+def open_image(src: bytes | str | Path) -> tuple[Image.Image, bool]:
     """Decode a page fully into an 8-bit image Pillow converts correctly, and close the file.
 
     - 16-bit gray (I;16) / 32-bit (I) are scaled to 8 bits; Pillow's own convert("L") clips them to white.
@@ -162,15 +169,15 @@ def open_image(src):
         return from_loaded(im)
 
 
-def from_loaded(im):
+def from_loaded(im: Image.Image) -> tuple[Image.Image, bool]:
     """Return open_image's result for a page Pillow has opened and loaded already.
 
     A check that decoded it reuses that decode; im is left as it is. Returns (image, has_alpha).
     """
     icc = im.info.get("icc_profile")
-    profile = None if is_srgb(icc) else ImageCms.core.profile_frombytes(icc)
+    profile = None if not icc or is_srgb(icc) else ImageCms.core.profile_frombytes(icc)
     space = profile.xcolor_space.strip() if profile else None
-    if im.mode == "CMYK" and space == "CMYK":
+    if im.mode == "CMYK" and profile is not None and space == "CMYK":
         im = _to_srgb(im, profile)
     elif im.mode in ("I;16", "I;16L", "I;16B", "I;16N", "I"):
         a = np.asarray(im).astype(np.uint32)
@@ -182,7 +189,7 @@ def from_loaded(im):
         im = im.convert("RGBA" if "A" in im.getbands() or im.has_transparency_data else "RGB")
     else:
         im = im.copy()
-    if space == "RGB" and im.mode in ("RGB", "RGBA"):
+    if profile is not None and space == "RGB" and im.mode in ("RGB", "RGBA"):
         alpha = im.getchannel("A") if im.mode == "RGBA" else None
         im = _to_srgb(im.convert("RGB"), profile)
         if alpha is not None:
@@ -193,7 +200,7 @@ def from_loaded(im):
     return im, has_alpha
 
 
-def _to_srgb(im, profile):
+def _to_srgb(im: Image.Image, profile: CmsProfile) -> Image.Image:
     """Convert im's pixels from profile to sRGB, as a new RGB image."""
     out = ImageCms.profileToProfile(im, profile, ImageCms.createProfile("sRGB"), outputMode="RGB")
     if out is None:  # only an in-place conversion returns None
@@ -202,23 +209,24 @@ def _to_srgb(im, profile):
     return out
 
 
-def open_flat(src):
+def open_flat(src: bytes | str | Path) -> tuple[Image.Image, bool]:
     """Decode a page as open_image does, with real alpha (any pixel under 255) composited onto white.
 
     White is the canvas rendered pages are built on: the page as a rendered page shows it, and as the plan measures it.
     An opaque-alpha or alpha-free page comes back exactly as open_image returns it. Returns (image, had real alpha).
     """
-    return flatten(*open_image(src))
+    im, alpha = open_image(src)
+    return flatten(im, alpha=alpha)
 
 
-def flatten(im, alpha):
+def flatten(im: Image.Image, *, alpha: bool) -> tuple[Image.Image, bool]:
     """open_flat of open_image's (image, has_alpha). Returns (image, had real alpha)."""
     if alpha:
         im = Image.alpha_composite(Image.new("RGBA", im.size, (255, 255, 255, 255)), im.convert("RGBA")).convert("RGB")
     return im, alpha
 
 
-def to_gray(im, alpha):
+def to_gray(im: Image.Image, *, alpha: bool) -> Image.Image:
     """Return an open_image page as true gray (L, or LA with alpha) for a gray encode.
 
     A colour profile the page carried is dropped: it can't describe gray pixels, and libpng readers (libjxl's
@@ -232,9 +240,15 @@ def to_gray(im, alpha):
     return g
 
 
-def save_png(im, path):
+def save_png(im: Image.Image, path: Path) -> None:
     """Fast PNG (lossless intermediate for the encoders)."""
     im.save(path, "PNG", compress_level=1)
+
+
+def as_box(values: Sequence[int]) -> Box:
+    """Return a box given as 4 values ([x0, y0, x1, y1], as JSON holds it) as a Box; ValueError for another count."""
+    x0, y0, x1, y1 = values
+    return x0, y0, x1, y1
 
 
 GRAY, TINTED, COLOUR, GRAY_MARK = "gray", "tinted", "colour", "gray-mark"  # page classes (SPEC "Page classes")
@@ -242,7 +256,7 @@ MARK_DILATION = 3  # tiles: coloured tiles this close (Manhattan) belong to one 
 MARK_BLOCK = 8  # px: side of the colour tiles (classify, _mark_box)
 
 
-def _spread(rgb):
+def _spread(rgb: NDArray[np.uint8]) -> NDArray[np.uint8]:
     """Return the channel spread (max-min of R,G,B) of each pixel, computed channel by channel.
 
     numpy's reduction over the 3-value axis is ~12x slower (it was most of the plan's page scan).
@@ -252,21 +266,23 @@ def _spread(rgb):
     return np.maximum(np.maximum(r, g), b) - np.minimum(np.minimum(r, g), b)
 
 
-def _tile_spread(spread, block):
-    """Return the mean channel spread (_spread) of each block x block tile; None when the page is smaller than a tile.
+def _tile_spread(spread: NDArray[np.uint8], block: int) -> tuple[NDArray[np.float64] | None, float]:
+    """Return (the mean channel spread (_spread) of each block x block tile, the colour strength).
 
-    Then the page's own max spread is the strength.
+    The strength is the strongest tile's spread; the tiles are None when the page is smaller than a tile, and then the
+    page's own max spread is the strength.
     """
     h, w = (spread.shape[0] // block) * block, (spread.shape[1] // block) * block
     if not h or not w:
         return None, float(spread.max())
-    return spread[:h, :w].reshape(h // block, block, w // block, block).mean(axis=(1, 3)), None
+    tiles = spread[:h, :w].reshape(h // block, block, w // block, block).mean(axis=(1, 3))
+    return tiles, float(tiles.max())
 
 
-def _components(mask):
+def _components(mask: NDArray[np.bool_]) -> list[Box]:
     """4-connected components of a boolean grid, each as (row0, col0, row1, col1) with exclusive ends."""
     seen = np.zeros_like(mask)
-    boxes = []
+    boxes: list[Box] = []
     for r, c in zip(*np.nonzero(mask), strict=True):
         if seen[r, c]:
             continue
@@ -283,7 +299,7 @@ def _components(mask):
     return boxes
 
 
-def _mark_boxes(mask, block):
+def _mark_boxes(mask: NDArray[np.bool_], block: int) -> list[Box]:
     """Return the [(x0, y0, x1, y1)] pixel box of each coloured component.
 
     Components join after MARK_DILATION tiles of dilation, and each box is the dilated component's (the extent the
@@ -300,7 +316,9 @@ def _mark_boxes(mask, block):
     return [(c0 * block, r0 * block, c1 * block, r1 * block) for r0, c0, r1, c1 in _components(grown)]
 
 
-def _mark_box(mask, shape, limits, block):
+def _mark_box(
+    mask: NDArray[np.bool_] | None, shape: tuple[int, ...], limits: Mapping[str, float], block: int
+) -> Box | None:
     """Return the pixel box (x0, y0, x1, y1) of the page's one compact colour mark (a scanlation badge).
 
     mask: the page's coloured-tile grid (tile spread above colour_block; None for a page smaller than a tile);
@@ -326,7 +344,9 @@ def _mark_box(mask, shape, limits, block):
     return None
 
 
-def classify(rgb, colour_block, tint_p99, limits):
+def classify(
+    rgb: NDArray[np.uint8], colour_block: float, tint_p99: float, limits: Mapping[str, float]
+) -> tuple[str, Box | None]:
     """Return (page class, mark box) of a page.
 
     gray-mark with its mark's box (_mark_box); colour: any other coloured patch (colour strength, the strongest tile
@@ -335,14 +355,14 @@ def classify(rgb, colour_block, tint_p99, limits):
     integrity section (mark size limits).
     """
     spread = _spread(rgb)  # once: colour strength, the mark box and the tint test share it
-    tiles, whole = _tile_spread(spread, MARK_BLOCK)
-    if (whole if tiles is None else float(tiles.max())) > colour_block:
+    tiles, strength = _tile_spread(spread, MARK_BLOCK)
+    if strength > colour_block:
         box = _mark_box(None if tiles is None else tiles > colour_block, spread.shape, limits, MARK_BLOCK)
         return (COLOUR, None) if box is None else (GRAY_MARK, box)
     return (TINTED if np.percentile(spread[::2, ::2], 99) > tint_p99 else GRAY), None
 
 
-def page_class(rgb, colour_block, tint_p99, limits):
+def page_class(rgb: NDArray[np.uint8], colour_block: float, tint_p99: float, limits: Mapping[str, float]) -> str:
     """Return the page class of classify (gray | tinted | colour | gray-mark)."""
     return classify(rgb, colour_block, tint_p99, limits)[0]
 
@@ -357,8 +377,10 @@ NEAR_THRESHOLD = 8
 NEAR_ASPECT_TOLERANCE = 0.10
 UNIFORM_TOLERANCE = 10  # a page whose every channel's range is at most this is uniform: no signature
 
+type Signature = tuple[tuple[int, ...], float]  # (tile pHashes from top to bottom, aspect h / w)
 
-def signature(im):
+
+def signature(im: Image.Image) -> Signature:
     """(tiles, aspect): one pHash per roughly square tile from top to bottom."""
     im = im.convert("RGB")
     w, h = im.size
@@ -368,7 +390,7 @@ def signature(im):
     return tiles, h / w
 
 
-def matches(a, b, threshold=PHASH_THRESHOLD, aspect_tol=ASPECT_TOLERANCE):
+def matches(a: Signature, b: Signature, threshold: int = PHASH_THRESHOLD, aspect_tol: float = ASPECT_TOLERANCE) -> bool:
     """Return whether 2 signatures match: as many tiles, aspects within aspect_tol, each tile within threshold bits."""
     (ta, aa), (tb, ab) = a, b
     return (
@@ -378,39 +400,47 @@ def matches(a, b, threshold=PHASH_THRESHOLD, aspect_tol=ASPECT_TOLERANCE):
     )
 
 
-def is_uniform(im, tolerance=UNIFORM_TOLERANCE):
-    """Return whether every RGB channel of im spans at most tolerance levels."""
+def rgb_extrema(im: Image.Image) -> tuple[tuple[int, int], ...]:
+    """Return the (min, max) of each channel of im read as RGB; TypeError for a getextrema of another shape."""
     lo_hi = im.convert("RGB").getextrema()
-    return all(hi - lo <= tolerance for lo, hi in lo_hi)
+    if len(lo_hi) != RGB_CHANNELS:  # Pillow types a 1-band image's (min, max) in the same union
+        msg = f"getextrema of an RGB image gave {lo_hi!r}, not 1 (min, max) per channel"
+        raise TypeError(msg)
+    return lo_hi
+
+
+def is_uniform(im: Image.Image, tolerance: int = UNIFORM_TOLERANCE) -> bool:
+    """Return whether every RGB channel of im spans at most tolerance levels."""
+    return all(hi - lo <= tolerance for lo, hi in rgb_extrema(im))
 
 
 @functools.cache
-def uniform_tiles():
+def uniform_tiles() -> frozenset[int]:
     """Return the tile hashes of uniform images (the pHash of every gray level)."""
     return frozenset(signature(Image.new("L", (64, 64), v))[0][0] for v in range(256))
 
 
-def unsignable(sig):
+def unsignable(sig: Signature) -> bool:
     """Return whether every tile of a signature is a uniform image's: it would match any blank or flat rows."""
     return set(sig[0]) <= uniform_tiles()
 
 
-def _tiles_str(tiles):
+def _tiles_str(tiles: Sequence[int]) -> str:
     """Tile hashes as text (database, review JSON, sidecars): 16 hex digits each, ':'-separated."""
     return ":".join(f"{t:016x}" for t in tiles)
 
 
-def _tiles(text):
+def _tiles(text: str) -> tuple[int, ...]:
     return tuple(int(t, 16) for t in text.split(":"))
 
 
-def sig_to_str(sig):
+def sig_to_str(sig: Signature) -> str:
     """Signature as text for JSON (sidecars, review files): 'tiles:tiles|aspect'."""
     tiles, aspect = sig
     return _tiles_str(tiles) + f"|{aspect!r}"
 
 
-def sig_from_str(s):
+def sig_from_str(s: str) -> Signature:
     """Return the signature of its text form (sig_to_str's 'tiles:tiles|aspect')."""
     tiles, aspect = s.split("|")
     return _tiles(tiles), float(aspect)
@@ -424,7 +454,7 @@ _DCT = np.cos(np.pi * np.outer(_N, 2 * _N + 1) / 64)  # DCT-II basis, 32 points 
 _BITS = 1 << np.arange(63, -1, -1, dtype=np.uint64)
 
 
-def phash(thumb):
+def phash(thumb: NDArray[np.uint8]) -> int:
     """Return the pHash of a 64x64 luma thumbnail, as a 64-bit int.
 
     imagehash layout: 32x32 luma, 2-D DCT, 8x8 low band incl. DC > its median. Reuses the page's thumbnail, so no second
@@ -440,13 +470,13 @@ JPEG_CHROMA = {0: "444", 1: "422", 2: "420"}  # Pillow's get_sampling values; -1
 GRAY_JPEG_MODE = "L"  # single component: no chroma, get_sampling returns -1 for it
 
 
-def _jpeg_sampling(data):
+def _jpeg_sampling(data: bytes) -> tuple[str, int]:
     """(mode, Pillow sampling) of a JPEG header."""
     with Image.open(io.BytesIO(data)) as im:
         return im.mode, JpegImagePlugin.get_sampling(im)
 
 
-def chroma(data, fmt):
+def chroma(data: bytes, fmt: str) -> str:
     """Return a source image's chroma resolution as avifenc --yuv.
 
     A JPEG's stored subsampling (444 / 422 / 420; an unrecognised one counts as 444, never below the source), full
@@ -462,7 +492,7 @@ def chroma(data, fmt):
 # ---------------------------------------------------------------- page measurement
 COLOUR_BLOCK = 22  # integrity.colour_block_spread: B&W compression noise <= 19.7, faintest real colour 25
 TINT_P99 = 6  # integrity.tint_p99_spread: no colour tile but p99 spread above this -> tinted
-MARK_LIMITS = {  # integrity's gray-mark limits (classify's `limits`)
+MARK_LIMITS: dict[str, float] = {  # integrity's gray-mark limits (classify's `limits`)
     "mark_max_frac": 0.01,  # coloured tiles / page tiles below this (pilot marks 0.13-0.45%, real colour from 2.56%)
     "mark_max_w": 0.35,  # mark box width / page width at most (pilot max 28.7%)
     "mark_max_h": 0.08,  # mark box height / page height at most (pilot max 6.0%)
@@ -482,11 +512,56 @@ PAGE_FIELDS = (
     "colour_class",
     "chroma",
 )
-DECODED_FIELDS = ("width", "height", "blank", "phash", "junk_signature", "colour_class")  # need the page decoded
 
 
-def _measure_decoded(data):
-    """Return the DECODED_FIELDS of a page from one decode.
+class Decoded(TypedDict):
+    """The fields of a page that need it decoded: width and height in px, blank, pHash, junk signature text, class.
+
+    phash (16 hex digits) is None for a blank page, junk_signature (sig_to_str) None for a uniform one; colour_class a
+    page class.
+    """
+
+    width: int
+    height: int
+    blank: bool
+    phash: str | None
+    junk_signature: str | None
+    colour_class: str
+
+
+class MeasuredPage(Decoded):
+    """A page's PAGE_FIELDS: its index in reading order, member name, size in bytes, sha1, format, avifenc chroma.
+
+    With the Decoded fields; format a format constant (detect), chroma an avifenc --yuv value (chroma).
+    """
+
+    index: int
+    name: str
+    bytes: int
+    sha1: str
+    format: str
+    chroma: str
+
+
+class KnownPage(TypedDict, total=False):
+    """The fields of a page measured before, any of PAGE_FIELDS (read only: a MeasuredPage is one)."""
+
+    index: ReadOnly[int]
+    name: ReadOnly[str]
+    bytes: ReadOnly[int]
+    sha1: ReadOnly[str]
+    width: ReadOnly[int]
+    height: ReadOnly[int]
+    format: ReadOnly[str]
+    blank: ReadOnly[bool]
+    phash: ReadOnly[str | None]
+    junk_signature: ReadOnly[str | None]
+    colour_class: ReadOnly[str]
+    chroma: ReadOnly[str]
+
+
+def _measure_decoded(data: bytes) -> Decoded:
+    """Return the Decoded fields of a page from one decode.
 
     width, height, blank and phash from the stored pixels' 64x64 luma thumbnail (as the bulk converter's integrity
     check; phash None for a blank page), junk_signature and colour_class from the page composited onto white (open_flat,
@@ -495,7 +570,8 @@ def _measure_decoded(data):
     with Image.open(io.BytesIO(data)) as raw:
         raw.load()
         thumb = np.asarray(raw.convert("L").resize(THUMB))
-        rgb = flatten(*from_loaded(raw))[0].convert("RGB")
+        loaded, alpha = from_loaded(raw)
+        rgb = flatten(loaded, alpha=alpha)[0].convert("RGB")
     blank = bool(thumb.std() < BLANK_STD)
     return {
         "width": rgb.width,
@@ -507,36 +583,63 @@ def _measure_decoded(data):
     }
 
 
-def measure_pages(cbz, known=None, *, decode=_measure_decoded):
+def _known_decoded(page: KnownPage, data: bytes, decode: Callable[[bytes], Decoded]) -> Decoded:
+    """Return a page's Decoded fields: its known ones, the others from 1 decode(data) (none when every one is known)."""
+    fresh = functools.cache(functools.partial(decode, data))
+    return {
+        "width": page["width"] if "width" in page else fresh()["width"],
+        "height": page["height"] if "height" in page else fresh()["height"],
+        "blank": page["blank"] if "blank" in page else fresh()["blank"],
+        "phash": page["phash"] if "phash" in page else fresh()["phash"],
+        "junk_signature": page["junk_signature"] if "junk_signature" in page else fresh()["junk_signature"],
+        "colour_class": page["colour_class"] if "colour_class" in page else fresh()["colour_class"],
+    }
+
+
+def measure_pages(
+    cbz: Path, known: Mapping[int, KnownPage] | None = None, *, decode: Callable[[bytes], Decoded] = _measure_decoded
+) -> list[MeasuredPage]:
     """Return [{PAGE_FIELDS}] of a CBZ's pages in archive.archive_pages order: the one page measurement.
 
     known: {index: dict of fields measured before}; a page keeps its known fields and gets only the missing ones, and is
-    decoded only when a DECODED_FIELDS field is missing (decode(page bytes): its DECODED_FIELDS). A known sha1 that is
+    decoded only when a Decoded field is missing (decode(page bytes): its Decoded fields). A known sha1 that is
     not the page's raises ValueError (stale measurements). Pure: writes nothing.
     """
     known = known or {}
-    out = []
+    out: list[MeasuredPage] = []
     for index, (name, data) in enumerate(archive.pages(cbz)):
-        page = dict(known.get(index, {}))
+        page = known.get(index, {})
         digest = archive.sha1(data)
         if page.get("sha1", digest) != digest:
-            msg = f"{cbz}: page {index} ({name}) known sha1 {page['sha1']} is not its bytes' {digest}"
+            msg = f"{cbz}: page {index} ({name}) known sha1 {page.get('sha1')} is not its bytes' {digest}"
             raise ValueError(msg)
-        page.update(index=index, name=name, bytes=len(data), sha1=digest)
         try:
-            page.setdefault("format", detect(data))
-            if "chroma" not in page:
-                page["chroma"] = chroma(data, page["format"])
-            if any(f not in page for f in DECODED_FIELDS):
-                page.update({f: v for f, v in decode(data).items() if f not in page})
+            fmt = page["format"] if "format" in page else detect(data)
+            colour = page["chroma"] if "chroma" in page else chroma(data, fmt)
+            d = _known_decoded(page, data, decode)
         except Exception as e:  # Pillow raises many types on a page it cannot read
             msg = f"{cbz}: page {index} ({name}) cannot be measured: {e}"
             raise ValueError(msg) from e
-        out.append({f: page[f] for f in PAGE_FIELDS})
+        out.append(
+            {
+                "index": index,
+                "name": name,
+                "bytes": len(data),
+                "sha1": digest,
+                "width": d["width"],
+                "height": d["height"],
+                "format": fmt,
+                "blank": d["blank"],
+                "phash": d["phash"],
+                "junk_signature": d["junk_signature"],
+                "colour_class": d["colour_class"],
+                "chroma": colour,
+            }
+        )
     return out
 
 
-def blank(rgb, box, fill):
+def blank(rgb: NDArray[np.uint8], box: Sequence[int], fill: Sequence[int]) -> NDArray[np.uint8]:
     """Return a copy of the page (RGB uint8 array) with `box` filled with `fill`.
 
     A logo's blank (SPEC "Junk decisions", the chapter edit's `blank`). Raises ValueError for a box outside the page or

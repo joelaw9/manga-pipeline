@@ -87,6 +87,22 @@ def test_missing_file_is_refused(tmp_path):
 
 
 @budget(load="fs")
+def test_the_secrets_are_the_null_keys_of_the_example_s_sections():
+    assert sorted(config.secret_keys()) == [
+        ("database", "password"),
+        ("junk", "claude_token"),
+        ("kavita", "api_key"),
+    ], "each secret is a section's key whose example value is null"
+
+
+@budget(load="fs")
+@pytest.mark.parametrize("text", ["token:\n", "a:\n  b:\n    token:\n"], ids=["top-level", "nested"])
+def test_a_secret_that_is_not_a_sections_key_is_refused(tmp_path, text):
+    with pytest.raises(config.ConfigError, match="is not a section's key"):
+        config.secret_keys(write(tmp_path, "example.yaml", text))
+
+
+@budget(load="fs")
 @pytest.mark.parametrize("text", ["- a\n", "just text\n"], ids=["list", "scalar"])
 def test_non_mapping_is_refused(tmp_path, text):
     with pytest.raises(config.ConfigError, match="must be a YAML mapping"):

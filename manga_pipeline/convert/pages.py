@@ -149,7 +149,8 @@ def has_colour(page):
     The colour page class (images.classify, judged on the page composited onto white); a gray-mark page (1 compact
     badge) counts as gray.
     """
-    rgb = np.asarray(images.flatten(*page.image())[0].convert("RGB"))
+    im, alpha = page.image()
+    rgb = np.asarray(images.flatten(im, alpha=alpha)[0].convert("RGB"))
     return images.classify(rgb, images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)[0] == images.COLOUR
 
 

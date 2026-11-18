@@ -14,11 +14,16 @@ import json
 import logging
 import shutil
 import time
+from collections.abc import Callable, Container, Iterable, Mapping
 from datetime import datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
+from typing import NotRequired, TypedDict
+
+from PIL import Image
 
 from manga_pipeline import config, db, images, names, workflow
-from manga_pipeline.junk import ocr, store
+from manga_pipeline.junk import logo_units, ocr, page_units, store, strip_units
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +34,32 @@ CONTEXT_PX = 300  # px of strip above and below the unit in its context image
 CLOSED_KEEP = timedelta(hours=1)  # a candidate closed this long is deleted with its folder
 ORPHAN_KEEP_S = 24 * 3600  # a folder no row names is removed once this old (another machine may be recording it)
 
+# An undecided unit of a chapter's scan: what its layout's decide and the logos' leave undecided.
+type Unit = (
+    strip_units.BlockUnit | strip_units.PieceUnit | page_units.PageUnit | page_units.BandUnit | logo_units.LogoUnit
+)
+# A junk_seen row: series key, kind, key, chapter identity, first seen, origin.
+type SeenRow = tuple[str, str, str, str, str, str]
+
+
+class ProbeUnit(strip_units.Piece):
+    """A strip edge block's probe offered in its block's place, at the block's edge."""
+
+    where: str
+
+
+class Candidate(TypedDict):
+    """A candidate among a chapter's undecided units (select): its kind, key text, unit and reason.
+
+    folder: the folder its images were written to, once written.
+    """
+
+    kind: str
+    key: str
+    unit: Unit | ProbeUnit
+    reason: str
+    folder: NotRequired[str]
+
 
 class Gone(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """A candidate the chapter meant to join was deleted meanwhile.
@@ -37,7 +68,7 @@ class Gone(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: the Er
     """
 
 
-def folder_name(series_key, kind, key, chapter):
+def folder_name(series_key: str, kind: str, key: str, chapter: db.Row) -> str:
     """Return the folder name of a new candidate: its unit (hashed) and the chapter claim that writes it.
 
     The claim's name is workflow.claim_name.
@@ -46,7 +77,7 @@ def folder_name(series_key, kind, key, chapter):
     return f"{unit}-{workflow.claim_name(chapter)}"
 
 
-def folder(cfg, name):
+def folder(cfg: config.Config, name: str) -> Path:
     """Return the path of the candidate folder `name` under paths.candidates."""
     return config.abs_path(cfg["paths"]["candidates"]) / name
 
@@ -54,12 +85,14 @@ def folder(cfg, name):
 # ---------------------------------------------------------------- seen units and the rules
 
 
-def seen_rows(series_key, identity, units, at, origin="pipeline"):
+def seen_rows(
+    series_key: str, identity: str, units: Iterable[tuple[str, str]], at: str, origin: str = "pipeline"
+) -> list[SeenRow]:
     """junk_seen rows of units [(kind, key)] seen in a chapter."""
     return [(series_key, kind, key, identity, at, origin) for kind, key in units]
 
 
-def write_seen(conn, rows):
+def write_seen(conn: db.Connection, rows: Iterable[SeenRow]) -> None:
     """Record seen units inside the caller's transaction; a unit seen again keeps its first time."""
     db.executemany(
         conn,
@@ -69,9 +102,9 @@ def write_seen(conn, rows):
     )
 
 
-def chapter_order(identity):
+def chapter_order(identity: str) -> tuple[bool, Decimal | int, bool, tuple[int, str] | None, str]:
     """Sort key of a chapter identity (names.identity) by season, then number; unnumbered last."""
-    _, season, _, number, _ = json.loads(identity)
+    _, season, _, number, _ = names.read_identity(identity)
     return (
         season is None,
         Decimal(season) if season is not None else 0,
@@ -81,7 +114,7 @@ def chapter_order(identity):
     )
 
 
-def first_identities(conn, series_key, n=FIRST_CHAPTERS):
+def first_identities(conn: db.Connection, series_key: str, n: int = FIRST_CHAPTERS) -> set[str]:
     """Return the first n distinct chapter identities of a series by first sighting.
 
     Chapter order on a tie (every sighting imported from the bulk converter has the same time).
@@ -92,39 +125,43 @@ def first_identities(conn, series_key, n=FIRST_CHAPTERS):
     return {r[0] for r in sorted(rows, key=lambda r: (r[1], chapter_order(r[0])))[:n]}
 
 
-def chapters_showing(conn, series_key, kind, key):
+def chapters_showing(conn: db.Connection, series_key: str, kind: str, key: str) -> int:
     """How many chapter identities of the series show a unit matching (kind, key)."""
     parsed = store.parse_key(kind, key)
     rows = conn.execute("SELECT key, identity FROM junk_seen WHERE series_key = %s AND kind = %s", (series_key, kind))
-    return len({ident for k, ident in rows if store.matches(kind, store.parse_key(kind, k), parsed)})
+    return len({ident for k, ident in rows if store.matches(store.parse_key(kind, k), parsed)})
 
 
-def strip_reasons(conn, series_key, unit, words):
+def strip_reasons(conn: db.Connection, series_key: str, unit: strip_units.Piece, words: ocr.WordLists) -> list[str]:
     """Why a strip unit is a candidate (near, OCR keywords); [] when neither."""
-    out = []
+    out: list[str] = []
     hit = store.near(conn, series_key, images.sig_from_str(unit["sig"]))
     if hit is not None:
         row, d, diff = hit
         out.append(f"near decision {row['id']} ({row['series_key'] or 'global'}) distance {d}, aspect {diff:.1%}")
-    if unit.get("text"):
-        terms = ocr.text_hits(unit["text"], unit["end"] - unit["start"], words)
+    if text := unit.get("text"):
+        terms = ocr.text_hits(text, unit["end"] - unit["start"], words)
         if terms:
-            out.append(f'text {", ".join(repr(t) for t in terms)}: "{ocr.normalize(unit["text"])[:160]}"')
+            out.append(f'text {", ".join(repr(t) for t in terms)}: "{ocr.normalize(text)[:160]}"')
     return out
 
 
-def _key(unit):
+def _key(unit: Unit) -> str:
     """Return an undecided unit's key: its "key", or a strip unit's signature."""
-    return unit.get("key") or unit.get("sig")
+    if "key" in unit:
+        return unit["key"]
+    return unit["sig"]
 
 
-def _recurrence(conn, series_key, kind, key):
+def _recurrence(conn: db.Connection, series_key: str, kind: str, key: str) -> list[str]:
     """["seen in N chapters"] when N >= RECUR_CHAPTERS chapters of the series show a unit matching (kind, key)."""
     n = chapters_showing(conn, series_key, kind, key)
     return [f"seen in {n} chapters"] if n >= RECUR_CHAPTERS else []
 
 
-def _flagged_probe(conn, series_key, block, words):
+def _flagged_probe(
+    conn: db.Connection, series_key: str, block: strip_units.BlockUnit, words: ocr.WordLists
+) -> Candidate | None:
     """Return the candidate of a strip edge block's first signable probe that is near or has a keyword, or None.
 
     The probe is the first from the chapter edge; near and keyword are strip_reasons'.
@@ -137,7 +174,9 @@ def _flagged_probe(conn, series_key, block, words):
     return {"kind": "probe", "key": probe["sig"], "unit": {**probe, "where": block["where"]}, "reason": "; ".join(why)}
 
 
-def _block_candidate(conn, series_key, block, words, *, first_chapter):
+def _block_candidate(
+    conn: db.Connection, series_key: str, block: strip_units.BlockUnit, words: ocr.WordLists, *, first_chapter: bool
+) -> Candidate | None:
     """Return a strip edge block's candidate, or None.
 
     Its flagged probe, else the block when its key is signable and it is near, has a keyword, is the rest of a block
@@ -158,7 +197,9 @@ def _block_candidate(conn, series_key, block, words, *, first_chapter):
     return {"kind": "block", "key": key, "unit": block, "reason": "; ".join(reasons)} if reasons else None
 
 
-def select(conn, series_key, identity, undecided, words):
+def select(
+    conn: db.Connection, series_key: str, identity: str, undecided: Iterable[Unit], words: ocr.WordLists
+) -> list[Candidate]:
     """Return the candidates among a chapter's undecided units: [{"kind", "key", "reason", "unit"}].
 
     Strip edge blocks: the first probe from the chapter edge that is near or has a keyword is offered instead of its
@@ -170,18 +211,19 @@ def select(conn, series_key, identity, undecided, words):
     """
     first_chapter = identity in first_identities(conn, series_key)
     decisions = store.Decisions(conn, series_key)
-    out = []
+    out: list[Candidate] = []
     for u in undecided:
         kind, key = u["kind"], _key(u)
-        if kind == "block":
+        found: Candidate | None
+        if u["kind"] == "block":
             found = _block_candidate(conn, series_key, u, words, first_chapter=first_chapter)
         elif store.unsignable(kind, key):
             continue
-        elif kind == "logo":
+        elif u["kind"] == "logo":
             key = next((k for k in u["keys"] if find(conn, decisions, kind, k) is not None), u["keys"][0])
             found = {"kind": kind, "key": key, "unit": u, "reason": "; ".join(u["reasons"])}
         else:
-            reasons = (
+            reasons: list[str] = (
                 ["tail piece after a credit band"]
                 if kind == "piece"
                 else [*u.get("reasons", []), *_recurrence(conn, series_key, kind, key)]
@@ -195,7 +237,7 @@ def select(conn, series_key, identity, undecided, words):
 # ---------------------------------------------------------------- candidate rows
 
 
-def find(conn, decisions, kind, key):
+def find(conn: db.Connection, decisions: store.Decisions, kind: str, key: str) -> db.Row | None:
     """Return the candidate row of the series and kind whose key matches `key` and that no decision covers, or None.
 
     decisions: the series' store.Decisions. A covered candidate is closed: matching is not transitive, so a unit it
@@ -206,18 +248,18 @@ def find(conn, decisions, kind, key):
         "SELECT * FROM junk_candidate WHERE series_key = %s AND kind = %s ORDER BY id", (decisions.series_key, kind)
     ):
         stored = store.parse_key(kind, row["key"])
-        if store.matches(kind, stored, parsed) and decisions.decide(kind, stored) is None:
+        if store.matches(stored, parsed) and decisions.decide(kind, stored) is None:
             return row
     return None
 
 
-def join(conn, series_key, picks, at):
+def join(conn: db.Connection, series_key: str, picks: Iterable[Candidate], at: str) -> list[int]:
     """Join each pick to its matching candidate, or open one, inside the caller's transaction.
 
     A new candidate opens in the folder its images were written to (p["folder"]). Gone for a pick that found a candidate
     when its images were not written and now finds none. Returns the ids.
     """
-    ids = []
+    ids: list[int] = []
     decisions = store.Decisions(conn, series_key)
     for p in picks:
         row = find(conn, decisions, p["kind"], p["key"])
@@ -237,12 +279,12 @@ def join(conn, series_key, picks, at):
     return sorted(set(ids))
 
 
-def stuck(row, limit):
+def stuck(row: db.Row, limit: int) -> bool:
     """Return whether a candidate row is stuck: no verdict after `limit` reviews or more."""
     return row["verdict"] is None and row["reviews"] >= limit
 
 
-def is_open(conn, row, decisions=None):
+def is_open(conn: db.Connection, row: db.Row, decisions: Callable[[str], store.Decisions] | None = None) -> bool:
     """Return whether a candidate row is open: a not-done junk-stage chapter waits on it, no decision covers it.
 
     decisions: a store.by_series lookup to share across calls.
@@ -258,14 +300,14 @@ def is_open(conn, row, decisions=None):
     return lookup.decide(row["kind"], store.parse_key(row["kind"], row["key"])) is None
 
 
-def open_rows(conn):
+def open_rows(conn: db.Connection) -> list[db.Row]:
     """Return the open candidate rows, fewest reviews first."""
     decisions = store.by_series(conn)
     rows = conn.execute("SELECT * FROM junk_candidate ORDER BY reviews, id").fetchall()
     return [r for r in rows if is_open(conn, r, decisions)]
 
 
-def cleanup(cfg, conn):
+def cleanup(cfg: config.Config, conn: db.Connection) -> int:
     """Clean up the candidates for junk review (SPEC "Junk decisions").
 
     In 1 transaction: a candidate found not open is stamped closed (closed_at, when not stamped yet), one found open
@@ -277,6 +319,9 @@ def cleanup(cfg, conn):
         now = db.now(conn)
         cutoff = (datetime.fromisoformat(now) - CLOSED_KEEP).isoformat(timespec="seconds")
         decisions = store.by_series(conn)
+        stamp: list[tuple[str, int]]
+        unstamp: list[tuple[int]]
+        gone: list[db.Row]
         stamp, unstamp, gone = [], [], []
         for row in conn.execute("SELECT * FROM junk_candidate").fetchall():
             if row["review_open"]:
@@ -299,7 +344,7 @@ def cleanup(cfg, conn):
     return len(gone)
 
 
-def _remove_orphans(root, named):
+def _remove_orphans(root: Path, named: Container[str]) -> None:
     """Remove each folder in the candidates folder `root` that no row names (`named`) once it is ORPHAN_KEEP_S old.
 
     A machine may have written it and not yet recorded its row.
@@ -314,13 +359,15 @@ def _remove_orphans(root, named):
 # ---------------------------------------------------------------- images
 
 
-def _fit(im, width=UNIT_WIDTH):
+def _fit(im: Image.Image, width: int = UNIT_WIDTH) -> Image.Image:
     if im.width <= width:
         return im
     return im.resize((width, max(1, round(im.height * width / im.width))))
 
 
-def write_images(cfg, name, unit_im, context_im, info):
+def write_images(
+    cfg: config.Config, name: str, unit_im: Image.Image, context_im: Image.Image, info: Mapping[str, object]
+) -> Path:
     """Write a candidate's folder: unit.png, context.png, info.json (reason, OCR text, chapters).
 
     Replaces an older folder of the same name whole.

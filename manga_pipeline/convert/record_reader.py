@@ -5,6 +5,8 @@ A record that parses is a finished series. Copied from the bulk converter's opti
 """
 
 import json
+from pathlib import Path
+from typing import NotRequired, TypedDict
 
 RECORD_NAME = ".optimizer.json"
 SCHEMA, FROZEN = 4, 3  # schema 3 is read too; its decisions are history
@@ -30,6 +32,191 @@ FATES = (CHAPTER, MERGED, DUPLICATE, DELETED, REPLACED, CARRIED, FAILED)
 QUALITY_MAX = 100  # the top calibration quality
 
 
+class RecordFolder(TypedDict):
+    """A folder the series had: its name and the run that named it (checked)."""
+
+    name: str
+    from_run: str
+
+
+class RecordLayout(TypedDict):
+    """series.layout: the series' layout ("strip" or "pages"; not checked) and its page aspects (h / w)."""
+
+    layout: str
+    page_aspect: NotRequired[list[float]]
+
+
+class RecordNaming(TypedDict):
+    """series.naming: the series name and the restart flag (checked), and where a new chapter's volume comes from."""
+
+    series_name: str
+    restart: bool
+    basis: NotRequired[str]
+
+
+class CalibrationGroup(TypedDict):
+    """A calibration group: its quality (an integer 0-100, checked), its probes and why it was chosen."""
+
+    q: int
+    probes: NotRequired[list[object]]
+    why: NotRequired[str]
+
+
+class RecordCalibration(TypedDict):
+    """series.calibration: {encode group: its calibration} (checked when present)."""
+
+    groups: NotRequired[dict[str, CalibrationGroup]]
+
+
+class CoverRef(TypedDict):
+    """A volume cover's place: the output holding it (not checked)."""
+
+    chapter: str
+
+
+class RecordCovers(TypedDict):
+    """series.covers: {volume: its cover's place} (not checked)."""
+
+    volumes: dict[str, CoverRef]
+
+
+class RecordDecisionRow(TypedDict):
+    """A junk decision row a run used: its row number, series (None: global), decision, the time it was added.
+
+    decision: "approve" or "keep"; added: SQLite CURRENT_TIMESTAMP text (UTC).
+    """
+
+    row: int
+    series: str | None
+    decision: str
+    added: str
+
+
+class RecordJunkRow(RecordDecisionRow):
+    """A junk table row: its origin and its key, (tiles text, aspect), built from its JSON array."""
+
+    origin: str
+    key: tuple[str, float]
+
+
+class FrameVector(TypedDict):
+    """A frame's stored vector, base64."""
+
+    b64: str
+
+
+class RecordFrameRow(RecordDecisionRow):
+    """A frames table row: its key, (vector, aspect), built from its JSON array."""
+
+    key: tuple[FrameVector, float]
+
+
+class TemplateRef(TypedDict):
+    """A marks row's template: its name in series.decisions.templates."""
+
+    tpl: str
+
+
+class RecordMarkRow(RecordDecisionRow):
+    """A marks table row: its key, (template, width, height), built from its JSON array."""
+
+    key: tuple[TemplateRef, int, int]
+
+
+class DecisionRows(TypedDict):
+    """The decision rows the runs used, by the bulk converter's table; the junk table's cut rows are left out."""
+
+    junk: list[RecordJunkRow]
+    frames: list[RecordFrameRow]
+    marks: list[RecordMarkRow]
+
+
+class DecisionBlock(TypedDict):
+    """series.decisions of a schema-4 record: its decision rows and {template name: RGBA PNG, base64}."""
+
+    rows: DecisionRows
+    templates: dict[str, str]
+
+
+class RecordSeries(TypedDict):
+    """The record's series blocks (each an object, checked).
+
+    decisions: the junk decision rows the runs used; not checked, so object (decisions reads it as a DecisionBlock).
+    """
+
+    layout: RecordLayout
+    naming: RecordNaming
+    calibration: RecordCalibration
+    covers: RecordCovers
+    decisions: object
+
+
+class RecordSource(TypedDict):
+    """A source file: its name, sha256, fate (checked), output, content digest and trash place (together, checked)."""
+
+    file: str
+    sha256: str
+    fate: str
+    output: NotRequired[str | None]
+    pages_digest: NotRequired[str]
+    trash_run: NotRequired[str | None]
+    trash_folder: NotRequired[str | None]
+
+
+class RecordRange(TypedDict):
+    """Strip rows [start, end) a reshape removed, and why."""
+
+    start: int
+    end: int
+    why: str
+
+
+class RecordReshape(TypedDict, total=False):
+    """A chapter's reshape: the strip rows it removed."""
+
+    removed: list[RecordRange]
+
+
+class RecordEdits(TypedDict, total=False):
+    """A chapter's edits (not checked): its dropped pages and its reshape (None: not reshaped)."""
+
+    drops: list[object]
+    reshape: RecordReshape | None
+
+
+class RecordChapter(TypedDict):
+    """A chapter (CHAPTER_KEYS checked present; values not checked) and its edits (an older record keeps none)."""
+
+    output: str
+    file: str
+    sources: list[str]
+    kind: str
+    volume: int | float | None
+    volume_source: str | None
+    number: str | None
+    title: str
+    pages_out: int
+    edits: NotRequired[RecordEdits]
+
+
+class Record(TypedDict):
+    """A bulk-converter series record (`.optimizer.json`): every top key of its type (TOP, checked).
+
+    kavita, runs, errors and flags are not read beyond their type.
+    """
+
+    schema: int
+    stages: list[str]
+    kavita: dict[str, object]
+    folders: list[RecordFolder]
+    runs: list[object]
+    errors: list[object]
+    flags: list[object]
+    series: RecordSeries
+    sources: list[RecordSource]
+    chapters: list[RecordChapter]
+
+
 class RecordError(ValueError):
     """The series record cannot be used."""
 
@@ -38,7 +225,7 @@ class PartialRecordError(RecordError):
     """A record written with partial --stages: the series is not finished."""
 
 
-def load(folder):
+def load(folder: Path) -> Record:
     """Return the parsed record of a series folder.
 
     FileNotFoundError when it has none; RecordError when it does not parse.
@@ -51,6 +238,49 @@ def load(folder):
         msg = f"{path}: not JSON: {e}"
         raise RecordError(msg) from None
     return parse(record)
+
+
+def decisions(record: Record) -> DecisionBlock:
+    """Return a record's series.decisions block as a DecisionBlock: its rows' read fields, each key a tuple.
+
+    Unchecked: check does not read the block; a malformed one fails here (a key of another length included) or where
+    it is read.
+    """
+    block = json.loads(json.dumps(record["series"]["decisions"]))
+    junk: list[RecordJunkRow] = []
+    frames: list[RecordFrameRow] = []
+    marks: list[RecordMarkRow] = []
+    for r in block["rows"]["junk"]:
+        if r["origin"] == "cut":  # a cut is no decision on a unit's key: only its origin is read
+            continue
+        tiles, aspect = r["key"]
+        junk.append(
+            {
+                "row": r["row"],
+                "series": r["series"],
+                "decision": r["decision"],
+                "added": r["added"],
+                "origin": r["origin"],
+                "key": (tiles, aspect),
+            }
+        )
+    for r in block["rows"]["frames"]:
+        vec, aspect = r["key"]
+        frames.append(
+            {
+                "row": r["row"],
+                "series": r["series"],
+                "decision": r["decision"],
+                "added": r["added"],
+                "key": (vec, aspect),
+            }
+        )
+    for r in block["rows"]["marks"]:
+        tpl, w, h = r["key"]
+        marks.append(
+            {"row": r["row"], "series": r["series"], "decision": r["decision"], "added": r["added"], "key": (tpl, w, h)}
+        )
+    return {"rows": {"junk": junk, "frames": frames, "marks": marks}, "templates": block.get("templates", {})}
 
 
 def parse(rec):

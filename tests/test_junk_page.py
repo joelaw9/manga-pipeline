@@ -6,18 +6,18 @@ and tests/test_segmentation.py; the page sizes are recorded from real chapters.
 """
 
 import functools
-from collections.abc import Mapping
+from pathlib import Path
 from unittest import mock
 
 import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import images, strip
-from manga_pipeline.junk import frames, page_units
+from manga_pipeline import db, images, strip
+from manga_pipeline.junk import frames, page_units, store
 
 from tests import pages as fx
-from tests.builders import present
+from tests.builders import db_row, present
 from tests.timing import budget
 
 images.signature(Image.new("L", (8, 8)))  # pHash loads its FFT module on first use: here, not in a test's time
@@ -30,7 +30,7 @@ def art(h=852, seed=1):
     return fx.manga_page((600, h), seed=seed, noise=3)
 
 
-def find_band(page, where, aspect=ASPECT, cfg: Mapping[str, float] = BAND):
+def find_band(page, where, aspect=ASPECT, cfg: page_units.BandSettings = BAND):
     return page_units.find_band(page, aspect, where, cfg)
 
 
@@ -125,7 +125,7 @@ def test_the_gutter_nearest_the_naive_cut_wins():
 def test_only_a_page_taller_than_the_limit_is_band_checked(gutter, found):
     """Shape 1.0 at 600 px, band_tolerance 0.5: a 900 px page (band + gutter + page) is not examined, 901 px is."""
     page = fx.stack(fx.warning_banner(), (gutter, 600), art(600))
-    b = find_band(page, "top", aspect=1.0, cfg=dict(BAND, band_tolerance=0.5))
+    b = find_band(page, "top", aspect=1.0, cfg={**BAND, "band_tolerance": 0.5})
     assert (b is not None) is found, "only a page strictly taller than the limit is band-checked"
 
 
@@ -507,37 +507,39 @@ def test_text_features_shares(fill, want):
 # ---------------------------------------------------------------- decide
 
 
-def row(row_id, verdict, series_key="Series", decider="import", decided_at="2026-01-01T00:00:00+00:00"):
-    return {
-        "id": row_id,
-        "verdict": verdict,
-        "series_key": series_key,
-        "key": f"k{row_id}",
-        "decider": decider,
-        "decided_at": decided_at,
-    }
+def row(row_id, verdict, series_key="Series", decider="import", decided_at="2026-01-01T00:00:00+00:00") -> db.Row:
+    return db_row(
+        id=row_id,
+        verdict=verdict,
+        series_key=series_key,
+        key=f"k{row_id}",
+        decider=decider,
+        decided_at=decided_at,
+    )
 
 
-def decider(rows):
+def decider(rows) -> store.DecideUnit:
     """decide_unit over {(kind, key text): row}: exact keys stand in for the store's match rules."""
     return lambda kind, key: rows.get((kind, key))
 
 
-def scan_of(tmp_path, ims, names=None, aspects=(ASPECT,)):
-    """scan() of a chapter of these page images, saved as PNG."""
+def scan_of(tmp_path, ims, names=None, aspects=(ASPECT,)) -> page_units.PageScan:
+    """scan() of a chapter of these page images, saved as PNG (a chapter that is not stitched)."""
     names = names or [f"{i:03d}.png" for i in range(1, len(ims) + 1)]
     paths = []
     for name, im in zip(names, ims, strict=True):
         paths.append(tmp_path / name)
         im.save(paths[-1])
-    return page_units.scan(paths, names, [im.size for im in ims], [images.is_uniform(im) for im in ims], list(aspects))
+    sc = page_units.scan(paths, names, [im.size for im in ims], [images.is_uniform(im) for im in ims], list(aspects))
+    assert sc["split"] is False, "the chapter is not stitched"
+    return sc
 
 
 def edge(sc, page):
     return next(u for u in sc["edges"] if u["page"] == page)
 
 
-def hand_scan(frame_on=None):
+def hand_scan(frame_on=None) -> page_units.PageScan:
     """Build a 6-page scan of same-size pages; page `frame_on` has a frame.
 
     Edges 0, 1, 3, 4, 5; no bands, no slices.
@@ -552,6 +554,7 @@ def hand_scan(frame_on=None):
         "bands": {},
         "rows": {},
         "aspects": [ASPECT],
+        "marks": [],
     }
 
 
@@ -573,6 +576,14 @@ def test_white_end_pages_are_dropped_unless_every_page_is_white(tmp_path, all_wh
     out = page_units.decide(scan_of(tmp_path, ims), decider({}))
     assert out["edit"]["drop_pages"] == want, "white end pages go, unless that would drop every page"
     assert all(u["page"] not in want for u in out["undecided"]), "a dropped page is no unit"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize("mode", ["RGB", "L", "RGBA"])
+def test_is_white_reads_each_channels_minimum_in_every_page_mode(mode):
+    """The pages it reads are RGB (or L / RGBA); each is read as RGB, 1 (min, max) per channel."""
+    assert page_units.is_white(Image.new("RGB", (40, 40), (250, 250, 250)).convert(mode)), f"a white {mode} page"
+    assert not page_units.is_white(Image.new("RGB", (40, 40), (200, 200, 200)).convert(mode)), f"a gray {mode} page"
 
 
 def banded_chapter(tmp_path, on):
@@ -609,7 +620,7 @@ def test_an_undecided_band_on_an_edge_page_makes_the_page_a_band_candidate(tmp_p
 def test_a_stitched_chapter_is_only_split():
     """Pages 1.9 x the series shape: the scan says split, decoding nothing; the edit is split and nothing else."""
     sizes = [(600, round(600 * ASPECT * 1.9))] * 4
-    sc = page_units.scan([None] * 4, names(4), sizes, [False] * 4, [ASPECT])
+    sc = page_units.scan([Path("never-decoded.png")] * 4, names(4), sizes, [False] * 4, [ASPECT])
     assert sc == {"layout": "pages", "split": True, "marks": []}, "a stitched chapter has no page or logo units"
     out = page_units.decide(sc, decider({}))
     assert out == {"edit": {"split": True, "drop_pages": [], "bands": [], "join": []}, "undecided": []}, (
@@ -656,7 +667,7 @@ def test_the_page_and_frame_decision_ranking_first_decides(page, frame, dropped)
 @budget(load="pure")
 def test_on_a_tie_the_page_decision_wins():
     """A series junk page decision and a series junk frame decision rank alike: the page's row decides."""
-    unit = {"page": 5, "sig": "s5", "frame": "f5"}
+    unit: page_units.EdgeUnit = {"page": 5, "sig": "s5", "frame": "f5"}
     rows = {("page", "s5"): row(1, "junk"), ("frame", "f5"): row(2, "junk")}
     assert present(page_units.page_decision(unit, decider(rows)))["id"] == 1, "the page's decision wins a tie"
 

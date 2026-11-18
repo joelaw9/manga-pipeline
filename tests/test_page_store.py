@@ -3,6 +3,7 @@
 SPEC "Parts", hand-off between parts.
 """
 
+import json
 import shutil
 
 import psycopg
@@ -48,10 +49,17 @@ def test_saved_pages_load_back_and_are_not_decoded_again(conn, tmp_path):
     assert [known[i] for i in sorted(known)] == measured, "load gives back what save stored, None and bools included"
     decoded, by_sha1 = [], {p["sha1"]: p for p in measured}
 
-    def decode(data):  # the stand-in decode: counts the decodes, gives the page's measured fields
+    def decode(data) -> images.Decoded:  # the stand-in decode: counts the decodes, gives the page's measured fields
         decoded.append(data)
         page = by_sha1[archive.sha1(data)]
-        return {f: page[f] for f in images.DECODED_FIELDS}
+        return {
+            "width": page["width"],
+            "height": page["height"],
+            "blank": page["blank"],
+            "phash": page["phash"],
+            "junk_signature": page["junk_signature"],
+            "colour_class": page["colour_class"],
+        }
 
     assert images.measure_pages(cbz, known=known, decode=decode) == measured
     assert decoded == [], "a page whose rows are stored is not decoded again, a blank page included"
@@ -81,8 +89,9 @@ def test_save_refuses_a_page_missing_a_field_and_keeps_the_stored_rows(conn, tmp
     measured = images.measure_pages(chapter_cbz(tmp_path / "c.cbz", n=1, blank=False))
     with db.transaction(conn):
         page_store.save(conn, chapter_id, measured)
+    incomplete = json.loads('{"index": 1, "name": "2.jpg"}')  # a page as an untyped caller passes it: JSON data
     with pytest.raises(ValueError, match="lacks"), db.transaction(conn):
-        page_store.save(conn, chapter_id, [*measured, {"index": 1, "name": "2.jpg"}])
+        page_store.save(conn, chapter_id, [*measured, incomplete])
     assert list(page_store.load(conn, chapter_id).values()) == measured, "a refused save changes no stored row"
 
 

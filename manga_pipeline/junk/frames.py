@@ -12,6 +12,7 @@ width) are within ASPECT_TOL.
 from typing import NamedTuple
 
 import numpy as np
+from numpy.typing import NDArray
 from PIL import Image
 
 W, H = 48, 72  # shrunk page, cells
@@ -33,11 +34,11 @@ CELLS = int(_MASK.sum())
 class Frame(NamedTuple):
     """A page's frame: its cells' RGB vector and the page's aspect."""
 
-    vec: np.ndarray  # uint8, CELLS * 3 (RGB per frame cell, row-major)
+    vec: NDArray[np.uint8]  # CELLS * 3 (RGB per frame cell, row-major)
     aspect: float  # page height / width
 
 
-def frame_of_small(small, aspect):
+def frame_of_small(small: NDArray[np.uint8], aspect: float) -> Frame:
     """Frame from an (H, W, 3) uint8 shrunk page."""
     small = np.asarray(small, dtype=np.uint8)
     if small.shape != (H, W, 3):
@@ -46,7 +47,7 @@ def frame_of_small(small, aspect):
     return Frame(small[_MASK].reshape(-1), float(aspect))
 
 
-def frame(im, size=None):
+def frame(im: Image.Image, size: tuple[int, int] | None = None) -> Frame:
     """Return the frame of a PIL page.
 
     A JPEG not yet decoded is draft-decoded first, as the stored frames were (it changes the pixels). `size` = (width,
@@ -57,7 +58,7 @@ def frame(im, size=None):
     return frame_of_small(np.asarray(im.convert("RGB").resize((W, H), Image.Resampling.BOX)), h / w)
 
 
-def has_content(f):
+def has_content(f: Frame) -> bool:
     """Return whether the frame carries template content (not one plain tone, >= INK_FRAC inked cells)."""
     cells = f.vec.reshape(-1, 3).astype(np.int16)
     lum = cells.mean(axis=1)
@@ -67,18 +68,18 @@ def has_content(f):
     return bool(inked.mean() >= INK_FRAC)
 
 
-def distance(a, b):
+def distance(a: Frame, b: Frame) -> float:
     """RMS of the RGB difference between 2 frames (0-255 scale)."""
     d = a.vec.astype(np.float64) - b.vec.astype(np.float64)
     return float(np.sqrt((d**2).mean()))
 
 
-def matches(a, b):
+def matches(a: Frame, b: Frame) -> bool:
     """Return whether 2 frames match: aspects within ASPECT_TOL and RGB difference RMS <= RMS_MAX."""
     return abs(a.aspect - b.aspect) <= ASPECT_TOL * max(a.aspect, b.aspect) and distance(a, b) <= RMS_MAX
 
 
-def from_bytes(blob, aspect):
+def from_bytes(blob: bytes, aspect: float) -> Frame:
     """Frame from its stored bytes. A vector of another length was made with other geometry: ValueError."""
     vec = np.frombuffer(blob, np.uint8)
     if vec.size != CELLS * 3:
@@ -87,12 +88,12 @@ def from_bytes(blob, aspect):
     return Frame(vec, float(aspect))
 
 
-def key_text(f):
+def key_text(f: Frame) -> str:
     """Return the frame as a decision key: the vector in hex, '|', the aspect."""
     return f"{f.vec.tobytes().hex()}|{f.aspect!r}"
 
 
-def from_key(text):
+def from_key(text: str) -> Frame:
     """Return the frame a decision key (key_text) holds."""
     vec, aspect = text.split("|")
     return from_bytes(bytes.fromhex(vec), float(aspect))

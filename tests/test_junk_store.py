@@ -1,6 +1,7 @@
 """Junk decision store and import (SPEC "Junk decisions": decisions, import)."""
 
 import base64
+import json
 import secrets
 import shutil
 import sqlite3
@@ -8,12 +9,12 @@ import sqlite3
 import numpy as np
 import pytest
 
-from manga_pipeline import cli, db, images, names
+from manga_pipeline import cli, config, db, images, names
 from manga_pipeline.convert import record_reader
 from manga_pipeline.db import sql
-from manga_pipeline.junk import candidates, frames, importing, marks, store
+from manga_pipeline.junk import candidates, frames, importing, marks, page_units, store, strip_units
 
-from tests.builders import config_file, one, present, site_cfg
+from tests.builders import config_file, db_row, one, present, site_cfg
 from tests.timing import budget
 from tests.world import bulk_record
 
@@ -30,7 +31,9 @@ def flip(t, bits):
     return t ^ ((1 << bits) - 1)
 
 
-def decision(series_key, kind, key, verdict, decider="import", *, at="2026-11-01T00:00:00+00:00", source=None):  # noqa: PLR0913  # 1 junk-decision row; callers vary all 7 columns
+def decision(  # noqa: PLR0913  # 1 junk-decision row; callers vary all 7 columns
+    series_key, kind, key, verdict, decider="import", *, at="2026-11-01T00:00:00+00:00", source=None
+) -> store.Decision:
     return {
         "series_key": series_key,
         "kind": kind,
@@ -426,11 +429,11 @@ def test_junk_import_command_prints_counts_and_refuses_with_exit_2(cfg, tmp_path
 # ---------------------------------------------------------------- decision rows of a series record (baseline)
 
 
-def record_with_rows(schema=4):
+def record_with_rows(schema=4) -> record_reader.Record:
     rec = bulk_record("S", 7, [])
     rec["schema"] = schema
     vec = base64.b64encode(np.full(frames.CELLS * 3, 9, np.uint8).tobytes()).decode()
-    rec["series"]["decisions"]["rows"] = {
+    decisions_of(rec)["rows"] = {
         "junk": [
             {
                 "row": 1,
@@ -480,8 +483,15 @@ def record_with_rows(schema=4):
             }
         ],
     }
-    rec["series"]["decisions"]["templates"] = {"t1": base64.b64encode(logo().to_png()).decode()}
-    return rec
+    decisions_of(rec)["templates"] = {"t1": base64.b64encode(logo().to_png()).decode()}
+    return json.loads(json.dumps(rec))  # as its record file reads
+
+
+def decisions_of(rec) -> dict:
+    """Return a record's series.decisions block, a JSON object."""
+    block = rec["series"]["decisions"]
+    assert isinstance(block, dict), "series.decisions is an object"
+    return block
 
 
 @budget(load="db")
@@ -493,6 +503,14 @@ def test_a_schema_4_records_decision_rows_land_as_import_rows(conn):
     want = {("S", "block", "junk", "import"), ("", "frame", "junk", "import"), ("", "logo", "junk", "import")}
     assert rows == want, "cut rows stay out; a marks row lands as a logo decision"
     assert importing.record_rows(record_with_rows(schema=3)) == [], "a schema-3 record gives no rows"
+
+
+@budget(load="pure")
+def test_a_cut_row_is_read_for_its_origin_alone():
+    """A cut row is no decision on a key: one holding only its origin leaves the record's decisions importable."""
+    rec = record_with_rows()
+    decisions_of(rec)["rows"]["junk"][1] = {"origin": "cut"}  # no row, series, decision, added or key
+    assert importing.record_rows(rec) == importing.record_rows(record_with_rows()), "the other rows import as before"
 
 
 @budget(load="db")
@@ -519,7 +537,7 @@ def _number_tiles(rows):
 @pytest.mark.parametrize("damage", [_no_key, _not_a_row, _number_tiles])
 def test_a_malformed_decision_row_is_a_record_that_does_not_parse(damage):
     rec = record_with_rows()
-    damage(rec["series"]["decisions"]["rows"]["junk"])
+    damage(decisions_of(rec)["rows"]["junk"])
     with pytest.raises(record_reader.RecordError, match="malformed"):
         importing.record_rows(rec)
 
@@ -540,7 +558,7 @@ def _wrong_size(decisions):
 @pytest.mark.parametrize("damage", [_unknown_template, _not_a_png, _wrong_size])
 def test_a_malformed_marks_row_is_a_record_that_does_not_parse(damage):
     rec = record_with_rows()
-    damage(rec["series"]["decisions"])
+    damage(decisions_of(rec))
     with pytest.raises(record_reader.RecordError, match="malformed"):
         importing.record_rows(rec)
 
@@ -608,8 +626,15 @@ def test_the_first_chapters_of_imported_sightings_go_by_chapter_number(conn):
 @budget(load="db")
 def test_a_first_chapter_of_a_series_offers_every_unmatched_edge_block(conn):
     imported_sightings(conn, (1, 2, 3))
-    block = {"kind": "block", "sig": sig((flip(T, 60),)), "start": 0, "end": 300, "where": "head", "probes": []}
-    words = {"keywords": [], "weak": [], "paired": [], "suppress": []}
+    block: strip_units.BlockUnit = {
+        "kind": "block",
+        "sig": sig((flip(T, 60),)),
+        "start": 0,
+        "end": 300,
+        "where": "head",
+        "probes": [],
+    }
+    words = word_lists()
     (pick,) = candidates.select(conn, "S", chapter(2), [block], words)
     assert pick["reason"] == "a first chapter of the series", pick
     assert candidates.select(conn, "S", chapter(4), [block], words) == [], "a later chapter offers nothing by rule (d)"
@@ -622,8 +647,15 @@ def test_a_first_chapter_of_a_series_offers_every_unmatched_edge_block(conn):
 def test_the_rest_of_a_block_whose_edge_piece_is_junk_is_offered(conn):
     put(conn, decision("S", "piece", sig((flip(T, 20),)), "keep"))  # rule (d) aside: chapter 9 is no first chapter
     imported_sightings(conn, (1, 2, 3))
-    rest = {"kind": "block", "sig": sig((flip(T, 60),)), "start": 120, "end": 300, "where": "tail", "probes": []}
-    words = {"keywords": [], "weak": [], "paired": [], "suppress": []}
+    rest: strip_units.BlockUnit = {
+        "kind": "block",
+        "sig": sig((flip(T, 60),)),
+        "start": 120,
+        "end": 300,
+        "where": "tail",
+        "probes": [],
+    }
+    words = word_lists()
     assert candidates.select(conn, "S", chapter(9), [rest], words) == [], "a plain block with no reason: not offered"
     (pick,) = candidates.select(conn, "S", chapter(9), [{**rest, "rest": True}], words)
     assert pick["reason"] == "the rest of a block whose edge piece is junk", pick
@@ -645,8 +677,15 @@ def test_a_band_on_page_2_recurs_with_page_1_bands_of_other_chapters(conn):
             ],
         )
     put(conn, decision("S", "piece", sig((flip(T, 20),)), "keep"))  # rule (d) off
-    unit = {"kind": "band", "key": band, "page": 1, "where": "top", "reasons": []}
-    words = {"keywords": [], "weak": [], "paired": [], "suppress": []}
+    unit: page_units.BandUnit = {
+        "kind": "band",
+        "key": band,
+        "page": 1,
+        "where": "top",
+        "box": [0, 0, 1, 1],
+        "reasons": [],
+    }
+    words = word_lists()
     (pick,) = candidates.select(conn, "S", chapter(15), [unit], words)
     assert (pick["kind"], pick["reason"]) == ("band", "seen in 4 chapters"), pick
 
@@ -654,7 +693,7 @@ def test_a_band_on_page_2_recurs_with_page_1_bands_of_other_chapters(conn):
 @budget(load="db")
 def test_a_candidate_id_and_folder_follow_its_key_not_the_order_it_is_offered_in(conn):
     a, other = sig((flip(T, 1),)), sig((~T & (2**64 - 1),))
-    pick = {"kind": "block", "key": a, "reason": "r", "folder": "f-1"}
+    pick: candidates.Candidate = {"kind": "block", "key": a, "unit": unit_of(a), "reason": "r", "folder": "f-1"}
     with db.transaction(conn):
         (first,) = candidates.join(conn, "S", [pick], "2026-11-01T00:00:00+00:00")
         both = candidates.join(
@@ -667,7 +706,7 @@ def test_a_candidate_id_and_folder_follow_its_key_not_the_order_it_is_offered_in
     assert len(both) == 2, "a matching key joins its candidate, wherever it is listed"
     row = conn.execute("SELECT folder FROM junk_candidate WHERE id = %s", (first,)).fetchone()
     assert row[0] == "f-1", "the row names the folder its images were written to"
-    assert candidates.folder_name("S", "block", a, {"id": 7, "claim_count": 2}).endswith("-7-2"), (
+    assert candidates.folder_name("S", "block", a, db_row(id=7, claim_count=2)).endswith("-7-2"), (
         "a folder name carries the claim that wrote it"
     )
 
@@ -740,13 +779,27 @@ def test_an_import_leaves_out_a_decision_on_an_unsignable_key_and_counts_it(conn
 
 @budget(load="db")
 def test_an_unsignable_unit_is_never_offered_nor_a_blocks_unsignable_probe(conn):
-    words = {"keywords": ["scans"], "weak": [], "paired": [], "suppress": []}
-    band = {"kind": "band", "key": sig((FLAT,), 3.2), "page": 3, "where": "top", "reasons": ["band"]}
+    words: config.JunkConfig = {**word_lists(), "keywords": ["scans"]}
+    band: page_units.BandUnit = {
+        "kind": "band",
+        "key": sig((FLAT,), 3.2),
+        "page": 3,
+        "where": "top",
+        "box": [0, 0, 1, 1],
+        "reasons": ["band"],
+    }
     assert candidates.select(conn, "S", chapter(2), [band], words) == [], "no decision could be written on it"
-    flat = {"sig": sig((FLAT,), 0.2), "start": 0, "end": 60, "text": "read at scans"}
-    banner = {"sig": sig((flip(T, 9),), 0.2), "start": 60, "end": 120, "text": "more scans"}
-    block = {"kind": "block", "sig": sig((flip(T, 60),)), "start": 0, "end": 300, "where": "head"}
-    (pick,) = candidates.select(conn, "S", chapter(2), [{**block, "probes": [flat, banner]}], words)
+    flat: strip_units.Piece = {"sig": sig((FLAT,), 0.2), "start": 0, "end": 60, "text": "read at scans"}
+    banner: strip_units.Piece = {"sig": sig((flip(T, 9),), 0.2), "start": 60, "end": 120, "text": "more scans"}
+    block: strip_units.BlockUnit = {
+        "kind": "block",
+        "sig": sig((flip(T, 60),)),
+        "start": 0,
+        "end": 300,
+        "where": "head",
+        "probes": [flat, banner],
+    }
+    (pick,) = candidates.select(conn, "S", chapter(2), [block], words)
     assert (pick["kind"], pick["key"]) == ("probe", banner["sig"]), "the unsignable probe is passed over for the next"
 
 
@@ -758,13 +811,29 @@ def test_a_unit_matching_a_decided_candidate_but_no_decision_gets_its_own_candid
     decision). Joining the closed candidate would end the chapter's wait at once and start it again, for ever.
     """
     unit = sig((T ^ (0b111111 << 6),))
-    pick = {"kind": "block", "key": sig(), "reason": "r", "folder": "f-old"}
+    pick: candidates.Candidate = {
+        "kind": "block",
+        "key": sig(),
+        "unit": unit_of(sig()),
+        "reason": "r",
+        "folder": "f-old",
+    }
     with db.transaction(conn):
         (old,) = candidates.join(conn, "S", [pick], "2026-11-01T00:00:00+00:00")
     put(conn, decision("S", "block", sig((flip(T, 6),)), "keep"))
     with db.transaction(conn):
         (new,) = candidates.join(conn, "S", [{**pick, "key": unit, "folder": "f-new"}], "2026-11-02T00:00:00+00:00")
     assert new != old, "the covered candidate is closed; the undecided unit opens its own"
+
+
+def word_lists() -> config.JunkConfig:
+    """Return the config's junk section with empty word lists: no unit has a keyword."""
+    return {**config.cached()["junk"], "keywords": [], "weak": [], "paired": [], "suppress": []}
+
+
+def unit_of(key) -> strip_units.BlockUnit:
+    """Return an undecided edge block keyed `key` (a candidate's unit)."""
+    return {"kind": "block", "sig": key, "start": 0, "end": 300, "where": "head", "probes": []}
 
 
 def schema_without(tmp_path, monkeypatch, step):

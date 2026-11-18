@@ -387,6 +387,14 @@ def identity(item: Item) -> str:
     return json.dumps([key(item.group), season, side_label(item), number, key(item.title)])
 
 
+def read_identity(text: str) -> list[str | None]:
+    """Return the parts of a chapter identity's JSON text (identity's): scanlator key, season, side, number, title key.
+
+    Season and number are None when the chapter has none. Unchecked.
+    """
+    return json.loads(text)
+
+
 # --- the bulk converter's naming of a published file (its optimizer/naming.py), copied: SPEC "Publishing"
 
 # Title markers stripped from a chapter title: the bulk converter's config naming.strip_title_markers, then its

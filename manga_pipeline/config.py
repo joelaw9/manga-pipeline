@@ -266,9 +266,22 @@ def cached() -> Config:
     return _process.cfg
 
 
-def secret_keys(example: str | Path | None = None) -> list[KeyPath]:
-    """Return the key paths of the secrets: the keys whose example value is null (SPEC "Config")."""
-    return [parts for parts, value in _leaves(_read(Path(example or EXAMPLE))).items() if value is None]
+def secret_keys(example: str | Path | None = None) -> list[tuple[str, str]]:
+    """Return the (section, key) of each secret: each key whose example value is null (SPEC "Config").
+
+    ConfigError for a null example value that is not a section's key (a secret is a key of a section).
+    """
+    out: list[tuple[str, str]] = []
+    for parts, value in _leaves(_read(Path(example or EXAMPLE))).items():
+        if value is not None:
+            continue
+        match parts:
+            case (str() as section, str() as name):
+                out.append((section, name))
+            case _:
+                msg = f"config example: secret {_dotted(parts)} is not a section's key"
+                raise ConfigError(msg)
+    return out
 
 
 def abs_path(value: str | Path) -> Path:

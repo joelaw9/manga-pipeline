@@ -157,6 +157,13 @@ def test_each_command_runs_in_its_table_row(site, command, monkeypatch):
     assert log_files(site) == ([log_file] if log_file else []), "only a command with its own lock has a log file"
 
 
+@budget(load="pure")
+def test_a_locked_command_without_its_connection_is_refused():
+    """A command that takes locks runs with the connection holding them; without one it fails before its handler."""
+    with pytest.raises(RuntimeError, match="without its connection"):
+        cli.locked_connection(None)
+
+
 @budget(load="db")
 def test_part_logs_that_it_ran(site, tmp_path, monkeypatch):
     adopt(site)

@@ -449,7 +449,8 @@ def test_to_gray_drops_a_colour_profile():
         "JPEG",
         icc_profile=(fx.PAGE_FIX / "icc_srgb_google.icc").read_bytes(),
     )
-    g = images.to_gray(*images.open_image(data))
+    im, alpha = images.open_image(data)
+    g = images.to_gray(im, alpha=alpha)
     assert (g.mode, "icc_profile" in g.info) == ("L", False), "a gray version loses a colour profile"
 
 

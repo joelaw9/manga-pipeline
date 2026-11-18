@@ -17,8 +17,11 @@ import importlib.resources
 import logging
 import threading
 import time
+from collections.abc import Callable
+from typing import TypedDict
 
 import numpy as np
+from numpy.typing import NDArray
 from PIL import Image
 
 log = logging.getLogger(__name__)
@@ -28,13 +31,13 @@ TILE_PX = 1800  # tile height at WIDTH ...
 TILE_OVERLAP = 150  # ... overlapping so a line cut by one tile is whole in the next
 MAX_WEAK_PX = 800  # a weak keyword counts only on a unit at most this tall (strip px; old junk_ocr.max_weak_px)
 PROVIDERS = {"cpu": "CPUExecutionProvider", "dml": "DmlExecutionProvider", "cuda": "CUDAExecutionProvider"}
-_QUIET = {
+_QUIET: dict[str, str | int] = {
     "Global.log_level": "error",
     # explicit thread counts: onnxruntime otherwise logs an affinity error per session in an LXC
     "EngineConfig.onnxruntime.intra_op_num_threads": 1,
     "EngineConfig.onnxruntime.inter_op_num_threads": 1,
 }
-PARAMS = {
+PARAMS: dict[str, dict[str, str | int | bool]] = {
     "cpu": _QUIET,
     "dml": {**_QUIET, "EngineConfig.onnxruntime.use_dml": True},
     "cuda": {**_QUIET, "EngineConfig.onnxruntime.use_cuda": True},
@@ -42,7 +45,16 @@ PARAMS = {
 _serial = threading.Lock()
 
 
-def provider_problem(device):
+class WordLists(TypedDict):
+    """The keyword test's word lists (config `junk`): keywords, and the weak, paired and suppress terms."""
+
+    keywords: list[str]
+    weak: list[str]
+    paired: list[str]
+    suppress: list[str]
+
+
+def provider_problem(device: str) -> str | None:
     """Return why `device` cannot run OCR here, or None.
 
     Unknown device, no onnxruntime, or a session on the device's provider that falls back to another (listing a provider
@@ -68,7 +80,7 @@ def provider_problem(device):
 
 
 @functools.cache
-def _engine(device):
+def _engine(device: str) -> Callable[[NDArray[np.uint8]], list[str]]:
     """Return a reader of 1 tile: its text lines (RapidOCR on the device's onnxruntime provider)."""
     import onnxruntime  # noqa: PLC0415  # lazy: only process loads onnxruntime/RapidOCR; every command imports junk.ocr
     from rapidocr import RapidOCR  # noqa: PLC0415  # lazy: only process loads onnxruntime/RapidOCR; every command imports junk.ocr
@@ -78,7 +90,7 @@ def _engine(device):
         onnxruntime.preload_dlls()
     engine = RapidOCR(params=PARAMS[device])
 
-    def read(array):
+    def read(array: NDArray[np.uint8]) -> list[str]:
         result = engine(array)
         if not isinstance(result, RapidOCROutput):  # detection, classification and recognition all run
             msg = f"RapidOCR returned {type(result).__name__}, not its full result"
@@ -88,10 +100,11 @@ def _engine(device):
     return read
 
 
-def tiles(im):
+def tiles(im: Image.Image) -> list[Image.Image]:
     """Horizontal slices of im, at most TILE_PX tall, overlapping by TILE_OVERLAP."""
     if im.height <= TILE_PX:
         return [im]
+    out: list[Image.Image]
     out, y = [], 0
     while True:
         out.append(im.crop((0, y, im.width, min(im.height, y + TILE_PX))))
@@ -100,13 +113,13 @@ def tiles(im):
         y += TILE_PX - TILE_OVERLAP
 
 
-def scale(im, width=WIDTH):
+def scale(im: Image.Image, width: int = WIDTH) -> Image.Image:
     """Return im as RGB, `width` px wide (aspect kept)."""
     im = im.convert("RGB")
     return im.resize((width, max(1, round(im.height * width / im.width))), Image.Resampling.LANCZOS)
 
 
-def text(im, device):
+def text(im: Image.Image, device: str) -> str:
     """Return the lines read in im (scaled to WIDTH) on `device`, newline-joined; "" when none."""
     if device not in PARAMS:
         msg = f"ocr device must be one of {sorted(PARAMS)}, got {device!r}"
@@ -115,19 +128,19 @@ def text(im, device):
     with _serial:
         read = _engine(device)
         t0 = time.perf_counter()
-        lines = []
+        lines: list[str] = []
         for t in tiles(im):
             lines += read(np.asarray(t))
     log.debug("ocr %s %dx%d -> %d line(s) %.3fs", device, im.width, im.height, len(lines), time.perf_counter() - t0)
     return "\n".join(lines)
 
 
-def normalize(s):
+def normalize(s: str) -> str:
     """OCR text as the keyword test reads it: lower case, every whitespace run one space."""
     return " ".join(s.split()).lower()
 
 
-def word_list_problem(words):
+def word_list_problem(words: WordLists) -> str | None:
     """Return what is wrong with config `junk`'s word lists, or None.
 
     A weak or a paired term only restricts when a keyword counts, so each must be a keyword.
@@ -136,7 +149,7 @@ def word_list_problem(words):
     return "; ".join(f"junk.{key} terms not in junk.keywords: {terms}" for key, terms in stray.items() if terms) or None
 
 
-def text_hits(text_, height, words):
+def text_hits(text_: str, height: int, words: WordLists) -> list[str]:
     """Return the keywords found in a unit's OCR text, in list order.
 
     Each a case-insensitive substring of the normalized text; a weak term counts only on a unit at most MAX_WEAK_PX

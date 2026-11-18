@@ -19,42 +19,71 @@ disagreement.
 import itertools
 import statistics
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
+from typing import ReadOnly, TypedDict
 
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
+from numpy.typing import NDArray
 from PIL import Image
 
 from manga_pipeline import archive, db, images, volumes
 
+
+class Restitch(TypedDict):
+    """The restitch settings (the bulk converter's config `restitch:`), read only: px at target width, rows, levels."""
+
+    min_page: ReadOnly[int]
+    max_page: ReadOnly[int]
+    analysis_width: ReadOnly[int]
+    gap_min_rows: ReadOnly[int]
+    gap_row_std: ReadOnly[int]
+    gap_row_range: ReadOnly[int]
+
+
+class SliceRepair(TypedDict):
+    """The slice-repair settings (the bulk converter's config `slice_repair:`), read only: ratios, scores, counts."""
+
+    max_sliver_ratio: ReadOnly[float]
+    max_seam_score: ReadOnly[float]
+    min_edge_texture: ReadOnly[int]
+    pattern_min_joins: ReadOnly[int]
+    stitched_ratio: ReadOnly[float]
+    fallback_page_aspect: ReadOnly[float]
+    snap_window: ReadOnly[float]
+    band_tolerance: ReadOnly[float]
+
+
+class GeometryConfig(TypedDict):
+    """The sections the layout's geometry check reads (geometry_share), read only."""
+
+    restitch: ReadOnly[Restitch]
+    slice_repair: ReadOnly[SliceRepair]
+
+
 # The bulk converter's config.yaml.example `restitch:` and `slice_repair:` values (frozen: plans and tests depend on
 # them). A caller passes its own mapping to override them.
-RESTITCH = MappingProxyType(
-    {
-        "min_page": 1500,  # px at target width; limits trigger re-cutting
-        "max_page": 5000,  # no gap in range -> cut through art at exactly this height
-        "analysis_width": 400,  # row-profile width for gap detection
-        "gap_min_rows": 12,  # near-uniform run (at 1000 px width) that counts as a panel gap
-        "gap_row_std": 3,
-        "gap_row_range": 20,
-    }
-)
-SLICE_REPAIR = MappingProxyType(
-    {
-        "max_sliver_ratio": 0.50,  # short page <= this fraction of the page before it (Female Blacksmith: 1250+457)
-        "max_seam_score": 3.5,  # seam discontinuity / in-page row change; slices 0.9-3.0, real boundaries 5.9+
-        "min_edge_texture": 8,  # row std on both sides of the cut: blank margins don't count as continuous art
-        "pattern_min_joins": 3,  # same page+sliver heights confirmed this often -> join other pairs of those heights
-        "stitched_ratio": 1.8,  # chapter page shape >= 1.8x the series' page shape -> stitched pages, split them
-        "fallback_page_aspect": 1.42,  # page shape when a series has no unstitched pages to learn from
-        "snap_window": 0.06,  # stitched image within +-6% of a whole number of pages; else flagged irregular
-        "band_tolerance": 0.01,  # credit bands: page taller than the series shape by more than this is band-scanned
-    }
-)
-CONFIG = MappingProxyType({"restitch": RESTITCH, "slice_repair": SLICE_REPAIR})  # geometry_share's sections
+RESTITCH: Restitch = {
+    "min_page": 1500,  # px at target width; limits trigger re-cutting
+    "max_page": 5000,  # no gap in range -> cut through art at exactly this height
+    "analysis_width": 400,  # row-profile width for gap detection
+    "gap_min_rows": 12,  # near-uniform run (at 1000 px width) that counts as a panel gap
+    "gap_row_std": 3,
+    "gap_row_range": 20,
+}
+SLICE_REPAIR: SliceRepair = {
+    "max_sliver_ratio": 0.50,  # short page <= this fraction of the page before it (Female Blacksmith: 1250+457)
+    "max_seam_score": 3.5,  # seam discontinuity / in-page row change; slices 0.9-3.0, real boundaries 5.9+
+    "min_edge_texture": 8,  # row std on both sides of the cut: blank margins don't count as continuous art
+    "pattern_min_joins": 3,  # same page+sliver heights confirmed this often -> join other pairs of those heights
+    "stitched_ratio": 1.8,  # chapter page shape >= 1.8x the series' page shape -> stitched pages, split them
+    "fallback_page_aspect": 1.42,  # page shape when a series has no unstitched pages to learn from
+    "snap_window": 0.06,  # stitched image within +-6% of a whole number of pages; else flagged irregular
+    "band_tolerance": 0.01,  # credit bands: page taller than the series shape by more than this is band-scanned
+}
+CONFIG: GeometryConfig = {"restitch": RESTITCH, "slice_repair": SLICE_REPAIR}  # geometry_share's sections
 
 # ComicInfo/Kavita genres that mark a long-strip series, matched case-insensitively
 LONG_STRIP_GENRES = frozenset(g.lower() for g in ("Long Strip", "Web Comic", "Webtoon", "Webtoons", "Longstrip"))
@@ -70,11 +99,135 @@ CACHED_PAGES = 3  # decoded source pages render_rows keeps
 PAGE_ASPECT_MIN = 0.9  # h/w: shorter shapes are slivers, not pages
 ASPECT_MIN_PAGES = 3  # pages a shape needs to be a candidate
 
+type Size = tuple[int, int]  # a page's (width, height) in px
+type Rows = tuple[int, int]  # strip rows [start, end) in target px
+type EdgeRows = tuple[NDArray[np.float32], NDArray[np.float32]]  # edge_rows: (top rows, bottom rows), luma
+
+
+class LaidPage(TypedDict):
+    """A page laid in a strip at the target width: its size (w, h), its top in the strip and its height there (th)."""
+
+    w: int
+    h: int
+    top: int
+    th: int
+
+
+class StripPage(LaidPage):
+    """A laid page of a Strip, with its file's path."""
+
+    path: str
+
+
+class PlannedPage(LaidPage):
+    """A laid page of a stitched chapter's plan, with its page name."""
+
+    name: str
+
+
+class RowSource(TypedDict):
+    """A source page of strip rows: its file's path, its top in the strip and its height there (render_rows)."""
+
+    path: str
+    top: int
+    th: int
+
+
+class RowRange(TypedDict):
+    """Strip rows [start, end) in target px: a removed range."""
+
+    start: int
+    end: int
+
+
+class Cut(TypedDict):
+    """A strip cut into pages after removals (cut_strip).
+
+    The kept ranges [(start, end)] of the strip, the page cuts in kept px (0 and length included), the forced ones
+    among them and the kept length.
+    """
+
+    kept: list[Rows]
+    cuts: list[int]
+    forced: list[int]
+    length: int
+
+
+class Irregular(TypedDict):
+    """A stitched image not within snap_window of a whole number of pages: its name, height and pages (fraction)."""
+
+    page: str
+    height: int
+    pages: float
+
+
+class StitchedPlan(TypedDict):
+    """A stitched page-format chapter cut back into pages (plan_pages): the strip layout and its cuts.
+
+    Width and height of the strip at the target width, its pages, the cuts (0 and the height included), the irregular
+    images and the page height (px at the target width) it was cut at.
+    """
+
+    width: int
+    pages: list[PlannedPage]
+    height: int
+    cuts: list[int]
+    irregular: list[Irregular]
+    page_h: int
+
+
+class Slice(TypedDict):
+    """A slice pair (find_slices): page and sliver indexes, their heights, the seam score, the verdict and its why.
+
+    join: the sliver joins its page; textured: art on both sides of the cut; why "seam" or "pattern" (None: no join).
+    """
+
+    page: int
+    sliver: int
+    heights: list[int]
+    seam: float
+    join: bool
+    textured: bool
+    why: str | None
+
+
+class NamedRows(TypedDict):
+    """A source page of a render strip: its page name, its top in the strip and its height there."""
+
+    name: str
+    top: int
+    th: int
+
+
+class RenderStrip(TypedDict):
+    """The strip a render spec's rows are cut from: its width, its source pages and its kept ranges (strip px)."""
+
+    width: int
+    pages: list[NamedRows]
+    kept: Sequence[Sequence[int]]
+
+
+class PartsOutput(TypedDict):
+    """An output page stacked from parts: its stem and its parts (page name, box or None: uncropped), top to bottom."""
+
+    name: str
+    parts: list[tuple[str, Sequence[int] | None]]
+
+
+class RowsOutput(TypedDict):
+    """An output page of strip rows: its stem and its rows [a, b) in kept coordinates."""
+
+    name: str
+    rows: list[int]
+
+
+type RenderOutput = PartsOutput | RowsOutput
+
 
 # ---------------------------------------------------------------- shared measurements
 
 
-def open_page(path, mode="RGB"):
+def open_page(path: str | Path, mode: str = "RGB") -> Image.Image:
     """Decode fully (8-bit, sRGB, see images.open_image) and close the file; pages are read many times.
 
     A page with transparency is composited onto white (images.open_flat, as the plan's page scan reads it), the canvas
@@ -83,7 +236,7 @@ def open_page(path, mode="RGB"):
     return images.open_flat(path)[0].convert(mode)
 
 
-def edge_rows(im, width=400, rows=6):
+def edge_rows(im: Image.Image, width: int = 400, rows: int = 6) -> EdgeRows:
     """(top rows, bottom rows) of a page at `width`, luma: what seam_score compares across a join."""
     g = im.convert("L")
     g = g.resize((width, max(rows + 2, round(g.height * width / g.width))))
@@ -91,7 +244,7 @@ def edge_rows(im, width=400, rows=6):
     return a[:rows], a[-rows:]
 
 
-def seam_score(bottom_rows, top_rows):
+def seam_score(bottom_rows: NDArray[np.float32], top_rows: NDArray[np.float32]) -> float:
     """Discontinuity across a join vs ordinary row-to-row change beside it (1 = as smooth as in-page)."""
     inside = np.mean(
         [np.abs(bottom_rows[i + 1] - bottom_rows[i]).mean() for i in range(len(bottom_rows) - 1)]
@@ -100,14 +253,14 @@ def seam_score(bottom_rows, top_rows):
     return float(np.abs(top_rows[0] - bottom_rows[-1]).mean() / max(inside, 1.0))
 
 
-def geometry_share(chapter_pages, cfg=CONFIG):
+def geometry_share(chapter_pages: Iterable[Sequence[str | Path]], cfg: GeometryConfig = CONFIG) -> float:
     """Return the median share of continuous page joins (webtoon slices) over the sampled chapters' first pages.
 
     Over the first SAMPLE_PAGES pages; a join is continuous with both edge rows blank (restitch.gap_row_std) or a seam
     as smooth as a slice (slice_repair.max_seam_score). cfg: {"restitch", "slice_repair"} sections.
     """
     gap_std, max_seam = cfg["restitch"]["gap_row_std"], cfg["slice_repair"]["max_seam_score"]
-    shares = []
+    shares: list[float] = []
     for pages in chapter_pages:
         edges = [edge_rows(open_page(p, "L")) for p in pages[:SAMPLE_PAGES]]
         joins = [
@@ -119,18 +272,18 @@ def geometry_share(chapter_pages, cfg=CONFIG):
     return statistics.median(shares) if shares else 0
 
 
-def override_layout(override):
+def override_layout(override: volumes.Overrides) -> str | None:
     """`layout:` from a series overrides mapping: "strip", "pages" or None (volumes.layout)."""
     return volumes.layout(override)
 
 
-def _claims(kavita_genres):
+def _claims(kavita_genres: Iterable[str] | None) -> list[tuple[str, str, str]]:
     """Return [(source, claim, value)] of Kavita's layout claims (metadata check).
 
     A long-strip genre claims strip; exactly one origin genre claims pages (Manga) or strip (Manhwa / Manhua).
     """
     titles = [g.strip() for g in kavita_genres or ()]
-    out = []
+    out: list[tuple[str, str, str]] = []
     strip = [g for g in titles if g.lower() in LONG_STRIP_GENRES]
     if strip:
         out.append(("Kavita genre", "strip", ", ".join(strip)))
@@ -140,7 +293,12 @@ def _claims(kavita_genres):
     return out
 
 
-def classify_layout(chapter_pages, override=None, kavita_genres=None, cfg=CONFIG):
+def classify_layout(
+    chapter_pages: Iterable[Sequence[str | Path]],
+    override: volumes.Overrides | None = None,
+    kavita_genres: Iterable[str] | None = None,
+    cfg: GeometryConfig = CONFIG,
+) -> tuple[str, str, list[str]]:
     """Classify the series layout: return (layout, why, flags).
 
     An override `layout:` decides; else the geometry check alone: continuous share >= STRIP_SHARE -> "strip", else
@@ -165,13 +323,14 @@ def classify_layout(chapter_pages, override=None, kavita_genres=None, cfg=CONFIG
 # ---------------------------------------------------------------- long strips
 
 
-def strip_layout(sizes, width=None):
+def strip_layout(sizes: Sequence[Size], width: int | None = None) -> tuple[int, list[LaidPage], int]:
     """Return (width, [{"w", "h", "top", "th"}], height) of pages laid one below the other at the target width.
 
     The target width is the chapter's most common page width unless given: th = page height at that width, top = its
     offset. Sizes only, no decode.
     """
     width = width or Counter(w for w, _ in sizes).most_common(1)[0][0]
+    pages: list[LaidPage]
     pages, top = [], 0
     for w, h in sizes:
         th = round(h * width / w)
@@ -180,7 +339,7 @@ def strip_layout(sizes, width=None):
     return width, pages, top
 
 
-def blank_rows(a, cfg: Mapping[str, float] = RESTITCH):
+def blank_rows(a: NDArray[np.float32], cfg: Restitch = RESTITCH) -> NDArray[np.bool_]:
     """Return per row of a grayscale array at analysis width whether it is blank: the one gap-row classifier.
 
     Blank: std < gap_row_std and range < gap_row_range, any background colour. page_rows.
@@ -188,7 +347,7 @@ def blank_rows(a, cfg: Mapping[str, float] = RESTITCH):
     return (a.std(axis=1) < cfg["gap_row_std"]) & (np.ptp(a, axis=1) < cfg["gap_row_range"])
 
 
-def page_rows(im, cfg=RESTITCH):
+def page_rows(im: Image.Image, cfg: Restitch = RESTITCH) -> NDArray[np.bool_]:
     """Return a page's blank-row profile for gap detection.
 
     Per analysis row (page scaled to cfg analysis_width), True where the row is blank (blank_rows). Computed once per
@@ -203,20 +362,21 @@ def page_rows(im, cfg=RESTITCH):
 class Strip:
     """A chapter's pages laid as 1 strip at the target width, with its per-analysis-row gap profile."""
 
-    pages: list  # [{"path", "w", "h", "top", "th"}] th = height at target width, top = offset
+    pages: list[StripPage]  # th = height at target width, top = offset
     width: int  # target width (chapter's most common page width)
     height: int  # total strip height at target width
-    uniform: np.ndarray  # per analysis row: near-uniform (gap) row
+    uniform: NDArray[np.bool_]  # per analysis row: near-uniform (gap) row
     row_px: float  # average target px per analysis row (only for sizing thresholds)
-    row_y: np.ndarray  # target-px start of each analysis row, plus the strip end (per-page exact)
+    row_y: NDArray[np.float64]  # target-px start of each analysis row, plus the strip end (per-page exact)
 
 
-def make_strip(paths, sizes, rows):
+def make_strip(paths: Sequence[str | Path], sizes: Sequence[Size], rows: Sequence[NDArray[np.bool_]]) -> Strip:
     """Make a chapter's Strip from its page sizes and each page's page_rows profile (no decode)."""
-    width, pages, height = strip_layout(sizes)
-    starts = []
-    for p, path, r in zip(pages, paths, rows, strict=True):
-        p["path"] = str(path)
+    width, laid, height = strip_layout(sizes)
+    pages: list[StripPage] = []
+    starts: list[NDArray[np.float64]] = []
+    for p, path, r in zip(laid, paths, rows, strict=True):
+        pages.append({**p, "path": str(path)})
         # map rows within their own page: per-page rounding would drift if mapped with one global ratio
         starts.append(p["top"] + np.arange(len(r)) * p["th"] / len(r))
     uniform = np.concatenate(rows) if rows else np.zeros(0, bool)
@@ -224,8 +384,9 @@ def make_strip(paths, sizes, rows):
     return Strip(pages, width, height, uniform, height / max(len(uniform), 1), row_y)
 
 
-def _blank_runs(strip):
+def _blank_runs(strip: Strip) -> list[Rows]:
     """[(first, end)] analysis-row indexes of every maximal run of blank rows (Strip.uniform)."""
+    runs: list[Rows]
     runs, run = [], 0
     for i, u in enumerate(np.append(strip.uniform, False)):
         if u:
@@ -237,28 +398,29 @@ def _blank_runs(strip):
     return runs
 
 
-def _px(strip, i, j):
+def _px(strip: Strip, i: int, j: int) -> Rows:
     return round(strip.row_y[i]), round(strip.row_y[j])
 
 
-def walkable_runs(strip):
+def walkable_runs(strip: Strip) -> list[Rows]:
     """[(start, end)] in target px of every maximal run of blank rows, any length."""
     return [_px(strip, i, j) for i, j in _blank_runs(strip)]
 
 
-def find_gaps(strip, cfg=RESTITCH):
+def find_gaps(strip: Strip, cfg: Restitch = RESTITCH) -> list[Rows]:
     """[(start, end)] in target px of the walkable runs at least gap_min_rows (at 1000 px width) tall."""
     need = max(1, round(cfg["gap_min_rows"] * strip.width / 1000 / strip.row_px))
     return [_px(strip, i, j) for i, j in _blank_runs(strip) if j - i >= need]
 
 
-def spans(strip):
+def spans(strip: Strip) -> list[Rows]:
     """Return [(start, end)] in target px of the strip's spans.
 
     Spans are maximal runs of rows between walkable runs of at least SPAN_BREAK_PX, starting and ending on a non-blank
     row. Lines glued with no blank row (or a walkable run shorter than SPAN_BREAK_PX) between them are one span (I Stole
     the Female Lead's First Love c0006: the D&C logo, (c) line and bunny watermark). An all-blank strip has none.
     """
+    out: list[Rows]
     out, pos = [], 0
     for s, e in [*walkable_runs(strip), (strip.height, strip.height)]:
         if s > pos:
@@ -270,7 +432,7 @@ def spans(strip):
     return out
 
 
-def edge_region(start, end, height, edge_px):
+def edge_region(start: int, end: int, height: int, edge_px: int) -> str | None:
     """Return 'head' for a unit wholly in the first edge_px rows of a strip of `height`, 'tail' wholly in the last.
 
     None otherwise; one in both (a strip shorter than 2 x edge_px) takes the half its middle lies in, a tie 'head'.
@@ -281,8 +443,9 @@ def edge_region(start, end, height, edge_px):
     return "head" if head else "tail" if tail else None
 
 
-def content_blocks(strip, gaps):
+def content_blocks(strip: Strip, gaps: Iterable[Rows]) -> list[Rows]:
     """Content between gaps, [(start, end)] in target px."""
+    blocks: list[Rows]
     blocks, pos = [], 0
     for s, e in gaps:
         if s > pos:
@@ -293,7 +456,9 @@ def content_blocks(strip, gaps):
     return blocks
 
 
-def render_rows(pages, width, start, end, cache=None):
+def render_rows(
+    pages: Sequence[RowSource], width: int, start: int, end: int, cache: dict[str, Image.Image] | None = None
+) -> Image.Image:
     """Render the image of strip rows [start, end) at target width, built from only the source pages it covers.
 
     pages: [{"path", "top", "th"}].
@@ -313,7 +478,7 @@ def render_rows(pages, width, start, end, cache=None):
     return out
 
 
-def _usable(q, length, lo):
+def _usable(q: int, length: int, lo: int) -> bool:
     """Return whether the next page can start at cut point q: the strip end, or at least min_page (lo) before it.
 
     A point closer is a dead end: the page after it would be short.
@@ -321,7 +486,7 @@ def _usable(q, length, lo):
     return q == length or length - q >= lo
 
 
-def _run_cuts(p, nxt, cfg):
+def _run_cuts(p: int, nxt: int, cfg: Restitch) -> list[int]:
     """Return the forced cuts splitting the gapless run [p, nxt) into pages of at most max_page.
 
     max_page apart, or evenly when that would strand a remainder under min_page.
@@ -334,14 +499,14 @@ def _run_cuts(p, nxt, cfg):
     return [p + i * hi for i in range(1, n)]
 
 
-def _reachable(pts, length, cfg):
+def _reachable(pts: list[int], length: int, cfg: Restitch) -> tuple[list[int], set[int]]:
     """Return (the cut points, sorted; the forced ones among them) once every point can reach a usable next point.
 
     Every point of `pts` (sorted, 0 and length included) must reach one within [min_page, max_page]: each gapless run
     that cannot gets its _run_cuts.
     """
     lo, hi = cfg["min_page"], cfg["max_page"]
-    forced = set()
+    forced: set[int] = set()
     changed = True
     while changed:
         changed = False
@@ -359,7 +524,9 @@ def _reachable(pts, length, cfg):
     return pts, forced
 
 
-def _cheapest_links(pts, forced, strength, cfg):
+def _cheapest_links(
+    pts: list[int], forced: set[int], strength: Mapping[int, int], cfg: Restitch
+) -> dict[int, tuple[float, int | None]]:
     """Return {point: (cost, previous point)} of the cheapest run of pages from 0 to each point it can reach.
 
     Each page within [min_page, max_page] costs its squared distance from the middle length (in spans), plus 5 when it
@@ -368,7 +535,7 @@ def _cheapest_links(pts, forced, strength, cfg):
     lo, hi = cfg["min_page"], cfg["max_page"]
     mid, span = (lo + hi) / 2, hi - lo
     max_s = max(strength.values(), default=1)
-    best = {0: (0.0, None)}
+    best: dict[int, tuple[float, int | None]] = {0: (0.0, None)}
     for q in pts[1:]:
         for p in pts:
             if p >= q or p not in best:
@@ -384,7 +551,7 @@ def _cheapest_links(pts, forced, strength, cfg):
     return best
 
 
-def plan_cuts(length, gaps, cfg: Mapping[str, float] = RESTITCH):
+def plan_cuts(length: int, gaps: Iterable[tuple[int, int]], cfg: Restitch = RESTITCH) -> tuple[list[int], list[int]]:
     """Choose page boundaries over a strip of `length` px with gap candidates [(center, strength)].
 
     Every page within [min_page, max_page]; prefer lengths near the middle and stronger gaps; where no
@@ -395,6 +562,8 @@ def plan_cuts(length, gaps, cfg: Mapping[str, float] = RESTITCH):
         return [0, length], []
     pts, forced = _reachable(sorted({0, length} | {c for c, _ in gaps if 0 < c < length}), length, cfg)
     best = _cheapest_links(pts, forced, dict(gaps), cfg)
+    cuts: list[int]
+    q: int | None
     cuts, q = [], length
     while q is not None:
         cuts.append(q)
@@ -403,12 +572,13 @@ def plan_cuts(length, gaps, cfg: Mapping[str, float] = RESTITCH):
     return cuts, sorted(c for c in cuts if c in forced)
 
 
-def cut_strip(height, gaps, removed, cfg: Mapping[str, float] = RESTITCH):
+def cut_strip(height: int, gaps: Iterable[Rows], removed: Iterable[RowRange], cfg: Restitch = RESTITCH) -> Cut:
     """Return {"kept", "cuts", "forced", "length"} of a strip of `height` px, cut into pages after removals.
 
     The removed ranges ([{"start", "end"}]) are taken out and the rest cut into pages on its gaps (plan_cuts). Also run
     again once a tail pass drops more pieces.
     """
+    kept: list[Rows]
     kept, pos = [], 0
     for r in sorted(removed, key=lambda r: r["start"]):
         if r["start"] > pos:
@@ -424,7 +594,7 @@ def cut_strip(height, gaps, removed, cfg: Mapping[str, float] = RESTITCH):
     return {"kept": kept, "cuts": cuts, "forced": forced, "length": length}
 
 
-def hard_joins(im, max_seam):
+def hard_joins(im: Image.Image, max_seam: float) -> list[int]:
     """Return the rows of an image's hard joins, in order.
 
     A hard join has seam_score (SEAM_ROWS rows each side) at least max_seam and the highest within SEAM_ROWS rows (one
@@ -446,7 +616,7 @@ def hard_joins(im, max_seam):
     return [int(j) for j in k[(s >= max_seam) & (s >= peak)]]
 
 
-def edge_pieces(im, where, max_seam):
+def edge_pieces(im: Image.Image, where: str, max_seam: float) -> list[tuple[int, Image.Image]]:
     """Return [(row, piece)] of an edge block's chapter-edge pieces, one per hard join (hard_joins).
 
     Walked from the chapter edge inward: rows [0, row) of a head block, [row, end) of a tail block.
@@ -458,8 +628,8 @@ def edge_pieces(im, where, max_seam):
     ]
 
 
-def _kept_mapper(kept):
-    def to_kept(y):
+def _kept_mapper(kept: Sequence[Rows]) -> Callable[[int], int | None]:
+    def to_kept(y: int) -> int | None:
         off = 0
         for s, e in kept:
             if s <= y < e:
@@ -470,8 +640,9 @@ def _kept_mapper(kept):
     return to_kept
 
 
-def kept_ranges(kept, a, b):
+def kept_ranges(kept: Iterable[Sequence[int]], a: int, b: int) -> list[Rows]:
     """Strip ranges [(s, e)] covered by kept coordinates [a, b) (kept: the strip minus removed blocks)."""
+    parts: list[Rows]
     parts, off = [], 0
     for s, e in kept:
         lo, hi = max(a, off), min(b, off + e - s)
@@ -481,7 +652,7 @@ def kept_ranges(kept, a, b):
     return parts
 
 
-def composited(o):
+def composited(o: RenderOutput) -> bool:
     """Return whether render composites a planned output page (a render spec) onto white.
 
     Strip rows and cropped or joined parts are; a single uncropped part passes through with its mode (alpha kept).
@@ -489,7 +660,9 @@ def composited(o):
     return "rows" in o or not (len(o["parts"]) == 1 and o["parts"][0][1] is None)
 
 
-def render(outputs, x_dir, out_dir, strip=None):
+def render(
+    outputs: Sequence[RenderOutput], x_dir: str | Path, out_dir: str | Path, strip: RenderStrip | None = None
+) -> list[Path]:
     """Write the planned output pages as PNG (lossless intermediates for the AVIF encoder), in order.
 
     outputs: [{"name": stem, "parts": [[page name, box or None], ...]}] (pages stacked top to bottom, each cropped to
@@ -498,7 +671,11 @@ def render(outputs, x_dir, out_dir, strip=None):
     """
     x_dir, out_dir = Path(x_dir), Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    pages = [dict(p, path=str(x_dir / p["name"])) for p in strip["pages"]] if strip else None
+    pages: list[RowSource] | None = (
+        [{"path": str(x_dir / p["name"]), "top": p["top"], "th": p["th"]} for p in strip["pages"]] if strip else None
+    )
+    written: list[Path]
+    cache: dict[str, Image.Image]
     written, cache = [], {}
     for o in outputs:
         if "rows" in o:
@@ -514,7 +691,8 @@ def render(outputs, x_dir, out_dir, strip=None):
             im = images.open_image(x_dir / o["parts"][0][0])[0]
         else:
             parts = [
-                open_page(x_dir / n) if box is None else open_page(x_dir / n).crop(tuple(box)) for n, box in o["parts"]
+                open_page(x_dir / n) if box is None else open_page(x_dir / n).crop(images.as_box(box))
+                for n, box in o["parts"]
             ]
             im, y = Image.new("RGB", (parts[0].width, sum(p.height for p in parts)), "white"), 0
             for p in parts:
@@ -526,7 +704,7 @@ def render(outputs, x_dir, out_dir, strip=None):
     return written
 
 
-def output_name(n):
+def output_name(n: int) -> str:
     """Stem of the n-th rendered page (1-based): 001, 002, ..."""
     return f"{n:0{STEM_WIDTH}d}"
 
@@ -534,13 +712,15 @@ def output_name(n):
 # ---------------------------------------------------------------- page-format: stitched pages
 
 
-def page_aspect(chapter_pages, stitched_ratio=SLICE_REPAIR["stitched_ratio"]):
+def page_aspect(
+    chapter_pages: Iterable[Iterable[Size | None]], stitched_ratio: float = SLICE_REPAIR["stitched_ratio"]
+) -> list[float] | None:
     """Return candidate series page shapes (h/w), most common first, from ordinary page-format pages.
 
     None when there are none. Several candidates because sliced chapters add a false one (Little Lord: 1500/1125 top
     halves outnumber the true 1600/1125 pages). Pages: (w, h) tuples (the plan inventory).
     """
-    aspects = Counter()
+    aspects: Counter[float] = Counter()
     for pages in chapter_pages:
         for d in pages:
             if d and d[0] and PAGE_ASPECT_MIN <= d[1] / d[0] < stitched_ratio:  # page-like shapes only, no slivers
@@ -549,7 +729,7 @@ def page_aspect(chapter_pages, stitched_ratio=SLICE_REPAIR["stitched_ratio"]):
     return common or None
 
 
-def _best_page_height(heights, width, aspects, cfg):
+def _best_page_height(heights: Sequence[int], width: int, aspects: Sequence[float] | None, cfg: SliceRepair) -> float:
     """Return the page height under which the stitched images split into whole pages best.
 
     Tried: the series' candidate shapes, or, when the series has none, heights implied by the images (smallest image =
@@ -563,13 +743,13 @@ def _best_page_height(heights, width, aspects, cfg):
     ]
     pref = width * (aspects[0] if aspects else cfg["fallback_page_aspect"])
 
-    def misfit(h):
+    def misfit(h: float) -> float:
         return sum(abs(x / h - max(1, round(x / h))) for x in heights)
 
     return min(options, key=lambda h: (round(misfit(h), 2), abs(h - pref)))
 
 
-def is_stitched(pages, aspects, cfg=SLICE_REPAIR):
+def is_stitched(pages: Iterable[Size | None], aspects: Sequence[float] | None, cfg: SliceRepair = SLICE_REPAIR) -> bool:
     """Page-format chapter delivered as tall strips of several pages. Pages: (w, h) tuples (the plan inventory)."""
     ratios = [h / w for w, h in (d for d in pages if d and d[0])]
     if not ratios:
@@ -578,7 +758,12 @@ def is_stitched(pages, aspects, cfg=SLICE_REPAIR):
     return statistics.median(ratios) >= cfg["stitched_ratio"] * base
 
 
-def plan_pages(names, sizes, aspects, cfg=SLICE_REPAIR):
+def plan_pages(
+    names: Sequence[str],
+    sizes: Sequence[Size],
+    aspects: Sequence[float] | None,
+    cfg: SliceRepair = SLICE_REPAIR,
+) -> StitchedPlan:
     """Cut a stitched page-format chapter back into pages of the series' shape (sizes only, no decode).
 
     Stitchers join whole pages, so each source image holds a whole number of pages: an image of height H
@@ -587,11 +772,14 @@ def plan_pages(names, sizes, aspects, cfg=SLICE_REPAIR):
     as irregular for review and still split evenly. Returns {"width", "pages": [{"name", "w", "h", "top", "th"}],
     "height", "cuts", "irregular", "page_h"}.
     """
-    width, pages, height = strip_layout(sizes)
-    page_h = _best_page_height([p["th"] for p in pages], width, aspects, cfg)
+    width, laid, height = strip_layout(sizes)
+    page_h = _best_page_height([p["th"] for p in laid], width, aspects, cfg)
+    pages: list[PlannedPage] = []
+    cuts: list[int]
+    irregular: list[Irregular]
     cuts, irregular = [0], []
-    for n, p in zip(names, pages, strict=True):
-        p["name"] = n
+    for n, p in zip(names, laid, strict=True):
+        pages.append({**p, "name": n})
         k = max(1, round(p["th"] / page_h))
         if abs(p["th"] - k * page_h) > cfg["snap_window"] * page_h:
             irregular.append({"page": n, "height": p["th"], "pages": p["th"] / page_h})
@@ -609,7 +797,7 @@ def plan_pages(names, sizes, aspects, cfg=SLICE_REPAIR):
 # ---------------------------------------------------------------- page-format: sliced pages
 
 
-def slice_pairs(sizes, cfg=SLICE_REPAIR):
+def slice_pairs(sizes: Sequence[Size], cfg: SliceRepair = SLICE_REPAIR) -> list[int]:
     """Return indexes i where page i could be a sliver cut off the bottom of page i - 1.
 
     Same width, at most max_sliver_ratio of its height: find_slices needs the edge rows of pages i - 1 and i.
@@ -621,13 +809,13 @@ def slice_pairs(sizes, cfg=SLICE_REPAIR):
     ]
 
 
-def find_slices(sizes, edges, cfg=SLICE_REPAIR):
+def find_slices(sizes: Sequence[Size], edges: Mapping[int, EdgeRows], cfg: SliceRepair = SLICE_REPAIR) -> list[Slice]:
     """Return pairs (i, i+1) where page i+1 is a sliver cut off the bottom of page i.
 
     Same width, short, continuous seam, and actual art on both sides of the cut (blank margins don't count).
     sizes: [(w, h)]; edges: {index: edge_rows(page)} for both pages of every slice_pairs pair.
     """
-    joins = []
+    joins: list[Slice] = []
     for i in slice_pairs(sizes, cfg):
         (_, h0), (_, h1) = sizes[i - 1], sizes[i]
         bot, top = edges[i - 1][1], edges[i][0]
@@ -662,7 +850,7 @@ END_HEAD, END_TAIL = 2, 3
 SEAM_ROWS = 6  # analysis rows each side of a candidate seam (as edge_rows)
 
 
-def series_shape(aspects, cfg=SLICE_REPAIR):
+def series_shape(aspects: Sequence[float] | None, cfg: SliceRepair = SLICE_REPAIR) -> float:
     """Return the page shape (h/w) bands are measured against: page_aspect's most common candidate, else the fallback.
 
     Not max(): banded pages themselves can be a candidate (My Noble Family ch7-10: 1125x2019, h/w 1.795).
@@ -670,12 +858,14 @@ def series_shape(aspects, cfg=SLICE_REPAIR):
     return aspects[0] if aspects else cfg["fallback_page_aspect"]
 
 
-def content_indexes(pages):
+def content_indexes(pages: Sequence[str | Path]) -> list[int]:
     """Indexes of non-cover pages (cover-named pages are never reshaped or junk-checked)."""
     return [i for i, p in enumerate(pages) if not archive.is_cover_name(Path(str(p)).name)]
 
 
-def band_pages(pages, sizes, shape, cfg: Mapping[str, float] = SLICE_REPAIR):
+def band_pages(
+    pages: Sequence[str | Path], sizes: Sequence[Size], shape: float, cfg: SliceRepair = SLICE_REPAIR
+) -> list[int]:
     """Return indexes of the pages a credit band can sit on, the pages the band scan decodes.
 
     Non-cover pages taller than the series shape (h > w * shape * (1 + band_tolerance)), anywhere in the chapter
@@ -688,7 +878,7 @@ def band_pages(pages, sizes, shape, cfg: Mapping[str, float] = SLICE_REPAIR):
 # ---------------------------------------------------------------- page-format: per-page credit review
 
 
-def edge_indexes(n):
+def edge_indexes(n: int) -> list[int]:
     """Indexes of the first END_HEAD and last END_TAIL of n content pages."""
     return sorted(set(range(min(END_HEAD, n))) | set(range(max(0, n - END_TAIL), n)))
 
@@ -696,7 +886,7 @@ def edge_indexes(n):
 # ---------------------------------------------------------------- the series' layout
 
 
-def ensure_series_layout(conn, series_id, chapter_pages):
+def ensure_series_layout(conn: db.Connection, series_id: int, chapter_pages: Iterable[Sequence[str | Path]]) -> str:
     """Return the series' layout ("strip" or "pages", contracts section 5), computing and storing it when missing.
 
     The stored one (from the bulk converter's record at the baseline, or computed earlier), else classify_layout over

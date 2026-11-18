@@ -17,10 +17,15 @@ DELTA_MAX. Pixels are RGB uint8 arrays (H, W, 3). Boxes are (x0, y0, x1, y1), en
 import base64
 import hashlib
 import io
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from typing import Self
 
 import numpy as np
+from numpy.typing import NDArray
 from PIL import Image
+
+from manga_pipeline import db, images
 
 # Calibrated by the bulk converter on the 91 Akuyaku Kizoku pilot marks; fixed (stored decisions use them).
 STRONG = 40  # pixel channel spread that marks a pixel as part of the badge
@@ -39,7 +44,7 @@ MASK_HALF = 127  # 0-255: a value above it is set in a mask
 class Template:
     """Tight-box RGB plus the mask of coloured pixels. Stored as an RGBA PNG (alpha = mask)."""
 
-    def __init__(self, rgb, mask):
+    def __init__(self, rgb: NDArray[np.uint8], mask: NDArray[np.bool_]) -> None:
         """Store rgb with its pixels outside mask zeroed, and mask as bool; ValueError for a mask with no pixel set."""
         self.rgb = np.where(mask[..., None], rgb, 0).astype(np.uint8)
         self.mask = np.asarray(mask, dtype=bool)
@@ -48,11 +53,11 @@ class Template:
             raise ValueError(msg)
 
     @property
-    def size(self):
+    def size(self) -> tuple[int, int]:
         """The template's (width, height)."""
         return self.mask.shape[1], self.mask.shape[0]
 
-    def to_png(self):
+    def to_png(self) -> bytes:
         """Return the template as RGBA PNG bytes (alpha = mask)."""
         rgba = np.dstack([self.rgb, self.mask.astype(np.uint8) * 255])
         buf = io.BytesIO()
@@ -60,27 +65,27 @@ class Template:
         return buf.getvalue()
 
     @classmethod
-    def from_png(cls, data):
+    def from_png(cls, data: bytes) -> Self:
         """Return the template an RGBA PNG holds (alpha above MASK_HALF = mask)."""
         a = np.asarray(Image.open(io.BytesIO(data)).convert("RGBA"))
         return cls(a[..., :3], a[..., 3] > MASK_HALF)
 
-    def key_text(self):
+    def key_text(self) -> str:
         """Return the template as a decision key: its RGBA PNG, base64."""
         return base64.b64encode(self.to_png()).decode("ascii")
 
     @classmethod
-    def from_key(cls, text):
+    def from_key(cls, text: str) -> Self:
         """Return the template a decision key (key_text) holds."""
         return cls.from_png(base64.b64decode(text))
 
-    def review_id(self):
+    def review_id(self) -> str:
         """Stable id from the pixels (not the PNG encoding, not a position)."""
         h = hashlib.sha1(repr(self.size).encode() + self.mask.tobytes() + self.rgb.tobytes(), usedforsecurity=False)
         return "m" + h.hexdigest()[:8]
 
 
-def same_variant(a, b):
+def same_variant(a: Template, b: Template) -> bool | np.bool_:
     """Return whether template b is the same badge as template a (see module docstring for the three tests)."""
     (aw, ah), (bw, bh) = a.size, b.size
     if abs(aw / ah - bw / bh) > ASPECT_TOL * max(aw / ah, bw / bh):
@@ -99,12 +104,12 @@ def same_variant(a, b):
     return diff.mean() <= DELTA_MAX
 
 
-def cluster(templates):
+def cluster(templates: Sequence[Template]) -> list[list[int]]:
     """Group templates into variants (single link: a template joins every group holding a match).
 
     Each group is a sorted list of indices into `templates`; groups are ordered by their first index.
     """
-    groups = []
+    groups: list[list[int]] = []
     for i, t in enumerate(templates):
         joined = [g for g in groups if any(same_variant(templates[k], t) for k in g)]
         merged = sorted([i] + [k for g in joined for k in g])
@@ -112,13 +117,13 @@ def cluster(templates):
     return sorted(groups)
 
 
-def representatives(templates):
+def representatives(templates: Iterable[Template]) -> list[Template]:
     """Return a covering subset of one variant's templates, in order.
 
     Every template matches at least one of them (same_variant(representative, template), the direction Library.decision
     tests). What a review decision records: deciding these decides every member, in a few rows instead of one per page.
     """
-    reps = []
+    reps: list[Template] = []
     for t in templates:
         if not any(same_variant(r, t) for r in reps):
             reps.append(t)
@@ -126,13 +131,13 @@ def representatives(templates):
 
 
 # ---------------------------------------------------------------- measuring and filling
-def _pad(box, shape, n):
+def _pad(box: Sequence[int], shape: tuple[int, ...], n: int) -> images.Box:
     x0, y0, x1, y1 = box
     h, w = shape[:2]
     return max(0, x0 - n), max(0, y0 - n), min(w, x1 + n), min(h, y1 + n)
 
 
-def ring_stats(rgb, box):
+def ring_stats(rgb: NDArray[np.uint8], box: Sequence[int]) -> tuple[tuple[int, ...], float]:
     """Return (fill, frac) of the RING px frame around `box`.
 
     Its per-channel median colour and the share of its pixels within RING_TOL of that median on every channel. A frame
@@ -154,19 +159,19 @@ def ring_stats(rgb, box):
 class Mark:
     """A measured badge: its tight and padded boxes, its ring's fill and plain share, and its template."""
 
-    tight: tuple  # box of the strongly coloured pixels
-    box: tuple  # tight box + PAD_REL x its height, clamped to the page: what a blank-out overwrites
-    fill: tuple  # ring median RGB
+    tight: images.Box  # box of the strongly coloured pixels
+    box: images.Box  # tight box + PAD_REL x its height, clamped to the page: what a blank-out overwrites
+    fill: tuple[int, ...]  # ring median RGB
     ring_frac: float
     template: Template
 
 
-def blankable(ring_frac):
+def blankable(ring_frac: float) -> bool:
     """Return whether a mark with this ring share may be blanked: its ring is plain (ring_frac >= RING_FRAC)."""
     return ring_frac >= RING_FRAC
 
 
-def _solid(counts):
+def _solid(counts: NDArray[np.intp]) -> tuple[int, int]:
     """Return (start, stop) of the profile entries holding at least EDGE_FRAC of the peak.
 
     JPEG chroma noise leaves sparse strong pixels outside the badge, which would otherwise stretch its box.
@@ -175,7 +180,7 @@ def _solid(counts):
     return int(keep[0]), int(keep[-1]) + 1
 
 
-def measure(rgb, bbox):
+def measure(rgb: NDArray[np.uint8], bbox: Sequence[int]) -> Mark | None:
     """Return the Mark inside Part B's gray-mark box (images.classify), or None for a faint mark.
 
     None when no pixel in it is strongly coloured, or none is left inside the solid rows x solid columns (a faint mark:
@@ -201,7 +206,7 @@ def measure(rgb, bbox):
 
 
 # ---------------------------------------------------------------- a variant's decision
-def resolve(rows):
+def resolve(rows: Sequence[db.Row | None]) -> db.Row | None:
     """Return a logo variant's deciding row from its representatives' deciding rows.
 
     Store lookups; None = undecided. A keep on any representative wins, else a junk on any, else None (undecided). The

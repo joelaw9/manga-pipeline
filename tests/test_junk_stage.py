@@ -614,8 +614,16 @@ def test_a_watermark_1_chapter_shows_is_known_to_the_series_next_chapters(site, 
     site.parts()
     ((scan,),) = site.rows("SELECT scan FROM junk_scan")
     mark = json.loads(scan)["blocks"][-1]["sig"]
-    row = {"series_key": "Long", "kind": "block", "key": mark, "verdict": "junk", "decider": "import"}
-    source = ([{**row, "decided_at": "2026-11-01T00:00:00+00:00", "source": "test"}], {}, None)
+    decision: store.Decision = {
+        "series_key": "Long",
+        "kind": "block",
+        "key": mark,
+        "verdict": "junk",
+        "decider": "import",
+        "decided_at": "2026-11-01T00:00:00+00:00",
+        "source": "test",
+    }
+    source: importing.Source = ([decision], {}, None)
     with closing(db.connect(site.cfg)) as conn:
         importing.run(conn, source)
     run_part(site.cfg, process)

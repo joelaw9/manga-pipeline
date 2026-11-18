@@ -4,7 +4,7 @@
 Claude) is review_run.
 """
 
-from manga_pipeline import db
+from manga_pipeline import config, db
 from manga_pipeline.junk import candidates, store
 
 REVIEW_ID_VARIABLE = "MANGA_JUNK_REVIEW_ID"  # set by junk review in Claude's environment
@@ -15,7 +15,7 @@ class Refused(ValueError):  # noqa: N818  # a signal, not an error (PEP 8: the E
     """The command refuses: the item is not in the state it needs."""
 
 
-def listable(conn, cfg):
+def listable(conn: db.Connection, cfg: config.Config) -> list[db.Row]:
     """Return the open candidates Claude may be shown.
 
     Neither unsure nor stuck, fewest reviews first, at most junk.review_batch.
@@ -25,7 +25,9 @@ def listable(conn, cfg):
     return rows[: cfg["junk"]["review_batch"]]
 
 
-def listing(conn, cfg, review_id=None, *, everything=False):
+def listing(
+    conn: db.Connection, cfg: config.Config, review_id: str | None = None, *, everything: bool = False
+) -> list[db.Row]:
     """Return the candidates `junk list` prints: listable ones, or (everything) every open candidate.
 
     With a review id, each listed candidate records it (counted once when that review ends). `everything` is refused
@@ -46,14 +48,14 @@ def listing(conn, cfg, review_id=None, *, everything=False):
     return rows
 
 
-def chapters(conn, candidate_id):
+def chapters(conn: db.Connection, candidate_id: int) -> int:
     """How many chapters wait on a candidate."""
     return db.one_row(
         conn, "SELECT count(*) FROM junk_scan WHERE candidates::jsonb @> to_jsonb(%s::bigint)", (candidate_id,)
     )[0]
 
 
-def get_open(conn, candidate_id):
+def get_open(conn: db.Connection, candidate_id: int) -> db.Row:
     """Return the candidate row of candidate_id; Refused unless it is open."""
     row = conn.execute("SELECT * FROM junk_candidate WHERE id = %s", (candidate_id,)).fetchone()
     if row is None or not candidates.is_open(conn, row):
@@ -62,7 +64,7 @@ def get_open(conn, candidate_id):
     return row
 
 
-def decide(conn, candidate_id, verdict, decider, at):
+def decide(conn: db.Connection, candidate_id: int, verdict: str, decider: str, at: str) -> db.Row:
     """Record a verdict on an open candidate.
 
     junk / keep become a series-scoped decision on its key; unsure marks it (its chapters become needs_human at the

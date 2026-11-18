@@ -16,10 +16,11 @@ import pytest
 from PIL import Image
 
 from manga_pipeline import images, strip
+from manga_pipeline.junk import store as junk_store
 from manga_pipeline.junk import strip_units as su
 
 from tests import pages as fx
-from tests.builders import problem_text
+from tests.builders import db_row, problem_text
 from tests.timing import budget
 
 JUNK_FIX = Path(__file__).with_name("fixtures_junk")
@@ -65,13 +66,13 @@ def panel_strip(panels, width=800, gutter=80, seed=0):
     return Image.fromarray(np.vstack(rows)), gutters
 
 
-def store(*rows):
+def store(*rows) -> junk_store.DecideUnit:
     """decide_unit over decisions (kind, key, verdict, id): the first of the unit's kind whose key matches."""
 
     def decide_unit(kind, sig):
         for k, key, verdict, i in rows:
             if k == kind and images.matches(images.sig_from_str(key), images.sig_from_str(sig)):
-                return {"id": i, "verdict": verdict, "key": key}
+                return db_row(id=i, verdict=verdict, key=key)
         return None
 
     return decide_unit
@@ -123,9 +124,9 @@ def test_approved_banner_cut_off_its_edge_block():
     banner = sig_of(Image.open(BANNER).convert("RGB").crop((0, 0, 360, 166)))
     got = su.decide(su.scan(strip_of([BANNER])), store(("probe", banner, "junk", 3)))
     assert got["removed"] == [{"start": 0, "end": 166, "why": "match"}], got["removed"]
-    assert [(u["kind"], u["start"], u["end"], u["probes"]) for u in got["undecided"]] == [("block", 166, 300, [])], (
-        "the cover stays"
-    )
+    assert [(u["kind"], u["start"], u["end"], u.get("probes")) for u in got["undecided"]] == [
+        ("block", 166, 300, [])
+    ], "the cover stays"
 
 
 @budget(1.0, load="fs")
@@ -134,6 +135,7 @@ def test_edge_block_kept_whole_when_no_piece_is_approved_junk():
     got = su.decide(su.scan(strip_of([BANNER])), store())
     assert got["removed"] == []
     (block,) = got["undecided"]
+    assert block["kind"] == "block"
     assert (block["start"], block["end"]) == (0, 300)
     assert span(block["probes"]) == [(0, 166)]
 
@@ -145,6 +147,7 @@ def test_a_probe_decided_keep_is_no_longer_a_probe():
     (probe,) = [j for j in sc["blocks"][0]["joins"] if not j["uniform"]]
     got = su.decide(sc, store(("probe", probe["sig"], "keep", 3)))
     (block,) = got["undecided"]
+    assert block["kind"] == "block"
     assert (block["start"], block["end"], block["probes"]) == (0, 300, []), block
 
 
@@ -174,6 +177,7 @@ def test_no_ocr_no_text_and_a_split_remainder_has_no_probes():
     banner = sig_of(Image.open(BANNER).convert("RGB").crop((0, 0, 360, 166)))
     got = su.decide(su.scan(strip_of([BANNER])), store(("probe", banner, "junk", 3)))
     (block,) = got["undecided"]
+    assert block["kind"] == "block"
     assert (block["start"], block["probes"], "text" in block) == (166, [], False)
 
 
@@ -182,8 +186,9 @@ def test_an_unmatched_edge_block_carries_its_banner_probe_with_its_text():
     """Nothing approved: the cover block keeps its banner piece as a probe, each with its own OCR text."""
     got = su.decide(su.scan(strip_of([BANNER]), lambda im: f"{im.height} px"), store())
     (block,) = got["undecided"]
-    assert block["text"] == "300 px", "each unit's own read"
-    assert [q["text"] for q in block["probes"]] == ["166 px"], "each unit's own read"
+    assert block["kind"] == "block"
+    assert block.get("text") == "300 px", "each unit's own read"
+    assert [q.get("text") for q in block["probes"]] == ["166 px"], "each unit's own read"
 
 
 @budget(load="fs")
@@ -192,17 +197,17 @@ def test_a_unit_with_a_stored_decision_is_not_read():
     banner = images.signature(Image.open(BANNER).convert("RGB").crop((0, 0, 360, 166)))
     sc = su.scan(strip_of([BANNER]), lambda _im: "read", lambda sig: not images.matches(sig, banner))
     (block,) = sc["blocks"]
-    assert block["text"] == "read", block["joins"]
+    assert block.get("text") == "read", block["joins"]
     assert "text" not in block["joins"][0], block["joins"]
 
 
-def glued_block(where):
+def glued_block(where) -> su.EdgeBlock:
     """Return a scanned edge block of rows 0-200 with hard joins at rows 60 and 120, walked from the chapter edge.
 
     Bring The Love ch87's banner glued onto the cover is such a block (1 join there).
     """
 
-    def join(a, b, rest):
+    def join(a, b, rest) -> su.Join:
         return {
             "start": a,
             "end": b,
@@ -244,7 +249,9 @@ def test_match_blocks_cuts_at_the_first_join_whose_edge_piece_is_approved(where,
     approve = approver(approved)
     removed, blocks = su.match_blocks([glued_block(where)], approve)
     assert removed == [{"start": cut[0], "end": cut[1], "where": where, "decision": 7, "why": "match"}], removed
-    assert [(b["start"], b["end"], b["where"], b["probes"], b["rest"]) for b in blocks] == [(*left, where, [], True)]
+    assert [(b["start"], b["end"], b["where"], b["probes"], b.get("rest")) for b in blocks] == [
+        (*left, where, [], True)
+    ]
     nearer = glued_block(where)["joins"][0]["sig"]
     assert approve.calls == [
         ("block", "whole"),
@@ -271,7 +278,7 @@ def test_match_blocks_without_an_approved_piece_cuts_nothing():
 
 @budget(load="pure")
 def test_a_block_matching_whole_is_removed_why_match():
-    blocks = [{"start": 0, "end": 100, "where": "head", "sig": "a", "joins": []}]
+    blocks: list[su.EdgeBlock] = [{"start": 0, "end": 100, "where": "head", "sig": "a", "joins": []}]
     removed, left = su.match_blocks(blocks, lambda _kind, _sig: 4)
     assert removed == [{"start": 0, "end": 100, "where": "head", "decision": 4, "why": "match"}]
     assert left == []
@@ -325,8 +332,8 @@ def tsig(n):
     return images.sig_to_str(((int.from_bytes(hashlib.sha256(str(n).encode()).digest()[:8], "big"),), 1.0))
 
 
-def removed_band(decision, where="tail"):
-    return {"where": where, "decision": decision, "key": tsig(decision)}
+def removed_band(decision, where="tail") -> su.Removed:
+    return {"start": 0, "end": 0, "where": where, "decision": decision, "why": "match", "key": tsig(decision)}
 
 
 @budget(load="pure")
@@ -415,22 +422,24 @@ def test_a_block_too_tall_to_match_a_band_is_never_rendered(tmp_path):
 # ---------------------------------------------------------------- the tail pass (W1 blank, W3 wedge), via decide
 
 
-def tail_chapter(bands, pieces, middle=()):
+def tail_chapter(bands, pieces, middle=()) -> tuple[su.StripScan, junk_store.DecideUnit]:
     """Build a scan of a strip's tail without pixels.
 
     bands [(start, end, id) or (start, end, id, where)] are edge blocks a block decision (id) removes, pieces [(start,
     end, std, ink)] the measured ink between them; the spans are both, there are no gaps, the strip ends at the last of
     them. middle: ids whose band key also sits mid-chapter. Returns (scan, decide_unit).
     """
+    spans = sorted([[s, e] for s, e, *_ in bands] + [[s, e] for s, e, *_ in pieces])
     bands = [(*b, "tail")[:4] for b in bands]
-    spans = sorted([(s, e) for s, e, *_ in bands] + [(s, e) for s, e, *_ in pieces])
-    sc = {
+    sc: su.StripScan = {
         "layout": "strip",
         "width": 1000,
         "height": spans[-1][1],
         "gaps": [],
         "spans": spans,
-        "blocks": [{"start": s, "end": e, "where": w, "sig": tsig(i), "joins": []} for s, e, i, w in bands],
+        "blocks": [
+            {"start": int(s), "end": int(e), "where": str(w), "sig": tsig(i), "joins": []} for s, e, i, w in bands
+        ],
         "measured": {
             f"{s}:{e}": {"std": std, "ink": ink, "uniform": False, "unsignable": False, "sig": tsig(f"p{s}")}
             for s, e, std, ink in pieces
@@ -560,7 +569,7 @@ def test_a_piece_decision_removes_a_tail_piece():
 
     def with_piece(verdict):
         return lambda kind, sig: (
-            decide_unit(kind, sig) or ({"id": 8, "verdict": verdict, "key": sig} if kind == "piece" else None)
+            decide_unit(kind, sig) or (db_row(id=8, verdict=verdict, key=sig) if kind == "piece" else None)
         )
 
     junk = su.decide(sc, with_piece("junk"))
@@ -598,8 +607,12 @@ def test_pieces_after_the_first_tail_band_measured(tmp_path):
     assert len(blocks) == 4, blocks
     (s1, e1), (dot_s, dot_e), (s2, e2) = blocks[1], blocks[2], blocks[3]
     sc = su.scan(st)
-    dot = sc["measured"][f"{dot_s}:{dot_e}"]
-    assert not su.is_blank({**dot, "gap": False, "blank": False}), "the dot's rows alone: ink, no W1 blank"
+    match sc["measured"][f"{dot_s}:{dot_e}"]:
+        case {"sig": str()} as dot:
+            piece_: su.SignedPiece = {"start": dot_s, "end": dot_e, "gap": False, "blank": False, **dot}
+        case dot:
+            pytest.fail(f"the dot's rows are signed: {dot}")
+    assert su.inked(piece_) is not None, "the dot's rows alone: ink, no W1 blank"
     assert (dot_e - dot_s) + (dot_s - e1) + (s2 - dot_e) >= su.WEDGE_PX
     sigs = {(b["start"], b["end"]): b["sig"] for b in sc["blocks"]}
     got = su.decide(sc, store(("block", sigs[(s1, e1)], "junk", 1), ("block", sigs[(s2, e2)], "junk", 2)))
@@ -612,12 +625,26 @@ def test_pieces_after_the_first_tail_band_measured(tmp_path):
 
 def layout(height, spans, width=1000):
     """Return a Layout whose gaps are the walkable runs of at least 1 gutter between and around the spans."""
-    lay = su.Layout({"height": height, "width": width, "spans": spans, "gaps": []})
+    lay = su.Layout(scan_of(height, spans, [], width))
     gaps = [r for r in lay.runs() if r[1] - r[0] >= su.gutter(width)]
-    return su.Layout({"height": height, "width": width, "spans": spans, "gaps": gaps})
+    return su.Layout(scan_of(height, spans, gaps, width))
 
 
-def band(start, end, decision: int | None = 1, where="tail", why="match"):
+def scan_of(height, spans, gaps, width) -> su.StripScan:
+    """Return a strip scan of these rows alone: no block, no measurement, no middle block."""
+    return {
+        "layout": "strip",
+        "width": width,
+        "height": height,
+        "gaps": [list(g) for g in gaps],
+        "spans": [list(s) for s in spans],
+        "blocks": [],
+        "measured": {},
+        "middle": [],
+    }
+
+
+def band(start, end, decision: int | None = 1, where="tail", why="match") -> su.Drop:
     return {"start": start, "end": end, "where": where, "decision": decision, "why": why}
 
 
@@ -636,12 +663,29 @@ def test_tail_pieces_split_at_every_gap():
 
 @budget(load="pure")
 def test_w1_drops_gaps_blank_uniform_and_unsignable_pieces():
-    p = {"start": 0, "end": 50, "gap": False, "blank": False, "uniform": False, "unsignable": False, "std": 30.0}
-    p["ink"] = 200
-    assert not su.is_blank(p), "an inked piece is no blank"
-    for k in ("gap", "blank", "uniform", "unsignable"):
-        assert su.is_blank(dict(p, **{k: True})), f"a {k} piece is blank"
-    assert su.is_blank(dict(p, std=1.0, ink=20)), "a flat piece is blank"
+    p: su.SignedPiece = {
+        "start": 0,
+        "end": 50,
+        "gap": False,
+        "blank": False,
+        "uniform": False,
+        "unsignable": False,
+        "std": 30.0,
+        "ink": 200,
+        "sig": tsig("ink"),  # an inked run is signed
+    }
+    assert su.inked(p) == p, "an inked piece is no blank: it is reviewed as it is"
+    blank: su.BlankPiece = {"start": 0, "end": 50, "gap": False, "blank": True}
+    uniform: su.UnsignedPiece = {**p, "uniform": True, "sig": None}  # measure_piece signs no uniform run
+    flagged: list[tuple[str, su.ClassedPiece]] = [
+        ("gap", {**p, "gap": True}),
+        ("blank", blank),
+        ("uniform", uniform),
+        ("unsignable", {**uniform, "uniform": False, "unsignable": True}),
+    ]
+    for k, q in flagged:
+        assert su.inked(q) is None, f"a {k} piece is blank"
+    assert su.inked({**p, "std": 1.0, "ink": 20}) is None, "a flat piece is blank"
 
 
 @budget(load="pure")
@@ -651,13 +695,22 @@ def test_w3_reads_the_nearest_non_blank_neighbours():
     A short line between two credit bands is a wedge; a blank piece between it and a band does not stop that; a
     removed non-band range does.
     """
-    piece_ = {"start": 1100, "end": 1130, "gap": False, "blank": False, "uniform": False, "unsignable": False}
-    piece_.update(std=40.0, ink=200)
-    blank = dict(piece_, start=1130, end=1180, gap=True)
+    piece_: su.SignedPiece = {
+        "start": 1100,
+        "end": 1130,
+        "gap": False,
+        "blank": False,
+        "uniform": False,
+        "unsignable": False,
+        "std": 40.0,
+        "ink": 200,
+        "sig": tsig("ink"),  # an inked run is signed
+    }
+    blank: su.SignedPiece = {**piece_, "start": 1130, "end": 1180, "gap": True}
     assert su.tail_classes([piece_, blank], [(1000, 1100), (1180, 1300)], []) == {0: "wedge", 1: "blank"}
-    assert su.tail_classes([piece_, blank], [(1000, 1100)], [(1180, 1300)]) == {0: "review", 1: "blank"}
-    tall = dict(piece_, end=1100 + su.WEDGE_PX)
-    assert su.tail_classes([tall], [(1000, 1100), (tall["end"], 1300)], []) == {0: "review"}
+    assert su.tail_classes([piece_, blank], [(1000, 1100)], [(1180, 1300)]) == {0: piece_, 1: "blank"}
+    tall: su.SignedPiece = {**piece_, "end": 1100 + su.WEDGE_PX}
+    assert su.tail_classes([tall], [(1000, 1100), (tall["end"], 1300)], []) == {0: tall}
 
 
 @budget(load="pure")
@@ -667,16 +720,28 @@ def test_w3_measures_a_piece_with_its_gutters():
     An 84 px line + 2 x 40 px gutters = 164 px between 2 credit bands is reviewed; a 30 px line with 2 x 20 px gutters
     (70 px) is a wedge.
     """
-    line = {"start": 1140, "end": 1224, "gap": False, "blank": False, "uniform": False, "unsignable": False}
-    line.update(std=40.0, ink=200)
-    gaps = [dict(line, start=1100, end=1140, gap=True), dict(line, start=1224, end=1264, gap=True)]
+    line: su.SignedPiece = {
+        "start": 1140,
+        "end": 1224,
+        "gap": False,
+        "blank": False,
+        "uniform": False,
+        "unsignable": False,
+        "std": 40.0,
+        "ink": 200,
+        "sig": tsig("ink"),  # an inked run is signed
+    }
+    gaps: list[su.ClassedPiece] = [
+        {**line, "start": 1100, "end": 1140, "gap": True},
+        {**line, "start": 1224, "end": 1264, "gap": True},
+    ]
     assert su.tail_classes([gaps[0], line, gaps[1]], [(1000, 1100), (1264, 1400)], []) == {
         0: "blank",
-        1: "review",
+        1: line,
         2: "blank",
     }
-    short = dict(line, start=1120, end=1150)
-    gaps = [dict(line, start=1100, end=1120, gap=True), dict(line, start=1150, end=1170, gap=True)]
+    short: su.SignedPiece = {**line, "start": 1120, "end": 1150}
+    gaps = [{**line, "start": 1100, "end": 1120, "gap": True}, {**line, "start": 1150, "end": 1170, "gap": True}]
     assert su.tail_classes([gaps[0], short, gaps[1]], [(1000, 1100), (1170, 1300)], []) == {
         0: "blank",
         1: "wedge",
@@ -724,7 +789,7 @@ def test_kept_tail_pieces_keep_one_gutter_between_them_after_w1_drops_the_gap():
     lay = layout(20000, [(0, 17900), (18000, 18100), (18200, 18300), (18400, 18500), (19000, 20000)])
     g = su.gutter(1000)
 
-    def drop(s, e):
+    def drop(s, e) -> su.Drop:
         return {"start": s, "end": e, "where": "tail", "decision": None, "why": "blank"}
 
     removed = [band(18000, 18100), drop(18100, 18200), drop(18300, 18400), drop(18500, 19000), band(19000, 20000)]
@@ -797,7 +862,7 @@ def test_a_key_the_series_knows_as_a_watermark_is_one_here_too():
 @budget(load="pure")
 def test_an_unsignable_middle_block_makes_no_watermark():
     flat, near_flat = images.sig_to_str(((0,), 1.0)), images.sig_to_str(((7,), 1.0))
-    band = {"where": "tail", "decision": 9, "key": near_flat}
+    band: su.Removed = {"start": 0, "end": 0, "where": "tail", "decision": 9, "why": "match", "key": near_flat}
     assert su.watermarks([band], [flat]) == set(), "a flat middle block matches nothing"
 
 

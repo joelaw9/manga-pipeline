@@ -5,18 +5,20 @@ back as measure_pages(cbz, known=load(...)). The page table holds the download's
 are chapter.output_pages.
 """
 
+from collections.abc import Sequence
+
 from manga_pipeline import db, images
 from manga_pipeline.db import sql
 
 COLUMNS = {"index": "page_index"}  # measure_pages field -> page column, where the names differ
 
 
-def _columns():
+def _columns() -> sql.Composed:
     """Return the page columns of images.PAGE_FIELDS, in its order, as an SQL list."""
     return sql.SQL(", ").join(sql.Identifier(COLUMNS.get(f, f)) for f in images.PAGE_FIELDS)
 
 
-def save(conn, chapter_id, pages):
+def save(conn: db.Connection, chapter_id: int, pages: Sequence[images.MeasuredPage]) -> None:
     """Replace the chapter's page rows with pages, a complete measure_pages result.
 
     Runs in the caller's transaction: raises RuntimeError when none is open, ValueError when a page lacks a field.
@@ -24,7 +26,7 @@ def save(conn, chapter_id, pages):
     if not db.in_transaction(conn):
         msg = "page_store.save needs an open transaction (db.transaction)"
         raise RuntimeError(msg)
-    rows = []
+    rows: list[tuple[int | str | bool | None, ...]] = []
     for page in pages:
         missing = [f for f in images.PAGE_FIELDS if f not in page]
         if missing:
@@ -42,12 +44,23 @@ def save(conn, chapter_id, pages):
     )
 
 
-def load(conn, chapter_id):
+def load(conn: db.Connection, chapter_id: int) -> dict[int, images.MeasuredPage]:
     """{index: {field: value}} of the chapter's page rows, every field (None included), blank as a bool."""
-    out = {}
+    out: dict[int, images.MeasuredPage] = {}
     query = sql.SQL("SELECT {} FROM page WHERE chapter_id = %s ORDER BY page_index").format(_columns())
     for row in conn.execute(query, (chapter_id,)):
-        page = dict(zip(images.PAGE_FIELDS, row, strict=True))
-        page["blank"] = bool(page["blank"])
-        out[page["index"]] = page
+        out[row["page_index"]] = {
+            "index": row["page_index"],
+            "name": row["name"],
+            "bytes": row["bytes"],
+            "sha1": row["sha1"],
+            "width": row["width"],
+            "height": row["height"],
+            "format": row["format"],
+            "blank": bool(row["blank"]),
+            "phash": row["phash"],
+            "junk_signature": row["junk_signature"],
+            "colour_class": row["colour_class"],
+            "chroma": row["chroma"],
+        }
     return out

@@ -3,6 +3,7 @@
 What Claude's process gets, when Claude is started at all, and how reviews are counted.
 """
 
+import copy
 import json
 import os
 import shutil
@@ -97,6 +98,22 @@ def test_claude_gets_no_pipeline_variable_and_no_api_key_and_its_commands_work(w
     assert not (config.abs_path(cfg["paths"]["scratch"]) / "junk-review").exists(), "the config copy is deleted"
 
 
+@budget(load="pure")
+def test_claudes_environment_needs_the_token():
+    """A run without junk.claude_token (preflight refuses one) fails before Claude starts: it could not log in."""
+    with pytest.raises(review_run.ReviewError, match="claude_token"):
+        review_run.child_env(None, "r1", {})
+    assert review_run.child_env("t", "r1", {})["CLAUDE_CODE_OAUTH_TOKEN"] == "t", "the token is passed on"
+
+
+@budget(load="pure")
+def test_the_command_line_needs_an_executable_claude(tmp_path):
+    """A junk.claude_path that is no executable (preflight refuses one) fails before Claude starts."""
+    cfg: config.Config = {**config.cached(), "junk": {**config.cached()["junk"], "claude_path": str(tmp_path / "none")}}
+    with pytest.raises(review_run.ReviewError, match="no executable"):
+        review_run.command(cfg, "junk")
+
+
 @budget(load="subprocess", seconds=20)
 def test_the_child_config_holds_no_secret_and_absolute_paths(world):
     child = review_run.child_config(world.cfg)
@@ -146,6 +163,19 @@ def test_an_error_result_exits_1_and_records_no_success(world, tmp_path):
     with closing(db.connect(cfg)) as conn:
         meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
     assert meta["junk-review.last_result"].startswith("error")
+    assert "junk-review.last_success" not in meta
+
+
+@budget(load="subprocess", seconds=20)
+def test_a_review_that_cannot_start_claude_records_why(world, tmp_path):
+    """No claude executable (preflight refuses that run): the review fails and records the reason, not "not run"."""
+    cfg = copy.deepcopy(world.cfg)
+    cfg["junk"]["claude_path"] = str(tmp_path / "none")
+    with closing(db.connect(cfg)) as conn, pytest.raises(review_run.ReviewError, match="no executable"):
+        review_run.run(cfg, conn)
+    with closing(db.connect(cfg)) as conn:
+        meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
+    assert "is no executable" in meta["junk-review.last_result"], "the reason Claude did not start is recorded"
     assert "junk-review.last_success" not in meta
 
 
