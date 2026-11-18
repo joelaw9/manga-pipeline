@@ -22,8 +22,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
-from typing import TypedDict
+from typing import ReadOnly, TypedDict
 
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
@@ -32,31 +31,59 @@ from PIL import Image
 
 from manga_pipeline import archive, db, images, volumes
 
+
+class Restitch(TypedDict):
+    """The restitch settings (the bulk converter's config `restitch:`), read only: px at target width, rows, levels."""
+
+    min_page: ReadOnly[int]
+    max_page: ReadOnly[int]
+    analysis_width: ReadOnly[int]
+    gap_min_rows: ReadOnly[int]
+    gap_row_std: ReadOnly[int]
+    gap_row_range: ReadOnly[int]
+
+
+class SliceRepair(TypedDict):
+    """The slice-repair settings (the bulk converter's config `slice_repair:`), read only: ratios, scores, counts."""
+
+    max_sliver_ratio: ReadOnly[float]
+    max_seam_score: ReadOnly[float]
+    min_edge_texture: ReadOnly[int]
+    pattern_min_joins: ReadOnly[int]
+    stitched_ratio: ReadOnly[float]
+    fallback_page_aspect: ReadOnly[float]
+    snap_window: ReadOnly[float]
+    band_tolerance: ReadOnly[float]
+
+
+class GeometryConfig(TypedDict):
+    """The sections the layout's geometry check reads (geometry_share), read only."""
+
+    restitch: ReadOnly[Restitch]
+    slice_repair: ReadOnly[SliceRepair]
+
+
 # The bulk converter's config.yaml.example `restitch:` and `slice_repair:` values (frozen: plans and tests depend on
 # them). A caller passes its own mapping to override them.
-RESTITCH = MappingProxyType(
-    {
-        "min_page": 1500,  # px at target width; limits trigger re-cutting
-        "max_page": 5000,  # no gap in range -> cut through art at exactly this height
-        "analysis_width": 400,  # row-profile width for gap detection
-        "gap_min_rows": 12,  # near-uniform run (at 1000 px width) that counts as a panel gap
-        "gap_row_std": 3,
-        "gap_row_range": 20,
-    }
-)
-SLICE_REPAIR = MappingProxyType(
-    {
-        "max_sliver_ratio": 0.50,  # short page <= this fraction of the page before it (Female Blacksmith: 1250+457)
-        "max_seam_score": 3.5,  # seam discontinuity / in-page row change; slices 0.9-3.0, real boundaries 5.9+
-        "min_edge_texture": 8,  # row std on both sides of the cut: blank margins don't count as continuous art
-        "pattern_min_joins": 3,  # same page+sliver heights confirmed this often -> join other pairs of those heights
-        "stitched_ratio": 1.8,  # chapter page shape >= 1.8x the series' page shape -> stitched pages, split them
-        "fallback_page_aspect": 1.42,  # page shape when a series has no unstitched pages to learn from
-        "snap_window": 0.06,  # stitched image within +-6% of a whole number of pages; else flagged irregular
-        "band_tolerance": 0.01,  # credit bands: page taller than the series shape by more than this is band-scanned
-    }
-)
-CONFIG = MappingProxyType({"restitch": RESTITCH, "slice_repair": SLICE_REPAIR})  # geometry_share's sections
+RESTITCH: Restitch = {
+    "min_page": 1500,  # px at target width; limits trigger re-cutting
+    "max_page": 5000,  # no gap in range -> cut through art at exactly this height
+    "analysis_width": 400,  # row-profile width for gap detection
+    "gap_min_rows": 12,  # near-uniform run (at 1000 px width) that counts as a panel gap
+    "gap_row_std": 3,
+    "gap_row_range": 20,
+}
+SLICE_REPAIR: SliceRepair = {
+    "max_sliver_ratio": 0.50,  # short page <= this fraction of the page before it (Female Blacksmith: 1250+457)
+    "max_seam_score": 3.5,  # seam discontinuity / in-page row change; slices 0.9-3.0, real boundaries 5.9+
+    "min_edge_texture": 8,  # row std on both sides of the cut: blank margins don't count as continuous art
+    "pattern_min_joins": 3,  # same page+sliver heights confirmed this often -> join other pairs of those heights
+    "stitched_ratio": 1.8,  # chapter page shape >= 1.8x the series' page shape -> stitched pages, split them
+    "fallback_page_aspect": 1.42,  # page shape when a series has no unstitched pages to learn from
+    "snap_window": 0.06,  # stitched image within +-6% of a whole number of pages; else flagged irregular
+    "band_tolerance": 0.01,  # credit bands: page taller than the series shape by more than this is band-scanned
+}
+CONFIG: GeometryConfig = {"restitch": RESTITCH, "slice_repair": SLICE_REPAIR}  # geometry_share's sections
 
 # ComicInfo/Kavita genres that mark a long-strip series, matched case-insensitively
 LONG_STRIP_GENRES = frozenset(g.lower() for g in ("Long Strip", "Web Comic", "Webtoon", "Webtoons", "Longstrip"))
@@ -226,9 +253,7 @@ def seam_score(bottom_rows: NDArray[np.float32], top_rows: NDArray[np.float32]) 
     return float(np.abs(top_rows[0] - bottom_rows[-1]).mean() / max(inside, 1.0))
 
 
-def geometry_share(
-    chapter_pages: Iterable[Sequence[str | Path]], cfg: Mapping[str, Mapping[str, float]] = CONFIG
-) -> float:
+def geometry_share(chapter_pages: Iterable[Sequence[str | Path]], cfg: GeometryConfig = CONFIG) -> float:
     """Return the median share of continuous page joins (webtoon slices) over the sampled chapters' first pages.
 
     Over the first SAMPLE_PAGES pages; a join is continuous with both edge rows blank (restitch.gap_row_std) or a seam
@@ -272,7 +297,7 @@ def classify_layout(
     chapter_pages: Iterable[Sequence[str | Path]],
     override: volumes.Overrides | None = None,
     kavita_genres: Iterable[str] | None = None,
-    cfg: Mapping[str, Mapping[str, float]] = CONFIG,
+    cfg: GeometryConfig = CONFIG,
 ) -> tuple[str, str, list[str]]:
     """Classify the series layout: return (layout, why, flags).
 
@@ -314,7 +339,7 @@ def strip_layout(sizes: Sequence[Size], width: int | None = None) -> tuple[int, 
     return width, pages, top
 
 
-def blank_rows(a: NDArray[np.float32], cfg: Mapping[str, float] = RESTITCH) -> NDArray[np.bool_]:
+def blank_rows(a: NDArray[np.float32], cfg: Restitch = RESTITCH) -> NDArray[np.bool_]:
     """Return per row of a grayscale array at analysis width whether it is blank: the one gap-row classifier.
 
     Blank: std < gap_row_std and range < gap_row_range, any background colour. page_rows.
@@ -322,7 +347,7 @@ def blank_rows(a: NDArray[np.float32], cfg: Mapping[str, float] = RESTITCH) -> N
     return (a.std(axis=1) < cfg["gap_row_std"]) & (np.ptp(a, axis=1) < cfg["gap_row_range"])
 
 
-def page_rows(im: Image.Image, cfg: Mapping[str, int] = RESTITCH) -> NDArray[np.bool_]:
+def page_rows(im: Image.Image, cfg: Restitch = RESTITCH) -> NDArray[np.bool_]:
     """Return a page's blank-row profile for gap detection.
 
     Per analysis row (page scaled to cfg analysis_width), True where the row is blank (blank_rows). Computed once per
@@ -382,7 +407,7 @@ def walkable_runs(strip: Strip) -> list[Rows]:
     return [_px(strip, i, j) for i, j in _blank_runs(strip)]
 
 
-def find_gaps(strip: Strip, cfg: Mapping[str, int] = RESTITCH) -> list[Rows]:
+def find_gaps(strip: Strip, cfg: Restitch = RESTITCH) -> list[Rows]:
     """[(start, end)] in target px of the walkable runs at least gap_min_rows (at 1000 px width) tall."""
     need = max(1, round(cfg["gap_min_rows"] * strip.width / 1000 / strip.row_px))
     return [_px(strip, i, j) for i, j in _blank_runs(strip) if j - i >= need]
@@ -461,7 +486,7 @@ def _usable(q: int, length: int, lo: int) -> bool:
     return q == length or length - q >= lo
 
 
-def _run_cuts(p: int, nxt: int, cfg: Mapping[str, int]) -> list[int]:
+def _run_cuts(p: int, nxt: int, cfg: Restitch) -> list[int]:
     """Return the forced cuts splitting the gapless run [p, nxt) into pages of at most max_page.
 
     max_page apart, or evenly when that would strand a remainder under min_page.
@@ -474,7 +499,7 @@ def _run_cuts(p: int, nxt: int, cfg: Mapping[str, int]) -> list[int]:
     return [p + i * hi for i in range(1, n)]
 
 
-def _reachable(pts: list[int], length: int, cfg: Mapping[str, int]) -> tuple[list[int], set[int]]:
+def _reachable(pts: list[int], length: int, cfg: Restitch) -> tuple[list[int], set[int]]:
     """Return (the cut points, sorted; the forced ones among them) once every point can reach a usable next point.
 
     Every point of `pts` (sorted, 0 and length included) must reach one within [min_page, max_page]: each gapless run
@@ -500,7 +525,7 @@ def _reachable(pts: list[int], length: int, cfg: Mapping[str, int]) -> tuple[lis
 
 
 def _cheapest_links(
-    pts: list[int], forced: set[int], strength: Mapping[int, int], cfg: Mapping[str, int]
+    pts: list[int], forced: set[int], strength: Mapping[int, int], cfg: Restitch
 ) -> dict[int, tuple[float, int | None]]:
     """Return {point: (cost, previous point)} of the cheapest run of pages from 0 to each point it can reach.
 
@@ -526,9 +551,7 @@ def _cheapest_links(
     return best
 
 
-def plan_cuts(
-    length: int, gaps: Iterable[tuple[int, int]], cfg: Mapping[str, int] = RESTITCH
-) -> tuple[list[int], list[int]]:
+def plan_cuts(length: int, gaps: Iterable[tuple[int, int]], cfg: Restitch = RESTITCH) -> tuple[list[int], list[int]]:
     """Choose page boundaries over a strip of `length` px with gap candidates [(center, strength)].
 
     Every page within [min_page, max_page]; prefer lengths near the middle and stronger gaps; where no
@@ -549,7 +572,7 @@ def plan_cuts(
     return cuts, sorted(c for c in cuts if c in forced)
 
 
-def cut_strip(height: int, gaps: Iterable[Rows], removed: Iterable[RowRange], cfg: Mapping[str, int] = RESTITCH) -> Cut:
+def cut_strip(height: int, gaps: Iterable[Rows], removed: Iterable[RowRange], cfg: Restitch = RESTITCH) -> Cut:
     """Return {"kept", "cuts", "forced", "length"} of a strip of `height` px, cut into pages after removals.
 
     The removed ranges ([{"start", "end"}]) are taken out and the rest cut into pages on its gaps (plan_cuts). Also run
@@ -706,9 +729,7 @@ def page_aspect(
     return common or None
 
 
-def _best_page_height(
-    heights: Sequence[int], width: int, aspects: Sequence[float] | None, cfg: Mapping[str, float]
-) -> float:
+def _best_page_height(heights: Sequence[int], width: int, aspects: Sequence[float] | None, cfg: SliceRepair) -> float:
     """Return the page height under which the stitched images split into whole pages best.
 
     Tried: the series' candidate shapes, or, when the series has none, heights implied by the images (smallest image =
@@ -728,9 +749,7 @@ def _best_page_height(
     return min(options, key=lambda h: (round(misfit(h), 2), abs(h - pref)))
 
 
-def is_stitched(
-    pages: Iterable[Size | None], aspects: Sequence[float] | None, cfg: Mapping[str, float] = SLICE_REPAIR
-) -> bool:
+def is_stitched(pages: Iterable[Size | None], aspects: Sequence[float] | None, cfg: SliceRepair = SLICE_REPAIR) -> bool:
     """Page-format chapter delivered as tall strips of several pages. Pages: (w, h) tuples (the plan inventory)."""
     ratios = [h / w for w, h in (d for d in pages if d and d[0])]
     if not ratios:
@@ -743,7 +762,7 @@ def plan_pages(
     names: Sequence[str],
     sizes: Sequence[Size],
     aspects: Sequence[float] | None,
-    cfg: Mapping[str, float] = SLICE_REPAIR,
+    cfg: SliceRepair = SLICE_REPAIR,
 ) -> StitchedPlan:
     """Cut a stitched page-format chapter back into pages of the series' shape (sizes only, no decode).
 
@@ -778,7 +797,7 @@ def plan_pages(
 # ---------------------------------------------------------------- page-format: sliced pages
 
 
-def slice_pairs(sizes: Sequence[Size], cfg: Mapping[str, float] = SLICE_REPAIR) -> list[int]:
+def slice_pairs(sizes: Sequence[Size], cfg: SliceRepair = SLICE_REPAIR) -> list[int]:
     """Return indexes i where page i could be a sliver cut off the bottom of page i - 1.
 
     Same width, at most max_sliver_ratio of its height: find_slices needs the edge rows of pages i - 1 and i.
@@ -790,9 +809,7 @@ def slice_pairs(sizes: Sequence[Size], cfg: Mapping[str, float] = SLICE_REPAIR) 
     ]
 
 
-def find_slices(
-    sizes: Sequence[Size], edges: Mapping[int, EdgeRows], cfg: Mapping[str, float] = SLICE_REPAIR
-) -> list[Slice]:
+def find_slices(sizes: Sequence[Size], edges: Mapping[int, EdgeRows], cfg: SliceRepair = SLICE_REPAIR) -> list[Slice]:
     """Return pairs (i, i+1) where page i+1 is a sliver cut off the bottom of page i.
 
     Same width, short, continuous seam, and actual art on both sides of the cut (blank margins don't count).
@@ -833,7 +850,7 @@ END_HEAD, END_TAIL = 2, 3
 SEAM_ROWS = 6  # analysis rows each side of a candidate seam (as edge_rows)
 
 
-def series_shape(aspects: Sequence[float] | None, cfg: Mapping[str, float] = SLICE_REPAIR) -> float:
+def series_shape(aspects: Sequence[float] | None, cfg: SliceRepair = SLICE_REPAIR) -> float:
     """Return the page shape (h/w) bands are measured against: page_aspect's most common candidate, else the fallback.
 
     Not max(): banded pages themselves can be a candidate (My Noble Family ch7-10: 1125x2019, h/w 1.795).
@@ -847,7 +864,7 @@ def content_indexes(pages: Sequence[str | Path]) -> list[int]:
 
 
 def band_pages(
-    pages: Sequence[str | Path], sizes: Sequence[Size], shape: float, cfg: Mapping[str, float] = SLICE_REPAIR
+    pages: Sequence[str | Path], sizes: Sequence[Size], shape: float, cfg: SliceRepair = SLICE_REPAIR
 ) -> list[int]:
     """Return indexes of the pages a credit band can sit on, the pages the band scan decodes.
 

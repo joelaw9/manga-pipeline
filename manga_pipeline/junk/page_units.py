@@ -30,26 +30,9 @@ from manga_pipeline.convert import plan
 from manga_pipeline.junk import frames, logo_units, store
 
 
-class BandSettings(TypedDict):
-    """The band and page-review rules' settings: strip.SLICE_REPAIR's and strip.RESTITCH's, then their own.
+class BandSettings(strip.SliceRepair, strip.Restitch):
+    """The band and page-review rules' settings, read only: strip's slice-repair and restitch ones, then their own."""
 
-    Read only. The slice-repair values are typed as strip.SLICE_REPAIR holds them (float), the restitch ones are ints.
-    """
-
-    max_sliver_ratio: ReadOnly[float]
-    max_seam_score: ReadOnly[float]
-    min_edge_texture: ReadOnly[float]
-    pattern_min_joins: ReadOnly[float]
-    stitched_ratio: ReadOnly[float]
-    fallback_page_aspect: ReadOnly[float]
-    snap_window: ReadOnly[float]
-    band_tolerance: ReadOnly[float]
-    min_page: ReadOnly[int]
-    max_page: ReadOnly[int]
-    analysis_width: ReadOnly[int]
-    gap_min_rows: ReadOnly[int]
-    gap_row_std: ReadOnly[int]
-    gap_row_range: ReadOnly[int]
     band_min_px: ReadOnly[int]
     band_seam_min_px: ReadOnly[int]
     band_search: ReadOnly[float]
@@ -58,20 +41,8 @@ class BandSettings(TypedDict):
 
 
 BAND: BandSettings = {
-    "max_sliver_ratio": strip.SLICE_REPAIR["max_sliver_ratio"],
-    "max_seam_score": strip.SLICE_REPAIR["max_seam_score"],
-    "min_edge_texture": strip.SLICE_REPAIR["min_edge_texture"],
-    "pattern_min_joins": strip.SLICE_REPAIR["pattern_min_joins"],
-    "stitched_ratio": strip.SLICE_REPAIR["stitched_ratio"],
-    "fallback_page_aspect": strip.SLICE_REPAIR["fallback_page_aspect"],
-    "snap_window": strip.SLICE_REPAIR["snap_window"],
-    "band_tolerance": strip.SLICE_REPAIR["band_tolerance"],
-    "min_page": strip.RESTITCH["min_page"],
-    "max_page": strip.RESTITCH["max_page"],
-    "analysis_width": strip.RESTITCH["analysis_width"],
-    "gap_min_rows": strip.RESTITCH["gap_min_rows"],
-    "gap_row_std": strip.RESTITCH["gap_row_std"],
-    "gap_row_range": strip.RESTITCH["gap_row_range"],
+    **strip.SLICE_REPAIR,
+    **strip.RESTITCH,
     "band_min_px": 16,  # a band (and what it leaves of the page) is at least this tall
     "band_seam_min_px": 100,  # a band cut on a seam (no gutter) is at least this tall
     "band_search": 0.12,  # the cut is looked for within this share of the page height around the naive cut
@@ -291,8 +262,7 @@ def _band_cut(im: Image.Image, page_h: float, where: str, cfg: BandSettings) -> 
     a = np.asarray(g.resize((aw, n)), np.float32)
     naive = h - page_h if where == "top" else page_h
     reach = cfg["band_search"] * page_h
-    gap_rows = {"gap_row_std": cfg["gap_row_std"], "gap_row_range": cfg["gap_row_range"]}
-    gap = _nearest_gutter(_gutters(strip.blank_rows(a, gap_rows), step), naive, reach, h)
+    gap = _nearest_gutter(_gutters(strip.blank_rows(a, cfg), step), naive, reach, h)
     if gap is not None:
         cut, run = gap
         if cut != naive:  # on the gutter's edge

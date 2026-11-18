@@ -567,7 +567,7 @@ def test_kept_ranges_map_kept_px_back_to_strip_ranges(a, b, want):
 @budget(load="pure")
 def test_cut_strip_takes_overrides_of_the_frozen_limits():
     """A caller's own limits replace RESTITCH: max_page 1,000 cuts a gapless 2,500 px strip at 1,000 and 2,000."""
-    cfg = dict(RC, min_page=500, max_page=1000)
+    cfg: strip.Restitch = {**RC, "min_page": 500, "max_page": 1000}
     assert strip.cut_strip(2500, [], [], cfg)["cuts"] == [0, 1000, 2000, 2500], "the caller's limits are used"
 
 
@@ -989,7 +989,7 @@ def test_band_pages_are_pages_taller_than_the_shape_by_band_tolerance():
 @pytest.mark.parametrize(("h", "want"), [(1350, []), (1351, [0])], ids=["at-the-limit", "one-px-over"])
 def test_a_band_page_is_strictly_taller_than_the_limit(h, want):
     """band_tolerance 0.5 (an exact limit: 600 x 1.5 x 1.5 = 1,350 px): a page of exactly the limit is no band page."""
-    assert strip.band_pages(["001.jpg"], [(600, h)], 1.5, dict(SC, band_tolerance=0.5)) == want, "strictly taller"
+    assert strip.band_pages(["001.jpg"], [(600, h)], 1.5, {**SC, "band_tolerance": 0.5}) == want, "strictly taller"
 
 
 @budget(load="pure")
