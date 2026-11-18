@@ -221,10 +221,9 @@ def _plan(ctx: workflow.Context, series: db.Row) -> tuple[dict[int, Change], set
         for fid, act in rewrite_plan.cover_changes(now, covered, states=states, taken=taken, images=shas).items():
             if act[0] == "drop":
                 cover[fid] = ("drop",)
-            elif (v := act[1]) in images:
+            elif (v := names.fmt_num(number := act[1])) in images:
                 cover[fid] = ("insert", v, images[v])
             else:
-                number = act[2]
                 if (
                     v not in given_up
                     and number == int(number)

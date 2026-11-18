@@ -14,8 +14,7 @@ from manga_pipeline import names, volumes
 from manga_pipeline.metadata import naming, platforms
 
 HELD, STALE = "volume:", "stale:"  # cover_state prefixes: the volume's current image, an old one
-# cover_changes' act on 1 file: an insert names its volume as text (fmt_num) and as its number
-type CoverAct = tuple[Literal["insert"], str, float] | tuple[Literal["drop"], None]
+type CoverAct = tuple[Literal["insert"], float] | tuple[Literal["drop"], None]  # cover_changes' act on 1 file
 
 
 def changes(
@@ -181,7 +180,7 @@ def cover_changes(
     taken: AbstractSet[str],
     images: Mapping[str, str],
 ) -> dict[int, CoverAct]:
-    """Return {published file id: ("insert", volume, number) | ("drop", None)} of the files whose cover should change.
+    """Return {published file id: ("insert", volume) | ("drop", None)} of the files whose volume cover should change.
 
     The published main files whose volume cover should change (SPEC "Retroactive updates"). rows: the resolver's rows as
     the volume changes leave them (moved_rows); covered: their covered volumes (naming.covered_volumes); states: {file
@@ -226,7 +225,7 @@ def _cover_homes(
 def _cover_act(
     state: str, own: tuple[str, float | None], home: tuple[str, float] | None, images: Mapping[str, str]
 ) -> CoverAct | None:
-    """Return ("insert", volume, number) | ("drop", None) | None of 1 published file with cover state state.
+    """Return ("insert", volume) | ("drop", None) | None of 1 published file with cover state state.
 
     own: the file's volume (text, and its number: None for no volume); home: the covered volume whose cover it should
     get (_cover_homes), else None.
@@ -235,10 +234,10 @@ def _cover_act(
     volume, number = own
     if home is not None:
         unfit = home[0] in images and state == f"unfit:{images[home[0]]}"
-        return ("insert", *home) if held != home[0] and not unfit else None
+        return ("insert", home[1]) if held != home[0] and not unfit else None
     # a file with no volume ("") has no image: images holds whole volumes' only
     if stale is not None and number is not None and stale == volume and stale in images:
-        return ("insert", stale, number)  # its volume's new image replaces the old one
+        return ("insert", number)  # its volume's new image replaces the old one
     if (held is not None and held != volume) or stale is not None:
         return ("drop", None)  # another volume's cover (an old image included)
     return None
