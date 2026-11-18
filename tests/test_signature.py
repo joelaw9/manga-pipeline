@@ -187,6 +187,17 @@ def test_near_stops_at_the_threshold(bits, want):
     assert near(sig, flipped(sig, bits)) is want, "NEAR_THRESHOLD 8"
 
 
+@budget(load="pure")
+@pytest.mark.parametrize("mode", ["RGB", "L", "RGBA"])
+def test_is_uniform_reads_each_channels_range_in_every_page_mode(mode):
+    """The pages and strip rows it reads are RGB, L or RGBA; each is read as RGB, 1 (min, max) per channel."""
+    flat = Image.new("RGB", (40, 40), (120, 120, 120)).convert(mode)
+    marked = Image.new("RGB", (40, 40), (120, 120, 120))
+    marked.paste((0, 0, 0), (0, 0, 10, 10))
+    assert images.is_uniform(flat), f"a flat {mode} page is uniform"
+    assert not images.is_uniform(marked.convert(mode)), f"a {mode} page with a dark corner is not"
+
+
 # ---------------------------------------------------------------- chroma
 
 
@@ -305,10 +316,17 @@ def test_known_fields_are_kept_and_a_fully_known_page_is_not_decoded(tmp_path):
     first = images.measure_pages(cbz)
     decoded, by_sha1 = [], {p["sha1"]: p for p in first}
 
-    def decode(data):  # the stand-in decode: counts the decodes, gives the page's measured fields
+    def decode(data) -> images.Decoded:  # the stand-in decode: counts the decodes, gives the page's measured fields
         decoded.append(data)
         page = by_sha1[archive.sha1(data)]
-        return {f: page[f] for f in images.DECODED_FIELDS}
+        return {
+            "width": page["width"],
+            "height": page["height"],
+            "blank": page["blank"],
+            "phash": page["phash"],
+            "junk_signature": page["junk_signature"],
+            "colour_class": page["colour_class"],
+        }
 
     partial = {k: v for k, v in first[2].items() if k != "phash"}
     known = {0: first[0], 1: dict(first[1], colour_class="kept as known"), 2: partial}
