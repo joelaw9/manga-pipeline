@@ -35,7 +35,10 @@ class SourceError(ValueError):
 
 
 class DecisionColumns(Protocol):
-    """A source row's text columns by name (decision, added): a store's sqlite3.Row, or a record's decision row."""
+    """A bulk-converter store row's text columns by name (decision, added), as sqlite3.Row gives them.
+
+    A record's decision rows come in as record_reader.RecordDecisionRow.
+    """
 
     def __getitem__(self, key: str, /) -> str:
         """Return the column's text."""

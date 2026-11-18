@@ -169,10 +169,7 @@ class PageDecision(TypedDict):
 
 def is_white(im: Image.Image, white_min: float = END_PAGES["white_min"]) -> bool:
     """Return whether im is a white page: uniform, and every channel's minimum at least white_min."""
-    lo_hi = im.convert("RGB").getextrema()
-    if len(lo_hi) != images.RGB_CHANNELS:  # Pillow types a 1-band image's (min, max) in the same union
-        msg = f"getextrema of an RGB image gave {lo_hi!r}, not 1 (min, max) per channel"
-        raise TypeError(msg)
+    lo_hi = images.rgb_extrema(im)
     return images.is_uniform(im) and min(lo for lo, _ in lo_hi) >= white_min
 
 

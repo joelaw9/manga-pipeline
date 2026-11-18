@@ -400,13 +400,18 @@ def matches(a: Signature, b: Signature, threshold: int = PHASH_THRESHOLD, aspect
     )
 
 
-def is_uniform(im: Image.Image, tolerance: int = UNIFORM_TOLERANCE) -> bool:
-    """Return whether every RGB channel of im spans at most tolerance levels."""
+def rgb_extrema(im: Image.Image) -> tuple[tuple[int, int], ...]:
+    """Return the (min, max) of each channel of im read as RGB; TypeError for a getextrema of another shape."""
     lo_hi = im.convert("RGB").getextrema()
     if len(lo_hi) != RGB_CHANNELS:  # Pillow types a 1-band image's (min, max) in the same union
         msg = f"getextrema of an RGB image gave {lo_hi!r}, not 1 (min, max) per channel"
         raise TypeError(msg)
-    return all(hi - lo <= tolerance for lo, hi in lo_hi)
+    return lo_hi
+
+
+def is_uniform(im: Image.Image, tolerance: int = UNIFORM_TOLERANCE) -> bool:
+    """Return whether every RGB channel of im spans at most tolerance levels."""
+    return all(hi - lo <= tolerance for lo, hi in rgb_extrema(im))
 
 
 @functools.cache
