@@ -234,7 +234,7 @@ def _match(
         return None
     other = ctx.suwayomi.fetch_manga_and_chapters(found["id"])["chapters"]
     ours = ctx.suwayomi.chapters(reference) if reference else []
-    row = pick_chapter(chapter["identity"], ours, other)
+    row = pick_chapter(chapter["identity"], _number(ctx, chapter["id"]), ours, other)
     return None if row is None else target(ctx, row["id"])
 
 
@@ -262,18 +262,26 @@ def _parsed(row: suwayomi_replies.Chapter) -> tuple[list[str | None], float | No
     return names.read_identity(names.identity(item)), (None if item.number is None else float(item.number))
 
 
+def _number(ctx: workflow.Context, chapter_id: int) -> float:
+    """Return a chapter's number (its identity's) as a float.
+
+    Every chapter past discover has one: discover makes a chapter with no number needs_human.
+    """
+    number: float = db.one_row(
+        ctx.conn, "SELECT (identity::jsonb ->> 3)::float8 FROM chapter WHERE id = %s", (chapter_id,)
+    )[0]
+    return number
+
+
 def pick_chapter(
-    identity: str, ours: Sequence[suwayomi_replies.Chapter], other: Sequence[suwayomi_replies.Chapter]
+    identity: str, number: float, ours: Sequence[suwayomi_replies.Chapter], other: Sequence[suwayomi_replies.Chapter]
 ) -> suwayomi_replies.Chapter | None:
     """Return the row of `other` (the other source's chapters) that is our chapter; None when not confident.
 
-    identity is the chapter's names.identity JSON. The row is checked against `ours` (the original source's chapters)
-    for numbering that agrees.
+    identity is the chapter's names.identity JSON, number its number. The row is checked against `ours` (the original
+    source's chapters) for numbering that agrees.
     """
     me = names.read_identity(identity)
-    if me[3] is None:
-        msg = f"chapter identity {identity} has no number: its neighbours cannot be compared"
-        raise ValueError(msg)
     key = tuple(me[1:4])
     parsed = [(row, *_parsed(row)) for row in other]
     rows = [row for row, ident, _ in parsed if tuple(ident[1:4]) == key]
@@ -284,7 +292,6 @@ def pick_chapter(
     by_key: dict[tuple[str | None, ...], list[str | None]] = {}
     for _, ident, _ in parsed:
         by_key.setdefault(tuple(ident[1:4]), []).append(ident[4])
-    number = float(me[3])
     neighbours: list[list[str | None]] = []
     for row in ours:
         ident, n = _parsed(row)
