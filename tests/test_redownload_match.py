@@ -3,6 +3,8 @@
 Which search hit is the series and which chapter of another source is ours, over hand-built Suwayomi replies.
 """
 
+import pytest
+
 from manga_pipeline import names, redownload
 
 from tests.builders import present
@@ -120,3 +122,9 @@ def test_an_aggregator_row_per_group_picks_our_scanlator_or_none():
     )
     assert (found["scanlator"], found["name"]) == ("Fan Group", "Chapter 12")
     assert redownload.pick_chapter(identity("Other_Chapter 12"), ORIGINAL, other) is None, "2 groups, neither ours"
+
+
+@budget(load="pure")
+def test_an_identity_without_a_number_is_refused():
+    with pytest.raises(ValueError, match="has no number"):
+        redownload.pick_chapter(identity("Hiatus Notice"), ORIGINAL, rows(["Chapter 1"]))

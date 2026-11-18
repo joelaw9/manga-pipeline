@@ -73,12 +73,9 @@ READERS = {
     ("metadata/sources.py", "_webtoons_page"),
     ("metadata/tags.py", "load"),
     ("names.py", "read_identity"),
-    ("notices.py", "judge"),
-    ("redownload.py", "_parsed"),
-    ("redownload.py", "load"),
-    ("redownload.py", "pick_chapter"),
     ("rewrite.py", "comicinfo_run"),
     ("rewrite.py", "publish_run"),
+    ("rewrite_covers.py", "read_result"),
     ("stages/convert.py", "read_output_pages"),
     ("stages/convert.py", "read_result"),
     ("stages/junk.py", "_candidate_ids"),
@@ -86,9 +83,9 @@ READERS = {
     ("stages/validate.py", "_phashes"),
     ("status.py", "_notes"),
     ("status.py", "_redownload"),
-    ("validation.py", "chapter_key"),
     ("volumes.py", "override_file"),
     ("workflow.py", "read_redownload"),
+    ("workflow.py", "read_notes"),
 }
 
 

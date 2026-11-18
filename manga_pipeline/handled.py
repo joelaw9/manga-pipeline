@@ -5,9 +5,12 @@ download whose pages a handled chapter of its series already had is put aside, n
 discover stage and by the junk stage once the series' baseline exists.
 """
 
+from typing import Literal, get_args
+
 from manga_pipeline import config, db, retention, workflow
 
-OUTCOMES = ("published", "rejected", "duplicate", "dropped")
+type Outcome = Literal["published", "rejected", "duplicate", "dropped"]
+OUTCOMES: tuple[Outcome, ...] = get_args(Outcome.__value__)
 
 
 def put_aside(ctx: workflow.Context, chapter: db.Row, digest: str) -> str | None:
@@ -27,14 +30,11 @@ def put_aside(ctx: workflow.Context, chapter: db.Row, digest: str) -> str | None
     return f"same pages as a handled chapter ({row['outcome']}, {row['identity']})"
 
 
-def record(conn: db.Connection, series_id: int, identity: str, outcome: str, digest: str | None) -> None:
+def record(conn: db.Connection, series_id: int, identity: str, outcome: Outcome, digest: str | None) -> None:
     """Record a handled chapter, inside the caller's transaction.
 
     digest: None for an archive that could not be read.
     """
-    if outcome not in OUTCOMES:
-        msg = f"handled chapter outcome must be one of {OUTCOMES}, got {outcome!r}"
-        raise ValueError(msg)
     conn.execute(
         "INSERT INTO handled_chapter (series_id, identity, outcome, content_digest, handled_at)"
         " VALUES (%s, %s, %s, %s, %s)",

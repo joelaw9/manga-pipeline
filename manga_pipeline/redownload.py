@@ -10,13 +10,16 @@ remove: [{path, chapter_id, dequeue}]}; a target is {source, manga_id, chapter_i
 
 import json
 import logging
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
+from typing import Literal
 
 from rapidfuzz import fuzz
 
 from manga_pipeline import config, db, errors, names, retention, workflow
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.db import sql
+from manga_pipeline.replies import suwayomi as suwayomi_replies
 
 log = logging.getLogger(__name__)
 EXACT_TITLE_MIN = 90  # fuzzy ratio a lone near-title hit needs
@@ -27,18 +30,18 @@ AGREE_SHARE = 0.90
 NEIGHBOUR_TITLE_MIN = 80
 
 
-def load(chapter):
+def load(chapter: db.Row) -> workflow.RedownloadState | None:
     """Return the chapter's re-download state (chapter.redownload, parsed), or None when it has none."""
-    return None if chapter["redownload"] is None else json.loads(chapter["redownload"])
+    return None if chapter["redownload"] is None else workflow.read_redownload(chapter["redownload"])
 
 
-def save(ctx: workflow.Context, chapter, state):
+def save(ctx: workflow.Context, chapter: db.Row, state: workflow.Redownload) -> None:
     """Write the state in its own transaction, so each step lands before the next call to Suwayomi."""
     with db.transaction(ctx.conn):
         save_in(ctx, chapter, state)
 
 
-def save_in(ctx: workflow.Context, chapter, state, **columns):
+def save_in(ctx: workflow.Context, chapter: db.Row, state: workflow.Redownload | None, **columns: object) -> None:
     """Write the state (None clears it) and other chapter columns inside the caller's transaction.
 
     Runs while this part holds the chapter's claim; raises when a person changed the row meanwhile.
@@ -62,7 +65,7 @@ def save_in(ctx: workflow.Context, chapter, state, **columns):
         raise RuntimeError(msg)
 
 
-def new_state(ctx: workflow.Context, chapter, chosen: int | None) -> workflow.Redownload:
+def new_state(ctx: workflow.Context, chapter: db.Row, chosen: int | None) -> workflow.Redownload:
     """Return the state of a chapter rejected for the first time (chosen: the replacement a person chose, or None).
 
     A hand-placed chapter (no Suwayomi chapter) has no original source.
@@ -86,7 +89,7 @@ def new_state(ctx: workflow.Context, chapter, chosen: int | None) -> workflow.Re
     }
 
 
-def remove(ctx: workflow.Context, chapter, state):
+def remove(ctx: workflow.Context, chapter: db.Row, state: workflow.Redownload) -> None:
     """Remove the copies the state lists. Safe to run again.
 
     Each comes off the queue when queued, its file goes the retention way, then Suwayomi's downloaded mark when it has
@@ -94,17 +97,18 @@ def remove(ctx: workflow.Context, chapter, state):
     """
     for item in state["remove"]:
         workflow.holds_claim(ctx, chapter)  # before each removal: it cannot be undone
-        if item.get("dequeue"):
-            ctx.suwayomi.dequeue([item["chapter_id"]])
+        chapter_id = item["chapter_id"]  # None: a hand-placed copy, which Suwayomi knows nothing of
+        if chapter_id is not None and item["dequeue"]:
+            ctx.suwayomi.dequeue([chapter_id])
         retention.put(ctx.cfg, config.to_local(ctx.cfg, item["path"]))
-        if item["chapter_id"] is not None:  # a hand-placed copy: Suwayomi knows nothing of it
-            ctx.suwayomi.delete_downloaded([item["chapter_id"]])
+        if chapter_id is not None:
+            ctx.suwayomi.delete_downloaded([chapter_id])
     if state["remove"]:
         state["remove"] = []
         save(ctx, chapter, state)
 
 
-def target(ctx: workflow.Context, chapter_id) -> workflow.Target | None:
+def target(ctx: workflow.Context, chapter_id: int) -> workflow.Target | None:
     """Return {source, manga_id, chapter_id, path, url} of a Suwayomi chapter of any manga.
 
     None when Suwayomi has no such chapter or no source for it.
@@ -133,7 +137,7 @@ def target(ctx: workflow.Context, chapter_id) -> workflow.Target | None:
 
 
 def pick(
-    ctx: workflow.Context, chapter, series, state
+    ctx: workflow.Context, chapter: db.Row, series: db.Row, state: workflow.Redownload
 ) -> workflow.Target | workflow.SameSource | workflow.Failed | workflow.NeedsHuman:
     """Pick the next download to queue: the original chapter once, then the best-ranked matching source.
 
@@ -143,9 +147,10 @@ def pick(
     series' reference manga, found again on every pick.
     """
     original = state["original"]
-    hand_placed = original["chapter_id"] is None
+    original_id = original["chapter_id"]
+    hand_placed = original_id is None
     if not state["same_source_done"] and not hand_placed:
-        found = target(ctx, original["chapter_id"])
+        found = target(ctx, original_id)
         if found and not held_elsewhere(ctx, chapter, found):
             return {**found, "same_source": True}  # enqueue records it as done, with the expected download
         state["same_source_done"] = True
@@ -154,7 +159,7 @@ def pick(
     if hand_placed and reference is None:
         return workflow.NeedsHuman("the series has no Suwayomi manga to check numbering against; no source tried")
     installed = {s["displayName"]: s["id"] for s in ctx.suwayomi.sources()}
-    down = []
+    down: list[str] = []
     for name in ctx.cfg["sources"]["ranking"]:
         if name in state["tried"] or name == original["source"] or name not in installed:
             continue
@@ -176,7 +181,7 @@ def pick(
     )
 
 
-def held_elsewhere(ctx: workflow.Context, chapter, found):
+def held_elsewhere(ctx: workflow.Context, chapter: db.Row, found: workflow.Target) -> bool:
     """Whether another open chapter holds the target's Suwayomi chapter or file: its download, not this one's."""
     return (
         ctx.conn.execute(
@@ -188,14 +193,14 @@ def held_elsewhere(ctx: workflow.Context, chapter, found):
     )
 
 
-def reference_manga(ctx: workflow.Context, series_id):
+def reference_manga(ctx: workflow.Context, series_id: int) -> int | None:
     """Return the Suwayomi manga linked to the series that a hand-placed chapter's numbering is checked against.
 
     Of those Suwayomi still holds with an installed source, the best ranked by sources.ranking, then the lowest id;
     else None.
     """
     ranking = ctx.cfg["sources"]["ranking"]
-    best = None
+    best: tuple[int, int] | None = None
     rows = ctx.conn.execute("SELECT manga_id FROM suwayomi_manga WHERE series_id = %s ORDER BY manga_id", (series_id,))
     for (manga_id,) in rows.fetchall():
         manga = ctx.suwayomi.manga(manga_id)
@@ -208,17 +213,19 @@ def reference_manga(ctx: workflow.Context, series_id):
     return None if best is None else best[1]
 
 
-def _match(ctx: workflow.Context, chapter, series, reference, source_id):
+def _match(
+    ctx: workflow.Context, chapter: db.Row, series: db.Row, reference: int | None, source_id: str
+) -> workflow.Target | None:
     """Return the target on another source matching the chapter (SPEC "Bad downloads"), or None.
 
     reference is the manga whose chapters the source's numbering must agree with (None: no source agrees).
     """
-    known = [series["name"], series["localized_name"], series["original_name"]]
-    manga = reference and ctx.suwayomi.manga(reference)
+    known: list[str] = [series["name"], series["localized_name"], series["original_name"]]
+    manga = ctx.suwayomi.manga(reference) if reference else None
     if manga:
         known.append(manga["title"])
     known = list(dict.fromkeys(n for n in known if n))
-    hits = {}
+    hits: dict[int, suwayomi_replies.Manga] = {}
     for query in known:
         for hit in ctx.suwayomi.search_source(source_id, query):
             hits[hit["id"]] = hit
@@ -231,7 +238,7 @@ def _match(ctx: workflow.Context, chapter, series, reference, source_id):
     return None if row is None else target(ctx, row["id"])
 
 
-def pick_manga(hits, known):
+def pick_manga(hits: Sequence[suwayomi_replies.Manga], known: Iterable[str]) -> suwayomi_replies.Manga | None:
     """Return the 1 search hit that is the series, or None.
 
     It is the only one whose title equals a known name by names.key, else the only one at a fuzzy ratio of
@@ -249,19 +256,24 @@ def pick_manga(hits, known):
     return scored[0][2]
 
 
-def _parsed(row):
+def _parsed(row: suwayomi_replies.Chapter) -> tuple[list[str | None], float | None]:
     """(identity list, number as float or None) of a Suwayomi chapter row, parsed as its download file's stem."""
     item = names.parse(suwayomi.chapter_file(row["scanlator"], row["name"])[: -len(".cbz")])
-    return json.loads(names.identity(item)), (None if item.number is None else float(item.number))
+    return names.read_identity(names.identity(item)), (None if item.number is None else float(item.number))
 
 
-def pick_chapter(identity, ours, other):
+def pick_chapter(
+    identity: str, ours: Sequence[suwayomi_replies.Chapter], other: Sequence[suwayomi_replies.Chapter]
+) -> suwayomi_replies.Chapter | None:
     """Return the row of `other` (the other source's chapters) that is our chapter; None when not confident.
 
     identity is the chapter's names.identity JSON. The row is checked against `ours` (the original source's chapters)
     for numbering that agrees.
     """
-    me = json.loads(identity)
+    me = names.read_identity(identity)
+    if me[3] is None:
+        msg = f"chapter identity {identity} has no number: its neighbours cannot be compared"
+        raise ValueError(msg)
     key = tuple(me[1:4])
     parsed = [(row, *_parsed(row)) for row in other]
     rows = [row for row, ident, _ in parsed if tuple(ident[1:4]) == key]
@@ -269,11 +281,11 @@ def pick_chapter(identity, ours, other):
         rows = [row for row in rows if _parsed(row)[0][0] == me[0]]
     if len(rows) != 1:
         return None
-    by_key = {}
+    by_key: dict[tuple[str | None, ...], list[str | None]] = {}
     for _, ident, _ in parsed:
         by_key.setdefault(tuple(ident[1:4]), []).append(ident[4])
     number = float(me[3])
-    neighbours = []
+    neighbours: list[list[str | None]] = []
     for row in ours:
         ident, n = _parsed(row)
         same_run = tuple(ident[1:3]) == key[:2] and tuple(ident[1:4]) != key  # same season and side label, not ours
@@ -285,7 +297,7 @@ def pick_chapter(identity, ours, other):
     return rows[0] if agree >= AGREE_SHARE * len(neighbours) else None
 
 
-def _agrees(ident, their_titles):
+def _agrees(ident: list[str | None], their_titles: Sequence[str | None]) -> bool:
     """Return whether a neighbour chapter is listed on the other source under its key.
 
     Its title must be like theirs where both have one.
@@ -296,27 +308,41 @@ def _agrees(ident, their_titles):
     return any(not title or not t or fuzz.ratio(title, t) >= NEIGHBOUR_TITLE_MIN for t in their_titles)
 
 
-def enqueue(ctx: workflow.Context, chapter, state, found):
+def enqueue(
+    ctx: workflow.Context,
+    chapter: db.Row,
+    state: workflow.Redownload,
+    found: workflow.Target | workflow.SameSource | workflow.Chosen,
+) -> None:
     """Queue the target, start the downloader and record it as expected."""
-    found = dict(found)
-    if found.pop("same_source", False):
+    if "same_source" in found:
         state["same_source_done"] = True
-    if found.pop("chosen", False):
+    if "chosen" in found:
         state["chosen"] = None
     # Recorded first: a download Suwayomi starts is never untracked. An interruption before the queue call leaves an
     # expected download that is neither queued nor downloaded ("lost"), which validate queues again.
-    state["expected"] = {**found, "enqueued_at": workflow.now(ctx.conn)}
+    expected: workflow.Expected = {
+        "source": found["source"],
+        "manga_id": found["manga_id"],
+        "chapter_id": found["chapter_id"],
+        "path": found["path"],
+        "url": found["url"],
+        "enqueued_at": workflow.now(ctx.conn),
+    }
+    state["expected"] = expected
     save(ctx, chapter, state)
-    queue(ctx, found)
+    queue(ctx, expected)
 
 
-def queue(ctx: workflow.Context, found):
+def queue(ctx: workflow.Context, found: workflow.Expected) -> None:
     """Queue a target and start the downloader (Suwayomi skips a chapter already queued)."""
     ctx.suwayomi.enqueue([found["chapter_id"]])
     ctx.suwayomi.start_downloader()
 
 
-def download_state(ctx: workflow.Context, expected):
+def download_state(
+    ctx: workflow.Context, expected: workflow.Expected
+) -> Literal["complete", "waiting", "lost", "failed"]:
     """Return the expected download's state: "complete", "waiting", "lost" or "failed".
 
     "complete" (flagged, file present), "waiting" (queued or downloading), "lost" (neither queued nor downloaded) or
@@ -338,11 +364,14 @@ def download_state(ctx: workflow.Context, expected):
     return "lost"
 
 
-def wait_over(ctx: workflow.Context, chapter):
+def wait_over(ctx: workflow.Context, chapter: db.Row) -> bool:
     """Return whether the suwayomi_download wait ends.
 
-    It ends when the expected download is complete or failed, or none is expected.
+    It ends when the expected download is complete or failed, or none is expected (no state, or only a person's
+    choice).
     """
     state = load(chapter)
-    expected = state and state["expected"]
+    if state is None or "original" not in state:
+        return True
+    expected = state["expected"]
     return expected is None or download_state(ctx, expected) != "waiting"
