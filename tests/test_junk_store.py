@@ -828,22 +828,6 @@ def unit_of(key) -> strip_units.BlockUnit:
     return {"kind": "block", "sig": key, "start": 0, "end": 300, "where": "head", "probes": []}
 
 
-@budget(load="pure")
-@pytest.mark.parametrize(
-    ("kind", "stored", "unit"),
-    [
-        ("frame", ((T,), 1.0), ((T,), 1.0)),
-        ("logo", ((T,), 1.0), ((T,), 1.0)),
-        ("block", logo(), logo()),
-    ],
-    ids=["frame-as-signature", "logo-as-signature", "signature-as-template"],
-)
-def test_a_key_parsed_for_another_kind_is_refused(kind, stored, unit):
-    """A parsed key of another kind than the decision's (parse_key gives each kind its own) is a TypeError."""
-    with pytest.raises(TypeError, match="parsed as"):
-        store.matches(kind, stored, unit)
-
-
 def schema_without(tmp_path, monkeypatch, step):
     """db.SCHEMA replaced by a copy without `step` (monkeypatch.undo() brings the program's back)."""
     before = tmp_path / "schema"

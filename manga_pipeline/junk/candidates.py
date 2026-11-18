@@ -129,7 +129,7 @@ def chapters_showing(conn: db.Connection, series_key: str, kind: str, key: str) 
     """How many chapter identities of the series show a unit matching (kind, key)."""
     parsed = store.parse_key(kind, key)
     rows = conn.execute("SELECT key, identity FROM junk_seen WHERE series_key = %s AND kind = %s", (series_key, kind))
-    return len({ident for k, ident in rows if store.matches(kind, store.parse_key(kind, k), parsed)})
+    return len({ident for k, ident in rows if store.matches(store.parse_key(kind, k), parsed)})
 
 
 def strip_reasons(conn: db.Connection, series_key: str, unit: strip_units.Piece, words: config.JunkConfig) -> list[str]:
@@ -248,7 +248,7 @@ def find(conn: db.Connection, decisions: store.Decisions, kind: str, key: str) -
         "SELECT * FROM junk_candidate WHERE series_key = %s AND kind = %s ORDER BY id", (decisions.series_key, kind)
     ):
         stored = store.parse_key(kind, row["key"])
-        if store.matches(kind, stored, parsed) and decisions.decide(kind, stored) is None:
+        if store.matches(stored, parsed) and decisions.decide(kind, stored) is None:
             return row
     return None
 

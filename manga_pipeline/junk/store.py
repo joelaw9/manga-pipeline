@@ -12,7 +12,7 @@ with one matches no decision, and no decision is written on one.
 """
 
 from collections.abc import Callable, Iterable
-from typing import TypedDict
+from typing import TypedDict, TypeIs
 
 import numpy as np
 
@@ -74,37 +74,21 @@ def parse_key(kind: str, text: str) -> ParsedKey:
     return images.sig_from_str(text)
 
 
-def matches(kind: str, stored: ParsedKey, unit: ParsedKey) -> bool | np.bool_:
-    """Whether a unit's parsed key matches a stored one (a logo's match is not symmetric: stored first)."""
-    if kind == "frame":
-        return frames.matches(_frame(stored), _frame(unit))
-    if kind == "logo":
-        return marks.same_variant(_template(stored), _template(unit))
-    return images.matches(_signature(stored), _signature(unit))
+def matches(stored: ParsedKey, unit: ParsedKey) -> bool | np.bool_:
+    """Whether a unit's parsed key matches a stored one (a logo's match is not symmetric: stored first).
+
+    A key's kind is its parsed type (parse_key): a frame, a logo template or a signature; keys of 2 kinds never match.
+    """
+    if isinstance(stored, frames.Frame):
+        return isinstance(unit, frames.Frame) and frames.matches(stored, unit)
+    if isinstance(stored, marks.Template):
+        return isinstance(unit, marks.Template) and marks.same_variant(stored, unit)
+    return is_signature(unit) and images.matches(stored, unit)
 
 
-def _frame(key: ParsedKey) -> frames.Frame:
-    """Return a frame's parsed key; TypeError for another kind's."""
-    if not isinstance(key, frames.Frame):
-        msg = f"a frame key parsed as {type(key).__name__}"
-        raise TypeError(msg)
-    return key
-
-
-def _template(key: ParsedKey) -> marks.Template:
-    """Return a logo's parsed key; TypeError for another kind's."""
-    if not isinstance(key, marks.Template):
-        msg = f"a logo key parsed as {type(key).__name__}"
-        raise TypeError(msg)
-    return key
-
-
-def _signature(key: ParsedKey) -> images.Signature:
-    """Return a signature kind's parsed key; TypeError for a frame's or a logo's."""
-    if isinstance(key, (frames.Frame, marks.Template)):
-        msg = f"a signature key parsed as {type(key).__name__}"
-        raise TypeError(msg)
-    return key
+def is_signature(key: ParsedKey) -> TypeIs[images.Signature]:
+    """Return whether a parsed key is an image signature: not a frame's, not a logo template."""
+    return not isinstance(key, (frames.Frame, marks.Template))
 
 
 def in_lookup_order(rows: Iterable[db.Row]) -> list[db.Row]:
@@ -153,11 +137,11 @@ class Decisions:
 
     def decide(self, kind: str, key: ParsedKey) -> db.Row | None:
         """Return the deciding row for a unit of `kind` with parsed key `key`, or None (undecided)."""
-        if kind in SIGNATURE_KINDS and images.unsignable(_signature(key)):
+        if is_signature(key) and images.unsignable(key):
             return None
         kinds = DECIDING[kind]
         for row, stored in self._rows:
-            if row["kind"] in kinds and matches(row["kind"], stored, key):
+            if row["kind"] in kinds and matches(stored, key):
                 return row
         return None
 
