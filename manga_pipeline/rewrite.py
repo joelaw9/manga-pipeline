@@ -13,9 +13,10 @@ import json
 import logging
 import os
 import zipfile
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from manga_pipeline import (
     archive,
@@ -32,6 +33,7 @@ from manga_pipeline import (
     volumes,
     workflow,
 )
+from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import covers as cover_images
 from manga_pipeline.metadata import naming, platforms, rewrite_plan
@@ -64,7 +66,7 @@ BUSY = sql.SQL("""({p}.pending_path IS NOT NULL OR {p}.indexed_since IS NOT NULL
 STEP_DATED, STEP_RETAINED, STEP_RENAMED, STEP_OLD_REMOVED = 1, 2, 3, 4
 
 
-def _set_null(columns):
+def _set_null(columns: Iterable[str]) -> sql.Composed:
     """`column = NULL, ...` of columns, an SQL SET list."""
     return sql.SQL(", ").join(sql.SQL("{} = NULL").format(sql.Identifier(c)) for c in columns)
 
@@ -72,7 +74,7 @@ def _set_null(columns):
 # --- the comparison
 
 
-def compare(ctx: workflow.Context):
+def compare(ctx: workflow.Context) -> None:
     """Compare every in-scope ok series with a Kavita id and its baseline taken whose naming inputs changed.
 
     Queue a rewrite chapter for each published file whose volume or cover should change, while fewer than
@@ -97,7 +99,7 @@ def compare(ctx: workflow.Context):
         _compare_series(ctx, series, room)
 
 
-def _compare_series(ctx: workflow.Context, series, room):
+def _compare_series(ctx: workflow.Context, series: db.Row, room: int) -> None:
     """Compare 1 series whose naming inputs changed since its stored hash.
 
     Record the cover images wanted and queue up to room rewrite chapters; store the hash once every change is queued. 1
@@ -136,7 +138,7 @@ def _compare_series(ctx: workflow.Context, series, room):
         log.info("%s: series %s (%s): %d rewrite(s) queued", ctx.part, series["id"], series["name"], made)
 
 
-def _queue(ctx: workflow.Context, series, todo, room):
+def _queue(ctx: workflow.Context, series: db.Row, todo: dict[int, "Change"], room: int) -> int:
     """Queue a rewrite chapter for todo's files ({file id: Change}) in order until room are made; how many were."""
     made = 0
     for file_id, change in todo.items():
@@ -144,6 +146,10 @@ def _queue(ctx: workflow.Context, series, todo, room):
             break
         made += _queue_chapter(ctx, series, file_id, change)
     return made
+
+
+type CoverChange = tuple[Literal["drop"]] | tuple[Literal["insert"], str, db.Row]
+"""A file's cover change: ("drop",), or ("insert", volume, its series_volume_cover row)."""
 
 
 class Change(NamedTuple):
@@ -155,12 +161,12 @@ class Change(NamedTuple):
 
     volume: float | None
     source: str | None
-    cover: tuple | None
+    cover: CoverChange | None
     title: str
     unedited: naming.Unedited | None
 
 
-def _plan(ctx: workflow.Context, series):
+def _plan(ctx: workflow.Context, series: db.Row) -> tuple[dict[int, Change], set[str], bool]:
     """Return (todo, wants, unknown) of 1 series.
 
     todo: {published file id: Change} of the files whose volume, cover or (by a hand edit) title should change, in id
@@ -180,7 +186,8 @@ def _plan(ctx: workflow.Context, series):
     moved.update({i: (v, source) for i, (v, source, _, _) in edited.items() if i in held})
     states = {i: f["cover_state"] for i, f in files.items()}
     unknown = any(s is None for s in states.values())
-    cover, wants = {}, set()
+    cover: dict[int, CoverChange] = {}
+    wants: set[str] = set()
     if not unknown:
         taken = {
             r[0]
@@ -190,11 +197,11 @@ def _plan(ctx: workflow.Context, series):
                 (sid,),
             )
         }
-        images = {
+        images: dict[str, db.Row] = {
             names.fmt_num(r["volume"]): r
             for r in conn.execute("SELECT volume, path, sha256 FROM series_volume_cover WHERE series_id = %s", (sid,))
         }
-        given_up = {
+        given_up: set[str] = {
             names.fmt_num(r[0])
             for r in conn.execute(
                 "SELECT volume FROM volume_cover_wanted WHERE series_id = %s AND attempts >= %s",
@@ -211,18 +218,12 @@ def _plan(ctx: workflow.Context, series):
         shas = {v: r["sha256"] for v, r in images.items()}
         now = rewrite_plan.moved_rows(rows, moved)
         covered = naming.covered_volumes(basis, now, (overrides or {}).get("volumes") or {}, mangadex)
-        for fid, (action, v) in rewrite_plan.cover_changes(
-            now, covered, states=states, taken=taken, images=shas
-        ).items():
-            if action == "drop":
+        for fid, act in rewrite_plan.cover_changes(now, covered, states=states, taken=taken, images=shas).items():
+            if act[0] == "drop":
                 cover[fid] = ("drop",)
-            elif v in images:
+            elif (v := names.fmt_num(number := act[1])) in images:
                 cover[fid] = ("insert", v, images[v])
             else:
-                number = names.to_volume(v)
-                if number is None:  # cover_changes names volumes by fmt_num: always a number
-                    msg = f"cover change for {v!r}: not a volume number"
-                    raise ValueError(msg)
                 if (
                     v not in given_up
                     and number == int(number)
@@ -232,7 +233,7 @@ def _plan(ctx: workflow.Context, series):
                     wants.add(v)
                 if rewrite_covers.cover_volume(states[fid]) is not None:  # another volume's cover: dropped meanwhile
                     cover[fid] = ("drop",)
-    todo = {}
+    todo: dict[int, Change] = {}
     for fid in sorted(set(moved) | set(cover) | set(edited)):
         current = (names.to_volume(files[fid]["comicinfo_volume"]), files[fid]["volume_source"])
         title, kept = edited.get(fid, (None, None, files[fid]["comicinfo_title"] or "", files[fid]["unedited"]))[2:]
@@ -241,12 +242,12 @@ def _plan(ctx: workflow.Context, series):
     return todo, wants, unknown
 
 
-def _stored_hash(conn, series_id):
+def _stored_hash(conn: db.Connection, series_id: int) -> str | None:
     row = conn.execute("SELECT naming_hash FROM series_naming WHERE series_id = %s", (series_id,)).fetchone()
     return row[0] if row else None
 
 
-def _hash(ctx: workflow.Context, series):
+def _hash(ctx: workflow.Context, series: db.Row) -> str:
     """Return the hash of the series' naming inputs. VolumeError for a malformed override file.
 
     The inputs: its basis, override file, hand edits, stored MangaDex aggregate, cover list and platform list, its
@@ -288,7 +289,7 @@ def _hash(ctx: workflow.Context, series):
         WHERE c.series_id = %s AND c.status <> 'done' ORDER BY v.volume""",
         (sid,),
     ).fetchall()
-    inputs = [series["naming_basis"], overrides, [tuple(r) for r in fetched], CODE]
+    inputs: list[object] = [series["naming_basis"], overrides, [tuple(r) for r in fetched], CODE]
     inputs += [[tuple(r) for r in files], [tuple(r) for r in downloads], [tuple(r) for r in rewrites]]
     edits = conn.execute(
         "SELECT season, side, number, title, volume FROM naming_edit WHERE series_id = %s ORDER BY side, season,"
@@ -299,7 +300,7 @@ def _hash(ctx: workflow.Context, series):
     return hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _queue_chapter(ctx: workflow.Context, series, file_id, change):
+def _queue_chapter(ctx: workflow.Context, series: db.Row, file_id: int, change: Change) -> int:
     """Make 1 rewrite chapter for a confirmed published file with no open chapter and nothing queued or awaited.
 
     It starts at convert when its cover changes (an insert's cover handed over as a volume_cover row), else at
@@ -360,13 +361,13 @@ def _queue_chapter(ctx: workflow.Context, series, file_id, change):
     return 1
 
 
-def _cover_text(cover):
+def _cover_text(cover: CoverChange | None) -> str:
     return (
         "" if cover is None else f", insert volume {cover[1]}'s cover" if cover[0] == "insert" else ", drop its cover"
     )
 
 
-def _target(row, volume, title):
+def _target(row: db.Row, volume: float | None, title: str) -> str:
     """Return the stored path the rewritten file takes (D7.8).
 
     A pipeline file is named for its new volume and title; a bulk file keeps its name.
@@ -380,7 +381,7 @@ def _target(row, volume, title):
 # --- the rewrite chapter's stages
 
 
-def comicinfo_run(ctx: workflow.Context, chapter):
+def comicinfo_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workflow.NeedsHuman:
     """Copy the library file to staging with a new ComicInfo.xml; every other member copied byte for byte.
 
     The new ComicInfo.xml holds the series-level fields now, the new volume, the old file's own fields and pages.
@@ -388,7 +389,10 @@ def comicinfo_run(ctx: workflow.Context, chapter):
     conn = ctx.conn
     series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     file = db.one_row(conn, "SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],))
-    converted = chapter["convert_result"] and json.loads(chapter["convert_result"])  # the cover changed at convert
+    # the cover changed at convert
+    converted: rewrite_covers.RewriteResult | None = (
+        None if chapter["convert_result"] is None else rewrite_covers.read_result(chapter["convert_result"])
+    )
     source = config.to_local(ctx.cfg, file["library_path"])  # unchanged until finish: a rerun reads the same
     old = archive.read_comicinfo(source)
     if old is None:
@@ -424,7 +428,7 @@ def comicinfo_run(ctx: workflow.Context, chapter):
         staged = config.abs_path(ctx.cfg["paths"]["staging"]) / convert.staged_name(conn, chapter)
         size = copy_replacing(source, staged, archive.COMICINFO, xml)
 
-    def record(c):
+    def record(c: db.Connection) -> None:
         c.execute(
             "UPDATE chapter SET staged_path = %s, staged_size = %s WHERE id = %s",
             (config.to_stored(ctx.cfg, staged), size, chapter["id"]),
@@ -433,13 +437,13 @@ def comicinfo_run(ctx: workflow.Context, chapter):
     return workflow.Done(record)
 
 
-def page_count(cbz):
+def page_count(cbz: Path) -> int:
     """How many pages a CBZ holds (its member list only)."""
     with zipfile.ZipFile(cbz) as z:
         return len(archive.archive_pages(z.namelist()))
 
 
-def copy_replacing(source, dest, name, data):
+def copy_replacing(source: Path, dest: Path, name: str, data: bytes) -> int:
     """Write dest: source's members in order, member `name` (compared without case) replaced by data.
 
     data is stored last when the source had none; every other member's bytes copied unchanged, checked by CRC against
@@ -457,7 +461,7 @@ def copy_replacing(source, dest, name, data):
     return size
 
 
-def publish_run(ctx: workflow.Context, chapter):
+def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workflow.NeedsHuman:
     """Queue the rewrite, or a better copy's replacement, on its file's row with the API key's user's progress.
 
     The chapter is then done (SPEC "Retroactive updates"). A copy also queues its values (publish.row_values), puts its
@@ -477,7 +481,9 @@ def publish_run(ctx: workflow.Context, chapter):
     staged = config.to_local(ctx.cfg, chapter["staged_path"])
     target = config.to_local(ctx.cfg, chapter["library_path"])
     new_pages = page_count(staged)
-    converted = chapter["convert_result"] and json.loads(chapter["convert_result"])
+    converted: rewrite_covers.RewriteResult | None = (
+        None if chapter["convert_result"] is None else rewrite_covers.read_result(chapter["convert_result"])
+    )
     clash = conn.execute(
         "SELECT id FROM published_file WHERE library_path = %s AND id <> %s", (chapter["library_path"], file["id"])
     ).fetchone()
@@ -493,7 +499,7 @@ def publish_run(ctx: workflow.Context, chapter):
     else:
         cover, shift = converted["cover_state"] if converted else None, new_pages - old_pages
 
-    def record(c):
+    def record(c: db.Connection) -> None:
         now = cover and rewrite_covers.current_state(c, chapter["id"], chapter["series_id"], cover)
         c.execute(
             """UPDATE published_file SET pending_path = %s, pending_staged = %s, pending_size = %s,
@@ -527,14 +533,14 @@ def publish_run(ctx: workflow.Context, chapter):
     return workflow.Done(record)
 
 
-def _json(value):
+def _json(value: object) -> str | None:
     return None if value is None else json.dumps(value)
 
 
 # --- finishing queued rewrites
 
 
-def copy_shift(read, old_pages, new_pages):
+def copy_shift(read: int, old_pages: int, new_pages: int) -> int:
     """Return the page shift a better copy's progress takes.
 
     The pages read scaled to its page count, as a shift from the read page (the restore clamps it).
@@ -542,7 +548,7 @@ def copy_shift(read, old_pages, new_pages):
     return round(read * new_pages / old_pages) - read if old_pages else 0
 
 
-def finish_all(ctx: workflow.Context):
+def finish_all(ctx: workflow.Context) -> None:
     """Finish every queued rewrite that has failed fewer than workflow.attempt_limit times.
 
     A row whose act fails records its error and 1 attempt and resumes at its next step on the next run; the others go
@@ -568,7 +574,7 @@ def finish_all(ctx: workflow.Context):
             log.warning("%s: rewrite of %s failed: %s", ctx.part, row["library_path"], e)
 
 
-def finish(ctx: workflow.Context, row):
+def finish(ctx: workflow.Context, row: db.Row) -> None:
     """Do the file acts of 1 queued rewrite, each recorded on the row once done (pending_step).
 
     So a retry starts at the next: 1 the staged file's time set to now; 2 the old file hard-linked into retention; 3 the
@@ -606,7 +612,7 @@ def finish(ctx: workflow.Context, row):
     log.info("%s: rewrote %s as %s", ctx.part, row["library_path"], row["pending_path"])
 
 
-def _renamed(row, target, old):
+def _renamed(row: db.Row, target: Path, old: Path) -> bool:
     """Return whether a queued rewrite whose staged file is gone was renamed over its target before a crash recorded it.
 
     It was when a new name holds a file of the queued size, or the same name holds the rewritten file (is_new).
@@ -616,7 +622,7 @@ def _renamed(row, target, old):
     return is_new(target, row)
 
 
-def _settle(conn, row):
+def _settle(conn: db.Connection, row: db.Row) -> None:
     """Do finish's last act: the row takes the new path, size, volume, title and cover (a better copy's values too).
 
     Its pending fields are cleared; the series is due a scan.
@@ -643,7 +649,7 @@ def _settle(conn, row):
         conn.execute("UPDATE series SET scan_due = 1 WHERE id = %s", (row["series_id"],))
 
 
-def is_new(path, row):
+def is_new(path: Path, row: db.Row) -> bool:
     """Return whether a same-name target already holds the rewritten file (a crash after the rename).
 
     It does when its size and its ComicInfo Volume are the queued ones, and its Title too when the rewrite changes it.
@@ -661,14 +667,14 @@ def is_new(path, row):
     return (fields.get("Volume") or None) == row["pending_volume"]
 
 
-def record_step(conn, file_id, step):
+def record_step(conn: db.Connection, file_id: int, step: int) -> int:
     """Record finish's act `step` done on the file (`pending_step`) and return it."""
     with db.transaction(conn):
         conn.execute("UPDATE published_file SET pending_step = %s WHERE id = %s", (step, file_id))
     return step
 
 
-def _give_up_copy(conn, row):
+def _give_up_copy(conn: db.Connection, row: db.Row) -> None:
     """Give up a better copy's queued replacement (its staged file gone, or `rewrite drop`).
 
     The copy's handled record says dropped, not published; its download stays in retention. Inside the caller's
@@ -685,9 +691,9 @@ def _give_up_copy(conn, row):
     )
 
 
-def _clear(conn, file_id):
+def _clear(conn: db.Connection, file_id: int) -> None:
     with db.transaction(conn):
-        _give_up_copy(conn, conn.execute("SELECT * FROM published_file WHERE id = %s", (file_id,)).fetchone())
+        _give_up_copy(conn, db.one_row(conn, "SELECT * FROM published_file WHERE id = %s", (file_id,)))
         conn.execute(
             sql.SQL("""UPDATE published_file SET {}, pending_error = NULL,
                 pending_attempts = 0 WHERE id = %s""").format(_set_null((*PENDING, *CARRY))),
@@ -695,7 +701,7 @@ def _clear(conn, file_id):
         )
 
 
-def drop(conn, file_id, limit):
+def drop(conn: db.Connection, file_id: int, limit: int) -> db.Row:
     """`rewrite drop FILE_ID`: clear a stuck rewrite that has not renamed its file in, with its progress carry.
 
     Stuck: its attempts at workflow.attempt_limit, or its progress wait failed. The caller removes the staged file it
@@ -724,7 +730,7 @@ def drop(conn, file_id, limit):
     return row
 
 
-def retry(conn, file_id):
+def retry(conn: db.Connection, file_id: int) -> db.Row:
     """`rewrite retry FILE_ID`: a failed rewrite tries again from its next step, or its progress wait starts again.
 
     workflow.Refused when the row holds no error.
@@ -745,7 +751,7 @@ def retry(conn, file_id):
 # --- the progress restore
 
 
-def restore_all(ctx: workflow.Context):
+def restore_all(ctx: workflow.Context) -> None:
     """Restore progress for every rewritten file Kavita has re-read and end its wait; then refresh the covers.
 
     Re-read: listed at its size, its chapter modified after the snapshot. The API key's user's progress is restored
@@ -756,7 +762,7 @@ def restore_all(ctx: workflow.Context):
         WHERE p.indexed_since IS NOT NULL AND p.pending_error IS NULL AND s.kavita_series_id IS NOT NULL
         ORDER BY p.id"""
     ).fetchall()
-    listed = {}
+    listed: dict[int, dict[Path, kavita_client.SeriesFile]] = {}
     for row in rows:
         if row["kid"] not in listed:
             try:
@@ -785,7 +791,7 @@ def restore_all(ctx: workflow.Context):
     refresh_covers(ctx)
 
 
-def refresh_covers(ctx: workflow.Context):
+def refresh_covers(ctx: workflow.Context) -> None:
     """Ask Kavita to regenerate the cover images of each series holding a re-read file whose cover a rewrite changed.
 
     A library scan keeps a re-read chapter's old one. 1 request per series per run; a request that fails is logged and
@@ -810,11 +816,11 @@ def refresh_covers(ctx: workflow.Context):
         log.info("%s: Kavita series %s: cover images refreshed (%d file(s))", ctx.part, row["kid"], len(row["ids"]))
 
 
-def _later(now, before):
+def _later(now: str, before: str | None) -> bool:
     return before is None or datetime.fromisoformat(now) > datetime.fromisoformat(before)
 
 
-def _restore(ctx: workflow.Context, row, seen):
+def _restore(ctx: workflow.Context, row: db.Row, seen: kavita_client.SeriesFile) -> None:
     """Write the carried progress, only when higher than what Kavita now holds.
 
     Unread stays unread; fully read is marked read; else the pages read, shifted by an added or dropped cover, at least
@@ -835,7 +841,7 @@ def _restore(ctx: workflow.Context, row, seen):
         log.info("%s: %s: progress %d page(s) restored", ctx.part, row["library_path"], want)
 
 
-def charge_waits(ctx: workflow.Context, waited_since, at):
+def charge_waits(ctx: workflow.Context, waited_since: str, at: str) -> int:
     """Add 1 charge to each rewritten file still not re-read whose wait began at or before waited_since.
 
     A charge is a repeated library scan request; at workflow.attempt_limit charges its row records the error. Inside
@@ -856,7 +862,7 @@ def charge_waits(ctx: workflow.Context, waited_since, at):
     return len(rows)
 
 
-def waiting(conn):
+def waiting(conn: db.Connection) -> int:
     """How many rewritten files wait for Kavita to re-read them."""
     return db.one_row(
         conn, "SELECT count(*) FROM published_file WHERE indexed_since IS NOT NULL AND pending_error IS NULL"
@@ -866,7 +872,17 @@ def waiting(conn):
 # --- naming diff
 
 
-def diff(ctx: workflow.Context, series):
+type Diff = tuple[
+    list[tuple[str, str | None, str | None, str, str | None, str | None]],
+    list[str],
+    bool,
+    list[tuple[str, str | None, str | None]],
+    list[tuple[str, str | None, float | None]],
+]
+"""diff's (queued, wants, unknown, apart, edits)."""
+
+
+def diff(ctx: workflow.Context, series: db.Row) -> Diff:
     """Return what the comparison of 1 series would do and the differences it leaves; reads no library file.
 
     (rewrites the comparison would queue: [(path, old volume, new volume, new path, cover, new title or None)], cover

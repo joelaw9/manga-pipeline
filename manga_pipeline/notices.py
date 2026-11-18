@@ -17,7 +17,7 @@ from manga_pipeline.db import sql
 KEPT = "a numbered notice title kept as a chapter"
 
 
-def title(cfg, download, number):
+def title(cfg: config.Config, download: Path, number: str) -> names.Item:
     """Parse a download's name against validate.non_chapter_names: kind NON_CHAPTER for a notice title.
 
     Its ComicInfo Number numbers it when the name has none.
@@ -26,12 +26,12 @@ def title(cfg, download, number):
     return names.parse_name(Path(download).stem, ci, cfg["validate"]["non_chapter_names"])
 
 
-def keep(pages, title_text, median):
+def keep(pages: int, title_text: str, median: float | None) -> str | None:
     """Return why a numbered notice title is a chapter (the bulk converter's rule), or None: it is a notice.
 
     median: the series' median page count, None when unknown (a drop needs a known one).
     """
-    why = []
+    why: list[str] = []
     if names.END_MARKER.search(title_text):
         why.append("end marker")
     if median is None:
@@ -41,7 +41,7 @@ def keep(pages, title_text, median):
     return ", ".join(why) or None
 
 
-def median(conn, series_id):
+def median(conn: db.Connection, series_id: int) -> float | None:
     """Return the series' median page count like with like, or None with fewer than validation.MIN_PUBLISHED files.
 
     In a page-layout series over every published file's source page count (its output's for a bulk-converter file); in
@@ -55,7 +55,7 @@ def median(conn, series_id):
         raise ValueError(msg)
     count = sql.SQL("pages_in") if row["layout"] == "strip" else sql.SQL("coalesce(pages_in, pages_out)")
     origin = sql.SQL("AND origin = 'pipeline'") if row["layout"] == "strip" else sql.SQL("")
-    counts = [
+    counts: list[int] = [
         r[0]
         for r in conn.execute(
             sql.SQL("SELECT {count} FROM published_file WHERE series_id = %s AND {count} IS NOT NULL {origin}").format(
@@ -67,12 +67,12 @@ def median(conn, series_id):
     return statistics.median(counts) if len(counts) >= validation.MIN_PUBLISHED else None
 
 
-def judge(ctx: workflow.Context, chapter):
+def judge(ctx: workflow.Context, chapter: db.Row) -> workflow.Dropped | None:
     """Judge a chapter's notice title at junk: return None to go on, Dropped for a notice.
 
     None is no notice title, or one judged a chapter: its note is written now, in its own transaction.
     """
-    notes = json.loads(chapter["notes"] or "[]")
+    notes = workflow.read_notes(chapter["notes"] or "[]")
     if any(n.startswith(KEPT) for n in notes):
         return None
     download = config.to_local(ctx.cfg, chapter["download_path"])
@@ -93,13 +93,13 @@ def judge(ctx: workflow.Context, chapter):
     return None
 
 
-def drop(ctx: workflow.Context, chapter, download):
+def drop(ctx: workflow.Context, chapter: db.Row, download: Path) -> workflow.Dropped:
     """Drop a notice: remove its download the retention way; the outcome records it as a dropped handled chapter."""
     digest = archive.digest_or_none(download)
     workflow.holds_claim(ctx, chapter)
     retention.put(ctx.cfg, download)
 
-    def record(conn):
+    def record(conn: db.Connection) -> None:
         handled.record(conn, chapter["series_id"], chapter["identity"], "dropped", digest)
 
     return workflow.Dropped(f"{download.name}: a notice, not a chapter (validate.non_chapter_names)", record)

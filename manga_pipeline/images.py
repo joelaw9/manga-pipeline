@@ -202,7 +202,9 @@ def from_loaded(im: Image.Image) -> tuple[Image.Image, bool]:
 
 def _to_srgb(im: Image.Image, profile: CmsProfile) -> Image.Image:
     """Convert im's pixels from profile to sRGB, as a new RGB image."""
-    out = ImageCms.profileToProfile(im, profile, ImageCms.createProfile("sRGB"), outputMode="RGB")
+    # Pillow's ImageCms binds its core module in a try/except (the C module, else a DeferredError), so createProfile's
+    # return type, core.CmsProfile, is Unknown to the checker.
+    out = ImageCms.profileToProfile(im, profile, ImageCms.createProfile("sRGB"), outputMode="RGB")  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
     if out is None:  # only an in-place conversion returns None
         msg = "ImageCms.profileToProfile returned no image"
         raise RuntimeError(msg)

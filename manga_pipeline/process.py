@@ -10,13 +10,13 @@ import re
 import shutil
 import time
 
-from manga_pipeline import config, errors, rewrite_covers, workflow
+from manga_pipeline import config, db, errors, rewrite_covers, workflow
 from manga_pipeline.stages import convert, junk
 
 log = logging.getLogger(__name__)
 
 
-def _convert(ctx: workflow.Context, chapter):
+def _convert(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     """Run the chapter's convert: a rewrite chapter's convert changes its file's cover (SPEC "Retroactive updates")."""
     return (rewrite_covers.convert_run if chapter["kind"] == "rewrite" else convert.run)(ctx, chapter)
 
@@ -25,12 +25,12 @@ STAGES = {"junk": junk.run, "convert": _convert}
 STAGED_KEEP_S = 24 * 3600  # a staged file no chapter names is deleted once this old
 
 
-def run(cfg, conn):
+def run(cfg: config.Config, conn: db.Connection) -> None:
     """conn: the command's connection, holding its run lock (cli.main)."""
     workflow.run_part(workflow.context(cfg, conn, "process"), work)
 
 
-def work(ctx: workflow.Context):
+def work(ctx: workflow.Context) -> None:
     """Do the part's work: remove a killed run's leftovers, end junk decision waits, then drain junk and convert."""
     with workflow.share_errors():
         clean_scratch(ctx.cfg)
@@ -39,7 +39,7 @@ def work(ctx: workflow.Context):
     workflow.drain(ctx, STAGES)
 
 
-def clean_scratch(cfg):
+def clean_scratch(cfg: config.Config) -> None:
     """Remove the chapter folders (<id>-<count>) in this machine's scratch folder and nothing else there.
 
     Junk review keeps its own folder in it. Not with lock.enabled false: another run may be using them.
@@ -54,7 +54,7 @@ def clean_scratch(cfg):
             shutil.rmtree(entry)
 
 
-def clean_staging(ctx: workflow.Context):
+def clean_staging(ctx: workflow.Context) -> None:
     """Delete a staged .cbz no chapter names, or a .cbz.part (a killed archive write's), once it is a day old.
 
     A run whose claim was freed may have left one; the owner file and anything else in the staging folder are kept. A

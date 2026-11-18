@@ -47,8 +47,6 @@ ignore = [
     "S314",                       # xml.etree on expat >= 2.4.1 resists entity expansion and resolves no external entity
     "TRY004",                     # every isinstance check validates a parsed YAML file: a value error, not a type error
     "S105",                       # every hit is a false positive (a meta key name; a fake test token)
-    # ANN phase: pending (ann-phase.md; this block shrinks to nothing)
-    "ANN",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -67,6 +65,23 @@ typeCheckingMode = "basic"
 pythonVersion = "3.13"
 pythonPlatform = "Windows"  # CI's platform; CI and the merge hook also run --pythonplatform Linux (the LXC)
 include = ["manga_pipeline", "tests", "scripts"]
+
+# The program is held to the strict reports below (CLAUDE.md, Types); tests and scripts stay basic. The first root that
+# holds a file decides its rules; each environment needs extraPaths to import the package.
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+extraPaths = ["."]
+
+[[tool.basedpyright.executionEnvironments]]
+root = "manga_pipeline"
+extraPaths = ["."]
+reportMissingTypeArgument = "error"
+reportUnknownParameterType = "error"
+reportUnknownArgumentType = "error"
+reportUnknownVariableType = "error"
+reportUnknownMemberType = "error"
+reportUnknownLambdaType = "error"
+reportExplicitAny = "error"
 
 # Import rules (lint-imports --no-cache): each contract encodes a rule CLAUDE.md or SPEC states. A new contract or
 # ignore_imports entry needs the user's approval, as a noqa does. The ignore_imports of C3 and C4 name the 1 module each

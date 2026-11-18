@@ -3,7 +3,6 @@
 Read-only: it never creates, migrates or writes the database.
 """
 
-import json
 from contextlib import closing
 from datetime import datetime
 
@@ -11,7 +10,7 @@ from manga_pipeline import config, db, kavita_link, rewrite, workflow
 from manga_pipeline.db import sql
 
 
-def run(cfg):
+def run(cfg: config.Config) -> None:
     """Print the status report; with no database built yet, say so."""
     if not db.built(cfg):
         print(f"no database {cfg['database']['name']}: no run has built it yet")
@@ -20,13 +19,13 @@ def run(cfg):
         print("\n".join(report(conn)))
 
 
-def report(conn):
+def report(conn: db.Connection) -> list[str]:
     """Return the status report as lines, read in 1 read transaction so its sections agree while a part runs."""
     with conn.transaction():  # read_only's transactions are repeatable-read: 1 snapshot
         return _report(conn)
 
 
-def _settle(row):
+def _settle(row: db.Row) -> str:
     """Return the other commands that settle a needs_human chapter at its stage (SPEC "Bad downloads")."""
     hint = ""
     if row["stage"] == "validate":
@@ -36,8 +35,8 @@ def _settle(row):
     return hint
 
 
-def _redownload(row):
-    state = json.loads(row["redownload"])
+def _redownload(row: db.Row) -> str:
+    state = workflow.read_redownload(row["redownload"])
     expected = state.get("expected")
     now = (
         f"waiting on {expected['source']} chapter {expected['chapter_id']} since {expected['enqueued_at']}"
@@ -48,7 +47,7 @@ def _redownload(row):
     return f"  chapter {row['id']} ({row['name']} / {row['identity']}): {now}; tried: {tried}"
 
 
-def _report(conn):
+def _report(conn: db.Connection) -> list[str]:
     return [
         *_chapters(conn),
         *_runs(conn),
@@ -65,16 +64,16 @@ def _report(conn):
     ]
 
 
-def _chapters(conn):
+def _chapters(conn: db.Connection) -> list[str]:
     lines = ["Chapters by stage and status:"]
     rows = conn.execute("SELECT stage, status, count(*) AS n FROM chapter GROUP BY stage, status").fetchall()
     rows.sort(key=lambda r: (workflow.STAGES.index(r["stage"]), r["status"]))
     return lines + ([f"  {r['stage']:<10} {r['status']:<12} {r['n']}" for r in rows] or ["  none"])
 
 
-def _runs(conn):
+def _runs(conn: db.Connection) -> list[str]:
     lines = ["Runs (per part and machine; last start, end, result):"]
-    runs = {}
+    runs: dict[str, dict[str, str]] = {}
     for key, value in conn.execute("SELECT key, value FROM meta WHERE key LIKE '%%.last_%%' ORDER BY key"):
         who, what = key.rsplit(".", 1)
         runs.setdefault(who, {})[what] = value
@@ -87,7 +86,7 @@ def _runs(conn):
     )
 
 
-def _claims(conn):
+def _claims(conn: db.Connection) -> list[str]:
     lines = ["Claims (by owner, oldest first, with their age):"]
     now = datetime.fromisoformat(db.now(conn))
     rows = conn.execute(
@@ -104,7 +103,7 @@ def _claims(conn):
     )
 
 
-def _waits(conn):
+def _waits(conn: db.Connection) -> list[str]:
     lines = ["Waits:"]
     rows = conn.execute(
         "SELECT waiting_on, count(*) AS n FROM chapter WHERE status = 'waiting' GROUP BY waiting_on ORDER BY waiting_on"
@@ -112,7 +111,7 @@ def _waits(conn):
     return lines + ([f"  {r['waiting_on']:<18} {r['n']}" for r in rows] or ["  none"])
 
 
-def _bulk_waits(conn):
+def _bulk_waits(conn: db.Connection) -> list[str]:
     lines = ["Series waiting on bulk_conversion:"]
     rows = conn.execute(
         """SELECT s.id, s.name, count(*) AS n FROM chapter c JOIN series s ON s.id = c.series_id
@@ -121,7 +120,7 @@ def _bulk_waits(conn):
     return lines + ([f"  {r['name']} (series {r['id']}): {r['n']} chapter(s)" for r in rows] or ["  none"])
 
 
-def _unattached(conn):
+def _unattached(conn: db.Connection) -> list[str]:
     lines = ["New series published, waiting for Kavita to list them:"]
     rows = conn.execute(
         sql.SQL("""SELECT s.id, s.comicinfo_series, MIN(h.handled_at) AS since FROM series s
@@ -133,7 +132,7 @@ def _unattached(conn):
     )
 
 
-def _rewrites(conn):
+def _rewrites(conn: db.Connection) -> list[str]:
     lines = ["Rewrites (queued, waiting for Kavita, failed):"]
     rows = conn.execute(
         """SELECT id, library_path, pending_path, pending_step, pending_error, pending_attempts, indexed_since
@@ -161,7 +160,7 @@ def _rewrites(conn):
     return lines + [_rewrite_file(r, limit) for r in rows]
 
 
-def _rewrite_file(r, limit):
+def _rewrite_file(r: db.Row, limit: int) -> str:
     """1 published file's rewrite line: failed (with its fix once given up: limit attempts), queued or waiting."""
     stuck = r["pending_path"] is None or r["pending_attempts"] >= limit
     if r["pending_error"] and not stuck:
@@ -176,7 +175,7 @@ def _rewrite_file(r, limit):
     return f"  file {r['id']} ({r['library_path']}): waiting for Kavita since {r['indexed_since']}"
 
 
-def _needs_human(conn):
+def _needs_human(conn: db.Connection) -> list[str]:
     lines = ["Needs human:"]
     series = conn.execute(
         "SELECT id, name, status_reason, origin, admitted_at FROM series WHERE status = 'needs_human' ORDER BY id"
@@ -202,7 +201,7 @@ def _needs_human(conn):
     return lines + (human or ["  none"])
 
 
-def _redownloads(conn):
+def _redownloads(conn: db.Connection) -> list[str]:
     lines = ["Re-downloads:"]
     rows = conn.execute(
         """SELECT c.id, c.identity, c.redownload, s.name FROM chapter c JOIN series s ON s.id = c.series_id
@@ -211,25 +210,28 @@ def _redownloads(conn):
     return lines + ([_redownload(r) for r in rows] or ["  none"])
 
 
-def _notes(conn):
+def _notes(conn: db.Connection) -> list[str]:
     lines = ["Chapter notes:"]
     rows = conn.execute(
         """SELECT c.id, c.identity, c.notes, s.name FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.notes IS NOT NULL ORDER BY c.id"""
     ).fetchall()
-    lines += [f"  chapter {r['id']} ({r['name']} / {r['identity']}): {'; '.join(json.loads(r['notes']))}" for r in rows]
+    lines += [
+        f"  chapter {r['id']} ({r['name']} / {r['identity']}): {'; '.join(workflow.read_notes(r['notes']))}"
+        for r in rows
+    ]
     if not rows:
         lines.append("  none")
     return lines
 
 
-def _not_taken(conn):
+def _not_taken(conn: db.Connection) -> list[str]:
     lines = ["Downloads not taken:"]
     rows = conn.execute("SELECT path, reason, first_seen FROM unmatched_download ORDER BY first_seen, path").fetchall()
     return lines + ([f"  {r['path']}: {r['reason']} (since {r['first_seen']})" for r in rows] or ["  none"])
 
 
-def _unconfirmed(conn):
+def _unconfirmed(conn: db.Connection) -> list[str]:
     lines = ["Published files never confirmed:"]
     rows = conn.execute(
         """SELECT p.library_path FROM published_file p WHERE p.state = 'unconfirmed'

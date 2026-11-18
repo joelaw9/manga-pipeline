@@ -19,7 +19,7 @@ from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.metadata import sources
 
 from tests import pg
-from tests.builders import add_chapter, add_series, adopted, config_file, download, run_part, running, site_cfg
+from tests.builders import add_chapter, add_series, adopted, config_file, download, one, run_part, running, site_cfg
 from tests.timing import budget
 from tests.world import World, cbz
 
@@ -56,10 +56,12 @@ def seeded(tmp_path):
         with db.transaction(conn):
             conn.execute("UPDATE series SET status_reason = 'source ids disagree' WHERE id = %s", (held,))
         ids = {
-            "stuck": add_chapter(conn, ok, "c1", "convert", status="needs_human", attempts=3, last_error="bad page 3"),
-            "waiting": add_chapter(conn, ok, "c2", "junk", status="waiting", waiting_on="bulk_conversion"),
-            "ready": add_chapter(conn, ok, "c3", "junk"),
-            "held": add_chapter(conn, held, "c1", "validate"),
+            "stuck": add_chapter(
+                conn, ok, "c1", "convert", status="needs_human", attempts=3, last_error="bad page 3", number=1
+            ),
+            "waiting": add_chapter(conn, ok, "c2", "junk", status="waiting", waiting_on="bulk_conversion", number=1),
+            "ready": add_chapter(conn, ok, "c3", "junk", number=1),
+            "held": add_chapter(conn, held, "c1", "validate", number=1),
         }
     return cfg, ids, ok, held
 
@@ -128,7 +130,7 @@ def test_retry_refuses_what_is_not_needs_human(tmp_path, seeded, capsys, target,
             conn.execute("UPDATE chapter SET status = 'claimed', claimed_by = 'process' WHERE id = %s", (ids["ready"],))
             conn.execute("UPDATE chapter SET status = 'ready', attempts = 0 WHERE id = %s", (ids["stuck"],))
         claimed_id = ids["ready"]
-        ready_id = add_chapter(conn, ok, "c4", "junk")
+        ready_id = add_chapter(conn, ok, "c4", "junk", number=1)
     argv = {
         "missing-chapter": ["999"],
         "ready": [str(ready_id)],
@@ -209,7 +211,7 @@ def test_share_sentinel_stops_a_part_before_any_work(tmp_path, owner):
     cfg = adopted(tmp_path)
     download(cfg, "Alpha", "ch1")
     with closing(db.connect(cfg)) as conn:
-        add_chapter(conn, add_series(conn, "Beta"), "c1", "junk")
+        add_chapter(conn, add_series(conn, "Beta"), "c1", "junk", number=1)
     sentinel = preflight.owner_file(cfg)
     if owner is None:
         sentinel.unlink()
@@ -388,7 +390,7 @@ def test_state_reset_on_a_bad_folder_layout_exits_4_and_deletes_nothing(tmp_path
     kept[1].parent.mkdir(parents=True)
     kept[1].write_bytes(b"published")
     with closing(db.connect(cfg)) as conn:
-        add_chapter(conn, add_series(conn, "Alpha"), "c1", "junk")
+        add_chapter(conn, add_series(conn, "Alpha"), "c1", "junk", number=1)
     share = config.abs_path(cfg["paths"]["staging"]).parent
     shutil.move(preflight.owner_file(cfg), share / preflight.OWNER_FILE)
     bad = {**cfg, "paths": {**cfg["paths"], "staging": str(share)}}  # the share root holds downloads and library
@@ -431,33 +433,29 @@ def test_part_without_its_downloads_folder_exits_4(tmp_path, capsys):
 
 
 @budget(load="db")
-def test_status_sections_come_from_1_snapshot(tmp_path):
+def test_status_sections_come_from_1_snapshot(tmp_path, monkeypatch):
     cfg = adopted(tmp_path)
     with closing(db.connect(cfg)) as writer:
         series = add_series(writer, "Alpha")
+        with closing(db.read_only(cfg)) as conn:
+            read, reads = conn.execute, []
 
-        class WritesAfterFirstRead:
-            """A connection a part writes through between the report's first query and the rest."""
-
-            def __init__(self, conn):
-                self.conn, self.reads = conn, 0
-
-            def transaction(self):
-                return self.conn.transaction()
-
-            def execute(self, query, *params):
-                cursor = self.conn.execute(query, *params)
-                text = query.as_string(self.conn) if isinstance(query, sql.Composable) else query
+            def execute(query, *params):
+                """Run the report's query; a part writes through another connection after its first read."""
+                cursor = read(query, *params)
+                text = query.as_string(conn) if isinstance(query, sql.Composable) else query
                 if text.lstrip().upper().startswith("SELECT"):
-                    self.reads += 1
-                    if self.reads == 1:
+                    reads.append(text)
+                    if len(reads) == 1:
                         cursor = list(cursor)
-                        add_chapter(writer, series, "c1", "junk", status="needs_human", last_error="x")
+                        add_chapter(writer, series, "c1", "junk", status="needs_human", last_error="x", number=1)
                         return _Rows(cursor)
                 return cursor
 
-        with closing(db.read_only(cfg)) as conn:
-            lines = status.report(WritesAfterFirstRead(conn))
+            monkeypatch.setattr(conn, "execute", execute)
+            lines = status.report(conn)
+        assert len(reads) > 1, "the report read through execute, so the part's write fell between its reads"
+        assert one(writer, "SELECT count(*) FROM chapter WHERE identity = 'c1'") == 1, "the part wrote mid-report"
     entries = [line for line in lines if line.startswith("  ")]
     assert entries, "a chapter written mid-report shows in no section"
     assert all(line == "  none" for line in entries), "a chapter written mid-report shows in no section"

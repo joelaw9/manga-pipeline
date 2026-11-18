@@ -35,6 +35,13 @@ from manga_pipeline.db import sql
 from manga_pipeline.metadata import check, covers
 
 
+class PublishedFile(validation.Published):
+    """A published file of the series as the checks read it, with the volume its same-chapter test reads."""
+
+    volume: str | None
+    volume_source: str | None
+
+
 class Copy(TypedDict):
     """A copy of the chapter that is rejected: its source, Suwayomi chapter (None: hand-placed) and stored path."""
 
@@ -152,7 +159,7 @@ def _phashes(text: str) -> list[str]:
 
 
 def _check(ctx: workflow.Context, chapter: db.Row, path: str) -> validation.Verdict:
-    published = [
+    published: list[PublishedFile] = [
         {
             "key": validation.chapter_key(row["identity"]),
             "page_phashes": None if row["page_phashes"] is None else _phashes(row["page_phashes"]),
@@ -184,7 +191,7 @@ def _check(ctx: workflow.Context, chapter: db.Row, path: str) -> validation.Verd
     return verdict
 
 
-def _file_key(path: Path) -> tuple[str | None, str | None, str | None]:
+def _file_key(path: Path) -> validation.ChapterKey:
     """Return (season, side label, number) of a download as discover reads it.
 
     Its name, numbered by its ComicInfo Number when the name has none.

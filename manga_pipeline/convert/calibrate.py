@@ -99,14 +99,14 @@ def _spaced[T](units: Sequence[T], n: int) -> list[T]:
     return [units[(2 * i + 1) * len(units) // (2 * n)] for i in range(n)]
 
 
-def units(chapter_plan: plan.ChapterPlan, x_dir: Path, rendered: Sequence[Path]) -> dict[str, list[Unit]]:
+def units(chapter_plan: plan.RoutedPlan, x_dir: Path, rendered: Sequence[Path]) -> dict[str, list[Unit]]:
     """Return {group: [unit]} of the pages a plan's AVIF outcome encodes.
 
     Its page files in x_dir, or its rendered PNGs when it renders, minus cover-named pages and rendered pages made from
     them (as the bulk converter's calib_units): {"path", "sha1", "class", "yuv", "fmt", "jpeg_feed", "rendered"}. Empty
     when its first outcome is not AVIF.
     """
-    if chapter_plan.outcomes[0]["outcome"] != "avif":
+    if chapter_plan.outcomes.avif is None:
         return {}
     covers = {q["name"] for q in chapter_plan.pages if q["cover"]}
     out: dict[str, list[Unit]] = {g: [] for g in plan.QUALITY_GROUPS}

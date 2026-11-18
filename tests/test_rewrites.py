@@ -280,7 +280,7 @@ def test_naming_diff_lists_the_rewrites_and_the_differences_apart(world):
     override(world, {2: "2-"})
     with closing(db.connect(world.cfg)) as conn:
         ctx = world.context(conn, "export")
-        series = conn.execute("SELECT * FROM series WHERE origin = 'kavita'").fetchone()
+        series = db.one_row(conn, "SELECT * FROM series WHERE origin = 'kavita'")
         queued, wants, unknown, apart, edits = rewrite.diff(ctx, series)
     assert queued == [
         (f"library/{SERIES}/Vol.1 Ch.2.cbz", "1", "2", f"library/{SERIES}/Vol.1 Ch.2.cbz", None, None),

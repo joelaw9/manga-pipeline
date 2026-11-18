@@ -3,19 +3,19 @@
 Per series, it takes the chapters through discover and validate.
 """
 
-from manga_pipeline import discovery, redownload, workflow
+from manga_pipeline import config, db, discovery, redownload, workflow
 from manga_pipeline.metadata import check, step
 from manga_pipeline.stages import discover, validate
 
 STAGES = {"discover": discover.run, "validate": validate.run}
 
 
-def run(cfg, conn):
+def run(cfg: config.Config, conn: db.Connection) -> None:
     """conn: the command's connection, holding its run lock (cli.main)."""
     workflow.run_part(workflow.context(cfg, conn, "intake"), work)
 
 
-def work(ctx: workflow.Context):
+def work(ctx: workflow.Context) -> None:
     """Run 1 intake pass: discover new downloads, run the metadata step, then drain each ready series' chapters.
 
     The waits for a re-download, a bulk conversion and a metadata check are ended on the way; the chapters go through

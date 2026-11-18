@@ -4,6 +4,7 @@ Routes, chroma, feeds, gates, retries, the lossless path, drops, rendered pages,
 the fakes (tests/fakes/convert.py): avifenc writes a real AVIF with Pillow, jpegtran and oxipng copy.
 """
 
+import dataclasses
 import io
 import json
 import re
@@ -77,6 +78,23 @@ def page_plan(pages) -> plan.ChapterPlan:
 )
 def test_route_per_format_mix(fmts, want):
     assert plan.route(fmts) == want, "the bulk converter's route table"
+
+
+@budget(load="pure")
+def test_a_routed_plan_keeps_every_field_of_its_plan():
+    p = page_plan([plan_page(images.JPEG), {**plan_page(images.JPEG), "name": "002.jpg"}])
+    p.name, p.edits = "routed chapter", {**p.edits, "drop": [{"page": "002.jpg"}]}
+    p.classes = {"001.jpg": images.COLOUR}
+    p.quality = {"colour": 80}
+    p.render = [{"name": "001", "parts": [("001.jpg", None)], "class": images.COLOUR, "src": ["001.jpg"], "yuv": "444"}]
+    defaults = page_plan([])
+    unset = [f.name for f in dataclasses.fields(plan.ChapterPlan) if getattr(p, f.name) == getattr(defaults, f.name)]
+    assert unset == [], "every field holds a value of its own"
+    routed = plan.routes(p)
+    kept = {f.name: getattr(routed, f.name) for f in dataclasses.fields(plan.ChapterPlan)}
+    assert kept == {f.name: getattr(p, f.name) for f in dataclasses.fields(plan.ChapterPlan)}, (
+        "routing adds the route and outcomes; the plan it routes is carried whole"
+    )
 
 
 @budget(load="pure")

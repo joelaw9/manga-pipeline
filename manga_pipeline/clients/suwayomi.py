@@ -343,7 +343,7 @@ def _data[T](reply: http.Response, read: Callable[[bytes], Reply[T]]) -> T:
 
 
 # --- readers of Suwayomi's replies, 1 per query's data shape: each takes the reply's JSON as the shape its query asks
-# for, unchecked (an approved unchecked boundary: ann-phase.md, "JSON and YAML boundaries")
+# for, unchecked (an approved unchecked boundary: CLAUDE.md, "Code standards")
 
 
 def _unread(body: bytes) -> Reply[object]:
@@ -404,11 +404,12 @@ def manga_folder(title: str) -> str:
     return valid_filename(title)
 
 
-def download_folders(manga: Manga) -> tuple[str, str] | None:
-    """(source folder, manga folder) a manga's downloads lie in under MANGAS_FOLDER; None with no source installed."""
-    if manga["source"] is None:
-        return None
-    return source_folder(manga["source"]["displayName"]), manga_folder(manga["title"])
+def download_folders(source: Source, title: str) -> tuple[str, str]:
+    """(source folder, manga folder) a manga's downloads lie in under MANGAS_FOLDER: of its installed source and title.
+
+    A manga with no source installed (Manga.source None) has no folder to rebuild.
+    """
+    return source_folder(source["displayName"]), manga_folder(title)
 
 
 def chapter_file(scanlator: str | None, name: str) -> str:

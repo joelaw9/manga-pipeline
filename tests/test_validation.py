@@ -17,11 +17,11 @@ def pages(n=3, seed=0, size=(300, 420)):
     return {f"{i:03}.jpg": jpeg(manga_page(size=size, seed=seed + i)) for i in range(1, n + 1)}
 
 
-def measured(tmp_path, members, name="m.cbz"):
-    """Published-file measurements of a CBZ built from members."""
+def measured(tmp_path, key, members, name="m.cbz") -> validation.Published:
+    """Return a published file of chapter key, with the measurements of a CBZ built from members."""
     path = cbz(tmp_path / name, members)
     m = measures.summary(images.measure_pages(path))
-    return {"page_phashes": m["page_phashes"], "strip_length": m["strip_length"]}
+    return {"key": key, "page_phashes": m["page_phashes"], "strip_length": m["strip_length"]}
 
 
 @budget(load="fs")
@@ -110,9 +110,7 @@ def test_duplicate_pages_are_kept_and_noted(tmp_path):
 
 def _series(tmp_path, n=3):
     """Write n published files of other chapters, each of 3 distinct pages."""
-    return [
-        {"key": (None, "", str(10 + i)), **measured(tmp_path, pages(seed=100 * (i + 1)), f"p{i}.cbz")} for i in range(n)
-    ]
+    return [measured(tmp_path, (None, "", str(10 + i)), pages(seed=100 * (i + 1)), f"p{i}.cbz") for i in range(n)]
 
 
 @budget(load="fs")
@@ -129,7 +127,10 @@ def test_the_mislabel_check_waits_for_3_measured_published_files_and_skips_the_s
     series = _series(tmp_path)
     copy = cbz(tmp_path / "copy.cbz", pages(seed=200))
     assert validation.check(copy, KEY, series[:2]).kind == "ok", "2 measured files are too few to judge"
-    unmeasured = [*series[:2], {"key": (None, "", "99"), "page_phashes": None, "strip_length": None}]
+    unmeasured: list[validation.Published] = [
+        *series[:2],
+        {"key": (None, "", "99"), "page_phashes": None, "strip_length": None},
+    ]
     assert validation.check(copy, KEY, unmeasured).kind == "ok", "a file with no stored measurements does not count"
     assert validation.check(copy, (None, "", "11"), series).kind == "ok", (
         "a copy of the same chapter (same season, side label and number) is not mislabelled"
@@ -141,7 +142,7 @@ def test_a_short_chapter_is_noted_and_passes(tmp_path):
     def strip(seed, height):
         return {f"{i:03}.png": png(Image.new("L", (100, height), (seed + i) % 256)) for i in range(1, 4)}
 
-    series = [{"key": (None, "", str(i)), **measured(tmp_path, strip(10 * i, 500), f"s{i}.cbz")} for i in range(3)]
+    series = [measured(tmp_path, (None, "", str(i)), strip(10 * i, 500), f"s{i}.cbz") for i in range(3)]
     short = cbz(tmp_path / "short.cbz", strip(90, 150))
     verdict = validation.check(short, KEY, series)
     assert verdict.kind == "ok", "a short chapter is published"

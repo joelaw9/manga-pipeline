@@ -15,6 +15,7 @@ from manga_pipeline import db, export, hand_edits, intake, names, process, rewri
 from manga_pipeline.metadata import naming, rewrite_plan
 
 from tests import test_better_copies as copies
+from tests.builders import db_row
 from tests.test_cover_rewrites import members, png, store_image
 from tests.test_naming_resolver import new, new_side, settled
 from tests.test_rewrite_plan import pub
@@ -214,8 +215,8 @@ def test_an_open_chapter_edited_to_its_sources_volume_keeps_their_source():
 def test_a_same_name_file_is_the_rewritten_one_only_with_the_new_title(tmp_path, held, want):
     path = tmp_path / "Vol.1 Ch.1.cbz"
     path.write_bytes(cbz(pages=2, comicinfo=comicinfo(Number=1, Volume=1, Title=held)))
-    row = {"pending_size": path.stat().st_size, "pending_volume": "1", "pending_title": "New",
-           "comicinfo_title": "Old", "comicinfo_number": "1"}  # fmt: skip
+    row = db_row(pending_size=path.stat().st_size, pending_volume="1", pending_title="New",
+                 comicinfo_title="Old", comicinfo_number="1")  # fmt: skip
     assert rewrite.is_new(path, row) is want, "a crash left the old file: same size and volume, its old title"
 
 
@@ -271,7 +272,7 @@ def test_a_disorder_the_series_already_has_does_not_block_an_edit_and_naming_dif
     world.rows("UPDATE published_file SET comicinfo_volume = '2' WHERE library_path LIKE '%%Ch.1.cbz' RETURNING id")
     edit(world, {"1": {"title": "Awakening"}})  # chapter 1 in volume 2 before chapter 2 in volume 1: not this edit's
     with closing(db.connect(world.cfg)) as conn:
-        series = conn.execute("SELECT * FROM series WHERE origin = 'kavita'").fetchone()
+        series = db.one_row(conn, "SELECT * FROM series WHERE origin = 'kavita'")
         queued, _, _, _, edits = rewrite.diff(world.context(conn, "export"), series)
     assert edits == [("1", "Awakening", None)]
     assert [(q[0], q[5]) for q in queued] == [(f"library/{SERIES}/Vol.1 Ch.1.cbz", "Awakening")]

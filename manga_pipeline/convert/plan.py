@@ -9,9 +9,9 @@ Inputs: the download's measured pages (images.measure_pages), the extracted page
 
 import json
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Literal, TypedDict, final
+from typing import Literal, NamedTuple, TypedDict, final
 
 from manga_pipeline import archive, images, strip
 from manga_pipeline.convert import pages as page_reads
@@ -207,18 +207,41 @@ class EncodedCover(TypedDict):
 type OutcomeCover = AvifCover | EncodedCover
 
 
-class Outcome(TypedDict):
-    """A planned outcome: its kind, its gate (None: always stands), the edits it applies, its cover, pages.
+class AvifOutcome(TypedDict):
+    """A planned AVIF outcome: its gate can refuse it, and a refused one moves to the plan's last outcome.
 
-    outcome "avif", "lossless" or "untouched"; gate "floor" or "floor+size"; edits "all" or "drops"; cover the volume
-    cover it inserts (None: it takes none); pages_out its expected pages, the cover included.
+    gate "floor" or "floor+size"; edits "all" or "drops"; cover the volume cover it inserts (None: it takes none);
+    pages_out its expected pages, the cover included.
     """
 
-    outcome: str
-    gate: str | None
-    edits: str
+    outcome: Literal["avif"]
+    gate: Literal["floor", "floor+size"]
+    edits: Literal["all", "drops"]
     cover: OutcomeCover | None
     pages_out: int
+
+
+class LastOutcome(TypedDict):
+    """A plan's last outcome, lossless or untouched: it has no gate, so it always stands, and applies the drops only.
+
+    cover the volume cover it inserts (None: it takes none); pages_out its expected pages, the cover included.
+    """
+
+    outcome: Literal["lossless", "untouched"]
+    gate: None
+    edits: Literal["drops"]
+    cover: OutcomeCover | None
+    pages_out: int
+
+
+type Outcome = AvifOutcome | LastOutcome  # a planned outcome
+
+
+class Outcomes(NamedTuple):
+    """A plan's outcomes in the order they are tried: its AVIF outcome (None: it has none), then its last one."""
+
+    avif: AvifOutcome | None
+    last: LastOutcome
 
 
 class EditError(ValueError):
@@ -250,14 +273,20 @@ class ChapterPlan:
     classes: dict[str, str]  # {page name: page class}
     quality: dict[str, int] = field(default_factory=dict)  # {encode group: AVIF q}, set once calibration chose it
     render: list[RenderPage] = field(default_factory=list)  # rendered pages
-    route: str | None = None
-    outcomes: list[Outcome] = field(default_factory=list)  # tried in order; a measured failure moves to the next
-    force_avif: bool = False  # the volume cover needs the chapter in AVIF (its AVIF cover passed)
 
     def kept(self) -> list[PlanPage]:
         """Return the plan's pages the edit does not drop, in order."""
         dropped = {d["page"] for d in self.edits["drop"]}
         return [q for q in self.pages if q["name"] not in dropped]
+
+
+@dataclass(kw_only=True)
+class RoutedPlan(ChapterPlan):
+    """A chapter plan with its route and outcomes (routes): what process_chapter executes."""
+
+    route: str
+    outcomes: Outcomes  # tried in order; a measured failure of the AVIF one moves to the last, which always stands
+    force_avif: bool  # the volume cover needs the chapter in AVIF (its AVIF cover passed)
 
 
 def check_edit(text: str) -> ChapterEdit:
@@ -679,8 +708,8 @@ def cover_format(fmts: Iterable[str]) -> str | None:
     return next(iter(fmts)) if fmts else images.AVIF
 
 
-def routes(plan: ChapterPlan, *, cover: VolumeCover | None = None) -> None:
-    """Set the plan's route, force_avif and outcomes.
+def routes(plan: ChapterPlan, *, cover: VolumeCover | None = None) -> RoutedPlan:
+    """Return the plan with its route, force_avif and outcomes.
 
     Each outcome a measured attempt, a failure moving to the next, with the volume cover it inserts in it ("cover": its
     format and its passed AVIF or its data; None when it takes none) and its expected pages ("pages_out", the cover
@@ -705,38 +734,66 @@ def routes(plan: ChapterPlan, *, cover: VolumeCover | None = None) -> None:
             return None
         return {"avif": avif}
 
-    def outcome(name: str, gate: str | None, edits: str, cover_fmts: Iterable[str], pages: int) -> Outcome:
-        inserted = taken(cover_fmts)
+    def pages_out(inserted: OutcomeCover | None, pages: int) -> int:
         replaced = 1 if inserted and has_cover_page else 0
+        return pages + bool(inserted) - replaced
+
+    def avif(gate: Literal["floor", "floor+size"], edits: Literal["all", "drops"], pages: int) -> AvifOutcome:
+        inserted = taken([images.AVIF])
         return {
-            "outcome": name,
+            "outcome": "avif",
             "gate": gate,
             "edits": edits,
             "cover": inserted,
-            "pages_out": pages + bool(inserted) - replaced,
+            "pages_out": pages_out(inserted, pages),
         }
 
+    def last(name: Literal["lossless", "untouched"]) -> LastOutcome:
+        inserted = taken(src)
+        return {"outcome": name, "gate": None, "edits": "drops", "cover": inserted, "pages_out": pages_out(inserted, n)}
+
     n = len(kept)
-    untouched = outcome("untouched", None, "drops", src, n)
     base = route(all_fmts)
-    plan.force_avif = not plan.render and cover is not None and cover["avif"]["ok"] and needs_conversion(src)
+    force_avif = not plan.render and cover is not None and cover["avif"]["ok"] and needs_conversion(src)
+    tried, last_kind = _outcome_kinds(plan, base, n, force_avif=force_avif)
+    outcomes = Outcomes(None if tried is None else avif(*tried), last(last_kind))
+    carried = {f.name: getattr(plan, f.name) for f in fields(ChapterPlan)}  # the plan whole: every field of it
+    return RoutedPlan(
+        **carried,
+        route=RENDERED if plan.render else "avif" if force_avif else base,
+        outcomes=outcomes,
+        force_avif=force_avif,
+    )
+
+
+type _AvifKind = tuple[
+    Literal["floor", "floor+size"], Literal["all", "drops"], int
+]  # an AVIF outcome's gate, edits, pages
+
+
+def _outcome_kinds(
+    plan: ChapterPlan, base: str, n: int, *, force_avif: bool
+) -> tuple[_AvifKind | None, Literal["lossless", "untouched"]]:
+    """Return the kind of a plan's AVIF outcome (None: it has none) and of its last one (routes).
+
+    A rendered plan: AVIF under the floor, else untouched; force_avif: the same, over the n kept pages; the avif route:
+    AVIF under the floor and the size gate, else lossless; avif-or-untouched: that AVIF, else untouched; any other
+    route: untouched.
+    """
     if plan.render:
-        plan.outcomes = [outcome("avif", "floor", "all", [images.AVIF], len(plan.render)), untouched]
-    elif plan.force_avif:
-        plan.outcomes = [outcome("avif", "floor", "drops", [images.AVIF], n), untouched]
-    elif base == "avif":
-        avif = outcome("avif", "floor+size", "drops", [images.AVIF], n)
-        plan.outcomes = [avif, outcome("lossless", None, "drops", src, n)]
-    elif base == "avif-or-untouched":
-        plan.outcomes = [outcome("avif", "floor+size", "drops", [images.AVIF], n), untouched]
-    else:
-        plan.outcomes = [untouched]
-    plan.route = RENDERED if plan.render else "avif" if plan.force_avif else base
+        return ("floor", "all", len(plan.render)), "untouched"
+    if force_avif:
+        return ("floor", "drops", n), "untouched"
+    if base == "avif":
+        return ("floor+size", "drops", n), "lossless"
+    if base == "avif-or-untouched":
+        return ("floor+size", "drops", n), "untouched"
+    return None, "untouched"
 
 
-def avif_groups(plan: ChapterPlan) -> list[str]:
-    """Return the encode groups of the pages a plan's AVIF outcome encodes, sorted; [] when its first is not AVIF."""
-    if plan.outcomes[0]["outcome"] != "avif":
+def avif_groups(plan: RoutedPlan) -> list[str]:
+    """Return the encode groups of the pages a plan's AVIF outcome encodes, sorted; [] when it has none."""
+    if plan.outcomes.avif is None:
         return []
     if plan.render:
         yuvs = {r["yuv"] for r in plan.render}

@@ -227,9 +227,7 @@ def test_series_link_refuses_the_manga_of_an_admitted_new_series(world):
     world.download(manga, "Chapter 1")
     world.run(intake)
     with closing(db.connect(world.cfg)) as conn, pytest.raises(workflow.Refused, match="admitted"):
-        identify.link(
-            world.cfg, conn, world.kavita, kavita_id, identify.link_subject(world.cfg, world.suwayomi, manga_id=manga)
-        )
+        identify.link(world.cfg, conn, world.kavita, kavita_id, identify.manga_link_subject(world.suwayomi, manga))
 
 
 @budget(load="db", seconds=2)
@@ -241,7 +239,7 @@ def test_linking_a_held_new_series_moves_its_human_ids(world):
     ((held,),) = world.rows("SELECT id FROM series WHERE origin = 'new'")
     with closing(db.connect(world.cfg)) as conn:
         conn.execute("INSERT INTO series_source_id VALUES (%s, 'anilist', 'human', '7')", (held,))
-        subject = identify.link_subject(world.cfg, world.suwayomi, manga_id=manga)
+        subject = identify.manga_link_subject(world.suwayomi, manga)
         target = identify.link(world.cfg, conn, world.kavita, kavita_id, subject)
     assert world.rows("SELECT series_id, source_id FROM series_source_id WHERE origin = 'human'") == [(target, "7")]
     assert world.rows("SELECT count(*) FROM series WHERE id = %s", held) == [(0,)], "the held row is merged away"

@@ -306,6 +306,14 @@ def test_comicinfo_number_numbers_a_chapter_whose_name_has_none(world):
 
 
 @budget(load="db")
+def test_discover_writes_the_number_its_comicinfo_gives_beside_the_identity(world):
+    chapter_id, _ = discovered(world, "Oneshot", data=cbz(comicinfo=comicinfo(Number="12.5")))
+    assert world.rows("SELECT number FROM chapter") == [(None,)], "no number before discover settles it"
+    assert isinstance(run_stage(world, chapter_id), workflow.Done)
+    assert world.rows("SELECT stage, number FROM chapter") == [("validate", 12.5)], "the ComicInfo Number, as a float"
+
+
+@budget(load="db")
 def test_a_chapter_with_no_number_needs_a_human_at_once(world):
     chapter_id, _ = discovered(world, "Oneshot")
     run_stage(world, chapter_id)

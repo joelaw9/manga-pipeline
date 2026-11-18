@@ -7,7 +7,7 @@ from typing import TypedDict, Unpack
 
 import yaml
 
-from manga_pipeline import config, db, fleet, lock, state, workflow
+from manga_pipeline import config, db, fleet, lock, names, state, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import episodes, platforms
 from manga_pipeline.metadata.records import SeriesRecords
@@ -224,6 +224,15 @@ def config_file(tmp_path, cfg):
     return path
 
 
+def loaded_cfg(tmp_path, data) -> config.Config:
+    """Return data (a whole config as plain mappings) written as a config file and loaded as config.load loads one.
+
+    For values the example's check leaves open, which config.Config does not describe: a secret's of any type, a
+    mapping's contents, a list's elements (an unquoted number in series.only, say).
+    """
+    return config.load(config_file(tmp_path, data))
+
+
 def adopted(tmp_path, **changes):
     """site_cfg with its database built and owning the share."""
     cfg = site_cfg(tmp_path, **changes)
@@ -253,9 +262,12 @@ def add_series(conn, name, origin="new", status="ok", kavita_library_id=None):
 def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None, **columns):
     """Add a ready chapter at stage (discovered_at defaults to now).
 
-    columns set other chapter columns (download_path among them) as given.
+    columns set other chapter columns (download_path among them) as given; a chapter past discover carries its number:
+    columns' number=, else its identity's (identity_number).
     """
     stamp = discovered_at or workflow.now(conn)
+    if stage != "discover" and "number" not in columns:
+        columns = {"number": identity_number(identity), **columns}
     with db.transaction(conn):
         chapter_id = one(
             conn,
@@ -269,6 +281,11 @@ def add_chapter(conn, series_id, identity, stage="discover", discovered_at=None,
                 sql.SQL("UPDATE chapter SET {} WHERE id = %s").format(assignments), (*columns.values(), chapter_id)
             )
     return chapter_id
+
+
+def identity_number(identity):
+    """Return the number discover writes with an identity (names.identity's); a download past discover has one."""
+    return float(present(names.read_identity(identity)[3]))
 
 
 def chapter(conn, chapter_id):

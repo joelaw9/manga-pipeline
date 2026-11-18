@@ -142,14 +142,14 @@ def test_new_chapter_of_a_known_series_is_worked_next(site, monkeypatch):
     with closing(db.connect(cfg)) as conn:
         big = add_series(conn, "Big new series", "new")
         for n in range(50):
-            add_chapter(conn, big, f"big{n:02}", "junk", "2026-01-01T00:00:00+00:00")
+            add_chapter(conn, big, f"big{n:02}", "junk", "2026-01-01T00:00:00+00:00", number=1)
         known = add_series(conn, "Ongoing", "kavita")
     order = []
 
     def recording_junk(ctx, chapter):
         order.append(chapter["identity"])
         if len(order) == 1:  # the new chapter arrives while process works the big series
-            add_chapter(ctx.conn, known, "ongoing-ch9", "junk")
+            add_chapter(ctx.conn, known, "ongoing-ch9", "junk", number=1)
         return workflow.Done()
 
     monkeypatch.setitem(process.STAGES, "junk", recording_junk)
@@ -166,7 +166,7 @@ def test_out_of_scope_series_is_untouched_by_every_part(tmp_path, monkeypatch):
     outside = site.download("Beta", 2)
     with closing(db.connect(site.cfg)) as conn:
         beta = add_series(conn, "Beta")
-        seeded = {stage: add_chapter(conn, beta, f"seed-{stage}", stage) for stage in workflow.STAGES}
+        seeded = {stage: add_chapter(conn, beta, f"seed-{stage}", stage, number=1) for stage in workflow.STAGES}
     before = rows(site.cfg, "SELECT * FROM chapter WHERE series_id = %s", beta)
     site.run_all()
     assert published(site.cfg) == ["Alpha/Ch.2.cbz"]

@@ -14,7 +14,7 @@ import json
 import logging
 import shutil
 import time
-from collections.abc import Callable, Container, Iterable, Mapping
+from collections.abc import Callable, Container, Iterable
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -75,6 +75,16 @@ def folder_name(series_key: str, kind: str, key: str, chapter: db.Row) -> str:
     """
     unit = hashlib.sha1(f"{series_key}|{kind}|{key}".encode(), usedforsecurity=False).hexdigest()[:16]
     return f"{unit}-{workflow.claim_name(chapter)}"
+
+
+class CandidateInfo(TypedDict):
+    """A candidate folder's info.json: its series key, kind, reason, OCR text and how many chapters show it."""
+
+    series: str
+    kind: str
+    reason: str
+    text: str
+    chapters: int
 
 
 def folder(cfg: config.Config, name: str) -> Path:
@@ -366,7 +376,7 @@ def _fit(im: Image.Image, width: int = UNIT_WIDTH) -> Image.Image:
 
 
 def write_images(
-    cfg: config.Config, name: str, unit_im: Image.Image, context_im: Image.Image, info: Mapping[str, object]
+    cfg: config.Config, name: str, unit_im: Image.Image, context_im: Image.Image, info: CandidateInfo
 ) -> Path:
     """Write a candidate's folder: unit.png, context.png, info.json (reason, OCR text, chapters).
 
@@ -380,3 +390,8 @@ def write_images(
     images.save_png(_fit(context_im), dest / "context.png")
     (dest / "info.json").write_bytes(json.dumps(info, ensure_ascii=False, indent=1).encode("utf-8"))
     return dest
+
+
+def read_info(dest: Path) -> CandidateInfo:
+    """Return a candidate folder's info.json (write_images'). Unchecked."""
+    return json.loads((dest / "info.json").read_bytes())

@@ -14,7 +14,7 @@ from manga_pipeline import names, volumes
 from manga_pipeline.metadata import naming, platforms
 
 HELD, STALE = "volume:", "stale:"  # cover_state prefixes: the volume's current image, an old one
-type CoverAct = tuple[Literal["insert"], str] | tuple[Literal["drop"], None]  # cover_changes' act on 1 file
+type CoverAct = tuple[Literal["insert"], float] | tuple[Literal["drop"], None]  # cover_changes' act on 1 file
 
 
 def changes(
@@ -193,10 +193,11 @@ def cover_changes(
     fids = {i: fid for i, r in enumerate(rows) if (fid := _file_id(r)) is not None and r.kind == names.MAIN}
     published = sorted(fids, key=lambda i: (rows[i].number, rows[i].order))
     volume = {fids[i]: _fmt(rows[i].volume) for i in published}
+    number = {fids[i]: rows[i].volume for i in published}
     homes = _cover_homes(volume, covered, taken, states)
     out: dict[int, CoverAct] = {}
     for fid, vol in volume.items():
-        act = _cover_act(states[fid], vol, homes.get(fid), images)
+        act = _cover_act(states[fid], (vol, number[fid]), homes.get(fid), images)
         if act is not None:
             out[fid] = act
     return out
@@ -204,33 +205,39 @@ def cover_changes(
 
 def _cover_homes(
     volume: Mapping[int, str], covered: Iterable[float], taken: AbstractSet[str], states: Mapping[int, str]
-) -> dict[int, str]:
-    """Return {file id: volume text} of the files that should get a covered volume's cover.
+) -> dict[int, tuple[str, float]]:
+    """Return {file id: (volume text, volume)} of the files that should get a covered volume's cover.
 
     The volume's first file (volume: {file id: volume text} in number order), unless an open chapter took the volume's
     cover or one of its files holds it already (its current image or an old one).
     """
-    homes: dict[int, str] = {}
-    for v in map(_fmt, covered):
+    homes: dict[int, tuple[str, float]] = {}
+    for n in covered:
+        v = _fmt(n)
         files = [fid for fid, vol in volume.items() if vol == v]
         holds = (_cover_of(states[fid], prefix) for fid in files for prefix in (HELD, STALE))
         if v in taken or not files or v in holds:
             continue
-        homes[files[0]] = v
+        homes[files[0]] = (v, n)
     return homes
 
 
-def _cover_act(state: str, volume: str, home: str | None, images: Mapping[str, str]) -> CoverAct | None:
-    """Return ("insert", volume) | ("drop", None) | None of 1 published file in volume (text) with cover state state.
+def _cover_act(
+    state: str, own: tuple[str, float | None], home: tuple[str, float] | None, images: Mapping[str, str]
+) -> CoverAct | None:
+    """Return ("insert", volume) | ("drop", None) | None of 1 published file with cover state state.
 
-    home: the covered volume whose cover it should get (_cover_homes), else None.
+    own: the file's volume (text, and its number: None for no volume); home: the covered volume whose cover it should
+    get (_cover_homes), else None.
     """
     held, stale = _cover_of(state, HELD), _cover_of(state, STALE)
+    volume, number = own
     if home is not None:
-        unfit = home in images and state == f"unfit:{images[home]}"
-        return ("insert", home) if held != home and not unfit else None
-    if stale is not None and stale == volume and stale in images:
-        return ("insert", stale)  # its volume's new image replaces the old one
+        unfit = home[0] in images and state == f"unfit:{images[home[0]]}"
+        return ("insert", home[1]) if held != home[0] and not unfit else None
+    # a file with no volume ("") has no image: images holds whole volumes' only
+    if stale is not None and number is not None and stale == volume and stale in images:
+        return ("insert", number)  # its volume's new image replaces the old one
     if (held is not None and held != volume) or stale is not None:
         return ("drop", None)  # another volume's cover (an old image included)
     return None

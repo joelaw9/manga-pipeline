@@ -11,7 +11,8 @@ import logging
 import shutil
 import zipfile
 from collections import Counter
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+from typing import TypedDict
 
 from manga_pipeline import archive, config, db, images, names, workflow
 from manga_pipeline.convert import covers, plan, record_reader
@@ -21,12 +22,59 @@ log = logging.getLogger(__name__)
 NONE = "none"
 
 
-def held(state):
+class EncodedPage(covers.InsertedCover):
+    """The cover page _encode made: what covers.insert wrote, its bytes and its size."""
+
+    data: bytes
+    width: int
+    height: int
+
+
+class InsertedPage(covers.InsertedCover):
+    """The cover a rewrite's convert put in (its encoded page less its bytes) and the volume it is the cover of."""
+
+    width: int
+    height: int
+    volume: str | None
+
+
+class _Result(TypedDict):
+    """What every rewrite convert_result holds: why no cover was put in, the dropped cover's index, the new state."""
+
+    cover_skipped: str | None
+    dropped_index: int | None
+    cover_state: str
+
+
+class CoverPut(_Result):
+    """A rewrite convert_result whose convert put a cover in: the cover, and its index among the file's pages."""
+
+    cover: InsertedPage
+    inserted_index: int
+
+
+class NoCoverPut(_Result):
+    """A rewrite convert_result whose convert put no cover in."""
+
+    cover: None
+    inserted_index: None
+
+
+type RewriteResult = CoverPut | NoCoverPut
+"""A rewrite chapter's convert_result (JSON): the cover put in and its index are both there or both None."""
+
+
+def read_result(text: str) -> RewriteResult:
+    """Return a rewrite chapter's convert_result (JSON text). Unchecked."""
+    return json.loads(text)
+
+
+def held(state: str | None) -> str | None:
     """Return the volume (as text, "" for a file with no volume) whose cover a cover_state holds, or None."""
     return state.removeprefix("volume:") if state and state.startswith("volume:") else None
 
 
-def cover_volume(state):
+def cover_volume(state: str | None) -> str | None:
     """Return the volume (as text, "" for a file with no volume) whose cover page a cover_state says the file holds.
 
     The page is the volume's current image (volume:V) or an old one (stale:V: MangaDex had a new one since); None for
@@ -38,7 +86,7 @@ def cover_volume(state):
     return None
 
 
-def current_state(conn, chapter_id, series_id, state):
+def current_state(conn: db.Connection, chapter_id: int, series_id: int, state: str) -> str:
     """Return a published chapter's cover_state (state: "volume:<V>" when it took volume V's cover).
 
     "stale:<V>" when the image it took is no longer the series' stored image of V (MangaDex had a new one since). Read
@@ -55,7 +103,7 @@ def current_state(conn, chapter_id, series_id, state):
     return f"stale:{volume}" if took and now and took[0] != now[0] else state
 
 
-def is_cover(name):
+def is_cover(name: str) -> bool:
     """Return whether an archive member name is a cover page: its stem is archive.COVER_STEM, in any case."""
     return PurePosixPath(name).stem.lower() == archive.COVER_STEM
 
@@ -63,7 +111,7 @@ def is_cover(name):
 # --- what a published file holds
 
 
-def fill_states(ctx: workflow.Context, series):
+def fill_states(ctx: workflow.Context, series: db.Row) -> bool:
     """Fill the cover_state of the series' published files that have none.
 
     A bulk file's from its series' record (the output covers.volumes names for each volume), a pipeline file's from its
@@ -91,9 +139,9 @@ def fill_states(ctx: workflow.Context, series):
     return True
 
 
-def _read_states(cfg, series, rows):
-    out = []
-    by_output = None
+def _read_states(cfg: config.Config, series: db.Row, rows: list[db.Row]) -> list[tuple[str, int]]:
+    out: list[tuple[str, int]] = []
+    by_output: dict[str, str | None] | None = None
     for r in rows:
         if r["origin"] == "bulk":
             if by_output is None:
@@ -112,7 +160,7 @@ def _read_states(cfg, series, rows):
 # --- the rewrite chapter's convert
 
 
-def convert_run(ctx: workflow.Context, chapter):
+def convert_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workflow.Dropped:
     """Copy the library file's members in order byte for byte to staging, its cover left out, a new cover put in first.
 
     The new cover is encoded as a new chapter's is. An insert that cannot be made into a file that holds no cover and
@@ -130,7 +178,8 @@ def convert_run(ctx: workflow.Context, chapter):
     holds = dropped is not None
     kept = [m for m in members if not is_cover(m[0])]
     state = NONE if holds or cover_volume(file["cover_state"]) is not None else file["cover_state"]  # unfit stays
-    inserted, why = None, None
+    inserted: EncodedPage | None = None
+    why: str | None = None
     row_volume = None if cover_row is None else cover_row["volume"]
     if cover_row is not None:
         scratch = config.abs_path(cfg["paths"]["scratch"]) / workflow.claim_name(chapter)
@@ -155,15 +204,33 @@ def convert_run(ctx: workflow.Context, chapter):
     except BaseException:
         staged.unlink(missing_ok=True)
         raise
-    result = {
-        "cover": inserted and {k: v for k, v in inserted.items() if k != "data"} | {"volume": row_volume},
-        "cover_skipped": why,
-        "dropped_index": dropped,
-        "inserted_index": inserted and archive.archive_pages([n for n, _ in entries]).index(inserted["name"]),
-        "cover_state": state,
-    }
+    result: RewriteResult
+    if inserted is None:
+        result = {
+            "cover": None,
+            "cover_skipped": why,
+            "dropped_index": dropped,
+            "inserted_index": None,
+            "cover_state": state,
+        }
+    else:
+        result = {
+            "cover": {
+                "name": inserted["name"],
+                "format": inserted["format"],
+                "score": inserted["score"],
+                "bytes": inserted["bytes"],
+                "width": inserted["width"],
+                "height": inserted["height"],
+                "volume": row_volume,
+            },
+            "cover_skipped": why,
+            "dropped_index": dropped,
+            "inserted_index": archive.archive_pages([n for n, _ in entries]).index(inserted["name"]),
+            "cover_state": state,
+        }
 
-    def record(c):
+    def record(c: db.Connection) -> None:
         c.execute(
             "UPDATE chapter SET staged_path = %s, staged_size = %s, convert_result = %s WHERE id = %s",
             (config.to_stored(cfg, staged), size, json.dumps(result), chapter["id"]),
@@ -176,11 +243,13 @@ def convert_run(ctx: workflow.Context, chapter):
     return workflow.Done(record)
 
 
-def _set_state(conn, file_id, state):
+def _set_state(conn: db.Connection, file_id: int, state: str) -> None:
     conn.execute("UPDATE published_file SET cover_state = %s WHERE id = %s", (state, file_id))
 
 
-def _encode(cfg, data, kept, scratch):
+def _encode(
+    cfg: config.Config, data: bytes, kept: list[tuple[str, bytes, int]], scratch: Path
+) -> tuple[EncodedPage, None] | tuple[None, str]:
     """Encode the cover page for the file's pages: (the page, None), or (None, why).
 
     The page is {name, data, format, score, width, height, bytes}. Scaled to the most common width of the pages, in the
@@ -211,12 +280,12 @@ def _encode(cfg, data, kept, scratch):
     return {**got, "data": cover, "width": w, "height": h}, None
 
 
-def _size(data):
+def _size(data: bytes) -> tuple[int, int]:
     """(width, height) of an image's bytes: from its header, else by decoding it."""
     return images.dimensions(data) or images.open_image(data)[0].size
 
 
-def _check(staged, kept, inserted):
+def _check(staged: Path, kept: list[tuple[str, bytes, int]], inserted: EncodedPage | None) -> None:
     """Every copied member's CRC is the source's; the cover decodes in its format."""
     with zipfile.ZipFile(staged) as z:
         got = {i.filename: i.CRC for i in z.infolist()}
@@ -231,7 +300,7 @@ def _check(staged, kept, inserted):
 # --- the Page entries
 
 
-def shift_pages(entries, result):
+def shift_pages(entries: list[dict[str, str]], result: RewriteResult) -> list[dict[str, str]]:
     """Return the old file's Page entries after convert's cover change (result: its convert_result).
 
     A dropped cover's entry goes and those after it take 1 off; an inserted cover adds a FrontCover entry at its place
@@ -246,13 +315,14 @@ def shift_pages(entries, result):
         for e in out:
             if int(e["Image"]) > gone:
                 e["Image"] = str(int(e["Image"]) - 1)
-    cover = result["cover"]
-    if cover:
-        at = result["inserted_index"]
-        for e in out:
-            if int(e["Image"]) >= at:
-                e["Image"] = str(int(e["Image"]) + 1)
-        front = {"Image": str(at), "Type": "FrontCover", "ImageSize": str(cover["bytes"])}
-        front |= {"ImageWidth": str(cover["width"]), "ImageHeight": str(cover["height"])}
-        out.insert(next((i for i, e in enumerate(out) if int(e["Image"]) > at), len(out)), front)
+    match result:
+        case {"cover": None}:
+            pass
+        case {"cover": cover, "inserted_index": at}:
+            for e in out:
+                if int(e["Image"]) >= at:
+                    e["Image"] = str(int(e["Image"]) + 1)
+            front = {"Image": str(at), "Type": "FrontCover", "ImageSize": str(cover["bytes"])}
+            front |= {"ImageWidth": str(cover["width"]), "ImageHeight": str(cover["height"])}
+            out.insert(next((i for i, e in enumerate(out) if int(e["Image"]) > at), len(out)), front)
     return out

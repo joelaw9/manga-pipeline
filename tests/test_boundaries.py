@@ -1,4 +1,4 @@
-"""JSON and YAML loads stay in their listed readers (ann-phase.md, "JSON and YAML boundaries").
+"""JSON and YAML loads stay in their listed readers (CLAUDE.md, "Code standards").
 
 A load (json.load, json.loads, json.JSONDecoder, a yaml loader, any .json() call) returns an untyped value; only the
 readers listed here may hold one, so every other function gets a typed shape from a reader. A load is any reference to
@@ -28,8 +28,6 @@ LOADS = {
 
 # (module path below manga_pipeline/, enclosing function) of every load allowed; "" for module level.
 READERS = {
-    ("baseline.py", "_fill_naming"),
-    ("cli.py", "junk_show"),
     ("clients/kavita.py", "_authenticated"),
     ("clients/kavita.py", "_libraries"),
     ("clients/kavita.py", "_metadata"),
@@ -52,7 +50,8 @@ READERS = {
     ("convert/plan.py", "read_page_aspect"),
     ("convert/record_reader.py", "decisions"),
     ("convert/record_reader.py", "load"),
-    ("fleet.py", "problem"),
+    ("junk/candidates.py", "read_info"),
+    ("fleet.py", "_read_digest"),
     ("hand_edits.py", "load"),
     ("junk/review_run.py", "_reply"),
     ("metadata/importer.py", "read_overrides"),
@@ -73,22 +72,15 @@ READERS = {
     ("metadata/sources.py", "_webtoons_page"),
     ("metadata/tags.py", "load"),
     ("names.py", "read_identity"),
-    ("notices.py", "judge"),
-    ("redownload.py", "_parsed"),
-    ("redownload.py", "load"),
-    ("redownload.py", "pick_chapter"),
-    ("rewrite.py", "comicinfo_run"),
-    ("rewrite.py", "publish_run"),
+    ("rewrite_covers.py", "read_result"),
     ("stages/convert.py", "read_output_pages"),
     ("stages/convert.py", "read_result"),
     ("stages/junk.py", "_candidate_ids"),
     ("stages/junk.py", "read_scan"),
     ("stages/validate.py", "_phashes"),
-    ("status.py", "_notes"),
-    ("status.py", "_redownload"),
-    ("validation.py", "chapter_key"),
     ("volumes.py", "override_file"),
     ("workflow.py", "read_redownload"),
+    ("workflow.py", "read_notes"),
 }
 
 

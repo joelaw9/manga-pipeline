@@ -219,7 +219,7 @@ def test_a_stale_file_of_its_volume_takes_the_new_image_and_one_of_another_volum
     states_ = {1: "none", 2: "stale:2", 3: "stale:2", 4: "none"}
     covered = naming.covered_volumes("override", rows, {1: "1-2", 2: "3-"}, {})
     got = rewrite_plan.cover_changes(rows, covered, states=states_, taken=set(), images={"1": "x", "2": "y"})
-    assert got == {1: ("insert", "1"), 2: ("drop", None), 3: ("insert", "2")}, (
+    assert got == {1: ("insert", 1), 2: ("drop", None), 3: ("insert", 2)}, (
         "the stale holder in volume 2 takes the new image (not file 4); the stale file in volume 1 drops it"
     )
 

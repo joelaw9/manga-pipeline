@@ -594,9 +594,6 @@ def needs_human(conn: db.Connection, kind: Literal["chapter", "series"], item_id
         )
     elif kind == "series":
         conn.execute("UPDATE series SET status = 'needs_human', status_reason = %s WHERE id = %s", (reason, item_id))
-    else:
-        msg = f"needs_human: kind must be chapter or series, got {kind!r}"
-        raise ValueError(msg)
     log.warning("needs human: %s %s: %s", kind, item_id, reason)  # Phase 8 adds the Discord message
 
 
@@ -774,6 +771,11 @@ type RedownloadState = PersonChoice | Redownload  # chapter.redownload, told apa
 
 def read_redownload(text: str) -> RedownloadState:
     """Return a chapter's re-download state (chapter.redownload, JSON text). Unchecked."""
+    return json.loads(text)
+
+
+def read_notes(text: str) -> list[str]:
+    """Return a chapter's notes (chapter.notes, JSON text: a list of notes). Unchecked."""
     return json.loads(text)
 
 

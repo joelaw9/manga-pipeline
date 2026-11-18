@@ -332,7 +332,7 @@ def from_config(cfg: config.Config) -> Kavita:
 
 
 # --- readers of Kavita's replies: each takes the reply's JSON as the shape Kavita sends, unchecked (an approved
-# unchecked boundary: ann-phase.md, "JSON and YAML boundaries")
+# unchecked boundary: CLAUDE.md, "Code standards")
 
 
 def _authenticated(body: bytes) -> Authenticated:

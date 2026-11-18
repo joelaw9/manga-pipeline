@@ -5,11 +5,14 @@ Kavita's name normalising and whose folder is the series' folder. Each series is
 """
 
 import logging
+from collections.abc import Sequence
+from pathlib import Path
 
 from manga_pipeline import config, db, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
 from manga_pipeline.db import sql
+from manga_pipeline.replies import kavita as kavita_replies
 
 log = logging.getLogger(__name__)
 
@@ -19,7 +22,7 @@ UNATTACHED = sql.SQL("""s.origin = 'new' AND s.admitted_at IS NOT NULL AND s.kav
     AND EXISTS (SELECT 1 FROM published_file p WHERE p.series_id = s.id)""")
 
 
-def library_folder(cfg, folder):
+def library_folder(cfg: config.Config, folder: str | Path) -> str:
     """Return a Kavita series folder in stored form; PathError unless it lies under paths.library (SPEC "State")."""
     stored = config.to_stored(cfg, folder)
     if stored.split("/", 1)[0] != "library":
@@ -28,14 +31,14 @@ def library_folder(cfg, folder):
     return stored
 
 
-def listing(ctx: workflow.Context):
+def listing(ctx: workflow.Context) -> list[kavita_replies.Series]:
     """Return the library's series (`series_in_library`, unfiltered), read once per run."""
     if ctx.kavita_cache.listing is None:
         ctx.kavita_cache.listing = ctx.kavita.series_in_library(ctx.cfg["kavita"]["library_id"])
     return ctx.kavita_cache.listing
 
 
-def attach(ctx: workflow.Context, series_id, rows):
+def attach(ctx: workflow.Context, series_id: int, rows: Sequence[kavita_replies.Series]) -> int | None:
     """Return the series' Kavita id.
 
     The stored one, else the one found among rows (the library's listing) and stored, else None (not an unattached
@@ -63,7 +66,7 @@ def attach(ctx: workflow.Context, series_id, rows):
     return tried[series_id]
 
 
-def attach_all(ctx: workflow.Context, rows):
+def attach_all(ctx: workflow.Context, rows: Sequence[kavita_replies.Series]) -> set[str]:
     """Run attach on every unattached series in scope.
 
     Returns the normalised names of those still unattached: a listed series so named may be one of them, and is not a
@@ -86,7 +89,7 @@ def attach_all(ctx: workflow.Context, rows):
     return {normalize(r[0]) for r in left if normalize(r[0])}
 
 
-def _find(ctx: workflow.Context, series, rows):
+def _find(ctx: workflow.Context, series: db.Row, rows: Sequence[kavita_replies.Series]) -> kavita_replies.Series | None:
     conn, key = ctx.conn, normalize(series["comicinfo_series"])
     held = {r[0] for r in conn.execute("SELECT kavita_series_id FROM series WHERE kavita_series_id IS NOT NULL")}
     for kseries in rows:

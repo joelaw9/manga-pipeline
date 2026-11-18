@@ -509,7 +509,7 @@ def write_images(ctx: workflow.Context, chapter: db.Row, key: str, picks: Sequen
                 unit_im, context_im = _strip_images(content, paths, sizes, unit)
             else:  # a page unit: an edge page or frame, or a band
                 unit_im, context_im = _page_images(paths, unit)
-            info: dict[str, str | int] = {
+            info: candidates.CandidateInfo = {
                 "series": key,
                 "kind": p["kind"],
                 "reason": p["reason"],

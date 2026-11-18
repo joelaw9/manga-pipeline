@@ -64,7 +64,7 @@ class Fleet:
         if folder:
             with db.transaction(self.conn):
                 self.conn.execute("UPDATE series SET folder = %s WHERE id = %s", (folder, series_id))
-        return series_id, [add_chapter(self.conn, series_id, f"c{i}", "junk") for i in range(chapters)]
+        return series_id, [add_chapter(self.conn, series_id, f"c{i}", "junk", number=1) for i in range(chapters)]
 
     def row(self, chapter_id):
         """Return the chapter's row, read on the test's own connection."""
@@ -224,7 +224,7 @@ def test_a_lost_claim_neither_notes_a_kept_notice_nor_puts_a_dropped_one_aside(f
             (stale["series_id"],),
         )
         page_store.save(fleet.conn, stale["id"], images.measure_pages(download))
-    stale = {**dict(zip(stale.keys(), stale, strict=True)), "download_path": config.to_stored(cfg, download)}
+    stale = db_row(**{**dict(zip(stale.keys(), stale, strict=True)), "download_path": config.to_stored(cfg, download)})
     with pytest.raises(workflow.ClaimLost):
         notices.judge(a, stale)  # an end marker keeps it as a chapter, with a note
     assert fleet.row(stale["id"])["notes"] is None, "no note is written under a lost claim"

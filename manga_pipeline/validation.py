@@ -3,12 +3,14 @@
 Reads the file; writes nothing.
 """
 
-import json
 import statistics
 from collections import Counter
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Literal, TypedDict
 
-from manga_pipeline import archive, images, measures
+from manga_pipeline import archive, images, measures, names
 
 MISLABEL_HAMMING = 6  # pHash bits: the old integrity.flag_mislabelled threshold
 MISLABEL_SHARE = 0.90  # of a chapter's non-blank pages
@@ -18,17 +20,31 @@ UNDECODABLE_FORMATS = {images.UNKNOWN, images.JXL}  # no decoder here: an unknow
 ROTATED = range(2, 9)  # EXIF orientations that turn or mirror a page; 1 is upright, 0 and others read as upright
 
 
+type ChapterKey = tuple[str | None, str | None, str | None]
+"""A chapter's (season, side label, number): chapter_key's."""
+
+
+class Published(TypedDict):
+    """What the checks read of a published file of the series: its chapter key and its measurements."""
+
+    key: ChapterKey
+    page_phashes: list[str] | None
+    strip_length: int | None
+
+
 @dataclass(frozen=True)
 class Verdict:
     """kind: "ok" (pages and notes hold), "bad" (a bad download: re-download), "human" (needs a person)."""
 
-    kind: str
+    kind: Literal["ok", "bad", "human"]
     reason: str = ""
-    pages: list = field(default_factory=list)
-    notes: list = field(default_factory=list)
+    pages: list[images.MeasuredPage] = field(default_factory=list[images.MeasuredPage])
+    notes: list[str] = field(default_factory=list[str])
 
 
-def check(cbz, key, published, same=lambda _p: True):
+def check[P: Published](
+    cbz: Path, key: ChapterKey, published: Sequence[P], same: Callable[[P], bool] = lambda _p: True
+) -> Verdict:
     """Return the verdict on a download.
 
     key: its (season, side label, number); published: the series' published files as [{key, page_phashes (list or
@@ -54,7 +70,7 @@ def check(cbz, key, published, same=lambda _p: True):
     return Verdict("ok", pages=pages, notes=_duplicates(pages) + _short(pages, published))
 
 
-def _page_bytes(members):
+def _page_bytes(members: list[tuple[str, bytes]]) -> Verdict | None:
     """Return the verdict on the first page that is empty (bad) or in a format nothing here decodes (human), else None.
 
     Bad for an archive with no pages.
@@ -70,7 +86,7 @@ def _page_bytes(members):
     return None
 
 
-def _rotated(members):
+def _rotated(members: list[tuple[str, bytes]]) -> str | None:
     """Why the first page whose EXIF orientation turns or mirrors it is not upright, or None."""
     for name, data in members:
         orientation = images.exif_orientation(data)
@@ -79,17 +95,19 @@ def _rotated(members):
     return None
 
 
-def _hamming(a, b):
+def _hamming(a: str, b: str) -> int:
     return (int(a, 16) ^ int(b, 16)).bit_count()
 
 
-def _mislabelled(pages, key, published, same):
+def _mislabelled[P: Published](
+    pages: list[images.MeasuredPage], key: ChapterKey, published: Sequence[P], same: Callable[[P], bool]
+) -> str | None:
     """Why the pages look like another chapter's, or None."""
-    measured = [p for p in published if p["page_phashes"] is not None]
+    measured = [(p, phashes) for p in published if (phashes := p["page_phashes"]) is not None]
     if len(measured) < MIN_PUBLISHED:
         return None
     # ponytail: compares every pair of pages, O(pages x series pages); a band index (old _HammingIndex) if it gets slow
-    others = [h for p in measured if not (p["key"] == key and same(p)) for h in p["page_phashes"]]
+    others = [h for p, phashes in measured if not (p["key"] == key and same(p)) for h in phashes]
     ours = measures.summary(pages)["page_phashes"]
     if not ours or not others:
         return None
@@ -99,14 +117,14 @@ def _mislabelled(pages, key, published, same):
     return f"mislabelled: {matched} of {len(ours)} non-blank pages repeat pages of other published chapters"
 
 
-def _duplicates(pages):
+def _duplicates(pages: list[images.MeasuredPage]) -> list[str]:
     counts = Counter(p["sha1"] for p in pages)
     repeated = [p["name"] for p in pages if counts[p["sha1"]] > 1]
     return [f"duplicate pages: {', '.join(repeated)}"] if repeated else []
 
 
-def _short(pages, published):
-    lengths = [p["strip_length"] for p in published if p["strip_length"] is not None]
+def _short(pages: list[images.MeasuredPage], published: Sequence[Published]) -> list[str]:
+    lengths = [length for p in published if (length := p["strip_length"]) is not None]
     if len(lengths) < MIN_PUBLISHED:
         return []
     ours, median = measures.strip_length(pages), statistics.median(lengths)
@@ -115,10 +133,10 @@ def _short(pages, published):
     return [f"short: strip length {ours} is {ours / median:.0%} of the series' median {median:g}"]
 
 
-def chapter_key(identity):
+def chapter_key(identity: str) -> ChapterKey:
     """Return (season, side label, number) of an identity (names.identity's JSON).
 
     It is what tells chapters apart across sources and scanlators.
     """
-    _, season, side, number, _ = json.loads(identity)
+    _, season, side, number, _ = names.read_identity(identity)
     return (season, side, number)

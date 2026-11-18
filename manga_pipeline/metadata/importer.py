@@ -60,6 +60,12 @@ class OldStateFile(TypedDict, total=False):
     status: OldStatus | None
 
 
+class NotNamedParams(workflow.ScopeParams):
+    """The parameters of the deletes of what the state file no longer names: SCOPE's, and the Kavita ids it names."""
+
+    named: list[str]
+
+
 class OldState(TypedDict):
     """The old metadata tool's state file's parts the import reads, keyed by Kavita series id (text); {} for none."""
 
@@ -133,7 +139,7 @@ def run(ctx: workflow.Context, state: OldState, overrides: Mapping[str, int | st
     missing = sorted(set(state["ids"]) - set(rows), key=int)
     with db.transaction(conn):
         # A series the state file no longer names keeps no id imported from an earlier one
-        stale = {**workflow.scope_params(ctx.cfg), "named": list(state["ids"])}
+        stale: NotNamedParams = {**workflow.scope_params(ctx.cfg), "named": list(state["ids"])}
         not_named = sql.SQL("NOT (s.kavita_series_id::text = ANY(%(named)s::text[])) AND {}").format(workflow.SCOPE)
         conn.execute(
             sql.SQL("""DELETE FROM series_source_id i USING series s WHERE s.id = i.series_id AND i.origin = 'import'
@@ -204,7 +210,7 @@ def _link_overrides(
             continue
         try:
             # series link's own path: a held row of the manga is merged, the series' folder is filled
-            subject = identify.link_subject(ctx.cfg, ctx.suwayomi, manga_id=found["id"])
+            subject = identify.manga_link_subject(ctx.suwayomi, found["id"])
             identify.link(ctx.cfg, ctx.conn, ctx.kavita, kseries["id"], subject)
         except workflow.Refused as e:
             unknown.append(f"{name!r} ({e})")

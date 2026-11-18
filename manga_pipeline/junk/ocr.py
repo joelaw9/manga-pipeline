@@ -66,7 +66,8 @@ def provider_problem(device: str) -> str | None:
         import onnxruntime  # noqa: PLC0415  # lazy: only process loads onnxruntime/RapidOCR; every command imports junk.ocr
 
         if device == "cuda":
-            onnxruntime.preload_dlls()
+            # onnxruntime's preload_dlls leaves its directory parameter unannotated: its type is partially Unknown
+            onnxruntime.preload_dlls()  # pyright: ignore[reportUnknownMemberType]
         model = importlib.resources.files("rapidocr") / "models" / "PP-OCRv6_det_small.onnx"
         session = onnxruntime.InferenceSession(
             str(model), providers=list(dict.fromkeys([PROVIDERS[device], "CPUExecutionProvider"]))
@@ -87,7 +88,8 @@ def _engine(device: str) -> Callable[[NDArray[np.uint8]], list[str]]:
     from rapidocr.utils.output import RapidOCROutput  # noqa: PLC0415  # lazy: only process loads onnxruntime/RapidOCR; every command imports junk.ocr
 
     if device == "cuda":
-        onnxruntime.preload_dlls()
+        # onnxruntime's preload_dlls leaves its directory parameter unannotated: its type is partially Unknown
+        onnxruntime.preload_dlls()  # pyright: ignore[reportUnknownMemberType]
     engine = RapidOCR(params=PARAMS[device])
 
     def read(array: NDArray[np.uint8]) -> list[str]:
