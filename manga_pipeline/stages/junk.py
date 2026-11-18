@@ -67,7 +67,13 @@ def _candidate_ids(text: str) -> list[int]:
 
 
 def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
-    """Run the put-aside, library-copy and notice checks, then scan the chapter, or decide it from its current scan."""
+    """Run the put-aside, library-copy and notice checks, then scan the chapter, or decide it from its current scan.
+
+    A chapter with no content digest fails before any check acts: the put-aside check and its scan need the digest.
+    """
+    if not chapter["content_digest"]:
+        msg = f"chapter {chapter['id']} has no content digest: discovery sets it before junk"
+        raise ValueError(msg)
     series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     why = handled.put_aside(ctx, chapter, chapter["content_digest"])
     if why:
@@ -75,9 +81,6 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     outcome = library_copy.judge(ctx, chapter) or notices.judge(ctx, chapter)
     if outcome:
         return outcome
-    if not chapter["content_digest"]:
-        msg = f"chapter {chapter['id']} has no content digest: discovery sets it before junk"
-        raise ValueError(msg)
     key = store.series_key(series)
     row = current_scan(ctx.conn, chapter)
     if row is None:
