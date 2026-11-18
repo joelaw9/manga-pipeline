@@ -121,7 +121,7 @@ def _calibrate(ctx: workflow.Context, chapter, groups, *, encoder, work):
     return calibrate.quality(stored)
 
 
-def _samples(encoder, picked, work_dir):
+def _samples(encoder, picked, work_dir) -> list[calibrate.NewSample]:
     """Probe the picked units (calibrate.pick); return them as the samples calibrate.add stores."""
     scores = calibrate.probe(encoder, picked, work_dir)
     return [
