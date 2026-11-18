@@ -62,10 +62,10 @@ Import contracts (import-linter, `[tool.importlinter]` in `pyproject.toml`: each
 lint-imports --no-cache
 ```
 
-Dead code (vulture over the program only, `[tool.vulture]`: program code must be used by the program; must report nothing; a new `ignore_names` entry needs the user's approval first):
+Dead code (vulture over the program only, `[tool.vulture]`: program code must be used by the program; must report nothing; the script whitelists every TypedDict field, which is read by key; a new `ignore_names` entry needs the user's approval first):
 
 ```bash
-python -m vulture manga_pipeline
+python scripts/vulture_check.py
 ```
 
 Known vulnerabilities (pip-audit; CI's non-required `audit` job runs it on every PR and weekly; a `--ignore-vuln` needs the user's approval first):
@@ -121,6 +121,7 @@ python -m manga_pipeline.cli --help
 | `tests/fakes/` | `http.py` (`Clock`, `Urlopen`, `CannedService`, `NoNetwork`), `suwayomi.py` (`FakeSuwayomi`, `cbz`), `kavita.py` (`FakeKavita`: a scan is queued until `run_scans()`, then indexes a temp library with Kavita's name rule), `sources.py` (`fake_sources()`: in-memory metadata sources, every call in `calls`); they import the clients, never a part, a stage or `workflow` |
 | `tests/fixtures_api/` | Suwayomi replies recorded from the real server by reads only |
 | `tests/timing.py` | `@budget` per-test time budgets (copied from the unit-tests skill; project code now) |
+| `scripts/vulture_check.py` | the dead-code check: vulture over the program with a generated whitelist of its TypedDict fields |
 
 ## Python standards
 
@@ -140,7 +141,7 @@ python -m manga_pipeline.cli --help
 - Tests stay offline and never read the live `config.yaml` (SPEC "Tests"). Test only situations that occur in real use.
 - Talk to Suwayomi and Kavita only through `clients/` (SPEC "Services"); a client never imports `workflow`, a stage or a part. Every path Kavita reports goes through `Kavita.local_path`; a series' folder is `Kavita.series_folder`, never Kavita's `folderPath`. A stage uses the run's clients, `ctx.suwayomi` and `ctx.kavita`, and never builds its own; `intake`'s metadata step uses `ctx.sources` (built by `workflow.context` through `sources.new_sources`). Tests use `tests/fakes/`.
 - Module docstrings or header comments name the SPEC section they implement. Comment only where the reason isn't obvious.
-- Run the linter, the formatter, the type checker, the import contracts (`lint-imports --no-cache`) and the dead-code check (`python -m vulture manga_pipeline`) before finishing a change; all must pass.
+- Run the linter, the formatter, the type checker, the import contracts (`lint-imports --no-cache`) and the dead-code check (`python scripts/vulture_check.py`) before finishing a change; all must pass.
 
 ## Merging
 
