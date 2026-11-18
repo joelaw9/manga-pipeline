@@ -141,14 +141,6 @@ class LosslessSource(TypedDict):
     mode: str
 
 
-class ChapterCover(TypedDict):
-    """A chapter's volume cover as process_chapter inserts it: its file's bytes, page width, AVIF encode."""
-
-    data: bytes
-    width: int
-    avif: covers.CoverAvif
-
-
 class ChapterRecord(TypedDict):
     """process_chapter's record (its docstring names each key); avif_rejected, the page records and reshape only set.
 
@@ -341,11 +333,11 @@ class Encoder:
             raise
         return [recs[i] for i in sorted(recs)], failed
 
-    def cover(self, data: bytes, page_width: int, work_dir: Path) -> covers.CoverAvif:
+    def cover(self, data: bytes, page_width: int, work_dir: Path) -> plan.CoverAvif:
         """Encode a volume cover's AVIF (covers) at page_width, through the AVIF gate at q80 (q90 retry).
 
-        At its own class and chroma. Returns {"path" (in work_dir; None when it failed), "score", "bytes", "ok",
-        "class", "yuv"}.
+        At its own class and chroma. Returns {"ok", "score", "class", "yuv"} and, when it passed, "path" (in work_dir)
+        and "bytes".
         """
         work_dir = Path(work_dir)
         work_dir.mkdir(parents=True)
@@ -364,12 +356,13 @@ class Encoder:
             "retry_q": RETRY_QUALITY,
         }
         (r,), _ = self.avif_pages([task])
-        out = Path(task["out"])
+        if not r["ok"]:
+            return {"ok": False, "score": r["score"], "class": cls, "yuv": yuv}
         return {
-            "path": out if r["ok"] else None,
+            "ok": True,
+            "path": Path(task["out"]),
             "score": r["score"],
-            "bytes": r["bytes_out"] if r["ok"] else None,
-            "ok": r["ok"],
+            "bytes": r["bytes_out"],
             "class": cls,
             "yuv": yuv,
         }
@@ -705,26 +698,20 @@ def output_gray(chapter_plan: plan.ChapterPlan, outcome: plan.Outcome) -> bool:
     return all(cls == images.GRAY for cls, _ in kept)
 
 
-def process_chapter(  # noqa: PLR0913  # each a distinct input: PageFiles, cover, out_dir, work_dir, encoder, plan
-    pages: PageFiles,
-    cover: ChapterCover | None,
-    out_dir: Path,
-    *,
-    work_dir: Path,
-    encoder: Encoder,
-    chapter_plan: plan.ChapterPlan,
+def process_chapter(
+    pages: PageFiles, out_dir: Path, *, work_dir: Path, encoder: Encoder, chapter_plan: plan.ChapterPlan
 ) -> ChapterRecord:
     """Execute a chapter plan and return its record.
 
-    pages (its PageFiles), cover (the volume cover: None, or {"data", "width", "avif": Encoder.cover's result}), output
-    pages in out_dir, work files in work_dir; encoder: the run's Encoder. Tries the outcomes in order; the last one
-    (untouched or lossless) always stands, and gets the cover in its planned format, in place of a page named
-    000_cover. Returns the record: {"outcome", "edits", "route", "pages", "formats", "dropped",
+    pages (its PageFiles), output pages in out_dir, work files in work_dir; encoder: the run's Encoder. Tries the
+    outcomes in order; the last one (untouched or lossless) always stands. The one that stands inserts the volume cover
+    its plan gave it (plan.routes), in place of a page named 000_cover. Returns the record: {"outcome", "edits",
+    "route", "pages", "formats", "dropped",
     "bytes_in", "bytes_out", "avif_rejected"? (why the first AVIF attempt failed), "avif_pages"?, "lossless_pages"?,
     "reshape"?, "blanked" (the pages blanked: an AVIF outcome's only), "cover" (the inserted cover {"name", "format",
     "score", "bytes"} or None), "quality", "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else
     None), "gray", "output": [{"name", "sha1"}], "scores": {output name: score}, "lossless": {output name: {"source",
-    "mode"}}}. Raises ValueError for an outcome that takes a volume cover when cover is None.
+    "mode"}}}.
     """
     out_dir, tmp = Path(out_dir), Path(work_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -734,12 +721,7 @@ def process_chapter(  # noqa: PLR0913  # each a distinct input: PageFiles, cover
     stood, rejected = run.first_standing()
     o = stood.outcome
     avif = stood.pages if isinstance(stood, _AvifStood) else []
-    inserted = None
-    if o["cover"]:
-        if cover is None:
-            msg = f"{ch.name}: its {o['outcome']} outcome takes a volume cover, and none was given"
-            raise ValueError(msg)
-        inserted = covers.insert(out_dir, cover["data"], o["cover"], cover["width"], cover["avif"])
+    inserted = None if o["cover"] is None else _insert(out_dir, o["cover"])
     outputs = sorted(out_dir.iterdir(), key=lambda p: archive.natural_key(p.name))
     if len(outputs) != o["pages_out"]:
         msg = f"{ch.name}: {len(outputs)} output pages, the outcome writes {o['pages_out']}"
@@ -768,6 +750,13 @@ def process_chapter(  # noqa: PLR0913  # each a distinct input: PageFiles, cover
     }
     _record_attempts(rec, stood, rejected)
     return rec
+
+
+def _insert(out_dir: Path, cover: plan.OutcomeCover) -> covers.InsertedCover:
+    """Write the outcome's volume cover into out_dir: its passed AVIF copied, else encoded in its format."""
+    if "avif" in cover:
+        return covers.copy_avif(out_dir, cover["avif"])
+    return covers.encode(out_dir, cover["data"], cover["format"], cover["width"])
 
 
 def _record_attempts(rec: ChapterRecord, stood: _Stood, rejected: list[_Rejected]) -> None:

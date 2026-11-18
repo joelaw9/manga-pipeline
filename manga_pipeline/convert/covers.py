@@ -6,7 +6,7 @@ the bulk converter's optimizer/covers.py (the insertion half; picking the chapte
 The cover is scaled down to the chapter's page width (most common width of its non-cover pages). Its AVIF is encoded
 and scored before the route is chosen (image.Encoder.cover): an AVIF cover that passed lets a chapter whose pages share
 no cover format convert to AVIF (plan.routes, force_avif). Each outcome takes the cover in the format its pages share
-(plan.cover_format); insert writes it.
+(plan.cover_format); copy_avif or encode writes it.
 """
 
 import hashlib
@@ -25,17 +25,7 @@ JPEG_QUALITY = 92
 WEBP_QUALITY = 90
 
 
-class CoverAvif(plan.PageClass):
-    """A volume cover's AVIF encode (image.Encoder.cover) through the AVIF gate: its class and avifenc --yuv.
-
-    path (the AVIF) and bytes are None when it failed the gate (ok False); score its SSIMULACRA2 score.
-    """
-
-    path: Path | None
-    score: float
-    bytes: int | None
-    ok: bool
-    yuv: str
+ENCODED_FORMATS = (images.JPEG, images.PNG, images.WEBP_LOSSY)  # cover formats encode writes (AVIF is copied)
 
 
 class InsertedCover(TypedDict):
@@ -101,33 +91,39 @@ def scaled(data: bytes, page_width: int) -> Image.Image:
     return im
 
 
-def insert(out_dir: Path, data: bytes, fmt: str, page_width: int, avif: CoverAvif | None) -> InsertedCover:
-    """Write 000_cover.<ext> in format fmt into out_dir, in place of any page of that stem there.
-
-    AVIF: the encoded cover (avif: image.Encoder.cover's result, which passed its gate), copied; JPEG (q92), PNG, lossy
-    WebP (q90): encoded here from the cover scaled to page_width (avif not read). Returns {"name", "format", "score"
-    (AVIF only), "bytes"}. Raises ValueError for a format with no cover encoding, or AVIF without a passed encode.
-    """
-    if fmt not in plan.COVER_FORMATS:
-        msg = f"no volume cover encoding for {fmt}"
-        raise ValueError(msg)
+def _replacing(out_dir: Path, fmt: str) -> Path:
+    """Remove any page of the cover stem from out_dir; return 000_cover.<ext> of format fmt there."""
     out_dir = Path(out_dir)
     for old in out_dir.glob(f"{archive.COVER_STEM}.*"):
         old.unlink()
-    out = out_dir / (archive.COVER_STEM + images.EXTENSION[fmt])
-    score = None
-    if fmt == images.AVIF:
-        if avif is None or avif["path"] is None:
-            msg = "an AVIF volume cover needs its AVIF encode that passed the gate"
-            raise ValueError(msg)
-        shutil.copyfile(avif["path"], out)
-        score = avif["score"]
+    return out_dir / (archive.COVER_STEM + images.EXTENSION[fmt])
+
+
+def copy_avif(out_dir: Path, avif: plan.PassedAvif) -> InsertedCover:
+    """Copy the cover's AVIF that passed the gate (image.Encoder.cover) into out_dir as 000_cover.avif.
+
+    In place of any page of that stem there. Returns {"name", "format", "score", "bytes"}.
+    """
+    out = _replacing(out_dir, images.AVIF)
+    shutil.copyfile(avif["path"], out)
+    return {"name": out.name, "format": images.AVIF, "score": avif["score"], "bytes": out.stat().st_size}
+
+
+def encode(out_dir: Path, data: bytes, fmt: str, page_width: int) -> InsertedCover:
+    """Write the cover as 000_cover.<ext> in format fmt into out_dir, in place of any page of that stem there.
+
+    JPEG (q92), PNG, lossy WebP (q90): encoded from the cover scaled to page_width. Returns {"name", "format", "score"
+    (None), "bytes"}. Raises ValueError for another format, before anything is removed.
+    """
+    if fmt not in ENCODED_FORMATS:
+        msg = f"no volume cover encoding for {fmt}"
+        raise ValueError(msg)
+    out = _replacing(out_dir, fmt)
+    im = scaled(data, page_width)
+    if fmt == images.JPEG:
+        im.convert("RGB").save(out, "JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
+    elif fmt == images.PNG:
+        im.save(out, "PNG", optimize=True)
     else:
-        im = scaled(data, page_width)
-        if fmt == images.JPEG:
-            im.convert("RGB").save(out, "JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
-        elif fmt == images.PNG:
-            im.save(out, "PNG", optimize=True)
-        else:
-            im.save(out, "WEBP", quality=WEBP_QUALITY, method=6)
-    return {"name": out.name, "format": fmt, "score": score, "bytes": out.stat().st_size}
+        im.save(out, "WEBP", quality=WEBP_QUALITY, method=6)
+    return {"name": out.name, "format": fmt, "score": None, "bytes": out.stat().st_size}

@@ -11,7 +11,7 @@ import json
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypedDict
+from typing import Literal, TypedDict, final
 
 from manga_pipeline import archive, images, strip
 from manga_pipeline.convert import pages as page_reads
@@ -159,17 +159,66 @@ class RowsPage(strip.RowsOutput, PageClass):
 type RenderPage = PartsPage | RowsPage
 
 
+class PassedAvif(PageClass):
+    """A volume cover's AVIF that passed the gate (image.Encoder.cover): its file, score, bytes, class and --yuv."""
+
+    ok: Literal[True]
+    path: Path
+    score: float
+    bytes: int
+    yuv: str
+
+
+class FailedAvif(PageClass):
+    """A volume cover's AVIF that failed the AVIF gate (image.Encoder.cover): its score, class and --yuv; no file."""
+
+    ok: Literal[False]
+    score: float
+    yuv: str
+
+
+type CoverAvif = PassedAvif | FailedAvif
+
+
+class VolumeCover(TypedDict):
+    """A chapter's volume cover as routes reads it: its file's bytes, the page width it goes in at, its AVIF encode."""
+
+    data: bytes
+    width: int
+    avif: CoverAvif
+
+
+@final
+class AvifCover(TypedDict):
+    """An outcome's volume cover in AVIF: its format (AVIF) and its AVIF that passed the gate, copied in."""
+
+    format: str
+    avif: PassedAvif
+
+
+@final
+class EncodedCover(TypedDict):
+    """An outcome's volume cover in its pages' format (JPEG, PNG or lossy WebP): encoded from data at width."""
+
+    format: str
+    data: bytes
+    width: int
+
+
+type OutcomeCover = AvifCover | EncodedCover
+
+
 class Outcome(TypedDict):
-    """A planned outcome: its kind, its gate (None: always stands), the edits it applies, its cover's format, pages.
+    """A planned outcome: its kind, its gate (None: always stands), the edits it applies, its cover, pages.
 
     outcome "avif", "lossless" or "untouched"; gate "floor" or "floor+size"; edits "all" or "drops"; cover the volume
-    cover's format (None: it takes none); pages_out its expected pages, the cover included.
+    cover it inserts (None: it takes none); pages_out its expected pages, the cover included.
     """
 
     outcome: str
     gate: str | None
     edits: str
-    cover: str | None
+    cover: OutcomeCover | None
     pages_out: int
 
 
@@ -615,31 +664,47 @@ def cover_format(fmts: Iterable[str]) -> str | None:
     return next(iter(fmts)) if fmts else images.AVIF
 
 
-def routes(plan: ChapterPlan, *, cover: bool | None = None) -> None:
+def routes(plan: ChapterPlan, *, cover: VolumeCover | None = None) -> None:
     """Set the plan's route, force_avif and outcomes.
 
-    Each outcome a measured attempt, a failure moving to the next, with the volume cover's format in it ("cover": None
-    when it takes none) and its expected pages ("pages_out", the cover included). cover: None (the chapter takes no
-    volume cover), else whether its AVIF passed. A rendered plan: AVIF under the floor, else the original pages minus
-    drops. A plan that is not rendered, whose AVIF cover passed and whose non-cover pages share no cover format: AVIF
-    under the floor, else untouched (force_avif).
+    Each outcome a measured attempt, a failure moving to the next, with the volume cover it inserts in it ("cover": its
+    format and its passed AVIF or its data; None when it takes none) and its expected pages ("pages_out", the cover
+    included). cover: None (the chapter takes no volume cover), else the volume cover with its AVIF encode. An AVIF
+    cover that failed the gate goes in no AVIF outcome. A rendered plan: AVIF under the floor, else the original pages
+    minus drops. A plan that is not rendered, whose AVIF cover passed and whose non-cover pages share no cover format:
+    AVIF under the floor, else untouched (force_avif).
     """
     kept = plan.kept()
     all_fmts = sorted({q["format"] for q in kept})
     src = sorted({q["format"] for q in kept if not q["cover"]})
     has_cover_page = any(Path(q["name"]).stem == archive.COVER_STEM for q in kept)
 
-    def outcome(name: str, gate: str | None, edits: str, cover_fmts: Iterable[str], pages: int) -> Outcome:
+    def taken(cover_fmts: Iterable[str]) -> OutcomeCover | None:
         fmt = cover_format(cover_fmts) if cover is not None else None
-        if fmt == images.AVIF and not cover:
-            fmt = None
-        replaced = 1 if fmt and has_cover_page else 0
-        return {"outcome": name, "gate": gate, "edits": edits, "cover": fmt, "pages_out": pages + bool(fmt) - replaced}
+        if cover is None or fmt is None:
+            return None
+        if fmt != images.AVIF:
+            return {"format": fmt, "data": cover["data"], "width": cover["width"]}
+        avif = cover["avif"]
+        if avif["ok"] is False:  # the discriminant: a failed AVIF goes in no outcome
+            return None
+        return {"format": fmt, "avif": avif}
+
+    def outcome(name: str, gate: str | None, edits: str, cover_fmts: Iterable[str], pages: int) -> Outcome:
+        inserted = taken(cover_fmts)
+        replaced = 1 if inserted and has_cover_page else 0
+        return {
+            "outcome": name,
+            "gate": gate,
+            "edits": edits,
+            "cover": inserted,
+            "pages_out": pages + bool(inserted) - replaced,
+        }
 
     n = len(kept)
     untouched = outcome("untouched", None, "drops", src, n)
     base = route(all_fmts)
-    plan.force_avif = not plan.render and bool(cover) and needs_conversion(src)
+    plan.force_avif = not plan.render and cover is not None and cover["avif"]["ok"] and needs_conversion(src)
     if plan.render:
         plan.outcomes = [outcome("avif", "floor", "all", [images.AVIF], len(plan.render)), untouched]
     elif plan.force_avif:

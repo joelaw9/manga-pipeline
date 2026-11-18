@@ -198,11 +198,11 @@ def _encode(cfg, data, kept, scratch):
     if fmt == images.AVIF:
         with convert.encoder(cfg) as encoder:
             avif = encoder.cover(data, width, scratch / "cover")
-        if not avif["ok"]:
+        if avif["ok"] is False:
             return None, f"its AVIF cover scored {avif['score']}, below the floor"
     out_dir = scratch / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
-    got = covers.insert(out_dir, data, fmt, width, avif)
+    got = covers.encode(out_dir, data, fmt, width) if avif is None else covers.copy_avif(out_dir, avif)
     cover = (out_dir / got["name"]).read_bytes()
     w, h = _size(cover)
     return {**got, "data": cover, "width": w, "height": h}, None

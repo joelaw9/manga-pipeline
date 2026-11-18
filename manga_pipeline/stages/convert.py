@@ -273,7 +273,6 @@ def _encode(ctx: workflow.Context, chapter, chapter_plan, cover, scratch):
         chapter_plan.quality = _calibrate(ctx, chapter, prepared.units, encoder=enc, work=work)
         return image.process_chapter(
             image.PageFiles.of(scratch / EXTRACTED, prepared.encoded, prepared.blanked),
-            cover,
             scratch / OUTPUT,
             work_dir=work / "encode",
             encoder=enc,
@@ -282,11 +281,11 @@ def _encode(ctx: workflow.Context, chapter, chapter_plan, cover, scratch):
 
 
 def _route(chapter, chapter_plan, cover):
-    """Set the plan's route and outcomes (cover: whether its AVIF passed, when it takes one).
+    """Set the plan's route and outcomes (cover: the volume cover with its AVIF encode, when it takes one).
 
     A mix of formats that stays untouched is logged.
     """
-    plan.routes(chapter_plan, cover=None if cover is None else cover["avif"]["ok"])
+    plan.routes(chapter_plan, cover=cover)
     if chapter_plan.route == "untouched-flag":
         log.warning(
             "chapter %s: formats %s mix with others: untouched",

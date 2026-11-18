@@ -757,30 +757,3 @@ def test_the_cover_width_is_the_most_common_non_cover_width_first_seen_on_a_tie(
     assert covers.width(p((300, True), (80, False), (90, False), (90, False))) == 90
     assert covers.width(p((80, False), (90, False))) == 80, "a tie goes to the first seen"
     assert covers.width(p((300, True))) == 300, "only cover pages: their width"
-
-
-@budget(load="fs")
-def test_an_avif_cover_without_its_passed_encode_is_refused(tmp_path):
-    data = jpeg(colour())
-    with pytest.raises(ValueError, match="needs its AVIF encode that passed the gate"):
-        covers.insert(tmp_path, data, images.AVIF, 96, None)
-    failed: covers.CoverAvif = {
-        "path": None,
-        "score": 70.0,
-        "bytes": None,
-        "ok": False,
-        "class": "colour",
-        "yuv": "444",
-    }
-    with pytest.raises(ValueError, match="needs its AVIF encode that passed the gate"):
-        covers.insert(tmp_path, data, images.AVIF, 96, failed)
-
-
-@budget(load="pool")
-def test_an_outcome_that_takes_a_cover_none_was_given_for_is_refused(tmp_path):
-    ch = Chapter(tmp_path, [("001.png", png(colour()))])
-    p = ch.plan()
-    plan.routes(p, cover=True)
-    assert p.outcomes[0]["cover"] == images.AVIF, "the plan's AVIF outcome takes the cover"
-    with pytest.raises(ValueError, match="takes a volume cover, and none was given"):
-        ch.run(p)

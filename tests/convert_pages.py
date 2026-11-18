@@ -108,7 +108,6 @@ class Chapter:
         with ThreadPoolExecutor(2) as pool:
             return image.process_chapter(
                 image.PageFiles.of(self.x, rendered, blanked),
-                None,
                 self.out,
                 work_dir=self.work,
                 encoder=image.Encoder(pool, scorer(), tool_paths()),
