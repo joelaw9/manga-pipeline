@@ -157,7 +157,7 @@ class Change(NamedTuple):
     source: str | None
     cover: tuple | None
     title: str
-    unedited: dict | None
+    unedited: naming.Unedited | None
 
 
 def _plan(ctx: workflow.Context, series):
@@ -174,7 +174,9 @@ def _plan(ctx: workflow.Context, series):
     edits, unedited = chapter_names.edits(conn, sid), {i: f["unedited"] for i, f in files.items()}
     held = rewrite_plan.held(rows, edits, unedited)
     edited = rewrite_plan.edit_changes(rows, edits, unedited)
-    moved = {i: v for i, v in rewrite_plan.changes(basis, rows, overrides, mangadex, platform).items() if i not in held}
+    moved: dict[int, tuple[float | None, str | None]] = {
+        i: v for i, v in rewrite_plan.changes(basis, rows, overrides, mangadex, platform).items() if i not in held
+    }
     moved.update({i: (v, source) for i, (v, source, _, _) in edited.items() if i in held})
     states = {i: f["cover_state"] for i, f in files.items()}
     unknown = any(s is None for s in states.values())

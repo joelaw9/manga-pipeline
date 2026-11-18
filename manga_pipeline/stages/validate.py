@@ -282,7 +282,7 @@ def _volume_cover(ctx: workflow.Context, chapter, download):
     if ctx.conn.execute("SELECT 1 FROM volume_cover WHERE chapter_id = %s", (chapter["id"],)).fetchone():
         return None
     named = chapter_names.resolve(ctx, _series(ctx, chapter), {chapter["id"]: download}).get(chapter["id"])
-    if named is None or not named.opens_covered_volume:
+    if named is None or (covered := named.covered_volume) is None:
         return None
     volume = names.fmt_num(named.volume)
     taken = ctx.conn.execute(
@@ -295,5 +295,5 @@ def _volume_cover(ctx: workflow.Context, chapter, download):
     ).fetchone()
     if taken:  # an open chapter of that volume, or a published file, took its cover first: it keeps it
         return None
-    found = covers.volume_cover(ctx, chapter["series_id"], named.volume)
+    found = covers.volume_cover(ctx, chapter["series_id"], covered)
     return found and (*found, names.fmt_num(named.volume))

@@ -6,35 +6,49 @@ lists it for `naming diff`.
 """
 
 import dataclasses
+from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
+from typing import Literal
 
-from manga_pipeline import names
-from manga_pipeline.metadata import naming
+from manga_pipeline import names, volumes
+from manga_pipeline.metadata import naming, platforms
 
 HELD, STALE = "volume:", "stale:"  # cover_state prefixes: the volume's current image, an old one
+type CoverAct = tuple[Literal["insert"], str] | tuple[Literal["drop"], None]  # cover_changes' act on 1 file
 
 
-def changes(basis, rows, overrides, mangadex, platform=None):
+def changes(
+    basis: str | None,
+    rows: Sequence[naming.Row[naming.RowKey]],
+    overrides: volumes.Overrides | None,
+    mangadex: Mapping[str, str | None],
+    platform: platforms.PlatformList | None = None,
+) -> dict[int, tuple[float, str]]:
     """Return {published file id: (volume, volume source)} for every published main row whose volume should change.
 
     rows: the resolver's rows of the series (published rows keyed ("published", id)). VolumeError as naming.resolve
     raises it.
     """
     override = (overrides or {}).get("volumes") or {}
-    published = [i for i, r in enumerate(rows) if _published(r) and r.kind == names.MAIN]
-    out = {}
+    published = {i: fid for i, r in enumerate(rows) if (fid := _file_id(r)) is not None and r.kind == names.MAIN}
+    out: dict[int, tuple[float, str]] = {}
     for i, v in naming.override_volumes(override, rows, published).items():
         if v != rows[i].volume:
-            out[rows[i].key[1]] = (v, naming.OVERRIDE)
-    empty = [i for i in published if rows[i].volume is None and rows[i].key[1] not in out]
+            out[published[i]] = (v, naming.OVERRIDE)
+    empty = [i for i, fid in published.items() if rows[i].volume is None and fid not in out]
     got = _reopened(basis, rows, overrides, mangadex, platform, ids=empty)
-    for key, named in got.items():
+    for i, named in got.items():
         v = named.volume
         if named.kind == names.MAIN and v is not None and v == int(v):
-            out[key[1]] = (int(v), named.volume_source)
+            out[published[i]] = (int(v), named.volume_source)
     return out
 
 
-def edit_changes(rows, edits, unedited):
+def edit_changes(
+    rows: Iterable[naming.Row[naming.RowKey]],
+    edits: Mapping[naming.EditKey, naming.Edit],
+    unedited: Mapping[int, naming.Unedited | None],
+) -> dict[int, tuple[float | None, str | None, str, naming.Unedited | None]]:
     """Return {published file id: (volume, volume source, title, unedited)} of the files a hand edit changes.
 
     The published files (main and side) whose title or volume a hand edit, or a hand edit's removal, changes (SPEC
@@ -42,12 +56,13 @@ def edit_changes(rows, edits, unedited):
     sources gave its edited fields}. An edited field takes the edit; a field whose edit is gone takes its unedited value
     back; the result's unedited is what the file keeps afterwards (None: nothing edited).
     """
-    out = {}
+    out: dict[int, tuple[float | None, str | None, str, naming.Unedited | None]] = {}
     for r in rows:
-        if not _published(r):
+        fid = _file_id(r)
+        if fid is None:
             continue
-        fid = r.key[1]
-        was = dict(unedited.get(fid) or {})
+        old = unedited.get(fid)
+        was: naming.Unedited = old.copy() if old else {}
         e = edits.get(naming.edit_key(r.kind, r.season, r.number))
         volume, source = _edited_volume(r, None if e is None else e.volume, was)
         title = _edited_title(r, None if e is None else e.title, was)
@@ -56,7 +71,9 @@ def edit_changes(rows, edits, unedited):
     return out
 
 
-def _edited_volume(row, edit, was):
+def _edited_volume(
+    row: naming.Row[naming.RowKey], edit: float | None, was: naming.Unedited
+) -> tuple[float | None, str | None]:
     """Return (volume, volume source) a published row takes from its volume's edit.
 
     edit: the edited volume, None when not edited. The edit, its sources' volume back when the edit gives that or is
@@ -75,7 +92,7 @@ def _edited_volume(row, edit, was):
     return row.volume, row.volume_source
 
 
-def _edited_title(row, edit, was):
+def _edited_title(row: naming.Row[naming.RowKey], edit: str | None, was: naming.Unedited) -> str:
     """Return the title a published row takes from its title's edit.
 
     edit: the edited title, None when not edited. The edit, its sources' title back when the edit is gone, else its own.
@@ -91,23 +108,33 @@ def _edited_title(row, edit, was):
     return row.title
 
 
-def held(rows, edits, unedited):
+def held(
+    rows: Iterable[naming.Row[naming.RowKey]],
+    edits: Mapping[naming.EditKey, naming.Edit],
+    unedited: Mapping[int, naming.Unedited | None],
+) -> set[int]:
     """Return the published file ids whose volume a hand edit holds (edited, or to be restored).
 
     7e's own volume rules leave them alone.
     """
     return {
-        r.key[1]
+        fid
         for r in rows
-        if _published(r)
+        if (fid := _file_id(r)) is not None
         and (
             ((e := edits.get(naming.edit_key(r.kind, r.season, r.number))) is not None and e.volume is not None)
-            or "volume" in (unedited.get(r.key[1]) or {})
+            or "volume" in (unedited.get(fid) or {})
         )
     }
 
 
-def differences(basis, rows, overrides, mangadex, platform=None):
+def differences(
+    basis: str | None,
+    rows: Sequence[naming.Row[naming.RowKey]],
+    overrides: volumes.Overrides | None,
+    mangadex: Mapping[str, str | None],
+    platform: platforms.PlatformList | None = None,
+) -> dict[int, tuple[float | None, float | None]]:
     """Return {published file id: (stored volume, the volume the sources give now)} the sources would move.
 
     The published main rows holding a volume from a source that can be read again (MangaDex, a platform list) that the
@@ -115,35 +142,44 @@ def differences(basis, rows, overrides, mangadex, platform=None):
     cannot be read again: the record keeps no download.
     """
     override = (overrides or {}).get("volumes") or {}
-    published = [i for i, r in enumerate(rows) if _published(r) and r.kind == names.MAIN]
+    published = {i: fid for i, r in enumerate(rows) if (fid := _file_id(r)) is not None and r.kind == names.MAIN}
     ranged = naming.override_volumes(override, rows, published)
     rereadable = (naming.MANGADEX, *naming.platforms.BASES)
     held = [
         i for i in published if rows[i].volume is not None and i not in ranged and rows[i].volume_source in rereadable
     ]
     got = _reopened(basis, rows, overrides, mangadex, platform, ids=held)
-    out = {}
-    for key, named in got.items():
-        stored = next(r.volume for r in rows if r.key == key)
+    out: dict[int, tuple[float | None, float | None]] = {}
+    for i, named in got.items():
+        stored = rows[i].volume
         if named.volume != stored:
-            out[key[1]] = (stored, named.volume)
+            out[published[i]] = (stored, named.volume)
     return out
 
 
-def moved_rows(rows, moved):
+def moved_rows(
+    rows: Iterable[naming.Row[naming.RowKey]], moved: Mapping[int, tuple[float | None, str | None]]
+) -> list[naming.Row[naming.RowKey]]:
     """Return the rows with each published file in moved at its new volume.
 
     moved: changes' result, {file id: (volume, volume source)}.
     """
     return [
-        dataclasses.replace(r, volume=moved[r.key[1]][0], volume_source=moved[r.key[1]][1])
-        if _published(r) and r.key[1] in moved
+        dataclasses.replace(r, volume=moved[fid][0], volume_source=moved[fid][1])
+        if (fid := _file_id(r)) is not None and fid in moved
         else r
         for r in rows
     ]
 
 
-def cover_changes(rows, covered, *, states, taken, images):
+def cover_changes(
+    rows: Sequence[naming.Row[naming.RowKey]],
+    covered: Iterable[float],
+    *,
+    states: Mapping[int, str],
+    taken: AbstractSet[str],
+    images: Mapping[str, str],
+) -> dict[int, CoverAct]:
     """Return {published file id: ("insert", volume) | ("drop", None)} of the files whose volume cover should change.
 
     The published main files whose volume cover should change (SPEC "Retroactive updates"). rows: the resolver's rows as
@@ -154,13 +190,11 @@ def cover_changes(rows, covered, *, states, taken, images):
     it holds. A file holding an old image of a volume (stale: MangaDex had a new one) takes the new image when the
     volume is its own, else drops it. An insert recorded unfit for the volume's current image is not made again.
     """
-    published = sorted(
-        (i for i, r in enumerate(rows) if _published(r) and r.kind == names.MAIN),
-        key=lambda i: (rows[i].number, rows[i].order),
-    )
-    volume = {rows[i].key[1]: _fmt(rows[i].volume) for i in published}
+    fids = {i: fid for i, r in enumerate(rows) if (fid := _file_id(r)) is not None and r.kind == names.MAIN}
+    published = sorted(fids, key=lambda i: (rows[i].number, rows[i].order))
+    volume = {fids[i]: _fmt(rows[i].volume) for i in published}
     homes = _cover_homes(volume, covered, taken, states)
-    out = {}
+    out: dict[int, CoverAct] = {}
     for fid, vol in volume.items():
         act = _cover_act(states[fid], vol, homes.get(fid), images)
         if act is not None:
@@ -168,13 +202,15 @@ def cover_changes(rows, covered, *, states, taken, images):
     return out
 
 
-def _cover_homes(volume, covered, taken, states):
+def _cover_homes(
+    volume: Mapping[int, str], covered: Iterable[float], taken: AbstractSet[str], states: Mapping[int, str]
+) -> dict[int, str]:
     """Return {file id: volume text} of the files that should get a covered volume's cover.
 
     The volume's first file (volume: {file id: volume text} in number order), unless an open chapter took the volume's
     cover or one of its files holds it already (its current image or an old one).
     """
-    homes = {}
+    homes: dict[int, str] = {}
     for v in map(_fmt, covered):
         files = [fid for fid, vol in volume.items() if vol == v]
         holds = (_cover_of(states[fid], prefix) for fid in files for prefix in (HELD, STALE))
@@ -184,7 +220,7 @@ def _cover_homes(volume, covered, taken, states):
     return homes
 
 
-def _cover_act(state, volume, home, images):
+def _cover_act(state: str, volume: str, home: str | None, images: Mapping[str, str]) -> CoverAct | None:
     """Return ("insert", volume) | ("drop", None) | None of 1 published file in volume (text) with cover state state.
 
     home: the covered volume whose cover it should get (_cover_homes), else None.
@@ -200,7 +236,7 @@ def _cover_act(state, volume, home, images):
     return None
 
 
-def _cover_of(state, prefix):
+def _cover_of(state: str, prefix: str) -> str | None:
     """Return the volume text of a cover state with prefix, else None.
 
     prefix: HELD, the volume's current image; STALE, an old one.
@@ -208,12 +244,20 @@ def _cover_of(state, prefix):
     return state.removeprefix(prefix) if state.startswith(prefix) else None
 
 
-def _fmt(volume):
+def _fmt(volume: float | None) -> str:
     return "" if volume is None else names.fmt_num(volume)
 
 
-def _reopened(basis, rows, overrides, mangadex, platform, *, ids):  # noqa: PLR0913  # the resolver's inputs: 1 place resolves the reopened rows for changes and differences
-    """Return {key: naming.Naming} of the rows with ids as the resolver names them reopened (no volume).
+def _reopened(  # noqa: PLR0913  # the resolver's inputs: 1 place resolves the reopened rows for changes and differences
+    basis: str | None,
+    rows: Sequence[naming.Row[naming.RowKey]],
+    overrides: volumes.Overrides | None,
+    mangadex: Mapping[str, str | None],
+    platform: platforms.PlatformList | None,
+    *,
+    ids: Sequence[int],
+) -> dict[int, naming.Naming]:
+    """Return {row index: naming.Naming} of the rows with ids as the resolver names them reopened (no volume).
 
     Beside the others as they are: changes and differences read them the same way. Its inputs are the resolver's own
     (naming.resolve).
@@ -225,10 +269,12 @@ def _reopened(basis, rows, overrides, mangadex, platform, *, ids):  # noqa: PLR0
         dataclasses.replace(r, settled=False, volume=None, volume_source=None) if i in chosen else r
         for i, r in enumerate(rows)
     ]
-    keys = frozenset(rows[i].key for i in ids)
-    named = naming.resolve(basis, opened, overrides, mangadex, platform, fill=keys)
-    return {key: n for key, n in named.items() if key in keys}
+    index = {rows[i].key: i for i in ids}
+    named = naming.resolve(basis, opened, overrides, mangadex, platform, fill=index.keys())
+    return {i: n for key, n in named.items() if (i := index.get(key)) is not None}
 
 
-def _published(row):
-    return isinstance(row.key, tuple) and row.key[0] == "published"
+def _file_id(row: naming.Row[naming.RowKey]) -> int | None:
+    """Return the published file id of a row keyed ("published", id), else None."""
+    key = row.key
+    return key[1] if isinstance(key, tuple) and key[0] == "published" else None
