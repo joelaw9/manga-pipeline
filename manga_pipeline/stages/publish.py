@@ -26,8 +26,8 @@ def row_values(conn, chapter):
         "SELECT layout FROM series_conversion WHERE series_id = %s", (chapter["series_id"],)
     ).fetchone()
     junk = None
-    if pages and edit is not None and layout is not None:
-        junk = measures.junk(json.loads(edit["edit"]), layout["layout"], m["median_page_width"])
+    if (width := m["median_page_width"]) is not None and edit is not None and layout is not None:
+        junk = measures.junk(json.loads(edit["edit"]), layout["layout"], width)
     return {
         "series_id": chapter["series_id"],
         "identity": chapter["identity"],
