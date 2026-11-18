@@ -272,6 +272,16 @@ def test_a_check_stores_the_platform_list_and_a_shorter_one_does_not_replace_it(
 
 
 @budget(load="db", seconds=2)
+def test_a_nul_in_an_episode_title_is_removed_from_the_stored_list(world):
+    tapas_series(world)
+    world.sources.tapas.records[("episodes", "11")] = ([(1, "Episode\x00 1", None, 1), *ITEMS[1:]], 3)
+    world.run(intake)
+    assert stored(world) == [("tapas", 3)], "the list is stored, and the run goes on"
+    ((payload,),) = world.rows("SELECT payload FROM fetched WHERE kind = 'episodes'")
+    assert "\x00" not in json.dumps(payload, ensure_ascii=False), "the NUL is removed from the stored list"
+
+
+@budget(load="db", seconds=2)
 def test_a_list_of_another_page_replaces_a_longer_stored_one(world):
     kavita_id = tapas_series(world)
     world.run(intake)

@@ -14,8 +14,9 @@ from PIL import Image
 
 from manga_pipeline import db, intake
 from manga_pipeline.clients import http
-from manga_pipeline.metadata import check, records
+from manga_pipeline.metadata import check, human, ids, records, search
 
+from tests.fakes.sources import FakeMangaUpdates
 from tests.timing import budget
 from tests.world import World
 
@@ -315,7 +316,7 @@ def test_the_sweep_never_links_a_series_out_of_scope(tmp_path):
 @budget()
 @pytest.mark.parametrize(
     ("last_days", "complete", "days"),
-    [(10, False, 7), (200, False, 30), (200, True, 30), (400, True, 365), (400, False, 30), (None, True, 365)],
+    [(10, False, 7), (200, False, 30), (200, True, 30), (400, True, 365), (400, False, 30), (None, True, 30)],
 )
 def test_the_next_check_follows_the_last_published_update(tmp_path, last_days, complete, days):
     cfg = World(tmp_path).cfg
@@ -357,3 +358,170 @@ def test_every_record_a_check_fetches_has_its_place_in_fetched():
     assert set(records.STORED) == set(typing.get_type_hints(records.Records)), "1 (source, kind) per record name"
     own = set(typing.get_type_hints(records.SeriesRecords))
     assert set(records.SOURCE_RECORDS) == own, "each source's own record is 1 of the records the fields come from"
+
+
+def due_now(world):
+    with closing(db.connect(world.cfg)) as conn:
+        return check.due(world.context(conn, "intake"))
+
+
+def found_on_mangaupdates(world, record):
+    """MangaUpdates' title search finds series 5 for "Solo Leveling", whose record is `record`."""
+    mu = world.sources.mangaupdates
+    mu.results["Solo Leveling"] = [{"record": {"series_id": 5, "title": "Solo Leveling"}}]
+    mu.records[("series", "5")] = {"series_id": 5, "title": "Solo Leveling", **record}
+
+
+@budget(load="db")
+@pytest.mark.parametrize("earlier", [None, "1"], ids=["added", "replaced"])
+def test_a_set_id_made_while_a_check_fetches_is_never_undone(world, earlier):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    with closing(db.connect(world.cfg)) as conn:
+        if earlier is not None:
+            human.set_id(conn, sid, "anilist", earlier)
+    execute(world, "UPDATE series_check SET next_check_at = '2000-01-01T00:00:00+00:00'")
+    version = world.rows("SELECT data_version FROM series_check")
+
+    def search_during_set_id(_name):
+        with closing(db.connect(world.cfg)) as conn:
+            human.set_id(conn, sid, "anilist", "2")
+        return []
+
+    world.sources.mangaupdates.search = search_during_set_id
+    world.run(intake)
+    assert ids_of(world, sid) == [("anilist", "human", "2")], (
+        "a check whose stored ids changed while it fetched stores no ids: the replaced human id never comes back"
+    )
+    assert world.rows("SELECT data_version FROM series_check") == version, "that check stores nothing"
+    assert sid in due_now(world), "and stays due"
+
+
+@budget(load="db")
+def test_a_set_id_made_while_a_check_finds_a_disagreement_is_never_undone(world, monkeypatch):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.kavita.metadata_rows[kavita_id] = {"webLinks": "https://anilist.co/manga/1"}
+    world.suwayomi.add_tracker(world.manga("Solo Leveling"), 2, 2)  # its anilist ids disagree: 1 and 2
+    resolve = ids.resolve
+    settled = []
+
+    def set_id_then_resolve(known):
+        if not settled:  # the person settles it once the check has read the ids, before it stores
+            settled.append(True)
+            with closing(db.connect(world.cfg)) as conn:
+                human.set_id(conn, series_id(world, kavita_id), "anilist", "2")
+        return resolve(known)
+
+    monkeypatch.setattr(ids, "resolve", set_id_then_resolve)
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    assert world.rows("SELECT status FROM series WHERE id = %s", sid) == [("ok",)], (
+        "a disagreement found on the ids read before a set-id stores nothing: the series is not held"
+    )
+    assert sid in due_now(world), "and its check stays due"
+
+
+@budget(load="db")
+@pytest.mark.parametrize("bad", ["\x00", "\ud800"], ids=["nul", "lone-surrogate"])
+def test_a_character_the_database_cannot_hold_is_removed_from_a_fetched_record(world, bad):
+    world.kavita_series("Solo Leveling")
+    world.download(world.manga("Solo Leveling"), "Chapter 2")
+    found_on_mangaupdates(world, {"description": f"a{bad}b", "associated": [{f"t{bad}itle": f"c{bad}d"}]})
+    world.run(intake)
+    assert world.rows("SELECT data_version FROM series_check") == [(1,)], "the check completes"
+    assert world.rows("SELECT stage FROM chapter") == [("junk",)], "the same intake run goes on to its chapters"
+    stored = world.rows("SELECT payload FROM fetched WHERE source = 'mangaupdates' AND kind = 'series'")[0][0]
+    assert (stored["description"], stored["associated"]) == ("ab", [{"title": "cd"}]), (
+        "the character is removed from every text of the record, keys and nested values included"
+    )
+
+
+@budget(load="db")
+def test_only_a_field_the_sources_change_by_their_own_activity_leaves_the_data_version(world):
+    world.kavita_series("Solo Leveling")
+    found_on_mangaupdates(world, {"description": "one", "rank": {"position": 10}, "categories": [{"votes": 3}]})
+    world.run(intake)
+    mu = world.sources.mangaupdates.records
+    mu[("series", "5")] |= {"rank": {"position": 11}, "categories": [{"votes": 4}]}
+    execute(world, "UPDATE series_check SET next_check_at = '2000-01-01T00:00:00+00:00'")
+    world.run(intake)
+    assert world.rows("SELECT data_version FROM series_check") == [(1,)], "a new rank or vote count is no data change"
+    stored = world.rows("SELECT payload FROM fetched WHERE source = 'mangaupdates' AND kind = 'series'")[0][0]
+    assert stored["rank"] == {"position": 11}, "the payload is stored whole"
+    mu[("series", "5")]["description"] = "two"
+    execute(world, "UPDATE series_check SET next_check_at = '2000-01-01T00:00:00+00:00'")
+    world.run(intake)
+    assert world.rows("SELECT data_version FROM series_check") == [(2,)], "a new description is a data change"
+
+
+@budget(load="db")
+def test_a_never_completed_series_kavita_no_longer_holds_is_not_due_on_the_next_run(world, monkeypatch):
+    kavita_id = world.kavita_series("Solo Leveling")
+
+    def down(_name):
+        msg = "mangabaka"
+        raise http.Unreachable(msg, "down")
+
+    monkeypatch.setattr(world.sources.mangabaka, "search", down)
+    world.run(intake)
+    monkeypatch.undo()
+    sid = series_id(world, kavita_id)
+    del world.kavita.series_rows[kavita_id]
+    world.run(intake)
+    assert sid not in due_now(world), "its next check moved by the quiet interval, completed or not"
+
+
+@budget(load="db")
+def test_a_never_completed_series_kavita_recreates_is_checked_at_the_next_intake(world, monkeypatch):
+    kavita_id = world.kavita_series("Solo Leveling")
+
+    def down(_name):
+        msg = "mangabaka"
+        raise http.Unreachable(msg, "down")
+
+    monkeypatch.setattr(world.sources.mangabaka, "search", down)
+    world.download(world.manga("Solo Leveling"), "Chapter 2")  # a download gives the row its folder
+    world.run(intake)
+    monkeypatch.undo()
+    sid = series_id(world, kavita_id)
+    row = world.kavita.series_rows.pop(kavita_id)
+    world.run(intake)  # gone: its next check moves by the quiet interval
+    world.kavita.series_rows[kavita_id + 50] = {**row, "id": kavita_id + 50}  # Kavita recreated it
+    for entry in world.kavita.files.values():
+        entry["series"] = kavita_id + 50
+    world.run(intake)
+    assert world.rows("SELECT data_version > 0 FROM series_check WHERE series_id = %s", sid) == [(True,)], (
+        "a series Kavita recreates is checked at the next intake, not after the quiet interval"
+    )
+
+
+@budget(load="db")
+def test_a_renamed_kavita_series_is_searched_by_its_new_name(world):
+    kavita_id = world.kavita_series("Old Name")
+    world.run(intake)
+    world.kavita.series_rows[kavita_id] |= {"name": "New Name", "localizedName": "Local", "originalName": "Original"}
+    execute(world, "UPDATE series_check SET next_check_at = '2000-01-01T00:00:00+00:00'")
+    world.sources.calls.clear()
+    world.run(intake)
+    assert world.rows("SELECT name, localized_name, original_name FROM series") == [("New Name", "Local", "Original")]
+    searched = {c[2] for c in world.sources.calls if c[1] == "search"}
+    assert {"New Name", "Local", "Original"} <= searched, "the check searches the series' current names"
+
+
+@budget(load="pure")
+def test_mangaupdates_accepts_only_exactly_1_associated_hit_of_its_top_3():
+    calls = []
+    mu = FakeMangaUpdates(calls)
+    mu.results = {
+        "A": [{"record": {"series_id": 1, "title": "Other 1"}}],
+        "B": [{"record": {"series_id": i, "title": f"Other {i}"}} for i in (1, 2, 3)],
+        "C": [{"record": {"series_id": i, "title": f"Other {i}"}} for i in (1, 2)],
+    }
+    mu.records = {("series", "1"): {"title": "Other 1"}}
+    mu.records |= {("series", str(i)): {"title": f"Other {i}", "associated": [{"title": "B"}]} for i in (2, 3)}
+    assert search.mangaupdates(mu, ["A", "B"]) is None, (
+        "2 of the top 3 hold a name: none, though 1 of the 3 was fetched for an earlier name"
+    )
+    assert calls.count(("FakeMangaUpdates", "series", 1)) == 1, "a record is fetched once, reused across names"
+    assert search.mangaupdates(mu, ["C", "B"]) == "2", "exactly 1 of the top 3 holding a name is the series"

@@ -5,9 +5,13 @@ metadata check, and its chapters go through intake and process with a chosen vol
 (publishing: test_new_series_publish.py).
 """
 
+import io
+import zipfile
 from contextlib import closing
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from manga_pipeline import config, db, discovery, identify, intake, process, workflow
 from manga_pipeline.db import sql
@@ -151,10 +155,33 @@ def test_a_new_series_goes_through_process_to_publish(world):
     world.run(intake)
     assert world.rows("SELECT naming_basis FROM series") == [("filename",)], "chosen over the whole batch"
     world.run(process)
-    assert [o for _, o in world.rows("SELECT layout, origin FROM series_conversion")] == ["computed"], (
-        "measured over a sample of its chapters"
-    )
     assert set(world.rows("SELECT stage, status FROM chapter")) == {("comicinfo", "ready")}, "ready for export"
+
+
+def page_manga_cbz(pages=4):
+    """Return a CBZ of page-manga pages: each a left-to-right ramp shifted per page, so no 2 join as slices."""
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        for n in range(1, pages + 1):
+            ramp = ((np.arange(32) * 6 + 60 * n) % 200 + 20).astype(np.uint8)
+            out = io.BytesIO()
+            Image.fromarray(np.tile(ramp, (48, 1)), "L").convert("RGB").save(out, "PNG")
+            z.writestr(f"{n:03}.png", out.getvalue())
+    return data.getvalue()
+
+
+@budget(load="db", seconds=10)
+def test_a_new_series_layout_is_measured_over_a_sample_of_its_chapters(world):
+    manga = world.manga("Brand New Thing")
+    world.download(manga, "Chapter 1", data=page_manga_cbz())  # alone, it measures as pages
+    for n in (2, 3):  # 1-colour pages: every join continuous, as a strip's slices
+        world.download(manga, f"Chapter {n}", data=cbz(seed=str(n), pages=4))
+    world.run(intake)
+    world.run(intake)
+    world.run(process)
+    assert world.rows("SELECT layout, origin FROM series_conversion") == [("strip", "computed")], (
+        "a new series' layout is the median over up to 3 of its chapters, not the first chapter's alone"
+    )
 
 
 @budget(load="pure")
@@ -264,3 +291,97 @@ def test_series_only_names_a_series_by_any_of_its_names_in_sql_and_python(world,
             {**workflow.scope_params(cfg), "id": sid},
         ).fetchone()
         assert (found is not None) is workflow.row_in_scope(cfg, row) is True, f"{column}: SQL and Python agree"
+
+
+def give_id(world, series_id, value, origin="search"):
+    """Store an AniList id of the series, as its check or a person would have."""
+    world.rows(
+        "INSERT INTO series_source_id VALUES (%s, 'anilist', %s, %s) RETURNING series_id", series_id, origin, value
+    )
+
+
+def library_series_with_id(world, value="7"):
+    """Add a Kavita series, let intake make its row, and give that row the AniList id; return the row's id."""
+    world.kavita_series("Solo Leveling")
+    world.run(intake)
+    ((sid,),) = world.rows("SELECT id FROM series WHERE origin = 'kavita'")
+    give_id(world, sid, value)
+    return sid
+
+
+def new_one(world):
+    return world.rows("SELECT id, status, status_reason, admitted_at IS NOT NULL FROM series WHERE origin = 'new'")
+
+
+@budget(load="db", seconds=5)
+@pytest.mark.parametrize(("human_id", "held"), [(None, True), ("9", False)], ids=["shared", "library-human-differs"])
+def test_a_pending_series_whose_id_a_library_series_holds_is_a_double_hit(world, human_id, held):
+    library = library_series_with_id(world)
+    if human_id is not None:
+        give_id(world, library, human_id, "human")
+    anilist(world, "Brand New Thing", None, al_id=7)
+    world.download(world.manga("Brand New Thing"), "Chapter 1")
+    world.run(intake)
+    ((sid, status, reason, admitted),) = new_one(world)
+    if not held:
+        assert (status, admitted) == ("ok", True), "a human id wins: the library series' AniList id is not 7"
+        return
+    assert (status, admitted) == ("needs_human", False), "an id a library series holds is a double hit"
+    assert f"series {library} (Solo Leveling) holds its anilist id 7" in reason, "the hold names the series and the id"
+    assert "series link" in reason, "the hold names series link"
+    assert f"series new {sid}" in reason, "the hold names series new"
+    assert "set-id" not in reason, "set-id does not lift a hold"
+
+
+@budget(load="db", seconds=10)
+def test_series_new_admits_a_series_held_for_a_shared_id_and_its_name_is_still_checked(world):
+    library_series_with_id(world)
+    anilist(world, "Brand New Thing", None, al_id=7)
+    world.download(world.manga("Brand New Thing"), "Chapter 1")
+    world.run(intake)
+    ((sid, status, _, _),) = new_one(world)
+    assert status == "needs_human", "set up: held for the shared id"
+    (world.library / "Brand New Thing").mkdir(parents=True)  # a stray folder Kavita does not list
+    with closing(db.connect(world.cfg)) as conn:
+        human.new_series(conn, sid)
+    world.run(intake)
+    ((_, status, reason, _),) = new_one(world)
+    assert status == "needs_human", "after series new the name is still compared"
+    assert "already has a folder" in reason, "after series new the ids are not compared again, the name still is"
+    with closing(db.connect(world.cfg)) as conn:
+        human.new_series(conn, sid, "Brand New Thing (2024)")
+    world.run(intake)
+    assert new_one(world)[0][1:] == ("ok", None, True), "the person's word stands: admitted despite the shared id"
+
+
+@budget(load="db", seconds=10)
+def test_a_series_released_by_series_new_before_its_first_check_is_held_for_an_id_it_shares(world):
+    world.kavita_series("Solo Leveling")
+    world.download(world.manga("Solo Levelling"), "Chapter 1")
+    world.run(intake)
+    ((sid, status, _, _),) = new_one(world)
+    assert status == "needs_human", "set up: a near hit, held before any check"
+    ((library,),) = world.rows("SELECT id FROM series WHERE origin = 'kavita'")
+    give_id(world, library, "7")
+    anilist(world, "Solo Levelling", None, al_id=7)
+    with closing(db.connect(world.cfg)) as conn:
+        human.new_series(conn, sid)
+    world.run(intake)
+    ((_, status, reason, _),) = new_one(world)
+    assert status == "needs_human", "no person saw its ids: they are compared at its admission"
+    assert "holds its anilist id 7" in reason, "no person saw its ids: they are compared at its admission"
+
+
+@budget(load="db", seconds=5)
+def test_of_2_pending_series_sharing_an_id_the_second_is_held_once_the_first_is_admitted(world):
+    anilist(world, "Brand New Thing", None, al_id=7)
+    anilist(world, "Other New Thing", None, al_id=7)
+    world.download(world.manga("Brand New Thing"), "Chapter 1")
+    world.download(world.manga("Other New Thing"), "Chapter 1")
+    world.run(intake)
+    (first, second) = world.rows(
+        "SELECT id, status, status_reason, admitted_at IS NOT NULL FROM series WHERE origin = 'new' ORDER BY id"
+    )
+    assert first[1:] == ("ok", None, True), "the first is admitted"
+    assert second[1] == "needs_human", "an admitted new series' id is a double hit for the second, in the same run"
+    assert f"series {first[0]} (Brand New Thing) holds its anilist id 7" in second[2], "the hold names the first"

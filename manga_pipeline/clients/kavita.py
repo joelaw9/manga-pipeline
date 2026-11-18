@@ -74,6 +74,10 @@ class CoverError(Exception):
     """Kavita does not serve a cover it accepted."""
 
 
+class ReplyError(Exception):
+    """A Kavita reply lacks a field the client must resend."""
+
+
 class FolderError(Exception):
     """A series has no usable folder (SPEC "Services")."""
 
@@ -149,9 +153,13 @@ class Kavita:
         """POST /api/Series/update: the series as just read, resent whole with the changes.
 
         Kavita applies every field it is sent and resets those left out (an omitted aniListId becomes 0, an omitted
-        coverImageLocked unlocks the cover).
+        coverImageLocked unlocks the cover). ReplyError when the series lacks one of those fields.
         """
-        body: dict[str, object] = {name: series.get(name) for name in UPDATE_SERIES_FIELDS if name in series}
+        missing = [name for name in UPDATE_SERIES_FIELDS if name not in series]
+        if missing:
+            msg = f"Kavita's reply for series {series['id']} lacks {', '.join(missing)}: the update would reset it"
+            raise ReplyError(msg)
+        body: dict[str, object] = {name: series.get(name) for name in UPDATE_SERIES_FIELDS}
         body.update(changes, id=series["id"])
         self._call("POST", "/api/Series/update", body)
 

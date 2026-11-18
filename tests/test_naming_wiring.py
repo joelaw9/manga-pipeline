@@ -13,11 +13,12 @@ from contextlib import closing
 import pytest
 from PIL import Image
 
-from manga_pipeline import config, db, export, intake, names, process, workflow
+from manga_pipeline import chapter_names, config, db, export, intake, names, process, workflow
 from manga_pipeline.clients import http
-from manga_pipeline.metadata import covers
+from manga_pipeline.metadata import covers, episodes, platforms
 from manga_pipeline.stages import publish
 
+from tests.builders import episode_record, platform_list
 from tests.timing import budget
 from tests.world import World, bulk_record, cbz
 
@@ -82,6 +83,30 @@ def test_a_named_side_story_held_at_publish_keeps_its_number(world, monkeypatch)
         ("publish", "needs_human", "side", "1"),
         ("publish", "needs_human", "side", "2"),
     ], "a held, named side story still holds side number 1: the next one takes 2"
+
+
+@budget(load="db", seconds=4)
+def test_a_side_story_published_and_waiting_to_be_confirmed_counts_once(world):
+    """A chapter at confirm is its published file's row: the side stories counted against the specials are 2, not 3."""
+    world.kavita_series("Solo Leveling")
+    manga = world.manga("Solo Leveling")
+    world.download(manga, "Side Story 1", scanlator="Grp")
+    for part in (intake, process, export):
+        world.run(part)
+    world.download(manga, "Side Story 2", scanlator="Grp")
+    world.run(intake)
+    eps = [episode_record(episodes.SPECIAL, "1", "First"), episode_record(episodes.SPECIAL, "2", "Snow Day")]
+    with closing(db.connect(world.cfg)) as conn:
+        conn.execute(
+            "INSERT INTO fetched (series_id, source, kind, payload, payload_hash, fetched_at)"
+            " VALUES (1, %s, %s, %s, 'x', '2026-11-01')",
+            (platforms.WEBTOONS, platforms.KIND, json.dumps(platform_list(eps))),
+        )
+        series = db.one_row(conn, "SELECT * FROM series WHERE id = 1")
+        new = db.one_row(conn, "SELECT id FROM chapter WHERE stage <> 'confirm'")[0]
+        assert db.one_row(conn, "SELECT count(*) FROM chapter WHERE stage = 'confirm'")[0] == 1, "set up"
+        got = chapter_names.resolve(world.context(conn, "process"), series)
+    assert got[new].title == "Side Story 2: Snow Day", "2 side stories, 2 specials: the second special's title"
 
 
 @budget(load="db", seconds=3)

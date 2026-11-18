@@ -111,28 +111,33 @@ def run(ctx: workflow.Context) -> None:
     for series_id in due(ctx, rules):
         try:
             write(ctx, series_id, rules)
-        except (http.HttpError, kavita_client.CoverError, FileNotFoundError) as e:
-            if isinstance(e, OSError) and errors.dropped_share(e):
-                raise
+        except (http.HttpError, kavita_client.CoverError, kavita_client.ReplyError, OSError) as e:
+            if isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS):
+                raise  # the share: the run's problem
             log.warning("series %s: fields not written: %s", series_id, e)
 
 
 def write(ctx: workflow.Context, series_id: int, rules: tags.Rules) -> None:
     """Write 1 series' fields to its Kavita series: scalars, lists, people, links and ids, then its cover.
 
-    Nothing is written when Kavita no longer holds the series. What was written is recorded as it goes, and the
-    series' inputs once all of it is.
+    Nothing is written when Kavita no longer holds the series: its inputs and current cover are recorded, so it is due
+    again only when one of them changes. What was written is recorded as it goes, and the series' inputs once all of
+    it is.
     """
     conn, kv = ctx.conn, ctx.kavita
     series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series_id,))
     kid = series["kavita_series_id"]
+    # The version first: a check that commits before the fields are read only makes them newer than it says
+    version = db.one_row(conn, "SELECT data_version FROM series_check WHERE series_id = %s", (series_id,))[0]
+    state = _state(conn, series_id, kid)
     if kv.series(kid) is None:
         log.info("series %s (%s): not written: Kavita no longer holds series %s", series_id, series["name"], kid)
+        cover = conn.execute("SELECT sha256 FROM series_cover WHERE series_id = %s", (series_id,)).fetchone()
+        state["cover"] = cover[0] if cover else None
+        _record(conn, series_id, kid, inputs(version, rules), state)
         return
     fields = merge.stored(conn, series_id, rules)
-    version = db.one_row(conn, "SELECT data_version FROM series_check WHERE series_id = %s", (series_id,))[0]
     imported = conn.execute("SELECT * FROM series_import WHERE series_id = %s", (series_id,)).fetchone()
-    state = _state(conn, series_id, kid)
 
     def record(*, final: bool = False) -> None:
         _record(conn, series_id, kid, inputs(version, rules) if final else INCOMPLETE, state)
@@ -237,8 +242,10 @@ class _Guard:
             return written[name] == current
         if self.imported is None:
             return False
-        if name == "status":
-            return self.imported["status"] is not None and self.imported["status"] == current
+        if name == "status":  # the old tool's state file cannot tell its status lock from a person's
+            return bool(self.imported["fields"]) or (
+                self.imported["status"] is not None and self.imported["status"] == current
+            )
         return IMPORTED.get(name) in (self.imported["fields"] or [])
 
     def held_cover(self) -> str | None:

@@ -1,4 +1,4 @@
-"""Kavita series folders in stored form, and a published new series' Kavita id (SPEC "Publishing").
+"""Kavita series folders in stored form, and an admitted new series' Kavita id (SPEC "Publishing").
 
 The id is found once Kavita lists it: the listed series no row holds that is named as its ComicInfo Series under
 Kavita's name normalising and whose folder is the series' folder. Each series is looked for at most once per run.
@@ -16,10 +16,10 @@ from manga_pipeline.replies import kavita as kavita_replies
 
 log = logging.getLogger(__name__)
 
-# An admitted new series published into its folder whose Kavita id is not found yet (series s), whatever its status:
-# a needs_human one still owns its name and folder
-UNATTACHED = sql.SQL("""s.origin = 'new' AND s.admitted_at IS NOT NULL AND s.kavita_series_id IS NULL
-    AND EXISTS (SELECT 1 FROM published_file p WHERE p.series_id = s.id)""")
+# An admitted new series whose Kavita id is not found yet (series s), whatever its status: a needs_human one still owns
+# its name and folder. Admitted, not published: a publish killed after its rename has a file in the folder and no
+# published_file row
+UNATTACHED = sql.SQL("s.origin = 'new' AND s.admitted_at IS NOT NULL AND s.kavita_series_id IS NULL")
 
 
 def library_folder(cfg: config.Config, folder: str | Path) -> str:

@@ -31,6 +31,7 @@ from manga_pipeline.replies.sources import (
 )
 
 MANGABAKA = "https://api.mangabaka.org/v1"
+MANGABAKA_SEARCH_GAP = 2.1  # seconds before a MangaBaka search: search has its own, slower limit
 MANGAUPDATES = "https://api.mangaupdates.com/v1"
 MANGADEX = "https://api.mangadex.org"
 MANGADEX_UPLOADS = "https://uploads.mangadex.org"
@@ -217,32 +218,30 @@ class MangaBaka:
     """MangaBaka's API client: a series by id, the series of an AniList or MangaUpdates id, and a title search."""
 
     def __init__(self, service: http.Service | None = None) -> None:
-        """Take the record calls' service (by default a new one with a 0.5 s gap); search gets its own, with 2.1 s."""
+        """Take the client's service; by default a new one with a 0.5 s gap (a search keeps MANGABAKA_SEARCH_GAP)."""
         self._service = service or http.Service("mangabaka", 0.5)
-        self._search = http.Service("mangabaka", 2.1)  # search has its own, slower limit
 
     def series(self, mb_id: str) -> MangaBakaSeries | None:
         """Return MangaBaka's series record of mb_id, or None when MangaBaka no longer has it."""
-        return _unless_gone(lambda: self._get(self._service, f"/series/{mb_id}", _mangabaka_series))
+        return _unless_gone(lambda: self._get(f"/series/{mb_id}", _mangabaka_series))
 
     def by_source(self, source: str, source_id: str) -> MangaBakaSeries | None:
         """Return the 1 active series MangaBaka holds for an AniList ("anilist") or MangaUpdates ("manga-updates") id.
 
         None for none or several.
         """
-        data = _unless_gone(lambda: self._get(self._service, f"/source/{source}/{source_id}", _mangabaka_source)) or {}
+        data = _unless_gone(lambda: self._get(f"/source/{source}/{source_id}", _mangabaka_source)) or {}
         active = [s for s in data.get("series") or [] if s.get("state") == "active"]
         return active[0] if len(active) == 1 else None
 
     def search(self, name: str) -> list[MangaBakaSeries]:
         """Return the active series among the results of MangaBaka's title search for name."""
         query = urllib.parse.urlencode({"q": name})
-        results = self._get(self._search, f"/series/search?{query}", _mangabaka_search) or []
+        results = self._get(f"/series/search?{query}", _mangabaka_search, MANGABAKA_SEARCH_GAP) or []
         return [r for r in results if r.get("state", "active") == "active"]
 
-    @staticmethod
-    def _get[T](service: http.Service, path: str, read: Callable[[bytes], _MangaBakaReply[T]]) -> T:
-        return service.request("GET", MANGABAKA + path).parse(read)["data"]
+    def _get[T](self, path: str, read: Callable[[bytes], _MangaBakaReply[T]], min_gap: float | None = None) -> T:
+        return self._service.request("GET", MANGABAKA + path, min_gap=min_gap).parse(read)["data"]
 
 
 class MangaUpdates:

@@ -162,6 +162,83 @@ def test_an_edit_stored_again_prints_unchanged(world):
     assert edit(world, {"3": {"title": "The Hunt"}}) == [f"series 1 ({SERIES}): 3: unchanged"]
 
 
+def open_download(world, name):
+    """Add an open download of the library series, taken past discover by intake."""
+    manga = next(i for i, m in world.suwayomi.manga_rows.items() if m["title"] == SERIES)
+    world.download(manga, name, data=cbz(pages=4, seed=name))
+    world.run(intake)
+    world.run(intake)
+
+
+@budget(load="db", seconds=30)
+def test_an_edit_of_an_open_side_story_not_named_yet_is_refused_and_a_null_is_accepted(world):
+    library(world)
+    open_download(world, "Side Story 1")
+    with pytest.raises(workflow.Refused) as refused:
+        edit(world, {"side 1": {"title": "Snow Day"}})
+    assert str(refused.value) == "chapter 'side 1': side 1 is open and not named yet: edit it once it is named", (
+        "its side number can still change"
+    )
+    assert edit(world, {"side 1": {"title": None}}) == [f"series 1 ({SERIES}): side 1: unchanged"], (
+        "a null removes an edit: accepted"
+    )
+
+
+@budget(load="db", seconds=30)
+def test_edits_giving_2_files_1_name_or_1_volume_and_number_are_refused(world):
+    library(world)
+    open_download(world, "S2 - Chapter 3")
+    edit(world, {"S2 3": {"title": "Rank Up"}})
+    with pytest.raises(workflow.Refused) as refused:
+        edit(world, {"3": {"title": "Rank Up"}})
+    assert "file name 'Ch.3 - Rank Up.cbz' is another chapter's" in str(refused.value), "2 files of 1 name"
+    with pytest.raises(workflow.Refused) as refused:
+        edit(world, {"3": {"volume": 1}, "S2 3": {"volume": 1}})
+    assert "volume 1 already has a chapter 3" in str(refused.value), "2 files of 1 volume and number"
+    assert world.rows("SELECT count(*) FROM naming_edit") == [(1,)], "only the first edit stored"
+
+
+@budget(load="db", seconds=30)
+def test_series_id_picks_1_of_2_series_of_1_name(world):
+    library(world)
+    world.kavita_series(SERIES, f"{SERIES} 2")
+    world.run(intake)
+    with pytest.raises(workflow.Refused) as refused:
+        edit(world, {"3": {"title": "The Hunt"}})
+    assert "2 series match (1, 2); pick 1 with --series-id" in str(refused.value), "a name alone matches both"
+    with closing(db.connect(world.cfg)) as conn:
+        ctx = world.context(conn, "export")
+        lines = hand_edits.apply(ctx, {"series": SERIES, "chapters": {"3": {"title": "The Hunt"}}}, series_id=1)
+    assert lines == [f"series 1 ({SERIES}): 3: title 'The Hunt'"], "--series-id picks the series"
+
+
+@budget(load="fs", seconds=1)
+def test_an_edit_file_that_is_not_json_is_refused(tmp_path):
+    path = tmp_path / "edit.json"
+    path.write_text("{'series': 'x'", encoding="utf-8")
+    with pytest.raises(workflow.Refused) as refused:
+        hand_edits.load(path)
+    assert str(refused.value).startswith(f"{path}: "), "the file named with the reason"
+
+
+@budget(load="db", seconds=30)
+def test_series_edit_reads_no_download_inside_its_transaction(world, monkeypatch):
+    library(world)
+    open_download(world, "Chapter 4")
+    with closing(db.connect(world.cfg)) as conn:
+        inside: list[bool] = []
+        read = comicinfo_xml.read_download
+
+        def recording(path):
+            inside.append(db.in_transaction(conn))
+            return read(path)
+
+        monkeypatch.setattr(comicinfo_xml, "read_download", recording)
+        hand_edits.apply(world.context(conn, "export"), {"series": SERIES, "chapters": {"4": {"title": "Rank Up"}}})
+    assert inside, "set up: the open chapter's ComicInfo.xml is read"
+    assert not any(inside), "the downloads are read before the write lock is taken"
+
+
 # --- the pure parts
 
 

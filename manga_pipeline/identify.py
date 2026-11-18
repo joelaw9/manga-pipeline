@@ -243,12 +243,12 @@ def _by_names(
             found = strict[0]
             if not workflow.in_scope(cfg, series_names(found), found["libraryId"]):
                 return OUT_OF_SCOPE
-            # A published new series Kavita lists now is matched first (it may be this subject's second source); one
-            # it lists under a name a still unmatched new series is published as is held, not made a second series
+            # An admitted new series Kavita lists now is matched first (it may be this subject's second source); one
+            # it lists under a name a still unmatched new series is admitted as is held, not made a second series
             if _strict_keys(found) & kavita_link.attach_all(ctx, kavita_series.rows()):
                 reason = (
-                    f"{subject.label} {title!r} matches Kavita series {found['name']} ({found['id']}), named as a"
-                    " published new series not found in Kavita yet"
+                    f"{subject.label} {title!r} matches Kavita series {found['name']} ({found['id']}), named as an"
+                    " admitted new series not found in Kavita yet"
                 )
                 return _store_held_series(ctx.conn, subject, reason, tried[1] if len(tried) > 1 else None)
             return _store_kavita_series(ctx, subject, found)

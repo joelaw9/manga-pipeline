@@ -144,7 +144,7 @@ def test_a_copy_takes_its_files_own_cover_page_when_no_image_is_stored(world):
     kid = library(world, cover=("Vol.1 Ch.2.cbz",))
     recorded_covers(world, kid, {1: "Vol.1 Ch.2.cbz"})
     world.run(export)
-    copy(world, width=20, n=5)  # 5 pages, as the file with its cover page
+    copy(world, width=20)  # 4 pages, as the file's beside its cover page
     through(world)
     assert row(world)["origin"] == "pipeline", "replaced by the copy"
     with zipfile.ZipFile(world.library / SERIES / "Vol.1 Ch.2.cbz") as z:
@@ -216,9 +216,43 @@ def test_a_dropped_copy_replacement_leaves_the_file_and_records_the_copy_dropped
 def test_a_copy_of_a_file_whose_cover_is_not_read_yet_keeps_the_files_cover(world):
     library(world, cover=("Vol.1 Ch.2.cbz",))
     world.rows("UPDATE published_file SET cover_state = NULL RETURNING id")  # baselined, not yet read by export
-    copy(world, width=20, n=5)  # 5 pages, as the file with its cover page
+    copy(world, width=20)  # 4 pages, as the file's beside its cover page
     for part in (intake, intake, process):
         world.run(part)
     assert world.rows("SELECT v.volume FROM volume_cover v JOIN chapter c ON c.id = v.chapter_id") == [("1",)], (
         "the file's own cover page goes with the copy"
     )
+
+
+@budget(load="db", seconds=10)
+def test_a_copy_of_a_file_holding_another_volumes_cover_takes_none(world):
+    library(world, cover=("Vol.1 Ch.2.cbz",))
+    world.rows("UPDATE published_file SET cover_state = 'volume:2' WHERE library_path LIKE '%%Ch.2.cbz' RETURNING id")
+    copy(world, width=20)
+    for part in (intake, intake, process):
+        world.run(part)
+    assert world.rows("SELECT published_file_id IS NOT NULL FROM chapter WHERE kind = 'download'") == [(True,)], (
+        "the copy takes its file"
+    )
+    assert world.rows("SELECT volume FROM volume_cover") == [], "volume 2's cover in a volume 1 file goes with no copy"
+
+
+@budget(load="db", seconds=10)
+def test_rewrite_drop_of_a_failed_kavita_wait_leaves_the_cover_refresh_to_the_next_export(world):
+    kid = library(world)
+    copy(world, width=20)
+    through(world)  # renamed in; Kavita runs no scan
+    for _ in range(3):  # 3 repeat requests, Kavita re-reading nothing: the wait fails at workflow.attempt_limit
+        old = "2000-01-01T00:00:00+00:00"
+        world.rows("UPDATE meta SET value = %s WHERE key = %s RETURNING key", old, export.REQUESTED_AT)
+        world.rows("UPDATE published_file SET indexed_since = %s WHERE indexed_since IS NOT NULL RETURNING id", old)
+        world.run(export)
+    ((file_id,),) = world.rows("SELECT id FROM published_file WHERE pending_error IS NOT NULL")
+    with closing(db.connect(world.cfg)) as conn:
+        rewrite.drop(conn, file_id, world.cfg["workflow"]["attempt_limit"])
+    assert refreshes(world) == [], "set up: no refresh while the wait ran"
+    world.run(export)
+    assert refreshes(world) == [("refresh_covers", world.cfg["kavita"]["library_id"], kid)], (
+        "the copy's page 1 is new: the dropped wait leaves its cover refresh due"
+    )
+    assert row(world)["carry_cover"] is None, "the refresh ran: the file is free again"

@@ -10,7 +10,7 @@ import yaml
 from manga_pipeline import cli, config, db, intake, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
-from manga_pipeline.metadata import audit, human, importer, sources
+from manga_pipeline.metadata import audit, check, human, importer, sources
 
 from tests.timing import budget
 from tests.world import World
@@ -56,6 +56,37 @@ def test_set_id_replaces_the_series_earlier_human_id(world):
     assert world.rows("SELECT source, origin, source_id FROM series_source_id WHERE origin = 'human'") == [
         ("mangaupdates", "human", "15")
     ]
+
+
+def mangadex_record(md_id, mu_link):
+    return {"id": md_id, "attributes": {"links": {"mu": mu_link}}}
+
+
+@budget(load="db")
+def test_set_id_makes_the_check_due_and_it_finds_again_every_id_a_search_found(world):
+    wrong_md, right_md = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+    kavita_id = world.kavita_series("Solo Leveling")
+    mb, md = world.sources.mangabaka, world.sources.mangadex
+    mb.results["Solo Leveling"] = [{"id": 50, "title": "Solo Leveling"}]
+    mb.records[("series", "50")] = {"id": 50, "source": {"anilist": {"id": 111}, "manga_updates": {"id": "aaa1"}}}
+    right = {"id": 60, "source": {"anilist": {"id": 222}, "manga_updates": {"id": "bbb2"}}}
+    mb.records[("anilist", "222")] = mb.records[("series", "60")] = right
+    md.results["Solo Leveling"] = [mangadex_record(wrong_md, "aaa1"), mangadex_record(right_md, "bbb2")]
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    with closing(db.connect(world.cfg)) as conn:
+        human.set_id(conn, sid, "anilist", "222")
+        assert sid in check.due(world.context(conn, "intake")), "set-id makes the series' check due at once"
+    world.run(intake)
+    found = world.rows(
+        "SELECT source, origin, source_id FROM series_source_id WHERE source IN ('mangabaka', 'mangadex',"
+        " 'mangaupdates') ORDER BY 1"
+    )
+    assert found == [
+        ("mangabaka", "search", "60"),
+        ("mangadex", "search", right_md),
+        ("mangaupdates", "mangabaka", str(int("bbb2", 36))),
+    ], "every search id is found again from the person's AniList id, MangaDex's through the new MangaUpdates link"
 
 
 @budget(load="db")

@@ -319,3 +319,26 @@ def test_requests_are_logged_at_debug_without_secrets(monkeypatch, caplog):
     assert "GET http://service.invalid/api/thing?apiKey=REDACTED -> 503" in caplog.text
     assert "-> 200 5 B" in caplog.text
     assert "retry 1 of 4 in 2 s" in caplog.text
+
+
+@budget(load="pure")
+def test_a_mangabaka_search_waits_its_longer_gap_after_any_mangabaka_request(monkeypatch, clock):
+    scripted(monkeypatch, Reply({"data": {"id": 1}}), Reply({"data": []}))
+    client = sources.MangaBaka()
+    client.series("1")
+    client.search("Solo Leveling")
+    assert clock.sleeps == [pytest.approx(2.1)], (
+        "MangaBaka is 1 service: its search keeps 2.1 s from the record call before it"
+    )
+
+
+@budget(load="pure")
+@pytest.mark.usefixtures("clock")
+def test_mangabaka_found_unreachable_by_a_search_is_unreachable_for_its_records(monkeypatch):
+    urlopen = scripted(monkeypatch, *[http_error(503) for _ in range(http.RETRIES + 1)])
+    client = sources.MangaBaka()
+    with pytest.raises(Unreachable):
+        client.search("Solo Leveling")
+    with pytest.raises(Unreachable):
+        client.series("1")
+    assert len(urlopen.requests) == http.RETRIES + 1, "MangaBaka found unreachable is asked nothing more in the run"
