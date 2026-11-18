@@ -21,10 +21,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import images
+from manga_pipeline import db, images
 from manga_pipeline.junk import marks
 
 from tests import pages as fx
+from tests.builders import db_row
 from tests.timing import budget
 
 MARK_AT = (100, 100)
@@ -419,9 +420,9 @@ def test_representatives_skip_templates_an_earlier_one_covers():
 
 # Variant rule (marks.resolve): one logo variant (e.g. Reset Scans' RESET-SCANS.CO, 63 pilot pages, several
 # representatives) decided from its representatives' deciding rows.
-def row(row_id, verdict, series_key):
+def row(row_id, verdict, series_key) -> db.Row:
     """Return a store row as a lookup returns it."""
-    return {"id": row_id, "verdict": verdict, "series_key": series_key}
+    return db_row(id=row_id, verdict=verdict, series_key=series_key)
 
 
 A, G = row(1, "junk", ""), row(2, "junk", AK)

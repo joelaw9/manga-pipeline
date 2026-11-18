@@ -11,8 +11,8 @@ from tests.builders import problem_text
 from tests.timing import budget
 
 
-def words(**changes):
-    return {**{k: config.cached()["junk"][k] for k in ("keywords", "weak", "paired", "suppress")}, **changes}
+def words() -> config.JunkConfig:
+    return config.cached()["junk"]
 
 
 @budget()
@@ -34,7 +34,7 @@ def test_keyword_hits_follow_the_weak_paired_and_suppress_rules(text, height, hi
 @budget()
 def test_weak_and_paired_terms_must_be_keywords():
     with pytest.raises(ValueError, match=r"junk\.paired"):
-        ocr.text_hits("x", 10, words(paired=["nonsense"]))
+        ocr.text_hits("x", 10, {**words(), "paired": ["nonsense"]})
 
 
 @budget()

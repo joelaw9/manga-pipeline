@@ -64,6 +64,12 @@ def present(value):
     return value
 
 
+def db_row(**columns: object) -> db.Row:
+    """Return a db.Row of these columns, as a query returns it: a stored row's stand-in (a junk decision, say)."""
+    row_class: type[db.Row] = type("Row", (db.Row,), {"__slots__": (), "_keys": tuple(columns)})
+    return row_class(columns.values())
+
+
 def problem_text(problem):
     """Return a check's problem text, asserting it names one."""
     assert problem is not None, "the check names a problem"
