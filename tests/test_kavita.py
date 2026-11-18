@@ -304,7 +304,6 @@ def test_update_series_resends_the_series_whole_with_the_changes():
     kv, service = client({"/api/Series/update": {}})
     series = kavita_series(7, "N")
     series["coverImageLocked"], series["aniListId"], series["libraryId"] = True, 1, 3
-    del series["cbrId"]
     kv.update_series(series, aniListId=2)
     method, path, body = service.sent[-1]
     assert (method, path) == ("POST", "/api/Series/update")
@@ -320,14 +319,26 @@ def test_update_series_resends_the_series_whole_with_the_changes():
         "aniListId",
         "malId",
         "mangaBakaId",
+        "cbrId",
         "comicVineId",
         "hardcoverId",
         "metronId",
         "metadataProviderOverride",
     }, "every field the update reads is resent (an omitted one is reset); libraryId, which it does not read, is not"
-    assert "cbrId" not in body, "a field the series lacks is not sent"
     assert (body["id"], body["aniListId"], body["coverImageLocked"], body["name"]) == (7, 2, True, "N"), (
         "the series' own values are resent, with the change"
+    )
+
+
+@budget()
+def test_update_series_refuses_a_series_reply_missing_a_field_it_resends():
+    kv, service = client({"/api/Series/update": {}})
+    series = kavita_series(7, "N")
+    del series["cbrId"]
+    with pytest.raises(kavita.ReplyError, match="cbrId"):
+        kv.update_series(series, aniListId=2)
+    assert [path for _, path, _ in service.sent if path == "/api/Series/update"] == [], (
+        "nothing is sent: Kavita would reset the field left out"
     )
 
 

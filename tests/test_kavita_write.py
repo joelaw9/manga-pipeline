@@ -6,11 +6,13 @@ reaches Kavita with no source request.
 
 import io
 from contextlib import closing
+from pathlib import Path
 
 import pytest
 from PIL import Image
 
-from manga_pipeline import db, export, intake
+from manga_pipeline import config, db, export, intake
+from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.metadata import kavita_write
 
 from tests.timing import budget
@@ -29,21 +31,47 @@ def execute(world, sql, *params):
         conn.execute(sql, params)
 
 
-def checked(world, *, language=None, **mb):
-    """Add a Kavita series checked by intake, its MangaBaka record found by search with the given fields.
+def checked(world, *, language=None, name="Solo Leveling", mb_id=50, **mb):
+    """Add a Kavita series checked by intake, its MangaBaka record (mb_id) found by search with the given fields.
 
     language: also a MangaDex record (by the series' Kavita link) of that original language.
     """
-    kavita_id = world.kavita_series("Solo Leveling")
+    kavita_id = world.kavita_series(name)
     if language is not None:
         world.kavita.metadata_rows[kavita_id] = {"seriesId": kavita_id, "webLinks": f"https://mangadex.org/title/{MD}"}
         world.sources.mangadex.records[("manga", MD)] = {"id": MD, "attributes": {"originalLanguage": language}}
-    record = {"id": 50, "title": "Solo Leveling", "status": "completed", "content_rating": "suggestive"}
+    record = {"id": mb_id, "title": name, "status": "completed", "content_rating": "suggestive"}
     record |= {"genres": ["action", "fantasy"], "tags_v2": [], "description": "Hunters <b>rise</b>."} | mb
-    world.sources.mangabaka.results["Solo Leveling"] = [{"id": 50, "title": "Solo Leveling"}]
-    world.sources.mangabaka.records[("series", "50")] = record
+    world.sources.mangabaka.results[name] = [{"id": mb_id, "title": name}]
+    world.sources.mangabaka.records[("series", str(mb_id))] = record
     world.run(intake)
     return kavita_id
+
+
+def series_id(world, kavita_id):
+    return world.rows("SELECT id FROM series WHERE kavita_series_id = %s", kavita_id)[0][0]
+
+
+def due(world):
+    """Return the Kavita ids of the series export would write now."""
+    with closing(db.connect(world.cfg)) as conn:
+        ids = kavita_write.due(world.context(conn, "export"), kavita_write.tags.load())
+    return [world.rows("SELECT kavita_series_id FROM series WHERE id = %s", i)[0][0] for i in ids]
+
+
+def with_covers(world, *names):
+    """Give each named series' Suwayomi manga a cover image of its own, and check every series again."""
+    for n, name in enumerate(names):
+        out = io.BytesIO()
+        Image.new("RGB", (1600, 10 + n)).save(out, "PNG")
+        world.suwayomi.thumbnails[world.manga(name)] = out.getvalue()
+    execute(world, "UPDATE series_check SET next_check_at = '2000-01-01T00:00:00+00:00'")
+    world.run(intake)
+
+
+def cover_path(world, kavita_id):
+    path = world.rows("SELECT path FROM series_cover WHERE series_id = %s", series_id(world, kavita_id))[0][0]
+    return config.to_local(world.cfg, path)
 
 
 def meta(world, kavita_id):
@@ -243,3 +271,138 @@ def test_a_list_whose_prune_fails_stays_the_pipelines(world, monkeypatch, caplog
     genres = sorted(g["title"] for g in meta(world, kavita_id)["genres"])
     assert genres == ["Action", "Completed", "Fantasy"], "the next run prunes: the half-written list is the pipeline's"
     assert not [r for r in caplog.records if "locked by hand" in r.getMessage()]
+
+
+@budget(load="db")
+def test_a_check_committed_between_the_reads_leaves_the_series_due(world, monkeypatch):
+    kavita_id = checked(world)
+    real = kavita_write.merge.stored
+
+    def then_a_check(conn, sid, rules):
+        fields = real(conn, sid, rules)
+        execute(world, "UPDATE series_check SET data_version = data_version + 1")  # another part's check commits
+        return fields
+
+    monkeypatch.setattr(kavita_write.merge, "stored", then_a_check)
+    world.run(export)
+    assert due(world) == [kavita_id], "fields read before the check are recorded under the version before it: due"
+
+
+@budget(load="db")
+def test_a_status_lock_on_a_series_the_old_tool_wrote_is_replaced(world):
+    kavita_id = checked(world)
+    world.kavita.metadata_rows[kavita_id] |= {"publicationStatus": 0, "publicationStatusLocked": True}
+    sid = series_id(world, kavita_id)
+    execute(world, "INSERT INTO series_import (series_id, fields) VALUES (%s, '[\"summary\"]')", sid)
+    world.run(export)
+    assert meta(world, kavita_id)["publicationStatus"] == 2, (
+        "a locked status on a series the old tool wrote fields of is the old tool's: MangaBaka's Completed replaces it"
+    )
+
+
+@budget(load="db")
+def test_a_status_lock_on_a_series_the_old_tool_never_wrote_is_kept_and_reported_once(world, caplog):
+    kavita_id = checked(world)
+    world.kavita.metadata_rows[kavita_id] |= {"publicationStatus": 0, "publicationStatusLocked": True}
+    world.run(export)
+    world.run(export)
+    assert meta(world, kavita_id)["publicationStatus"] == 0, "no import row: the locked status is a person's"
+    reports = [r for r in caplog.records if "status locked by hand" in r.getMessage()]
+    assert len(reports) == 1, "a person's locked status is reported once"
+
+
+@budget(load="db")
+def test_a_writers_list_locked_by_hand_gains_the_source_name_and_keeps_the_persons(world):
+    kavita_id = checked(world)
+    world.kavita.metadata_rows[kavita_id] = {
+        "seriesId": kavita_id,
+        "webLinks": "",
+        "writers": [{"id": 5, "name": "Their Pick"}],
+        "writerLocked": True,
+    }
+    world.sources.anilist.records[("media", "9")] = {
+        "id": 9,
+        "staff": {"edges": [{"role": "Story", "node": {"name": {"full": "Chugong"}}}]},
+    }
+    execute(world, "INSERT INTO series_source_id VALUES (%s, 'anilist', 'human', '9')", series_id(world, kavita_id))
+    execute(world, "UPDATE series_check SET next_check_at = '2000-01-01T00:00:00+00:00'")
+    world.run(intake)
+    world.run(export)
+    m = meta(world, kavita_id)
+    assert [p["name"] for p in m["writers"]] == ["Their Pick", "Chugong"], "people are only added, locked or not"
+    assert m["writerLocked"], "the list stays locked"
+
+
+@budget(load="db")
+def test_provider_ids_reach_kavita_through_the_series_update(world):
+    kavita_id = checked(world)
+    world.run(export)
+    updates = [w for w in world.kavita.writes if w[0] == "series"]
+    assert updates == [("series", kavita_id, {"mangaBakaId": 50})], "the MangaBaka id is set on the Kavita series"
+
+
+@budget(load="db")
+def test_a_series_kavita_no_longer_holds_is_not_tried_again_until_its_data_changes(world):
+    kavita_id = checked(world)
+    del world.kavita.series_rows[kavita_id]
+    world.run(export)
+    assert due(world) == [], "not written, and not due again on the next export"
+    execute(world, "UPDATE series_check SET data_version = data_version + 1")
+    assert due(world) == [kavita_id], "due again once its data version rises"
+
+
+@budget(load="db")
+def test_a_cover_file_that_cannot_be_read_leaves_the_next_series_written(world, monkeypatch, caplog):
+    first = checked(world)
+    second = checked(world, name="Tower Of God", mb_id=51)
+    with_covers(world, "Solo Leveling", "Tower Of God")
+    unreadable = cover_path(world, first)
+    real = Path.read_bytes
+
+    def read_bytes(path):
+        if path == unreadable:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path)
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    world.run(export)
+    assert [w for w in world.kavita.writes if w[0] == "cover"] == [("cover", second)], "the next series' cover goes up"
+    assert due(world) == [first], "the series whose cover could not be read stays due"
+    assert [r for r in caplog.records if "fields not written" in r.getMessage()], "the failure is logged"
+
+
+@budget(load="db")
+def test_a_cover_kavita_does_not_serve_is_recorded_first_and_the_series_stays_due(world, monkeypatch):
+    kavita_id = checked(world)
+    with_covers(world, "Solo Leveling")
+
+    def not_served(kid, _image):
+        msg = f"Kavita accepted the cover of series {kid} but does not serve it"
+        raise kavita_client.CoverError(msg)
+
+    monkeypatch.setattr(world.kavita, "upload_cover", not_served)
+    world.run(export)
+    sid = series_id(world, kavita_id)
+    recorded = world.rows("SELECT cover_sha256 FROM series_written WHERE series_id = %s", sid)
+    current = world.rows("SELECT sha256 FROM series_cover WHERE series_id = %s", sid)
+    assert recorded == current, "the cover is recorded before its upload: a failed check never makes it a person's"
+    assert due(world) == [kavita_id], "the series stays due"
+
+
+@budget(load="db")
+def test_a_series_reply_missing_a_field_leaves_that_series_unwritten_and_the_next_written(world, monkeypatch, caplog):
+    first = checked(world)
+    second = checked(world, name="Tower Of God", mb_id=51)
+    real = world.kavita.update_series
+
+    def missing_field(series, **changes):
+        if series["id"] == first:
+            msg = f"Kavita's reply for series {first} lacks cbrId"
+            raise kavita_client.ReplyError(msg)
+        real(series, **changes)
+
+    monkeypatch.setattr(world.kavita, "update_series", missing_field)
+    world.run(export)
+    assert due(world) == [first], "the series Kavita's reply fails stays due"
+    assert ("series", second, {"mangaBakaId": 51}) in world.kavita.writes, "the next series is written"
+    assert [r for r in caplog.records if "fields not written" in r.getMessage()], "the failure is logged"
