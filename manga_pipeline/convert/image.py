@@ -22,7 +22,7 @@ import multiprocessing
 import shutil
 import time
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Executor, Future, ProcessPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
@@ -220,7 +220,7 @@ def _cleanup(task: PageTask, qs: list[int]) -> None:
         _tmp(tmp, src, tag).unlink(missing_ok=True)
 
 
-def _cancel[T](jobs: Iterable[Future[T]]) -> None:
+def _cancel[T](jobs: Collection[Future[T]]) -> None:
     """Cancel queued work and wait for running work, so no page is still writing into the chapter's folders."""
     for g in jobs:
         g.cancel()
