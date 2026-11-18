@@ -11,6 +11,7 @@ from typing import NotRequired, TypedDict
 
 from manga_pipeline import config
 from manga_pipeline.clients import http
+from manga_pipeline.replies.suwayomi import Chapter, DownloadStatus, Manga, MangaAndChapters, Source
 
 PAGE_SIZE = 50  # library manga per query: the whole library in 1 query times out
 SOURCE_TIMEOUT = 120  # seconds; a source search or chapter fetch waits on the source's site
@@ -27,91 +28,8 @@ UTF8_1_BYTE_LAST, UTF8_2_BYTES_LAST, UTF8_3_BYTES_LAST = 0x7F, 0x7FF, 0xFFFF
 FIRST_PRINTABLE = 0x20  # the first printable code point: the C0 control characters lie below it
 
 
-# Suwayomi's replies: the fields each query asks for (MANGA, CHAPTER and the queries below), every one of which a
-# GraphQL reply carries; nullable ones as the schema declares them (local library suwayomi-graphql.md). Each reply is
-# read by its reader at the end of this module, unchecked.
-
-
-class Source(TypedDict):
-    """A download source: its id (a LongString), name, language and displayName ("Name (LANG)")."""
-
-    id: str
-    name: str
-    lang: str
-    displayName: str
-
-
-class TrackRecord(TypedDict):
-    """A manga's tracker entry: the tracker's id and the series' id there (a LongString)."""
-
-    trackerId: int
-    remoteId: str
-
-
-class TrackRecords(TypedDict):
-    """A manga's tracker entries."""
-
-    nodes: list[TrackRecord]
-
-
-class Manga(TypedDict):
-    """A manga (MANGA): source is null when its extension is not installed; sourceId is always there."""
-
-    id: int
-    title: str
-    status: str
-    url: str
-    inLibrary: bool
-    sourceId: str
-    source: Source | None
-    trackRecords: TrackRecords
-
-
-class Chapter(TypedDict):
-    """A chapter (CHAPTER): uploadDate is epoch milliseconds as text; scanlator and realUrl can be null."""
-
-    id: int
-    mangaId: int
-    name: str
-    scanlator: str | None
-    chapterNumber: float
-    sourceOrder: int
-    isDownloaded: bool
-    pageCount: int
-    uploadDate: str
-    url: str
-    realUrl: str | None
-
-
-class QueuedChapter(TypedDict):
-    """The chapter of a download queue entry."""
-
-    id: int
-    mangaId: int
-
-
-class QueueEntry(TypedDict):
-    """A download queue entry: its state (QUEUED, DOWNLOADING, FINISHED, ERROR), tries, progress, place and chapter."""
-
-    state: str
-    tries: int
-    progress: float
-    position: int
-    chapter: QueuedChapter
-
-
-class DownloadStatus(TypedDict):
-    """The downloader's state (STARTED or STOPPED) and its queue."""
-
-    state: str
-    queue: list[QueueEntry]
-
-
-class MangaAndChapters(TypedDict):
-    """A manga and its chapter list, as fetchMangaAndChapters refreshed them."""
-
-    manga: Manga
-    chapters: list[Chapter]
+# Suwayomi's replies are typed in replies/suwayomi.py; the GraphQL envelope and each query's data are here. Each reply
+# is read by its reader at the end of this module, unchecked.
 
 
 class ErrorEntry(TypedDict):

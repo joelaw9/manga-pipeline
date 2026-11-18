@@ -8,8 +8,8 @@ from typing import TypedDict, Unpack
 import yaml
 
 from manga_pipeline import config, db, fleet, lock, state, workflow
-from manga_pipeline.clients import kavita
 from manga_pipeline.db import sql
+from manga_pipeline.replies import kavita
 
 from tests import pg
 

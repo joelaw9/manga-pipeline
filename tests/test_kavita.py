@@ -302,7 +302,8 @@ def test_from_config_reads_the_kavita_keys():
 @budget()
 def test_update_series_resends_the_series_whole_with_the_changes():
     kv, service = client({"/api/Series/update": {}})
-    series: kavita.Series = {**kavita_series(7, "N"), "coverImageLocked": True, "aniListId": 1, "libraryId": 3}
+    series = kavita_series(7, "N")
+    series["coverImageLocked"], series["aniListId"], series["libraryId"] = True, 1, 3
     kv.update_series(series, aniListId=2)
     method, path, body = service.sent[-1]
     assert (method, path) == ("POST", "/api/Series/update")
