@@ -46,18 +46,18 @@ LISTS: dict[
 }
 # People are only added: Kavita keeps the people its scans read from the files whatever a metadata update sends
 # (seen on Kavita 0.9.1, 2026-11-15), so a list never matches the sources' exactly and is never guarded or pruned.
-# field: (Kavita's people key, its lock key, the field's names); each entry {id, name}
-PEOPLE: dict[
-    str,
+# (Kavita's people key, its lock key, the field's names), in the order written; each entry {id, name}
+PEOPLE: tuple[
     tuple[
         Literal["writers", "pencillers"],
         Literal["writerLocked", "pencillerLocked"],
         Callable[[merge.SeriesFields], tuple[str, ...]],
     ],
-] = {
-    "writers": ("writers", "writerLocked", lambda f: f.writers),
-    "pencillers": ("pencillers", "pencillerLocked", lambda f: f.pencillers),
-}
+    ...,
+] = (
+    ("writers", "writerLocked", lambda f: f.writers),
+    ("pencillers", "pencillerLocked", lambda f: f.pencillers),
+)
 IMPORTED = {"summary": "summary", "genres": "genres", "tags": "tags"}  # our field: the old tool's `fields` name
 COVER = "cover"  # the name a kept hand-uploaded cover is reported under
 
@@ -141,7 +141,7 @@ def write(ctx: workflow.Context, series_id: int, rules: tags.Rules) -> None:
     _write_scalars(kv, kid, fields, guard)
     record()
     _write_lists(kv, kid, fields, guard, record)
-    for key, lock, names_of in PEOPLE.values():
+    for key, lock, names_of in PEOPLE:
         _add_people(kv, kid, key, lock, names_of(fields))
     _links_and_ids(kv, kid, fields)
     state["cover"] = _cover(ctx, kid, guard, record)
