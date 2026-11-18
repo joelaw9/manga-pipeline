@@ -330,7 +330,7 @@ class Kavita:
         return self._token
 
     def _refused(self, reason: str) -> Unreachable:
-        log.warning("kavita: %s; Kavita is not asked again in this run", reason)  # Phase 8 adds the notification
+        log.warning("kavita: %s; Kavita is not asked again in this run", reason)  # Phase 9 adds the notification
         return self._service.mark_unreachable(reason)
 
 

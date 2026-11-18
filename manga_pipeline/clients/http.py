@@ -96,15 +96,19 @@ def redact_url(url: str) -> str:
 class Service:
     """1 service as 1 run sees it.
 
-    Its name (what Unreachable carries), its minimum gap between requests in seconds, the User-Agent it sends, when it
-    was last asked, and whether it was found unreachable.
+    Its name (what Unreachable carries), its minimum gap between requests in seconds, the User-Agent it sends, how its
+    messages and logs show a URL (redact_url, or a function hiding a URL that is a secret whole), when it was last
+    asked, and whether it was found unreachable.
     """
 
-    def __init__(self, name: str, min_gap: float = 0.0, user_agent: str = USER_AGENT) -> None:
-        """Store the service's name, minimum gap and User-Agent; it starts never asked and not found unreachable."""
+    def __init__(
+        self, name: str, min_gap: float = 0.0, user_agent: str = USER_AGENT, shown: Callable[[str], str] = redact_url
+    ) -> None:
+        """Store the service's name, minimum gap, User-Agent and URL display; it starts never asked, not unreachable."""
         self.name = name
         self.min_gap = min_gap
         self.user_agent = user_agent
+        self.shown = shown
         self._last: float | None = None
         self._down: str | None = None
 
@@ -134,7 +138,7 @@ class Service:
         """
         if self._down is not None:
             raise Unreachable(self.name, self._down)
-        shown = redact_url(url)
+        shown = self.shown(url)
         if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
             msg = f"{self.name}: not an http or https URL: {shown}"
             raise ValueError(msg)
@@ -154,7 +158,7 @@ class Service:
                 )
             except urllib.error.HTTPError as e:
                 failed = (e.code, _error_body(e))
-                asked = self._asked_wait(e, url, failed[1], shown)
+                asked = self._asked_wait(e, failed[1], shown)
                 problem = f"HTTP {e.code}"
                 if asked is not None:
                     wait = asked
@@ -165,18 +169,18 @@ class Service:
                 log.info("%s: %s from %s; %s", self.name, problem, shown, retry)
                 time.sleep(wait)
         if failed is not None and failed[0] not in UNREACHABLE_STATUS:
-            raise HttpError(failed[0], url, failed[1])
+            raise HttpError(failed[0], shown, failed[1])
         msg = f"{problem} from {shown} after {retries} retries"
         raise self.mark_unreachable(msg)
 
-    def _asked_wait(self, error: urllib.error.HTTPError, url: str, body: bytes, shown: str) -> int | None:
+    def _asked_wait(self, error: urllib.error.HTTPError, body: bytes, shown: str) -> int | None:
         """Return the seconds a retried HTTP failure's Retry-After asks for, None when it names none.
 
         HttpError for a status that is the request's failure (below 500, 429 aside); Unreachable (and the service
         marked) for a Retry-After above MAX_RETRY_AFTER.
         """
         if error.code != HTTPStatus.TOO_MANY_REQUESTS and error.code < HTTPStatus.INTERNAL_SERVER_ERROR:
-            raise HttpError(error.code, url, body) from None
+            raise HttpError(error.code, shown, body) from None
         asked = _retry_after(error.headers)
         if asked is not None and asked > MAX_RETRY_AFTER:
             msg = f"HTTP {error.code} from {shown}, Retry-After {asked} s"

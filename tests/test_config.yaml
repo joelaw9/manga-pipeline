@@ -61,6 +61,9 @@ export:
   retention_days: 7
   rewrites_open: 50
 
+notify:
+  discord_webhook: null
+
 tools:
   avifenc: "$TMP/tools/avifenc"
   avifdec: "$TMP/tools/avifdec"

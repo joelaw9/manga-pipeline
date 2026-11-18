@@ -92,6 +92,7 @@ def test_the_secrets_are_the_null_keys_of_the_example_s_sections():
         ("database", "password"),
         ("junk", "claude_token"),
         ("kavita", "api_key"),
+        ("notify", "discord_webhook"),
     ], "each secret is a section's key whose example value is null"
 
 

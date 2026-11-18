@@ -1,13 +1,17 @@
 """The status command (SPEC "CLI", "Needs human"): what is where, what waits and on what, and what needs a human.
 
+Also the series titles changed at the sources, and the Discord reports not sent.
+
 Read-only: it never creates, migrates or writes the database.
 """
 
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from manga_pipeline import config, db, kavita_link, rewrite, workflow
+from manga_pipeline import config, db, kavita_link, notify, rewrite, workflow
 from manga_pipeline.db import sql
+
+TITLES_SHOWN_DAYS = 30  # status lists the series titles changed at the sources this many days back
 
 
 def run(cfg: config.Config) -> None:
@@ -23,16 +27,6 @@ def report(conn: db.Connection) -> list[str]:
     """Return the status report as lines, read in 1 read transaction so its sections agree while a part runs."""
     with conn.transaction():  # read_only's transactions are repeatable-read: 1 snapshot
         return _report(conn)
-
-
-def _settle(row: db.Row) -> str:
-    """Return the other commands that settle a needs_human chapter at its stage (SPEC "Bad downloads")."""
-    hint = ""
-    if row["stage"] == "validate":
-        hint += f", chapter use {row['id']} SUWAYOMI_CHAPTER_ID"
-    if row["stage"] in workflow.DROPPABLE:
-        hint += f", chapter drop {row['id']}"
-    return hint
 
 
 def _redownload(row: db.Row) -> str:
@@ -57,6 +51,8 @@ def _report(conn: db.Connection) -> list[str]:
         *_unattached(conn),
         *_rewrites(conn),
         *_needs_human(conn),
+        *_titles(conn),
+        *_discord(conn),
         *_redownloads(conn),
         *_notes(conn),
         *_not_taken(conn),
@@ -184,21 +180,36 @@ def _needs_human(conn: db.Connection) -> list[str]:
         """SELECT c.id, c.identity, c.stage, c.last_error, s.name FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status = 'needs_human' ORDER BY c.id"""
     ).fetchall()
-    human = [
-        f"  series {r['id']} ({r['name']}): {r['status_reason']}"
-        + (
-            ("" if "series new" in r["status_reason"] else f" -> series link or series new {r['id']}")
-            if r["origin"] == "new" and r["admitted_at"] is None
-            else f" -> retry --series {r['id']}"
-        )
-        for r in series
-    ]
-    human += [
-        f"  chapter {r['id']} ({r['name']} / {r['identity']}, at {r['stage']}): {r['last_error']} -> retry {r['id']}"
-        + _settle(r)
-        for r in chapters
-    ]
+    human = [_human(workflow.human_line("series", r, r["status_reason"])) for r in series]
+    human += [_human(workflow.human_line("chapter", r, r["last_error"])) for r in chapters]
     return lines + (human or ["  none"])
+
+
+def _human(line: tuple[str, str]) -> str:
+    text, fix = line
+    return f"  {text} -> {fix}" if fix else f"  {text}"
+
+
+def _titles(conn: db.Connection) -> list[str]:
+    lines = [f"Series titles changed at the sources (last {TITLES_SHOWN_DAYS} days, not applied):"]
+    since = (datetime.fromisoformat(db.now(conn)) - timedelta(days=TITLES_SHOWN_DAYS)).isoformat()
+    rows = conn.execute(
+        "SELECT text, queued_at FROM notification WHERE kind = 'title' AND queued_at >= %s ORDER BY id DESC", (since,)
+    ).fetchall()
+    return lines + ([f"  {r['text']} (seen {r['queued_at']})" for r in rows] or ["  none"])
+
+
+def _discord(conn: db.Connection) -> list[str]:
+    """List the reports not sent to Discord: those queued (Discord off or not reached yet), those Discord refused."""
+    lines = ["Discord reports not sent:"]
+    queued = db.one_row(
+        conn, sql.SQL("SELECT count(*) AS n, min(queued_at) AS oldest FROM notification WHERE {}").format(notify.UNSENT)
+    )
+    if queued["n"]:
+        lines.append(f"  {queued['n']} queued, the oldest since {queued['oldest']} (sent by export)")
+    refused = conn.execute("SELECT text, failed FROM notification WHERE failed IS NOT NULL ORDER BY id").fetchall()
+    lines += [f"  refused: {r['text']}: {r['failed']}" for r in refused]
+    return lines if queued["n"] or refused else [*lines, "  none"]
 
 
 def _redownloads(conn: db.Connection) -> list[str]:

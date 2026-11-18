@@ -12,7 +12,7 @@ The pipeline talks to Suwayomi (GraphQL) and Kavita (REST) through 1 HTTP layer,
 - A service can have a minimum gap between 2 requests; Suwayomi and Kavita have none.
 - Requests carry a browser User-Agent, except MangaDex's, which name the client (`manga-pipeline`): MangaDex answers a browser one with a bot check.
 - A reply read as JSON that is not JSON (a bot check's HTML page, say) is a failure of the request, naming the service, the status and the content type.
-- Every request is logged at DEBUG. No log line or error message carries a secret: the value of a query parameter whose name contains `key`, `token`, `secret`, `pass`, `auth` or `sig`, in any case, is replaced.
+- Every request is logged at DEBUG. No log line or error message carries a secret: the value of a query parameter whose name contains `key`, `token`, `secret`, `pass`, `auth` or `sig`, in any case, is replaced. A service whose URL is a secret whole shows it under a fixed name instead.
 
 `smoke` checks both services with reads only: it prints the size of Suwayomi's library, its source count and 1 manga's chapters, then Kavita's libraries, the series count of `kavita.library_id` and 1 series' files after path mapping, with whether each mapped path exists; a mapped path that does not exist fails the check. It tries both services whatever the first one answers, and exits 1 when either check fails.
 
@@ -24,6 +24,11 @@ The pipeline talks to Suwayomi (GraphQL) and Kavita (REST) through 1 HTTP layer,
 - The library is read 50 manga at a time, in id order, each query starting after the last id read (a manga added or removed meanwhile shifts nothing), and chapters per manga; the whole library is never asked for in 1 query.
 - A manga Suwayomi does not hold is reported as absent, not as an error.
 - A download lies at `<source display name>/<manga title>/<chapter>.cbz`, where `<chapter>` is `<scanlator>_<chapter name>`, or the chapter name alone when the chapter has no scanlator. Each of the 3 parts is made a valid file name the way Suwayomi does it: leading and trailing dots and spaces are removed (nothing left gives `(invalid)`); control characters, DEL and `" * / : < > ? \ |` become `_`; the result is cut to 240 UTF-16 units and 240 UTF-8 bytes, never inside a character.
+
+### Discord
+
+- `export` posts the queued reports (SPEC "Needs human") to the webhook `notify.discord_webhook`, a secret whole (its token is part of its path): every log line and error message names it `discord webhook`.
+- A post is JSON `content` with `allowed_mentions` parsing nothing and the suppress-embeds flag; any 2xx answers it. It waits at most 10 seconds and is retried once, so a silent Discord holds `export` briefly; posts are at least 1 second apart. The User-Agent is `manga_pipeline`.
 
 ### Kavita
 

@@ -18,7 +18,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Literal, NotRequired, TypedDict, final
 
-from manga_pipeline import config, db, lock, strip
+from manga_pipeline import config, db, lock, notify, strip
+from manga_pipeline.clients import discord as discord_client
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.db import sql
@@ -106,6 +107,8 @@ class Context:
     kavita: kavita_client.Kavita
     # The metadata sources' clients: intake's check and validate's volume covers.
     sources: metadata_sources.Sources
+    # Discord, None when off: export sends the queued reports through it (SPEC "Needs human").
+    discord: discord_client.Discord | None
     # Chapters that failed in this run: tried again by a later run, so 1 run never spends all their attempts.
     failed: set[int] = field(default_factory=set)
     # {stage: service} for the stages whose service was unreachable in this run: not claimed again until a later run.
@@ -126,6 +129,7 @@ def context(cfg: config.Config, conn: db.Connection, part: str) -> Context:
         suwayomi=suwayomi_client.from_config(cfg),
         kavita=kavita_client.from_config(cfg),
         sources=metadata_sources.new_sources(),
+        discord=discord_client.from_config(cfg),
     )
 
 
@@ -580,11 +584,12 @@ def holds_claim(ctx: Context, chapter: db.Row) -> None:
 def needs_human(conn: db.Connection, kind: Literal["chapter", "series"], item_id: int, reason: str) -> None:
     """Make a chapter or a series needs_human (kind "chapter" or "series"): the single place it happens.
 
-    Runs inside the caller's transaction.
+    Runs inside the caller's transaction, and queues its Discord report there (SPEC "Needs human").
     """
     if not db.in_transaction(conn):
         msg = "needs_human runs inside the caller's transaction"
         raise RuntimeError(msg)
+    row: db.Row
     if kind == "chapter":
         conn.execute(
             """UPDATE chapter SET status = 'needs_human', claimed_by = NULL, waiting_on = NULL, wait_data = NULL,
@@ -592,9 +597,37 @@ def needs_human(conn: db.Connection, kind: Literal["chapter", "series"], item_id
             WHERE id = %s""",
             (reason, now(conn), item_id),
         )
-    elif kind == "series":
+        row = db.one_row(
+            conn,
+            """SELECT c.id, c.identity, c.stage, s.name FROM chapter c JOIN series s ON s.id = c.series_id
+            WHERE c.id = %s""",
+            (item_id,),
+        )
+    else:
         conn.execute("UPDATE series SET status = 'needs_human', status_reason = %s WHERE id = %s", (reason, item_id))
-    log.warning("needs human: %s %s: %s", kind, item_id, reason)  # Phase 8 adds the Discord message
+        row = db.one_row(conn, "SELECT id, name, origin, admitted_at FROM series WHERE id = %s", (item_id,))
+    notify.queue(conn, kind, item_id, *human_line(kind, row, reason))
+    log.warning("needs human: %s %s: %s", kind, item_id, reason)
+
+
+def human_line(kind: Literal["chapter", "series"], row: db.Row, reason: str) -> tuple[str, str]:
+    """Return how a needs_human chapter or series is reported (SPEC "Needs human"): (what and why, the fix).
+
+    The fix is the command that clears it, and the others that settle a chapter at its stage (SPEC "Bad downloads");
+    empty for a new series whose reason already names it. row: a chapter's id, identity, stage and series name, or a
+    series' id, name, origin and admitted_at.
+    """
+    if kind == "chapter":
+        fix = f"retry {row['id']}"
+        if row["stage"] == "validate":
+            fix += f", chapter use {row['id']} SUWAYOMI_CHAPTER_ID"
+        if row["stage"] in DROPPABLE:
+            fix += f", chapter drop {row['id']}"
+        return f"chapter {row['id']} ({row['name']} / {row['identity']}, at {row['stage']}): {reason}", fix
+    fix = f"retry --series {row['id']}"
+    if row["origin"] == "new" and row["admitted_at"] is None:
+        fix = "" if "series new" in reason else f"series link or series new {row['id']}"
+    return f"series {row['id']} ({row['name']}): {reason}", fix
 
 
 class Refused(ValueError):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)

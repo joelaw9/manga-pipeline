@@ -2,14 +2,15 @@
 
 Empties expired retention files, adds ComicInfo.xml, publishes series by series (each Kavita series only while its files
 lie in its recorded folder), then does what needs Kavita: ends kavita_scan waits, confirms, publishes the new series
-that are ready, writes series fields when no scan is awaited, and requests at most 1 library scan.
+that are ready, writes series fields when no scan is awaited, and requests at most 1 library scan. Last, it sends the
+queued reports to Discord (SPEC "Needs human").
 """
 
 import logging
 from datetime import timedelta
 from pathlib import Path, PurePosixPath
 
-from manga_pipeline import config, db, errors, kavita_link, retention, rewrite, workflow
+from manga_pipeline import config, db, errors, kavita_link, notify, retention, rewrite, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.db import sql
@@ -27,10 +28,18 @@ def run(cfg: config.Config, conn: db.Connection) -> None:
 
 
 def work(ctx: workflow.Context) -> None:
-    """Do 1 export run's work in the order the module docstring gives.
+    """Do 1 export run's work in the order the module docstring gives, then send the queued reports.
 
-    The retroactive rewrites run in it too (SPEC "Retroactive updates"): rewrite.compare, finish_all and restore_all.
+    The reports go even when the work ended early (SPEC "Needs human"); the run's result then records the send too.
     """
+    try:
+        _work(ctx)
+    finally:
+        notify.send(ctx.conn, ctx.discord)
+
+
+def _work(ctx: workflow.Context) -> None:
+    """Do the run's work; the retroactive rewrites run in it too (SPEC "Retroactive updates")."""
     with workflow.share_errors():
         retention.purge(ctx.cfg)
     # The comparison (SPEC "Retroactive updates"): rewrite chapters for comicinfo and publish below
