@@ -15,7 +15,7 @@ class _Fake:
         self.images = {}  # url or (md id, file): bytes
         self._calls = calls
 
-    def _get(self, kind, key):
+    def _fake_get(self, kind, key):
         self._calls.append((type(self).__name__, kind, key))
         return self.records.get((kind, str(key)))
 
@@ -26,29 +26,29 @@ class _Fake:
 
 class FakeMangaBaka(_Fake, sources.MangaBaka):
     def series(self, mb_id):
-        return self._get("series", mb_id)
+        return self._fake_get("series", mb_id)
 
     def by_source(self, source, source_id):
-        return self._get(source, source_id)
+        return self._fake_get(source, source_id)
 
 
 class FakeMangaUpdates(_Fake, sources.MangaUpdates):
     def series(self, mu_id):
-        return self._get("series", mu_id)
+        return self._fake_get("series", mu_id)
 
 
 class FakeMangaDex(_Fake, sources.MangaDex):
     def manga(self, md_id):
-        return self._get("manga", md_id)
+        return self._fake_get("manga", md_id)
 
     def aggregate(self, md_id):
-        return self._get("aggregate", md_id)
+        return self._fake_get("aggregate", md_id)
 
     def covers(self, md_id):
-        return self._get("covers", md_id) or []
+        return self._fake_get("covers", md_id) or []
 
     def latest_chapter_date(self, md_id):
-        return self._get("latest", md_id)
+        return self._fake_get("latest", md_id)
 
     def cover_image(self, md_id, file_name):
         return self.images[(md_id, file_name)]
@@ -56,7 +56,7 @@ class FakeMangaDex(_Fake, sources.MangaDex):
 
 class FakeAniList(_Fake, sources.AniList):
     def media(self, al_id):
-        return self._get("media", al_id)
+        return self._fake_get("media", al_id)
 
     def cover_image(self, url):
         return self.images[url]
@@ -66,17 +66,17 @@ class FakeTapas(_Fake, sources.Tapas):
     """records: ("series_id", slug) -> id; ("episodes", id) -> (items, listed total)."""
 
     def series_id(self, slug):
-        return self._get("series_id", slug)
+        return self._fake_get("series_id", slug)
 
     def episodes(self, series_id):
-        return self._get("episodes", series_id)
+        return self._fake_get("episodes", series_id)
 
 
 class FakeWebtoons(_Fake, sources.Webtoons):
     """records: ("episodes", ref) -> items; ("app_only", ref) -> True, False or None (unread)."""
 
     def episodes(self, ref):
-        return self._get("episodes", ref)
+        return self._fake_get("episodes", ref)
 
     def app_only(self, ref):
         return self.records.get(("app_only", ref), False)
