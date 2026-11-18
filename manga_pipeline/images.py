@@ -507,13 +507,13 @@ PAGE_FIELDS = (
     "colour_class",
     "chroma",
 )
-DECODED_FIELDS = ("width", "height", "blank", "phash", "junk_signature", "colour_class")  # need the page decoded
 
 
 class Decoded(TypedDict):
-    """The DECODED_FIELDS of a page: width and height in px, blank, pHash (16 hex digits), junk signature text, class.
+    """The fields of a page that need it decoded: width and height in px, blank, pHash, junk signature text, class.
 
-    phash is None for a blank page, junk_signature (sig_to_str) None for a uniform one; colour_class a page class.
+    phash (16 hex digits) is None for a blank page, junk_signature (sig_to_str) None for a uniform one; colour_class a
+    page class.
     """
 
     width: int
@@ -556,7 +556,7 @@ class KnownPage(TypedDict, total=False):
 
 
 def _measure_decoded(data: bytes) -> Decoded:
-    """Return the DECODED_FIELDS of a page from one decode.
+    """Return the Decoded fields of a page from one decode.
 
     width, height, blank and phash from the stored pixels' 64x64 luma thumbnail (as the bulk converter's integrity
     check; phash None for a blank page), junk_signature and colour_class from the page composited onto white (open_flat,
@@ -579,7 +579,7 @@ def _measure_decoded(data: bytes) -> Decoded:
 
 
 def _known_decoded(page: KnownPage, data: bytes, decode: Callable[[bytes], Decoded]) -> Decoded:
-    """Return a page's DECODED_FIELDS: its known ones, the others from 1 decode(data) (none when every one is known)."""
+    """Return a page's Decoded fields: its known ones, the others from 1 decode(data) (none when every one is known)."""
     fresh = functools.cache(functools.partial(decode, data))
     return {
         "width": page["width"] if "width" in page else fresh()["width"],
@@ -597,7 +597,7 @@ def measure_pages(
     """Return [{PAGE_FIELDS}] of a CBZ's pages in archive.archive_pages order: the one page measurement.
 
     known: {index: dict of fields measured before}; a page keeps its known fields and gets only the missing ones, and is
-    decoded only when a DECODED_FIELDS field is missing (decode(page bytes): its DECODED_FIELDS). A known sha1 that is
+    decoded only when a Decoded field is missing (decode(page bytes): its Decoded fields). A known sha1 that is
     not the page's raises ValueError (stale measurements). Pure: writes nothing.
     """
     known = known or {}
