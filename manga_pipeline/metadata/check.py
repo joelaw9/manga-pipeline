@@ -8,30 +8,28 @@ nothing and stays due; one whose ids disagree stores the ids and makes the serie
 import hashlib
 import json
 import logging
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 
-from manga_pipeline import db, workflow
+from manga_pipeline import config, db, workflow
 from manga_pipeline.db import sql
-from manga_pipeline.metadata import covers, ids, platforms, refresh, search
+from manga_pipeline.metadata import covers, ids, platforms, refresh, search, sources
+from manga_pipeline.metadata.records import STORED, Records
+from manga_pipeline.replies.kavita import SeriesMetadata
+from manga_pipeline.replies.sources import AniListMedia, MangaBakaSeries, MangaUpdatesSeries
+from manga_pipeline.replies.suwayomi import Manga
 
 log = logging.getLogger(__name__)
 FETCHED_ORIGINS = ("suwayomi", "kavita", "anilist", "mangabaka", "mangadex")  # replaced by every completed check
 DAYS_PER_MONTH = 30  # metadata.*_months as days
 MANGABAKA_COMPLETE = "completed"
-# (source, kind) of every record a check stores; a source with no id stores None for each of its kinds.
-KINDS = {
-    "mangabaka": ("series",),
-    "mangaupdates": ("series",),
-    "mangadex": ("manga", "aggregate", "covers"),
-    "anilist": ("media",),
-}
 
 
 class Disagree(Exception):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
     """2 ids of a source differ; the message is ids.resolve's problem text, which the check stores (needs_human)."""
 
 
-def completed(ctx: workflow.Context, chapter):
+def completed(ctx: workflow.Context, chapter: db.Row) -> bool:
     """Return whether the chapter's series has completed a metadata check (found or not).
 
     The end of a metadata_check wait. A series on a platform basis also needs the check its new chapter made due to
@@ -47,7 +45,7 @@ def completed(ctx: workflow.Context, chapter):
     return not (row["naming_basis"] in platforms.BASES and row["urgent"])
 
 
-def due(ctx: workflow.Context):
+def due(ctx: workflow.Context) -> list[int]:
     """Return the ids of the in-scope, not needs_human series whose check runs this run.
 
     Every urgent or never completed one, then at most metadata.checks_per_run others, the longest due first. A series
@@ -66,7 +64,7 @@ def due(ctx: workflow.Context):
     return always + others
 
 
-def make_urgent(conn, series_id):
+def make_urgent(conn: db.Connection, series_id: int) -> None:
     """Make the series' check due at once, for a new chapter; inside the caller's transaction."""
     conn.execute(
         """INSERT INTO series_check (series_id, urgent) VALUES (%s, true)
@@ -75,7 +73,7 @@ def make_urgent(conn, series_id):
     )
 
 
-def run(ctx: workflow.Context, clients, series_id):
+def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool:
     """Check 1 series. Returns True when it completed.
 
     Unreachable, HttpError and SourceError from a service end the check (nothing stored) and propagate. A new series
@@ -106,8 +104,12 @@ def run(ctx: workflow.Context, clients, series_id):
         )
         return False
     manga_rows = [m for m in (ctx.suwayomi.manga(row["manga_id"]) for row in mangas) if m is not None]
-    kavita_meta = ctx.kavita.metadata(series["kavita_series_id"]) if kavita_series is not None else None
-    known = _stored_ids(conn, series_id) + _origin_ids(kavita_series, kavita_meta, manga_rows)
+    kavita_meta = None
+    kavita_ids: list[ids.Pair] = []
+    if kavita_series is not None:  # a new series Kavita does not hold yet has no Kavita record or ids
+        kavita_meta = ctx.kavita.metadata(series["kavita_series_id"])
+        kavita_ids = ids.kavita_ids(kavita_series, kavita_meta)
+    known = _stored_ids(conn, series_id) + _origin_ids(manga_rows, kavita_ids)
     try:
         records = _fetch(clients, _names(series), known)
     except Disagree as e:
@@ -118,7 +120,7 @@ def run(ctx: workflow.Context, clients, series_id):
     refresh.completed(ctx, series_id, manga_rows)
     last = _last_update(ctx, clients, manga_rows, records)
     complete = any(m["status"] == refresh.COMPLETED for m in manga_rows) or (
-        (records[("mangabaka", "series")] or {}).get("status") == MANGABAKA_COMPLETE
+        (records["mangabaka"] or {}).get("status") == MANGABAKA_COMPLETE
     )
     cover = covers.pick(ctx, clients, manga_rows, records)
     now = workflow.now(conn)
@@ -136,11 +138,18 @@ def run(ctx: workflow.Context, clients, series_id):
                     + CASE WHEN %(changed)s OR series_check.data_version = 0 THEN 1 ELSE 0 END,
                 checked_at = %(now)s, next_check_at = %(next)s, urgent = false
             RETURNING data_version""",
-            {"id": series_id, "now": now, "next": next_check(ctx.cfg, now, last, complete), "changed": changed},
+            {
+                "id": series_id,
+                "now": now,
+                "next": next_check(ctx.cfg, now, last, complete=complete),
+                "changed": changed,
+            },
         )[0]
     covers.refresh_volumes(ctx, series_id)  # the cover list just stored may choose another file for a volume
     fetched = ", ".join(
-        f"{source} {'found' if records[(source, KINDS[source][0])] is not None else 'not found'}" for source in KINDS
+        f"{name} {'found' if record is not None else 'not found'}"
+        for name, record in records.items()
+        if STORED[name][0] == name
     )
     log.info(
         "series %s (%s): checked: %s; data %s (version %s)",
@@ -153,7 +162,7 @@ def run(ctx: workflow.Context, clients, series_id):
     return True
 
 
-def _names(series):
+def _names(series: db.Row) -> list[str]:
     """Return the names a source is searched by.
 
     The series' Kavita names; a new series' names it arrived under (its manga's title or title folder, a folder's
@@ -169,7 +178,7 @@ def _names(series):
     return list(dict.fromkeys(n for n in names if n))
 
 
-def _stored_ids(conn, series_id):
+def _stored_ids(conn: db.Connection, series_id: int) -> list[ids.Known]:
     """Return the ids no fetch replaces: found by search, imported, set by a person."""
     rows = conn.execute(
         """SELECT source, origin, source_id FROM series_source_id
@@ -179,45 +188,48 @@ def _stored_ids(conn, series_id):
     return [tuple(r) for r in rows]
 
 
-def _origin_ids(kavita_series, kavita_meta, manga_rows):
-    known = []
+def _origin_ids(manga_rows: Iterable[Manga], kavita_ids: Iterable[ids.Pair]) -> list[ids.Known]:
+    known: list[ids.Known] = []
     for manga in manga_rows:
         known += [(s, "suwayomi", v) for s, v in ids.suwayomi_ids(manga)]
-    if kavita_series is None:  # a new series Kavita does not hold yet
-        return known
-    return known + [(s, "kavita", v) for s, v in ids.kavita_ids(kavita_series, kavita_meta)]
+    return known + [(s, "kavita", v) for s, v in kavita_ids]
 
 
-def _stored_platform(conn, series_id):
+def _stored_platform(conn: db.Connection, series_id: int) -> platforms.PlatformList | None:
     row = conn.execute(
         "SELECT payload FROM fetched WHERE series_id = %s AND kind = %s", (series_id, platforms.KIND)
     ).fetchone()
     return row["payload"] if row else None
 
 
-def _platform(clients, series, kavita_meta, records, stored):
+def _platform(
+    clients: sources.Sources,
+    series: db.Row,
+    kavita_meta: SeriesMetadata | None,
+    records: Records,
+    stored: platforms.PlatformList | None,
+) -> platforms.PlatformList | None:
     """Return the series' platform episode list (SPEC "Metadata", platform lists), or None.
 
     The first candidate page that has a list. Unreachable (Tapas blocking included) and other HTTP errors end the
     check, as for any source.
     """
     kavita_links = [u.strip() for u in ((kavita_meta or {}).get("webLinks") or "").split(",") if u.strip()]
-    anilist_links = platforms.anilist_links(records[("anilist", "media")])
+    anilist_links = platforms.anilist_links(records["anilist"])
     for name, ref in platforms.candidates(kavita_links, anilist_links, series["naming_basis"]):
         if name == platforms.TAPAS:
             known = (stored or {}).get("series_id") if (stored or {}).get("ref") == ref else None
             series_id = known or clients.tapas.series_id(ref)  # the /info page only when the id is not known
-            listed = clients.tapas.episodes(series_id) if series_id is not None else None
-            if listed is not None:
+            if series_id is not None and (listed := clients.tapas.episodes(series_id)) is not None:
                 return platforms.tapas_record(ref, listed[0], listed[1], series_id)
         else:
             items = clients.webtoons.episodes(ref)
             if items is not None:
-                return platforms.webtoons_record(ref, items, clients.webtoons.app_only(ref))
+                return platforms.webtoons_record(ref, items, app_only=clients.webtoons.app_only(ref))
     return None
 
 
-def _store_platform(conn, series_id, platform, now):
+def _store_platform(conn: db.Connection, series_id: int, platform: platforms.PlatformList | None, now: str) -> None:
     """Store the series' platform list (outside the data hash: a new episode is not a data change).
 
     A list with fewer main episodes than the stored one of the same page does not replace it (a Webtoons Original cut
@@ -243,35 +255,42 @@ def _store_platform(conn, series_id, platform, now):
         )
 
 
-def _fetch(clients, names, known):
-    """Fetch every source's records, {(source, kind): payload or None}.
+def _fetch(clients: sources.Sources, names: list[str], known: list[ids.Known]) -> Records:
+    """Fetch every source's records.
 
     known grows with each search hit (origin search) and each record's cross-links. Disagree as soon as 2 ids of a
     source differ.
     """
-    records = {(source, kind): None for source, kinds in KINDS.items() for kind in kinds}
+    records: Records = {
+        "mangabaka": None,
+        "mangaupdates": None,
+        "mangadex": None,
+        "mangadex_aggregate": None,
+        "mangadex_covers": None,
+        "anilist": None,
+    }
     mb_id = _id_for(known, "mangabaka", lambda: search.mangabaka(clients.mangabaka, names, _agreed(known)))
-    if mb_id is not None and (record := _comic(clients.mangabaka.series(mb_id), "type", "novel", mb_id)) is not None:
-        records[("mangabaka", "series")] = record
-        _learn(known, "mangabaka", ids.mangabaka_ids(record))
+    if mb_id is not None and (mb := _comic(clients.mangabaka.series(mb_id), "type", "novel", mb_id)) is not None:
+        records["mangabaka"] = mb
+        _learn(known, "mangabaka", ids.mangabaka_ids(mb))
     mu_id = _id_for(known, "mangaupdates", lambda: search.mangaupdates(clients.mangaupdates, names))
     if mu_id is not None:
-        records[("mangaupdates", "series")] = _comic(clients.mangaupdates.series(mu_id), "type", "novel", mu_id)
+        records["mangaupdates"] = _comic(clients.mangaupdates.series(mu_id), "type", "novel", mu_id)
     md_id = _id_for(known, "mangadex", lambda: search.mangadex(clients.mangadex, names, _agreed(known)))
-    if md_id is not None and (record := clients.mangadex.manga(md_id)) is not None:
-        records[("mangadex", "manga")] = record
-        records[("mangadex", "aggregate")] = clients.mangadex.aggregate(md_id)
-        records[("mangadex", "covers")] = clients.mangadex.covers(md_id)
-        _learn(known, "mangadex", ids.mangadex_ids(record))
+    if md_id is not None and (md := clients.mangadex.manga(md_id)) is not None:
+        records["mangadex"] = md
+        records["mangadex_aggregate"] = clients.mangadex.aggregate(md_id)
+        records["mangadex_covers"] = clients.mangadex.covers(md_id)
+        _learn(known, "mangadex", ids.mangadex_ids(md))
     al_id = _id_for(known, "anilist", lambda: search.anilist(clients.anilist, names))
-    if al_id is not None and (record := _comic(clients.anilist.media(al_id), "format", "novel", al_id)) is not None:
-        records[("anilist", "media")] = record
-        _learn(known, "anilist", ids.anilist_ids(record))
+    if al_id is not None and (al := _comic(clients.anilist.media(al_id), "format", "novel", al_id)) is not None:
+        records["anilist"] = al
+        _learn(known, "anilist", ids.anilist_ids(al))
     _agreed(known)
     return records
 
 
-def _agreed(known):
+def _agreed(known: Iterable[ids.Known]) -> dict[str, str]:
     """Each source's id the known ids agree on (ids.resolve); Disagree when 2 ids of a source differ."""
     result, problem = ids.resolve(known)
     if problem:
@@ -279,7 +298,7 @@ def _agreed(known):
     return result
 
 
-def _id_for(known, source, searcher):
+def _id_for(known: list[ids.Known], source: str, searcher: Callable[[], str | None]) -> str | None:
     """Return the source's agreed id, else the id searcher() finds, else None.
 
     A found id is then known as a search hit, and checked to agree.
@@ -293,12 +312,14 @@ def _id_for(known, source, searcher):
     return value
 
 
-def _learn(known, source, pairs):
+def _learn(known: list[ids.Known], source: str, pairs: Iterable[ids.Pair]) -> None:
     """Add a source's record's cross-links (other sources' ids, by that source's origin) to known."""
     known.extend((s, source, v) for s, v in pairs if s != source)
 
 
-def _comic(record, field, novel, source_id):
+def _comic[R: (MangaBakaSeries, MangaUpdatesSeries, AniListMedia)](
+    record: R | None, field: str, novel: str, source_id: str
+) -> R | None:
     """Return the record, or None when it is a novel's (an id that led to a manga's light novel).
 
     The library is comics. A dropped record is logged; a person fixes the id with `series set-id`.
@@ -309,7 +330,7 @@ def _comic(record, field, novel, source_id):
     return record
 
 
-def _store_disagreement(conn, series_id, known, problem):
+def _store_disagreement(conn: db.Connection, series_id: int, known: Iterable[ids.Known], problem: str) -> None:
     with db.transaction(conn):
         _store_ids(conn, series_id, known)
         workflow.needs_human(
@@ -317,7 +338,7 @@ def _store_disagreement(conn, series_id, known, problem):
         )
 
 
-def _store_ids(conn, series_id, known):
+def _store_ids(conn: db.Connection, series_id: int, known: Iterable[ids.Known]) -> None:
     conn.execute(
         "DELETE FROM series_source_id WHERE series_id = %s AND origin = ANY(%s::text[])",
         (series_id, list(FETCHED_ORIGINS)),
@@ -330,7 +351,7 @@ def _store_ids(conn, series_id, known):
     )
 
 
-def _store(conn, series_id, known, records, now):
+def _store(conn: db.Connection, series_id: int, known: Iterable[ids.Known], records: Records, now: str) -> bool:
     """Store the ids and records; returns whether any record's hash changed (or is new)."""
     _store_ids(conn, series_id, known)
     old = {
@@ -338,8 +359,7 @@ def _store(conn, series_id, known, records, now):
         for r in conn.execute("SELECT source, kind, payload_hash FROM fetched WHERE series_id = %s", (series_id,))
     }
     rows = [
-        (series_id, source, kind, None if p is None else json.dumps(p), _hash(p), now)
-        for (source, kind), p in records.items()
+        (series_id, *STORED[name], None if p is None else json.dumps(p), _hash(p), now) for name, p in records.items()
     ]
     db.executemany(
         conn,
@@ -352,37 +372,39 @@ def _store(conn, series_id, known, records, now):
     return any(old.get((source, kind)) != h for _, source, kind, _, h, _ in rows)
 
 
-def _hash(payload):
+def _hash(payload: object) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def _last_update(ctx: workflow.Context, clients, manga_rows, records):
+def _last_update(
+    ctx: workflow.Context, clients: sources.Sources, manga_rows: Iterable[Manga], records: Records
+) -> datetime | None:
     """Return the series' last published update (SPEC "Metadata checks") as an aware datetime, or None."""
-    dates = []
+    dates: list[int] = []
     for manga in manga_rows:
         dates += [int(c["uploadDate"]) for c in ctx.suwayomi.chapters(manga["id"]) if c.get("uploadDate")]
     if dates:
         return datetime.fromtimestamp(max(dates) / 1000, UTC)
-    manga = records[("mangadex", "manga")]
+    manga = records["mangadex"]
     if not manga_rows and manga is not None:
         latest = clients.mangadex.latest_chapter_date(manga["id"])
         return datetime.fromisoformat(latest) if latest else None
     return None
 
 
-def next_check(cfg, now, last, complete):
+def next_check(cfg: config.Config, now: str, last: datetime | None, *, complete: bool) -> str:
     """Return when a series checked at `now` (ISO) is next due.
 
     recent_days while its last chapter (`last`) is recent, complete_days for a complete series quiet long enough, else
     quiet_days.
     """
     m = cfg["metadata"]
-    now = datetime.fromisoformat(now)
-    age = now - last if last is not None else timedelta.max
+    at = datetime.fromisoformat(now)
+    age = at - last if last is not None else timedelta.max
     if age < timedelta(days=m["recent_months"] * DAYS_PER_MONTH):
         days = m["recent_days"]
     elif complete and age >= timedelta(days=m["complete_months"] * DAYS_PER_MONTH):
         days = m["complete_days"]
     else:
         days = m["quiet_days"]
-    return (now + timedelta(days=days)).isoformat(timespec="seconds")
+    return (at + timedelta(days=days)).isoformat(timespec="seconds")

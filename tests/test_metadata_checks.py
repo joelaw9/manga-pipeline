@@ -5,6 +5,7 @@ Run by intake for every library series, storing ids, records and covers, holding
 
 import io
 import json
+import typing
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
@@ -13,7 +14,7 @@ from PIL import Image
 
 from manga_pipeline import db, intake
 from manga_pipeline.clients import http
-from manga_pipeline.metadata import check
+from manga_pipeline.metadata import check, records
 
 from tests.timing import budget
 from tests.world import World
@@ -320,7 +321,7 @@ def test_the_next_check_follows_the_last_published_update(tmp_path, last_days, c
     cfg = World(tmp_path).cfg
     now = datetime(2026, 11, 1, tzinfo=UTC)
     last = None if last_days is None else now - timedelta(days=last_days)
-    got = check.next_check(cfg, now.isoformat(), last, complete)
+    got = check.next_check(cfg, now.isoformat(), last, complete=complete)
     assert got == (now + timedelta(days=days)).isoformat(timespec="seconds")
 
 
@@ -349,3 +350,8 @@ def test_an_id_that_leads_to_a_novel_is_not_used(world):
     stored = world.rows("SELECT payload IS NULL FROM fetched WHERE series_id = %s AND source = 'anilist'", sid)
     assert stored == [(True,)], "the light novel's record is not the series' record"
     assert ("myanimelist", "anilist", "9") not in ids_of(world, sid), "nor are its cross-links"
+
+
+@budget(load="pure")
+def test_every_record_a_check_fetches_has_its_place_in_fetched():
+    assert set(records.STORED) == set(typing.get_type_hints(records.Records)), "1 (source, kind) per record name"

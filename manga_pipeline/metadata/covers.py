@@ -10,8 +10,11 @@ import hashlib
 import io
 import logging
 import time
+from collections.abc import Callable, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from http import HTTPStatus
+from pathlib import Path
 
 from PIL import Image, UnidentifiedImageError
 
@@ -19,12 +22,16 @@ from manga_pipeline import config, db, errors, images, names, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import sources
+from manga_pipeline.metadata.records import Records
+from manga_pipeline.replies.sources import MangaDexCover, MangaDexManga
+from manga_pipeline.replies.suwayomi import Manga
 
 log = logging.getLogger(__name__)
 WIDE_ENOUGH = 1500  # px: a Suwayomi thumbnail this wide is the cover
 FOLDER = "series"  # below paths.covers
 VOLUME_FOLDER = "volume"  # below paths.covers: covered volumes' covers
 UNNAMED_KEEP_S = 24 * 3600
+type Candidate = tuple[str, bytes, tuple[int, str]]  # an image's (source url, bytes, (width, file extension))
 
 
 class NotAnImageError(ValueError):
@@ -40,18 +47,20 @@ class Cover:
     sha256: str
 
 
-def pick(ctx: workflow.Context, clients, manga_rows, records):
+def pick(
+    ctx: workflow.Context, clients: sources.Sources, manga_rows: Sequence[Manga], records: Records
+) -> Cover | None:
     """Return the series' cover, written under paths.covers, or None when no source has one."""
-    thumbnails = []  # (source url, bytes, (width, extension))
+    thumbnails: list[Candidate] = []
     for manga in manga_rows:
         found = _image(f"suwayomi:manga/{manga['id']}/thumbnail", ctx.suwayomi.thumbnail(manga["id"]))
         if found is not None:
             thumbnails.append(found)
             if found[2][0] >= WIDE_ENOUGH:
                 return _write(ctx.cfg, *found)
-    manga = records[("mangadex", "manga")]
+    manga = records["mangadex"]
     if manga is not None:
-        file_name = mangadex_choice(manga, records[("mangadex", "covers")] or [])
+        file_name = mangadex_choice(manga, records["mangadex_covers"] or [])
         if file_name:
             found = _image(
                 f"mangadex:{manga['id']}/{file_name}",
@@ -60,7 +69,7 @@ def pick(ctx: workflow.Context, clients, manga_rows, records):
             if found is not None:
                 return _write(ctx.cfg, *found)
     choices = list(thumbnails)
-    media = records[("anilist", "media")]
+    media = records["anilist"]
     url = ((media or {}).get("coverImage") or {}).get("extraLarge")
     if url and (found := _image(url, _gone_is_none(clients.anilist.cover_image, url))) is not None:
         choices.append(found)
@@ -69,7 +78,7 @@ def pick(ctx: workflow.Context, clients, manga_rows, records):
     return _write(ctx.cfg, *max(choices, key=lambda c: c[2][0]))
 
 
-def _gone_is_none(fetch, *args):
+def _gone_is_none[*Args](fetch: Callable[[*Args], bytes], *args: *Args) -> bytes | None:
     """Return the image's bytes; None when its host answers 404 (a cover file deleted since the record was fetched)."""
     try:
         return fetch(*args)
@@ -79,14 +88,14 @@ def _gone_is_none(fetch, *args):
         raise
 
 
-def mangadex_choice(manga, covers):
+def mangadex_choice(manga: MangaDexManga, covers: Sequence[MangaDexCover]) -> str | None:
     """Return the MangaDex cover file name to use as the series' cover.
 
     English volume 1, the lowest English volume, volume 1 in the original language, volume 1 in any language, else the
     series' main cover; None when it has none.
     """
 
-    def volume(c):
+    def volume(c: MangaDexCover) -> float:
         try:
             return float(c.get("volume") or "")
         except ValueError:
@@ -104,14 +113,14 @@ def mangadex_choice(manga, covers):
         if choices:
             return choices[0]["fileName"]
     main = [
-        r["attributes"]["fileName"]
+        art["fileName"]
         for r in manga.get("relationships") or []
-        if r.get("type") == "cover_art" and r.get("attributes")
+        if r.get("type") == "cover_art" and (art := r.get("attributes"))
     ]
     return main[0] if main else None
 
 
-def _image(source_url, data):
+def _image(source_url: str, data: bytes | None) -> Candidate | None:
     """Return (source url, bytes, (width, file extension)) of a candidate image, or None.
 
     None for no bytes or bytes that are not an image Pillow reads (an error page served as the image): that candidate
@@ -128,7 +137,7 @@ def _image(source_url, data):
     return (source_url, data, found) if found[1] else None
 
 
-def _write(cfg, source_url, data, size):
+def _write(cfg: config.Config, source_url: str, data: bytes, size: tuple[int, str]) -> Cover:
     ext = size[1]
     sha256 = hashlib.sha256(data).hexdigest()
     path = config.abs_path(cfg["paths"]["covers"]) / FOLDER / f"{sha256}.{ext}"
@@ -136,7 +145,7 @@ def _write(cfg, source_url, data, size):
     return Cover(source_url, config.to_stored(cfg, path), sha256)
 
 
-def store(conn, series_id, cover):
+def store(conn: db.Connection, series_id: int, cover: Cover) -> None:
     """Record the series' cover; inside the caller's transaction."""
     conn.execute(
         """INSERT INTO series_cover (series_id, source_url, path, sha256) VALUES (%s, %s, %s, %s)
@@ -146,7 +155,7 @@ def store(conn, series_id, cover):
     )
 
 
-def volume_cover(ctx: workflow.Context, series_id, volume):
+def volume_cover(ctx: workflow.Context, series_id: int, volume: float) -> tuple[str, str] | None:
     """Return (path relative to paths.covers, sha256) of the series' cover of `volume`.
 
     Fetched and stored the first time, again when its file is missing or holds other bytes, and again when MangaDex's
@@ -208,7 +217,7 @@ def volume_cover(ctx: workflow.Context, series_id, volume):
     return rel, sha256
 
 
-def refresh_volumes(ctx: workflow.Context, series_id):
+def refresh_volumes(ctx: workflow.Context, series_id: int) -> None:
     """Fetch each stored volume cover image of the series again, where MangaDex's choice no longer includes its file.
 
     Where MangaDex's best choice for the volume no longer includes the stored file (volume_cover), after the series'
@@ -234,7 +243,7 @@ def refresh_volumes(ctx: workflow.Context, series_id):
             return
 
 
-def fetch_wanted(ctx: workflow.Context):
+def fetch_wanted(ctx: workflow.Context) -> None:
     """Fetch the volume cover images the retroactive comparison wants (SPEC "Retroactive updates").
 
     Each row below workflow.attempt_limit attempts, of an in-scope ok series, goes once it is fetched or MangaDex has
@@ -276,7 +285,7 @@ def fetch_wanted(ctx: workflow.Context):
         )  # fmt: skip
 
 
-def store_volume_image(cfg, data):
+def store_volume_image(cfg: config.Config, data: bytes) -> tuple[str, str]:
     """Store a volume cover image content-addressed under VOLUME_FOLDER; return (path below paths.covers, sha256).
 
     Stored as a fetched one is (a better copy taking its file's own cover page: SPEC "Retroactive updates").
@@ -287,7 +296,7 @@ def store_volume_image(cfg, data):
     return rel, sha256
 
 
-def volume_choice(manga, covers, volume):
+def volume_choice(manga: MangaDexManga, covers: Sequence[MangaDexCover], volume: float) -> str | None:
     """Return the MangaDex cover file name of exactly `volume`.
 
     English, else the manga's original language, else any locale (the first listed wins a tie); None when MangaDex has
@@ -297,7 +306,7 @@ def volume_choice(manga, covers, volume):
     return choices[0] if choices else None
 
 
-def volume_choices(manga, covers, volume):
+def volume_choices(manga: MangaDexManga, covers: Sequence[MangaDexCover], volume: float) -> list[str]:
     """Return the MangaDex cover file names of exactly `volume` at the best rank, in list order.
 
     The rank: English, else the manga's original language, else any locale. [] when MangaDex has none of that volume.
@@ -314,7 +323,7 @@ def volume_choices(manga, covers, volume):
     return [f for rank, f in ranked if rank == best]
 
 
-def _holds(path, sha256):
+def _holds(path: Path, sha256: str) -> bool:
     try:
         return hashlib.sha256(path.read_bytes()).hexdigest() == sha256
     except FileNotFoundError as e:
@@ -323,7 +332,7 @@ def _holds(path, sha256):
         return False
 
 
-def _put(path, data, sha256=None):
+def _put(path: Path, data: bytes, sha256: str | None = None) -> None:
     """Write the content-addressed file unless it is there; with sha256, also when it holds other bytes."""
     if not path.exists() or (sha256 is not None and not _holds(path, sha256)):
         path.parent.mkdir(exist_ok=True)
@@ -332,7 +341,7 @@ def _put(path, data, sha256=None):
         part.replace(path)
 
 
-def clean(ctx: workflow.Context):
+def clean(ctx: workflow.Context) -> None:
     """Delete a cover file no series, volume cover or chapter names, once it is a day old.
 
     Under paths.covers/series one that no series names, and under paths.covers/volume one that no series volume cover
@@ -349,7 +358,7 @@ def clean(ctx: workflow.Context):
         _clean(ctx, covers / folder, named)
 
 
-def _clean(ctx: workflow.Context, root, named):
+def _clean(ctx: workflow.Context, root: Path, named: AbstractSet[str]) -> None:
     if not root.is_dir():
         return
     cutoff = time.time() - UNNAMED_KEEP_S

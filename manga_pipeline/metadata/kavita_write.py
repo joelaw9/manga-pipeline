@@ -15,7 +15,9 @@ list has its own updates: add, then prune (the old tool's set_list). Lists are c
 import hashlib
 import json
 import logging
+from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import Literal, TypedDict
 
 from manga_pipeline import config, db, errors, workflow
 from manga_pipeline.clients import http
@@ -23,26 +25,38 @@ from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients.kavita_match import normalize
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import ids, merge, tags
+from manga_pipeline.replies.kavita import Tag
 
 log = logging.getLogger(__name__)
 FINGERPRINT = "metadata.tag_fingerprint"  # meta: the tag rules' fingerprint the last export run worked with
 INCOMPLETE = ""  # series_written.inputs of a write that has not finished: still due
-# field: (Kavita value key, Kavita lock key, kind); kind: text, number, names (list of {title}), people ({name})
-SCALARS = {
-    "summary": ("summary", "summaryLocked"),
-    "status": ("publicationStatus", "publicationStatusLocked"),
-    "age_rating": ("ageRating", "ageRatingLocked"),
-    "language": ("language", "languageLocked"),
-}
-LISTS = {
-    "genres": ("genres", "genresLocked", "title"),
-    "tags": ("tags", "tagsLocked", "title"),
+type _Value = str | int | list[str]  # a field's value as written: a scalar, or a list's comparison key (_key)
+# The scalar fields (summary, status, age rating, language) are written by _write_scalars, 1 by 1.
+# field: (Kavita's list key, its lock key, the field's names); each entry {id, title}
+LISTS: dict[
+    str,
+    tuple[
+        Literal["genres", "tags"],
+        Literal["genresLocked", "tagsLocked"],
+        Callable[[merge.SeriesFields], tuple[str, ...]],
+    ],
+] = {
+    "genres": ("genres", "genresLocked", lambda f: f.genres),
+    "tags": ("tags", "tagsLocked", lambda f: f.tags),
 }
 # People are only added: Kavita keeps the people its scans read from the files whatever a metadata update sends
 # (seen on Kavita 0.9.1, 2026-11-15), so a list never matches the sources' exactly and is never guarded or pruned.
-PEOPLE = {
-    "writers": ("writers", "writerLocked"),
-    "pencillers": ("pencillers", "pencillerLocked"),
+# field: (Kavita's people key, its lock key, the field's names); each entry {id, name}
+PEOPLE: dict[
+    str,
+    tuple[
+        Literal["writers", "pencillers"],
+        Literal["writerLocked", "pencillerLocked"],
+        Callable[[merge.SeriesFields], tuple[str, ...]],
+    ],
+] = {
+    "writers": ("writers", "writerLocked", lambda f: f.writers),
+    "pencillers": ("pencillers", "pencillerLocked", lambda f: f.pencillers),
 }
 IMPORTED = {"summary": "summary", "genres": "genres", "tags": "tags"}  # our field: the old tool's `fields` name
 COVER = "cover"  # the name a kept hand-uploaded cover is reported under
@@ -52,12 +66,20 @@ COVER = "cover"  # the name a kept hand-uploaded cover is reported under
 CODE = hashlib.sha256(Path(merge.__file__).read_bytes() + Path(__file__).read_bytes()).hexdigest()
 
 
-def inputs(version, rules):
+class _State(TypedDict):
+    """What the pipeline wrote to a Kavita series: {field: value}, the fields a person's locked edit keeps, cover."""
+
+    written: dict[str, _Value]
+    kept: set[str]
+    cover: str | None  # sha256
+
+
+def inputs(version: int, rules: tags.Rules) -> str:
     """Return what a series' written fields come from: its data version, the tag rules and this code."""
     return f"{version}:{rules.fingerprint}:{CODE}"
 
 
-def due(ctx: workflow.Context, rules):
+def due(ctx: workflow.Context, rules: tags.Rules) -> list[int]:
     """Return the ids of the in-scope Kavita series with a completed check whose fields or cover need writing.
 
     Their written fields or cover are out of date, or written to another Kavita series (Kavita recreated it).
@@ -74,7 +96,7 @@ def due(ctx: workflow.Context, rules):
     return [r[0] for r in rows]
 
 
-def run(ctx: workflow.Context):
+def run(ctx: workflow.Context) -> None:
     """Write every due series' fields.
 
     A series Kavita refuses, or whose cover file cannot be read, is logged and stays due. Kavita unreachable ends the
@@ -95,7 +117,7 @@ def run(ctx: workflow.Context):
             log.warning("series %s: fields not written: %s", series_id, e)
 
 
-def write(ctx: workflow.Context, series_id, rules):
+def write(ctx: workflow.Context, series_id: int, rules: tags.Rules) -> None:
     """Write 1 series' fields to its Kavita series: scalars, lists, people, links and ids, then its cover.
 
     Nothing is written when Kavita no longer holds the series. What was written is recorded as it goes, and the
@@ -112,22 +134,22 @@ def write(ctx: workflow.Context, series_id, rules):
     imported = conn.execute("SELECT * FROM series_import WHERE series_id = %s", (series_id,)).fetchone()
     state = _state(conn, series_id, kid)
 
-    def record(*, final=False):
+    def record(*, final: bool = False) -> None:
         _record(conn, series_id, kid, inputs(version, rules) if final else INCOMPLETE, state)
 
     guard = _Guard(series, state, imported)
     _write_scalars(kv, kid, fields, guard)
     record()
     _write_lists(kv, kid, fields, guard, record)
-    for name, (key, lock) in PEOPLE.items():
-        _add_people(kv, kid, key, lock, getattr(fields, name))
+    for key, lock, names_of in PEOPLE.values():
+        _add_people(kv, kid, key, lock, names_of(fields))
     _links_and_ids(kv, kid, fields)
     state["cover"] = _cover(ctx, kid, guard, record)
     record(final=True)
     log.info("series %s (%s): fields written to Kavita", series_id, series["name"])
 
 
-def _state(conn, series_id, kid):
+def _state(conn: db.Connection, series_id: int, kid: int) -> _State:
     """Return what the pipeline wrote to Kavita series kid before.
 
     {"written": {field: value}, "kept": {field a person's locked edit keeps}, "cover": sha256 or None}; nothing when it
@@ -139,40 +161,50 @@ def _state(conn, series_id, kid):
     return {"written": dict(before["written"]), "kept": set(before["kept"]), "cover": before["cover_sha256"]}
 
 
-def _write_scalars(kv, kid, fields, guard):
+def _write_scalars(kv: kavita_client.Kavita, kid: int, fields: merge.SeriesFields, guard: "_Guard") -> None:
     """Write the scalar fields that differ from Kavita's or are unlocked, in 1 update, where the guard lets them.
 
-    Each one written goes in the guard's state.
+    Each one written goes in the guard's state. In order: summary, status, age rating, language.
     """
     meta = kv.metadata(kid)
     changed = False
-    for name, (key, lock) in SCALARS.items():
-        value = fields.age_rating_kavita if name == "age_rating" else getattr(fields, name)
-        if value is None or not guard.may(name, meta.get(lock), _scalar(meta.get(key)), value):
-            continue
-        if meta.get(key) != value or not meta.get(lock):
-            meta[key], meta[lock] = value, True
-            changed = True
-        guard.state["written"][name] = value
+    if _scalar_due(guard, "summary", fields.summary, meta.get("summary"), locked=meta.get("summaryLocked")):
+        meta["summary"], meta["summaryLocked"] = fields.summary, True
+        changed = True
+    if _scalar_due(
+        guard, "status", fields.status, meta.get("publicationStatus"), locked=meta.get("publicationStatusLocked")
+    ):
+        meta["publicationStatus"], meta["publicationStatusLocked"] = fields.status, True
+        changed = True
+    if _scalar_due(
+        guard, "age_rating", fields.age_rating_kavita, meta.get("ageRating"), locked=meta.get("ageRatingLocked")
+    ):
+        meta["ageRating"], meta["ageRatingLocked"] = fields.age_rating_kavita, True
+        changed = True
+    if _scalar_due(guard, "language", fields.language, meta.get("language"), locked=meta.get("languageLocked")):
+        meta["language"], meta["languageLocked"] = fields.language, True
+        changed = True
     if changed:
         kv.update_metadata(meta)
 
 
-def _write_lists(kv, kid, fields, guard, record):
+def _write_lists(
+    kv: kavita_client.Kavita, kid: int, fields: merge.SeriesFields, guard: "_Guard", record: Callable[[], None]
+) -> None:
     """Write each list field the sources give, where the guard lets it (_set_list).
 
     Recorded after its add step and once it is whole. A source that gives nothing never clears a list.
     """
     written = guard.state["written"]
-    for name, (key, lock, label) in LISTS.items():
-        values = getattr(fields, name)
+    for name, (key, lock, names_of) in LISTS.items():
+        values = names_of(fields)
         if not values:
             continue
         meta = kv.metadata(kid)
-        if not guard.may(name, meta.get(lock), _list_key(meta.get(key), label), _key(values)):
+        if not guard.may(name, locked=meta.get(lock), current=_list_key(meta.get(key)), ours=_key(values)):
             continue
 
-        def added(key_now, name=name):
+        def added(key_now: list[str], name: str = name) -> None:
             written[name] = key_now  # what Kavita holds once the add step went through
             record()
 
@@ -184,10 +216,10 @@ def _write_lists(kv, kid, fields, guard, record):
 class _Guard:
     """D7.22: whether a field may be written over Kavita's value; a person's locked edit is reported once."""
 
-    def __init__(self, series, state, imported):
+    def __init__(self, series: db.Row, state: _State, imported: db.Row | None) -> None:
         self.series, self.state, self.imported = series, state, imported
 
-    def may(self, name, locked, current, ours):
+    def may(self, name: str, *, locked: bool | None, current: _Value | None, ours: _Value) -> bool:
         if not locked or current == ours or self._ours(name, current):
             self.state["kept"].discard(name)
             return True
@@ -198,7 +230,7 @@ class _Guard:
             self.state["kept"].add(name)
         return False
 
-    def _ours(self, name, current):
+    def _ours(self, name: str, current: _Value | None) -> bool:
         """Whether a locked value is one the pipeline wrote (or, for a field it never wrote, the old tool)."""
         written = self.state["written"]
         if name in written:
@@ -209,7 +241,7 @@ class _Guard:
             return self.imported["status"] is not None and self.imported["status"] == current
         return IMPORTED.get(name) in (self.imported["fields"] or [])
 
-    def held_cover(self):
+    def held_cover(self) -> str | None:
         """Return the sha256 of the cover Kavita holds from the pipeline, or before its first upload from the old tool.
 
         None: neither.
@@ -217,42 +249,70 @@ class _Guard:
         return self.state["cover"] or (self.imported["cover_sha256"] if self.imported else None)
 
 
-def _scalar(value):
+def _scalar(value: str | int | None) -> str | int | None:
     return value if value not in ("", None) else None
 
 
-def _key(values):
+def _scalar_due(
+    guard: _Guard, name: str, value: str | int | None, current: str | int | None, *, locked: bool | None
+) -> bool:
+    """Return whether a scalar field's value is to be written over Kavita's (current, locked or not).
+
+    Not when the sources give none or the guard keeps Kavita's; a value the guard lets is recorded as written, and is
+    written when it differs from Kavita's or Kavita's is unlocked.
+    """
+    if value is None or not guard.may(name, locked=locked, current=_scalar(current), ours=value):
+        return False
+    guard.state["written"][name] = value
+    return current != value or not locked
+
+
+def _key(values: Iterable[str]) -> list[str]:
     """Return a list's comparison key: its entries under Kavita's name normalising, sorted."""
     return sorted({normalize(v) for v in values})
 
 
-def _list_key(entries, label):
-    return _key(v[label] for v in entries or []) or None
+def _list_key(entries: Iterable[Tag] | None) -> list[str] | None:
+    return _key(v["title"] for v in entries or []) or None
 
 
-def _set_list(kv, kid, name, values, *, added_step):
+def _set_list(
+    kv: kavita_client.Kavita,
+    kid: int,
+    name: str,
+    values: tuple[str, ...],
+    *,
+    added_step: Callable[[list[str]], None],
+) -> None:
     """Add the missing entries of list field name (LISTS) in the sources' spelling, then drop the others; lock it.
 
     2 updates of this list alone. added_step(key) is told what Kavita holds after the add step, before the prune can
     fail.
     """
-    key, lock, label = LISTS[name]
+    key, lock, _ = LISTS[name]
     wanted = {normalize(v) for v in values}
     meta = kv.metadata(kid)
-    have = {normalize(v[label]) for v in meta.get(key) or []}
+    have = {normalize(v["title"]) for v in meta.get(key) or []}
     added = [v for v in dict.fromkeys(values) if normalize(v) not in have]
     if added or not meta.get(lock):
-        meta[key] = (meta.get(key) or []) + [{"id": 0, label: v} for v in added]
+        entries: list[Tag] = (meta.get(key) or []) + [{"id": 0, "title": v} for v in added]
+        meta[key] = entries
         meta[lock] = True
         kv.update_metadata(meta)
-        added_step(_list_key(meta[key], label))
+        added_step(_key(v["title"] for v in entries))  # entries is never empty: values is not
     if have - wanted:
         meta = kv.metadata(kid)
-        meta[key], meta[lock] = [v for v in meta.get(key) or [] if normalize(v[label]) in wanted], True
+        meta[key], meta[lock] = [v for v in meta.get(key) or [] if normalize(v["title"]) in wanted], True
         kv.update_metadata(meta)
 
 
-def _add_people(kv, kid, key, lock, names):
+def _add_people(
+    kv: kavita_client.Kavita,
+    kid: int,
+    key: Literal["writers", "pencillers"],
+    lock: Literal["writerLocked", "pencillerLocked"],
+    names: tuple[str, ...],
+) -> None:
     """Add the sources' people Kavita lacks (by its name key), locked."""
     meta = kv.metadata(kid)
     have = {normalize(p["name"]) for p in meta.get(key) or []}
@@ -262,7 +322,7 @@ def _add_people(kv, kid, key, lock, names):
         kv.update_metadata(meta)
 
 
-def _links_and_ids(kv, kid, fields):
+def _links_and_ids(kv: kavita_client.Kavita, kid: int, fields: merge.SeriesFields) -> None:
     """Web links appended (a link to a source already there is kept as it is); the provider ids set when known."""
     meta = kv.metadata(kid)
     links = [u.strip() for u in (meta.get("webLinks") or "").split(",") if u.strip()]
@@ -279,7 +339,7 @@ def _links_and_ids(kv, kid, fields):
         kv.update_series(series, **changes)
 
 
-def _cover(ctx: workflow.Context, kid, guard, record):
+def _cover(ctx: workflow.Context, kid: int, guard: _Guard, record: Callable[[], None]) -> str | None:
     """Upload the series' cover when Kavita does not hold it from the pipeline; return the sha256 Kavita now holds.
 
     A cover uploaded to Kavita before the pipeline's first upload, and not by the old tool, is a person's: kept.
@@ -305,7 +365,7 @@ def _cover(ctx: workflow.Context, kid, guard, record):
     return row["sha256"]
 
 
-def _record(conn, series_id, kid, inputs_text, state):
+def _record(conn: db.Connection, series_id: int, kid: int, inputs_text: str, state: _State) -> None:
     with db.transaction(conn):
         conn.execute(
             """INSERT INTO series_written (series_id, kavita_series_id, inputs, written, kept, cover_sha256, written_at)
