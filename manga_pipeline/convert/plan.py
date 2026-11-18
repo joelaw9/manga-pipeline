@@ -9,7 +9,7 @@ Inputs: the download's measured pages (images.measure_pages), the extracted page
 
 import json
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Literal, NamedTuple, TypedDict, final
 
@@ -757,13 +757,9 @@ def routes(plan: ChapterPlan, *, cover: VolumeCover | None = None) -> RoutedPlan
     force_avif = not plan.render and cover is not None and cover["avif"]["ok"] and needs_conversion(src)
     tried, last_kind = _outcome_kinds(plan, base, n, force_avif=force_avif)
     outcomes = Outcomes(None if tried is None else avif(*tried), last(last_kind))
+    carried = {f.name: getattr(plan, f.name) for f in fields(ChapterPlan)}  # the plan whole: every field of it
     return RoutedPlan(
-        name=plan.name,
-        pages=plan.pages,
-        edits=plan.edits,
-        classes=plan.classes,
-        quality=plan.quality,
-        render=plan.render,
+        **carried,
         route=RENDERED if plan.render else "avif" if force_avif else base,
         outcomes=outcomes,
         force_avif=force_avif,
