@@ -391,7 +391,9 @@ def comicinfo_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | wor
     series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     file = db.one_row(conn, "SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],))
     # the cover changed at convert
-    converted = chapter["convert_result"] and rewrite_covers.read_result(chapter["convert_result"])
+    converted: rewrite_covers.RewriteResult | None = (
+        None if chapter["convert_result"] is None else rewrite_covers.read_result(chapter["convert_result"])
+    )
     source = config.to_local(ctx.cfg, file["library_path"])  # unchanged until finish: a rerun reads the same
     old = archive.read_comicinfo(source)
     if old is None:
@@ -480,7 +482,9 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
     staged = config.to_local(ctx.cfg, chapter["staged_path"])
     target = config.to_local(ctx.cfg, chapter["library_path"])
     new_pages = page_count(staged)
-    converted = chapter["convert_result"] and rewrite_covers.read_result(chapter["convert_result"])
+    converted: rewrite_covers.RewriteResult | None = (
+        None if chapter["convert_result"] is None else rewrite_covers.read_result(chapter["convert_result"])
+    )
     clash = conn.execute(
         "SELECT id FROM published_file WHERE library_path = %s AND id <> %s", (chapter["library_path"], file["id"])
     ).fetchone()

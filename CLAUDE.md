@@ -135,6 +135,7 @@ python -m manga_pipeline.cli --help
 
 - Simplest design that meets the requirement. One path per job: no fallbacks or alternate code paths that silently take over when the primary one fails.
 - Fail fast: validate inputs at the boundary and raise a clear error naming what is wrong.
+- JSON and YAML loads stay in the named readers `tests/test_boundaries.py` lists; every other function gets a typed shape from one. A new reader calls the shape's existing validator where one exists; otherwise it is an unchecked reader and needs the user's approval first.
 - Read config only through the config module: the entry point calls its `init` once (with `--set`), everything else reads `cached`. It merges `config.yaml`, `MANGA_PIPELINE_*` environment variables and `--set`, and checks the result against `config.yaml.example` (SPEC "Config").
 - Log only through the logs module's logger; set up once, from the entry point (SPEC "Logging"). No `print` except a command's own output and its errors on stderr.
 - Each command takes the locks its row in the command table names, once in the entry point (SPEC "Run lock"); never take a lock anywhere else or wait for one.

@@ -454,13 +454,13 @@ def link(
 ) -> int:
     """Link the subject's downloads to the Kavita series: `series link` (SPEC "Series identification").
 
-    The downloads of the subject (a manga or a hand-placed folder: link_subject) belong to the Kavita series. The row
-    holding that Kavita id, else the subject's held row, else a new row gets its Kavita id, names and folder (refreshed
-    when run again); the subject is linked to it. A held row of the subject (no Kavita id) is merged into the Kavita
-    series' row: its chapters and links move there and it is deleted. workflow.Refused when the series does not exist,
-    is outside kavita.library_id or has no folder, the subject's row is another Kavita series' row that holds chapters,
-    or the subject's row is an admitted new series (its rows, published files included, are its own). needs_human is
-    left for `retry --series` to clear. Returns the series id.
+    The downloads of the subject (a manga or a hand-placed folder: manga_link_subject, folder_link_subject) belong to
+    the Kavita series. The row holding that Kavita id, else the subject's held row, else a new row gets its Kavita id,
+    names and folder (refreshed when run again); the subject is linked to it. A held row of the subject (no Kavita id)
+    is merged into the Kavita series' row: its chapters and links move there and it is deleted. workflow.Refused when
+    the series does not exist, is outside kavita.library_id or has no folder, the subject's row is another Kavita
+    series' row that holds chapters, or the subject's row is an admitted new series (its rows, published files included,
+    are its own). needs_human is left for `retry --series` to clear. Returns the series id.
     """
     found = _kavita_series(cfg, kavita, kavita_series_id)
     try:

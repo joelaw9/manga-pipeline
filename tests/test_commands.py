@@ -19,7 +19,7 @@ from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.metadata import sources
 
 from tests import pg
-from tests.builders import add_chapter, add_series, adopted, config_file, download, run_part, running, site_cfg
+from tests.builders import add_chapter, add_series, adopted, config_file, download, one, run_part, running, site_cfg
 from tests.timing import budget
 from tests.world import World, cbz
 
@@ -452,6 +452,8 @@ def test_status_sections_come_from_1_snapshot(tmp_path, monkeypatch):
 
             monkeypatch.setattr(conn, "execute", execute)
             lines = status.report(conn)
+        assert len(reads) > 1, "the report read through execute, so the part's write fell between its reads"
+        assert one(writer, "SELECT count(*) FROM chapter WHERE identity = 'c1'") == 1, "the part wrote mid-report"
     entries = [line for line in lines if line.startswith("  ")]
     assert entries, "a chapter written mid-report shows in no section"
     assert all(line == "  none" for line in entries), "a chapter written mid-report shows in no section"

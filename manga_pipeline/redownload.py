@@ -119,16 +119,16 @@ def target(ctx: workflow.Context, chapter_id: int) -> workflow.Target | None:
     manga = ctx.suwayomi.manga(row["mangaId"])
     if not manga or manga["source"] is None:
         return None
-    display = manga["source"]["displayName"]
+    source_folder, manga_folder = suwayomi.download_folders(manga["source"], manga["title"])
     path = (
         config.abs_path(ctx.cfg["paths"]["downloads"])
         / suwayomi.MANGAS_FOLDER
-        / suwayomi.source_folder(display)
-        / suwayomi.manga_folder(manga["title"])
+        / source_folder
+        / manga_folder
         / suwayomi.chapter_file(row["scanlator"], row["name"])
     )
     return {
-        "source": display,
+        "source": manga["source"]["displayName"],
         "manga_id": manga["id"],
         "chapter_id": chapter_id,
         "path": config.to_stored(ctx.cfg, path),
@@ -220,11 +220,11 @@ def _match(
 
     reference is the manga whose chapters the source's numbering must agree with (None: no source agrees).
     """
-    known: list[str] = [series["name"], series["localized_name"], series["original_name"]]
+    names_given: list[str | None] = [series["name"], series["localized_name"], series["original_name"]]
     manga = ctx.suwayomi.manga(reference) if reference else None
     if manga:
-        known.append(manga["title"])
-    known = list(dict.fromkeys(n for n in known if n))
+        names_given.append(manga["title"])
+    known = list(dict.fromkeys(n for n in names_given if n))
     hits: dict[int, suwayomi_replies.Manga] = {}
     for query in known:
         for hit in ctx.suwayomi.search_source(source_id, query):

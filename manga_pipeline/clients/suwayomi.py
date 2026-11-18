@@ -343,7 +343,7 @@ def _data[T](reply: http.Response, read: Callable[[bytes], Reply[T]]) -> T:
 
 
 # --- readers of Suwayomi's replies, 1 per query's data shape: each takes the reply's JSON as the shape its query asks
-# for, unchecked (an approved unchecked boundary: ann-phase.md, "JSON and YAML boundaries")
+# for, unchecked (an approved unchecked boundary: CLAUDE.md, "Code standards")
 
 
 def _unread(body: bytes) -> Reply[object]:

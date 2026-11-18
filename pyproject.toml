@@ -66,8 +66,8 @@ pythonVersion = "3.13"
 pythonPlatform = "Windows"  # CI's platform; CI and the merge hook also run --pythonplatform Linux (the LXC)
 include = ["manga_pipeline", "tests", "scripts"]
 
-# The program is held to the strict reports below (ann-phase.md, Q-B); tests and scripts stay basic. The first root
-# that holds a file decides its rules; each environment needs extraPaths to import the package.
+# The program is held to the strict reports below (CLAUDE.md, Types); tests and scripts stay basic. The first root that
+# holds a file decides its rules; each environment needs extraPaths to import the package.
 [[tool.basedpyright.executionEnvironments]]
 root = "tests"
 extraPaths = ["."]

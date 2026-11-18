@@ -1,4 +1,4 @@
-"""JSON and YAML loads stay in their listed readers (ann-phase.md, "JSON and YAML boundaries").
+"""JSON and YAML loads stay in their listed readers (CLAUDE.md, "Code standards").
 
 A load (json.load, json.loads, json.JSONDecoder, a yaml loader, any .json() call) returns an untyped value; only the
 readers listed here may hold one, so every other function gets a typed shape from a reader. A load is any reference to

@@ -509,7 +509,7 @@ class _AttributeFinder(HTMLParser):
 
 
 # --- readers of the sources' replies, 1 per reply shape: each takes the reply's JSON as the shape the source sends,
-# unchecked (an approved unchecked boundary: ann-phase.md, "JSON and YAML boundaries")
+# unchecked (an approved unchecked boundary: CLAUDE.md, "Code standards")
 
 
 def _mangabaka_series(body: bytes) -> _MangaBakaReply[MangaBakaSeries]:
