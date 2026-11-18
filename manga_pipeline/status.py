@@ -8,8 +8,10 @@ Read-only: it never creates, migrates or writes the database.
 from contextlib import closing
 from datetime import datetime, timedelta
 
-from manga_pipeline import config, db, kavita_link, rewrite, workflow
+from manga_pipeline import config, db, kavita_link, notify, rewrite, workflow
 from manga_pipeline.db import sql
+
+TITLES_SHOWN_DAYS = 30  # status lists the series titles changed at the sources this many days back
 
 
 def run(cfg: config.Config) -> None:
@@ -188,9 +190,6 @@ def _human(line: tuple[str, str]) -> str:
     return f"  {text} -> {fix}" if fix else f"  {text}"
 
 
-TITLES_SHOWN_DAYS = 30
-
-
 def _titles(conn: db.Connection) -> list[str]:
     lines = [f"Series titles changed at the sources (last {TITLES_SHOWN_DAYS} days, not applied):"]
     since = (datetime.fromisoformat(db.now(conn)) - timedelta(days=TITLES_SHOWN_DAYS)).isoformat()
@@ -204,8 +203,7 @@ def _discord(conn: db.Connection) -> list[str]:
     """List the reports not sent to Discord: those queued (Discord off or not reached yet), those Discord refused."""
     lines = ["Discord reports not sent:"]
     queued = db.one_row(
-        conn,
-        "SELECT count(*) AS n, min(queued_at) AS oldest FROM notification WHERE sent_at IS NULL AND failed IS NULL",
+        conn, sql.SQL("SELECT count(*) AS n, min(queued_at) AS oldest FROM notification WHERE {}").format(notify.UNSENT)
     )
     if queued["n"]:
         lines.append(f"  {queued['n']} queued, the oldest since {queued['oldest']} (sent by export)")

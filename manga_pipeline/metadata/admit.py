@@ -86,7 +86,9 @@ def name_for(conn: db.Connection, series: db.Row) -> str:
 def anilist_title(media: AniListMedia | None) -> str | None:
     """Return an AniList record's English title less ANILIST_SUFFIX, None when it has none."""
     english = (((media or {}).get("title")) or {}).get("english")
-    return english.removesuffix(ANILIST_SUFFIX).strip() or None if english else None
+    if not english:
+        return None
+    return english.removesuffix(ANILIST_SUFFIX).strip() or None
 
 
 def _admit(ctx: workflow.Context, series: db.Row, library: _Library) -> None:

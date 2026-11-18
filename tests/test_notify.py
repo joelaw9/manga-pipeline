@@ -8,7 +8,7 @@ from manga_pipeline import db, export, notify, status, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.errors import Unreachable
 
-from tests.builders import add_chapter, add_series, one, site_cfg
+from tests.builders import add_chapter, add_series, db_row, one, site_cfg
 from tests.fakes.discord import FakeDiscord
 from tests.timing import budget
 from tests.world import World
@@ -70,10 +70,18 @@ def test_more_than_5_reports_go_as_1_digest_that_fits_discord(conn):
     (text,) = discord.posts
     lines = text.split("\n")
     assert lines[0].startswith("7 reports"), "the digest counts every report"
+    assert [line[:11] for line in lines[1:6]] == [f"- series {i} " for i in range(5)], "the oldest 5, oldest first"
+    assert all(line.endswith(" -> retry 1") for line in lines[1:6]), "each entry keeps its clearing command"
     assert len(lines) == 7, "the count, the first 5, and where the rest are"
     assert lines[-1] == "The rest: `status`."
     assert units(text) <= notify.LIMIT, "Discord refuses a message over 2000"
     assert unsent(conn) == 0, "every report the digest covers is sent"
+
+
+@budget(load="pure")
+def test_a_digest_of_rows_left_after_another_sender_lists_them_all():
+    text = notify.digest([db_row(text=t, fix="retry 1") for t in "ab"])
+    assert text == "2 reports need a look:\n- a -> retry 1\n- b -> retry 1", "no 'the rest' when every row is listed"
 
 
 @budget(load="pure")
@@ -96,12 +104,13 @@ def test_an_unreachable_discord_leaves_the_reports_for_the_next_run(conn):
 
 
 @budget(load="db")
-def test_a_refused_webhook_stops_the_send_and_keeps_the_reports(conn):
+@pytest.mark.parametrize("status", [401, 403, 404, 500, 501])
+def test_a_refused_webhook_or_a_failing_discord_stops_the_send_and_keeps_the_reports(conn, status):
     queued(conn, "a", "b")
     discord = FakeDiscord()
-    discord.failure = http.HttpError(404, "discord webhook", b"")
+    discord.failure = http.HttpError(status, "discord webhook", b"")
     notify.send(conn, discord)
-    assert unsent(conn) == 2, "a wrong webhook loses nothing"
+    assert unsent(conn) == 2, "SPEC 'Needs human': a wrong webhook or a failing Discord loses nothing"
 
 
 @budget(load="db")
@@ -209,3 +218,14 @@ def test_status_shows_the_reports_not_sent_and_the_titles_changed(conn):
     assert any(line.startswith('  series 9 (N): AniList title changed: "A" -> "B" (seen ') for line in lines), (
         "SPEC 'Retroactive updates': a changed title shows in status"
     )
+
+
+@budget(load="db")
+def test_status_lists_title_changes_of_the_last_30_days_only(conn):
+    with db.transaction(conn):
+        notify.queue(conn, "title", 9, 'series 9 (N): AniList title changed: "A" -> "B"', "rename it in Kavita")
+        conn.execute("UPDATE notification SET queued_at = '2020-01-01T00:00:00+00:00'")
+    with conn.transaction():
+        lines = status.report(conn)
+    at = lines.index("Series titles changed at the sources (last 30 days, not applied):")
+    assert lines[at + 1] == "  none", "SPEC 'Retroactive updates': status lists the changes of the last 30 days"

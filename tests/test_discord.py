@@ -33,6 +33,7 @@ def test_a_post_sends_plain_text_that_pings_no_one_and_embeds_no_link(urlopen):
     request = sent.requests[0]
     assert request.get_method() == "POST"
     assert request.full_url == WEBHOOK
+    assert request.get_header("User-agent") == "manga_pipeline", "SPEC 'Services': Discord's User-Agent"
     body = json.loads(request.data)
     assert body == {
         "content": "series 5 (Name): reason -> retry --series 5",

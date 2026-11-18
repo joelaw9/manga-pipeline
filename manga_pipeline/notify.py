@@ -63,19 +63,23 @@ def send(conn: db.Connection, discord: discord_client.Discord | None) -> None:
             return
 
 
-def message(text: str, fix: str) -> str:
-    """Return 1 report as a message of at most LIMIT: its text, cut so that ` -> fix` (if any) always fits."""
+def message(text: str, fix: str, limit: int = LIMIT) -> str:
+    """Return 1 report in at most limit UTF-16 units: its text, cut so that ` -> fix` (if any) always fits."""
     suffix = f" -> {fix}" if fix else ""
-    return _cut(text, LIMIT - _units(suffix)) + suffix
+    return _cut(text, limit - _units(suffix)) + suffix
 
 
 def digest(rows: Sequence[db.Row]) -> str:
-    """Return 1 message for many reports: their count, the first DIGEST_OVER (each cut to its share), the rest."""
-    head = f"{len(rows)} reports need a look; the first {DIGEST_OVER}:"
+    """Return 1 message for many reports: their count, the first DIGEST_OVER (each cut to its share), the rest.
+
+    Fewer rows (another sender claimed some meanwhile) are listed whole, with no "the rest".
+    """
+    more = len(rows) > DIGEST_OVER
+    head = f"{len(rows)} reports need a look" + (f"; the first {DIGEST_OVER}:" if more else ":")
     foot = "The rest: `status`."
     share = (LIMIT - _units(head) - _units(foot) - (DIGEST_OVER + 1)) // DIGEST_OVER  # each line ends in a newline
-    lines = [_cut(f"- {message(r['text'], r['fix'])}", share) for r in rows[:DIGEST_OVER]]
-    return "\n".join([head, *lines, foot])
+    lines = [f"- {message(r['text'], r['fix'], share - _units('- '))}" for r in rows[:DIGEST_OVER]]
+    return "\n".join([head, *lines, foot] if more else [head, *lines])
 
 
 def _claim(conn: db.Connection, limit: int | None) -> list[db.Row]:

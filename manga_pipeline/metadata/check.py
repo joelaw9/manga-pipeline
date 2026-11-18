@@ -193,9 +193,9 @@ def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool
                 "changed": changed,
             },
         )[0]
-    covers.refresh_volumes(ctx, series_id)  # the cover list just stored may choose another file for a volume
-    if retitled is not None:
+    if retitled is not None:  # logged once its report is stored, before anything else can fail
         log.warning("%s (not applied)", retitled)
+    covers.refresh_volumes(ctx, series_id)  # the cover list just stored may choose another file for a volume
     fetched = ", ".join(
         f"{STORED[name][0]} {'found' if records[name] is not None else 'not found'}" for name in SOURCE_RECORDS
     )
