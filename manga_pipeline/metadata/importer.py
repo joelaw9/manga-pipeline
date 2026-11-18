@@ -38,23 +38,41 @@ class OldWritten(TypedDict, total=False):
     fields: list[str] | None
 
 
+class OldConfig(TypedDict, total=False):
+    """The old tool's config as the import reads it (unchecked): its map file (relative to it) and its overrides."""
+
+    map: str | None
+    overrides: dict[str, int | str] | None
+
+
+type OldIds = dict[str, dict[str, str | int | None] | None]  # {Kavita id: {old source key (OLD_SOURCES): id}}
+type OldCovers = dict[str, OldCover | None]
+type OldMetadata = dict[str, OldWritten | None]
+type OldStatus = dict[str, int | None]  # {Kavita id: the publication status it wrote}
+
+
+class OldStateFile(TypedDict, total=False):
+    """The old metadata tool's state file as read (unchecked but for `ids`): a part may be missing or null."""
+
+    ids: OldIds | None
+    covers: OldCovers | None
+    metadata: OldMetadata | None
+    status: OldStatus | None
+
+
 class OldState(TypedDict):
-    """The old metadata tool's state file as the import reads it, keyed by Kavita series id (text).
+    """The old metadata tool's state file's parts the import reads, keyed by Kavita series id (text); {} for none."""
 
-    ids: {Kavita id: {old source key (OLD_SOURCES): id}}; covers, metadata (written fields) and status (Kavita's
-    publication status it wrote). Read unchecked but for `ids` being a mapping.
-    """
-
-    ids: dict[str, dict[str, str | int | None] | None]
-    covers: dict[str, OldCover | None]
-    metadata: dict[str, OldWritten | None]
-    status: dict[str, int | None]
+    ids: OldIds
+    covers: OldCovers
+    metadata: OldMetadata
+    status: OldStatus
 
 
 def read_state(path: str | Path) -> OldState:
     """Return the state file's parts the import reads; Refused when it is not the old tool's state file."""
     try:
-        state = json.loads(Path(path).read_text(encoding="utf-8"))
+        state: OldStateFile = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         msg = f"cannot read the state file {path}: {e}"
         raise workflow.Refused(msg) from None
@@ -75,7 +93,7 @@ def read_overrides(path: str | Path) -> dict[str, int | str]:
     The config's `overrides`, then its `map` file's (a path relative to the config's folder).
     """
     try:
-        old = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+        old: OldConfig = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as e:
         msg = f"cannot read the old config {path}: {e}"
         raise workflow.Refused(msg) from None
@@ -83,8 +101,8 @@ def read_overrides(path: str | Path) -> dict[str, int | str]:
         msg = f"{path} is not the old metadata tool's config"
         raise workflow.Refused(msg)
     found: dict[str, int | str] = {}
-    if old.get("map"):
-        map_path = Path(path).parent / old["map"]
+    if map_name := old.get("map"):
+        map_path = Path(path).parent / map_name
         try:
             found.update(json.loads(map_path.read_text(encoding="utf-8")))
         except (OSError, ValueError) as e:

@@ -397,7 +397,7 @@ def coverage(
     partial when the site lists fewer episodes than it says it has, when site numbers are missing, when none is
     listed, or when the platform keeps episodes to its app; unknown when the page that tells is unread.
     """
-    reasons = []
+    reasons: list[str] = []
     if listed_total and len(episodes) < listed_total:
         reasons.append(f"{len(episodes)} of {listed_total} episodes listed")
     missing = gaps(episodes)

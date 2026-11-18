@@ -11,11 +11,15 @@ under the library root, and must leave a folder name once made safe; else the se
 import logging
 from collections.abc import Iterable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from manga_pipeline import config, db, names, workflow
 from manga_pipeline.clients.kavita_match import normalize, series_names
 from manga_pipeline.db import sql
 from manga_pipeline.replies.kavita import Series
+
+if TYPE_CHECKING:
+    from manga_pipeline.replies.sources import AniListMedia
 
 log = logging.getLogger(__name__)
 ANILIST_SUFFIX = " @COMIC"  # AniList's mark on a title also used by an anime, dropped as the old tool did
@@ -75,7 +79,8 @@ def name_for(conn: db.Connection, series: db.Row) -> str:
     row = conn.execute(
         "SELECT payload FROM fetched WHERE series_id = %s AND source = 'anilist' AND kind = 'media'", (series["id"],)
     ).fetchone()
-    english = ((((row["payload"] if row else None) or {}).get("title")) or {}).get("english")
+    media: AniListMedia | None = row["payload"] if row else None
+    english = (((media or {}).get("title")) or {}).get("english")
     if english:
         english = english.removesuffix(ANILIST_SUFFIX).strip()
     return english or series["alt_name"] or series["name"]

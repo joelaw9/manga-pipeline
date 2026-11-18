@@ -224,7 +224,7 @@ def resolve[K: Hashable](  # noqa: PLR0913  # 7 inputs the resolver itself uses
     plain = _open_main_volumes(basis, rows, main, sources) if pinned else {}
     # an edit that gives the sources' own volume keeps their source (and whether it is covered)
     opened.update({i: plain[i] if plain[i][0] == v else (v, EDIT) for i, v in pinned.items()})
-    vol = {**settled, **opened}
+    vol: dict[int, tuple[float | None, str | None]] = {**settled, **opened}
     for i in main:
         v = vol[i][0]
         if not rows[i].settled and rows[i].key not in fill and v is not None and v != int(v):

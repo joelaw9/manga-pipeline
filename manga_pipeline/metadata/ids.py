@@ -10,9 +10,17 @@ lower-case UUID.
 import urllib.parse
 import uuid
 from collections.abc import Iterable
+from typing import Literal
 
 from manga_pipeline.replies.kavita import Series, SeriesMetadata
-from manga_pipeline.replies.sources import AniListMedia, MangaBakaSeries, MangaDexManga
+from manga_pipeline.replies.sources import (
+    AniListMedia,
+    MangaBakaLinks,
+    MangaBakaSeries,
+    MangaDexAttributes,
+    MangaDexLinks,
+    MangaDexManga,
+)
 from manga_pipeline.replies.suwayomi import Manga
 
 SOURCES = ("anilist", "mangaupdates", "mangadex", "mangabaka", "myanimelist")
@@ -114,30 +122,32 @@ def kavita_ids(series: Series, metadata: SeriesMetadata) -> list[Pair]:
 
 def mangabaka_ids(record: MangaBakaSeries) -> list[Pair]:
     """Return a MangaBaka record's own id and its cross-links (AniList, MangaUpdates, MyAnimeList)."""
-    links = record.get("source") or {}
+    links: MangaBakaLinks = record.get("source") or {}
 
-    def linked(key: str) -> int | str | None:
-        return (links.get(key) or {}).get("id")
+    def linked(key: Literal["anilist", "manga_updates", "my_anime_list"]) -> int | str | None:
+        link = links.get(key)
+        return link.get("id") if link else None
 
     mu = linked("manga_updates")
-    found = [
+    found: list[Pair | None] = [
         _pair("mangabaka", record.get("id")),
         _pair("anilist", linked("anilist")),
         _pair("myanimelist", linked("my_anime_list")),
-        ("mangaupdates", mangaupdates_link(str(mu))) if mu and mangaupdates_link(str(mu)) else None,
+        ("mangaupdates", mu_id) if mu and (mu_id := mangaupdates_link(str(mu))) else None,
     ]
     return [pair for pair in found if pair]
 
 
 def mangadex_ids(record: MangaDexManga) -> list[Pair]:
     """Return a MangaDex record's own id and its cross-links (`links.al`, `links.mu`, `links.mal`)."""
-    links = (record.get("attributes") or {}).get("links") or {}
+    attributes: MangaDexAttributes = record.get("attributes") or {}
+    links: MangaDexLinks = attributes.get("links") or {}
     mu = links.get("mu")
-    found = [
+    found: list[Pair | None] = [
         _pair("mangadex", record.get("id")),
         _pair("anilist", links.get("al")),
         _pair("myanimelist", links.get("mal")),
-        ("mangaupdates", mangaupdates_link(str(mu))) if mu and mangaupdates_link(str(mu)) else None,
+        ("mangaupdates", mu_id) if mu and (mu_id := mangaupdates_link(str(mu))) else None,
     ]
     return [pair for pair in found if pair]
 

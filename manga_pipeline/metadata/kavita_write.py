@@ -25,7 +25,7 @@ from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients.kavita_match import normalize
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import ids, merge, tags
-from manga_pipeline.replies.kavita import Tag
+from manga_pipeline.replies.kavita import Person, Tag
 
 log = logging.getLogger(__name__)
 FINGERPRINT = "metadata.tag_fingerprint"  # meta: the tag rules' fingerprint the last export run worked with
@@ -292,17 +292,19 @@ def _set_list(
     key, lock, _ = LISTS[name]
     wanted = {normalize(v) for v in values}
     meta = kv.metadata(kid)
-    have = {normalize(v["title"]) for v in meta.get(key) or []}
+    held: list[Tag] = meta.get(key) or []
+    have = {normalize(v["title"]) for v in held}
     added = [v for v in dict.fromkeys(values) if normalize(v) not in have]
     if added or not meta.get(lock):
-        entries: list[Tag] = (meta.get(key) or []) + [{"id": 0, "title": v} for v in added]
+        entries: list[Tag] = held + [{"id": 0, "title": v} for v in added]
         meta[key] = entries
         meta[lock] = True
         kv.update_metadata(meta)
         added_step(_key(v["title"] for v in entries))  # entries is never empty: values is not
     if have - wanted:
         meta = kv.metadata(kid)
-        meta[key], meta[lock] = [v for v in meta.get(key) or [] if normalize(v["title"]) in wanted], True
+        now: list[Tag] = meta.get(key) or []
+        meta[key], meta[lock] = [v for v in now if normalize(v["title"]) in wanted], True
         kv.update_metadata(meta)
 
 
@@ -315,10 +317,11 @@ def _add_people(
 ) -> None:
     """Add the sources' people Kavita lacks (by its name key), locked."""
     meta = kv.metadata(kid)
-    have = {normalize(p["name"]) for p in meta.get(key) or []}
+    held: list[Person] = meta.get(key) or []
+    have = {normalize(p["name"]) for p in held}
     added = [n for n in dict.fromkeys(names) if normalize(n) not in have]
     if added or (names and not meta.get(lock)):
-        meta[key], meta[lock] = (meta.get(key) or []) + [{"id": 0, "name": n} for n in added], True
+        meta[key], meta[lock] = held + [{"id": 0, "name": n} for n in added], True
         kv.update_metadata(meta)
 
 

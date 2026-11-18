@@ -87,7 +87,7 @@ def load(folder: Path = RULES) -> Rules:
     text = {name: raw.decode("utf-8") for name, raw in data.items()}
     table = _consolidation(text["consolidation.csv"])
     try:
-        entries = yaml.safe_load(text["derived_tags.yaml"]) or []
+        entries: Yaml = yaml.safe_load(text["derived_tags.yaml"]) or []
     except yaml.YAMLError as e:
         msg = f"derived_tags.yaml: {e}"
         raise ValueError(msg) from None
@@ -444,7 +444,8 @@ def _top_up_genres(candidates: Iterable[tuple[str, str]], have: set[str], rules:
 
     Up to MIN_GENRES held, past it at a strong weight only.
     """
-    have, added = set(have), []
+    have = set(have)
+    added: list[str] = []
     for name, w in candidates:
         key = term_key(name)
         if len(have) >= MIN_GENRES and w not in PAST_MIN_WEIGHTS:
@@ -462,7 +463,8 @@ def _top_up_tags(
 
     genre_keys are the genres held and added. Up to MIN_TAGS held, past it an always-added tag at a strong weight only.
     """
-    have, added = set(have), []
+    have = set(have)
+    added: list[str] = []
     for name, w in candidates:
         key = term_key(name)
         if len(have) >= MIN_TAGS and (key not in rules.always_tags or w not in PAST_MIN_WEIGHTS):
