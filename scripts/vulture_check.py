@@ -35,12 +35,8 @@ def _base_names(node: ast.ClassDef) -> set[str]:
 
 
 def _called(call: ast.Call) -> str | None:
-    """Return the name a call calls: `TypedDict(...)` and `typing.TypedDict(...)` give TypedDict; None for another."""
-    if isinstance(call.func, ast.Name):
-        return call.func.id
-    if isinstance(call.func, ast.Attribute):
-        return call.func.attr
-    return None
+    """Return the name a call calls by a bare name (`TypedDict(...)` gives TypedDict); None for another call."""
+    return call.func.id if isinstance(call.func, ast.Name) else None
 
 
 def typeddict_fields(trees: Mapping[Path, ast.Module]) -> set[Location]:
