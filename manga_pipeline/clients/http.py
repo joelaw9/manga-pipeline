@@ -123,12 +123,14 @@ class Service:
         timeout: float = 60,
         retry_timeout: bool = True,
         retries: int = RETRIES,
+        min_gap: float | None = None,
     ) -> Response:
         """Send 1 request, retried as SPEC "Services" says, and return its Response.
 
         Raises Unreachable (and marks the service), HttpError, or HttpTimeoutError for a timeout when retry_timeout is
-        false. retries=0 sends it once: a 5xx reply other than UNREACHABLE_STATUS is then an HttpError. ValueError for
-        a URL that is not http or https: a wrong setting, never retried.
+        false. retries=0 sends it once: a 5xx reply other than UNREACHABLE_STATUS is then an HttpError. min_gap, when
+        given, replaces the service's gap before this request (a call the service limits more). ValueError for a URL
+        that is not http or https: a wrong setting, never retried.
         """
         if self._down is not None:
             raise Unreachable(self.name, self._down)
@@ -143,7 +145,7 @@ class Service:
             headers["Content-Type"] = "application/json"
         failed: tuple[int, bytes] | None = None  # bound here: the checker cannot see the loop runs
         for attempt in range(retries + 1):
-            self._wait_for_gap()
+            self._wait_for_gap(self.min_gap if min_gap is None else min_gap)
             wait = 2**attempt * 2
             failed = None  # (status, body) of an HTTP failure; None for a network one
             try:
@@ -181,9 +183,9 @@ class Service:
             raise self.mark_unreachable(msg) from None
         return asked
 
-    def _wait_for_gap(self) -> None:
+    def _wait_for_gap(self, min_gap: float) -> None:
         if self._last is not None:
-            wait = self._last + self.min_gap - time.monotonic()
+            wait = self._last + min_gap - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
         self._last = time.monotonic()

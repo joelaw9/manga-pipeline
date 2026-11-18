@@ -1,15 +1,18 @@
 """A series' metadata check (SPEC "Metadata checks", "Source ids"): which series are due, and 1 check of 1 series.
 
 A check gathers the series' ids, fetches each source (searching for an id it lacks), compares every id as it learns
-it, picks the cover, and stores all of it in 1 transaction when it completes. A check that cannot complete stores
-nothing and stays due; one whose ids disagree stores the ids and makes the series needs_human.
+it, picks the cover, and stores all of it in 1 transaction when it completes. A check that cannot complete, or whose
+series' stored ids changed while it fetched, stores nothing and stays due; one whose ids disagree stores the ids and
+makes the series needs_human.
 """
 
+import copy
 import hashlib
 import json
 import logging
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
+from typing import TypeIs
 
 from manga_pipeline import config, db, workflow
 from manga_pipeline.db import sql
@@ -23,6 +26,41 @@ log = logging.getLogger(__name__)
 FETCHED_ORIGINS = ("suwayomi", "kavita", "anilist", "mangabaka", "mangadex")  # replaced by every completed check
 DAYS_PER_MONTH = 30  # metadata.*_months as days
 MANGABAKA_COMPLETE = "completed"
+SCRUBBED = "removed characters the database cannot hold (NUL, lone surrogate)"
+# Key paths a record's hash leaves out, per (source, kind) of records.STORED ("[]": each list item, "*": each key):
+# fields that change with the source's own activity (counts, ranks, ratings, votes, update times) and that nothing
+# reads. A field a rule reads never belongs here.
+VOLATILE: dict[tuple[str, str], tuple[tuple[str, ...], ...]] = {
+    ("mangaupdates", "series"): (
+        ("rank",),
+        ("bayesian_rating",),
+        ("rating_votes",),
+        ("last_updated",),
+        ("latest_chapter",),
+        ("categories", "[]", "votes"),
+        ("categories", "[]", "votes_plus"),
+        ("categories", "[]", "votes_minus"),
+        ("recommendations",),
+        ("category_recommendations",),
+    ),
+    ("mangabaka", "series"): (
+        ("rating",),
+        ("popularity",),
+        ("last_updated_at",),
+        ("source", "*", "rating"),
+        ("source", "*", "rating_normalized"),
+        ("tags_v2", "[]", "series_count"),
+    ),
+    ("mangadex", "manga"): (
+        ("attributes", "updatedAt"),
+        ("attributes", "version"),
+        ("attributes", "latestUploadedChapter"),
+        ("attributes", "availableTranslatedLanguages"),
+        ("relationships", "[]", "attributes", "updatedAt"),
+        ("relationships", "[]", "attributes", "version"),
+    ),
+    ("mangadex", "covers"): (("[]", "updatedAt"), ("[]", "version")),
+}
 
 
 class Disagree(Exception):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
@@ -48,14 +86,17 @@ def completed(ctx: workflow.Context, chapter: db.Row) -> bool:
 def due(ctx: workflow.Context) -> list[int]:
     """Return the ids of the in-scope, not needs_human series whose check runs this run.
 
-    Every urgent or never completed one, then at most metadata.checks_per_run others, the longest due first. A series
+    Every urgent one and every one never completed and not put off (a series Kavita no longer holds is put off by the
+    quiet interval), then at most metadata.checks_per_run others, the longest due first. A series
     is checked when Kavita holds it, or when it is a new series Kavita does not hold yet (admitted or not).
     """
     rows = ctx.conn.execute(
-        sql.SQL("""SELECT s.id, k.series_id IS NULL OR k.urgent OR k.data_version = 0 AS always
+        sql.SQL("""SELECT s.id,
+            k.series_id IS NULL OR k.urgent OR (k.data_version = 0 AND k.next_check_at IS NULL) AS always
         FROM series s LEFT JOIN series_check k ON k.series_id = s.id
         WHERE s.status = 'ok' AND (s.kavita_series_id IS NOT NULL OR s.origin = 'new') AND {scope}
-            AND (k.series_id IS NULL OR k.urgent OR k.data_version = 0 OR k.next_check_at <= %(now)s)
+            AND (k.series_id IS NULL OR k.urgent OR (k.data_version = 0 AND k.next_check_at IS NULL)
+                OR k.next_check_at <= %(now)s)
         ORDER BY k.next_check_at NULLS FIRST, s.id""").format(scope=workflow.SCOPE),
         {**workflow.scope_params(ctx.cfg), "now": workflow.now(ctx.conn)},
     ).fetchall()
@@ -109,14 +150,20 @@ def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool
     if kavita_series is not None:  # a new series Kavita does not hold yet has no Kavita record or ids
         kavita_meta = ctx.kavita.metadata(series["kavita_series_id"])
         kavita_ids = ids.kavita_ids(kavita_series, kavita_meta)
-    known = _stored_ids(conn, series_id) + _origin_ids(manga_rows, kavita_ids)
+    stored = _stored_ids(conn, series_id)
+    known = stored + _origin_ids(manga_rows, kavita_ids)
     try:
         records = _fetch(clients, _names(series), known)
     except Disagree as e:
-        _store_disagreement(conn, series_id, known, str(e))
-        log.warning("series %s (%s): needs_human: %s", series_id, series["name"], e)
+        if _store_disagreement(conn, series, stored, known, str(e)):
+            log.warning("series %s (%s): needs_human: %s", series_id, series["name"], e)
         return False
+    for name, record in records.items():
+        if _scrub(record):
+            log.warning("series %s (%s): %s record: %s", series_id, series["name"], name, SCRUBBED)
     platform = _platform(clients, series, kavita_meta, records, _stored_platform(conn, series_id))
+    if _scrub(platform):
+        log.warning("series %s (%s): platform list: %s", series_id, series["name"], SCRUBBED)
     refresh.completed(ctx, series_id, manga_rows)
     last = _last_update(ctx, clients, manga_rows, records)
     complete = any(m["status"] == refresh.COMPLETED for m in manga_rows) or (
@@ -125,6 +172,8 @@ def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool
     cover = covers.pick(ctx, clients, manga_rows, records)
     now = workflow.now(conn)
     with db.transaction(conn):
+        if _ids_changed(conn, series, stored):
+            return False
         changed = _store(conn, series_id, known, records, now)
         _store_platform(conn, series_id, platform, now)
         if cover is not None:
@@ -249,7 +298,14 @@ def _store_platform(conn: db.Connection, series_id: int, platform: platforms.Pla
         conn.execute(
             """INSERT INTO fetched (series_id, source, kind, payload, payload_hash, fetched_at)
             VALUES (%s, %s, %s, %s, %s, %s)""",
-            (series_id, platform["name"], platforms.KIND, json.dumps(platform), _hash(platform), now),
+            (
+                series_id,
+                platform["name"],
+                platforms.KIND,
+                json.dumps(platform),
+                _hash(platform, platform["name"], platforms.KIND),
+                now,
+            ),
         )
 
 
@@ -328,12 +384,30 @@ def _comic[R: (MangaBakaSeries, MangaUpdatesSeries, AniListMedia)](
     return record
 
 
-def _store_disagreement(conn: db.Connection, series_id: int, known: Iterable[ids.Known], problem: str) -> None:
+def _ids_changed(conn: db.Connection, series: db.Row, stored: list[ids.Known]) -> bool:
+    """Return whether the series' stored ids are no longer `stored`, read when its check began (logged).
+
+    A person changed them while the check fetched (`series set-id`): the check stores nothing, so their change is
+    never undone, and stays due. Inside the store transaction, which no other write overlaps.
+    """
+    if set(_stored_ids(conn, series["id"])) == set(stored):
+        return False
+    log.info("series %s (%s): not stored: its ids changed while it was checked", series["id"], series["name"])
+    return True
+
+
+def _store_disagreement(
+    conn: db.Connection, series: db.Row, stored: list[ids.Known], known: Iterable[ids.Known], problem: str
+) -> bool:
+    """Store the ids and hold the series (needs_human); returns False, storing nothing, when its ids changed."""
     with db.transaction(conn):
-        _store_ids(conn, series_id, known)
+        if _ids_changed(conn, series, stored):
+            return False
+        _store_ids(conn, series["id"], known)
         workflow.needs_human(
-            conn, "series", series_id, f"{problem} -> fix in Kavita or `series set-id SERIES SOURCE ID`"
+            conn, "series", series["id"], f"{problem} -> fix in Kavita or `series set-id SERIES SOURCE ID`"
         )
+    return True
 
 
 def _store_ids(conn: db.Connection, series_id: int, known: Iterable[ids.Known]) -> None:
@@ -357,7 +431,8 @@ def _store(conn: db.Connection, series_id: int, known: Iterable[ids.Known], reco
         for r in conn.execute("SELECT source, kind, payload_hash FROM fetched WHERE series_id = %s", (series_id,))
     }
     rows = [
-        (series_id, *STORED[name], None if p is None else json.dumps(p), _hash(p), now) for name, p in records.items()
+        (series_id, *STORED[name], None if p is None else json.dumps(p), _hash(p, *STORED[name]), now)
+        for name, p in records.items()
     ]
     db.executemany(
         conn,
@@ -370,8 +445,72 @@ def _store(conn: db.Connection, series_id: int, known: Iterable[ids.Known], reco
     return any(old.get((source, kind)) != h for _, source, kind, _, h, _ in rows)
 
 
-def _hash(payload: object) -> str:
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+def _hash(payload: object, source: str, kind: str) -> str:
+    """Return the sha256 of the payload less the VOLATILE key paths of its (source, kind)."""
+    paths = VOLATILE.get((source, kind), ())
+    kept = copy.deepcopy(payload) if paths else payload
+    for path in paths:
+        _drop(kept, path)
+    return hashlib.sha256(json.dumps(kept, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def _drop(value: object, path: tuple[str, ...]) -> None:
+    """Delete a key path from a decoded JSON value in place ("[]": each list item, "*": each key); absent parts skip."""
+    head, rest = path[0], path[1:]
+    if not rest:
+        if _is_object(value):
+            value.pop(head, None)
+        return
+    children: list[object] = []
+    if head == "[]" and _is_array(value):
+        children = value
+    elif _is_object(value):
+        children = list(value.values()) if head == "*" else [value.get(head)]
+    for child in children:
+        _drop(child, rest)
+
+
+def _scrub(value: object) -> bool:
+    """Remove every NUL and lone surrogate from the texts of a decoded JSON value in place, keys included.
+
+    PostgreSQL's text and jsonb hold neither (json.loads joins a surrogate pair, so a surrogate left is lone). Returns
+    whether anything was removed.
+    """
+    changed = False
+    if _is_array(value):
+        for i, item in enumerate(value):
+            value[i], dirty = _scrubbed(item)
+            changed |= dirty
+    elif _is_object(value):
+        entries = list(value.items())
+        value.clear()
+        for key, item in entries:
+            clean_key = _clean(key)
+            value[clean_key], dirty = _scrubbed(item)
+            changed |= dirty or clean_key != key
+    return changed
+
+
+def _is_object(value: object) -> TypeIs[dict[str, object]]:
+    """Return whether a decoded JSON value is an object (json.loads' dict, its keys texts)."""
+    return isinstance(value, dict)
+
+
+def _is_array(value: object) -> TypeIs[list[object]]:
+    """Return whether a decoded JSON value is an array (json.loads' list)."""
+    return isinstance(value, list)
+
+
+def _scrubbed(value: object) -> tuple[object, bool]:
+    """Return the value scrubbed (a text as a new, clean text) and whether anything was removed."""
+    if isinstance(value, str):
+        kept = _clean(value)
+        return kept, kept != value
+    return value, _scrub(value)
+
+
+def _clean(text: str) -> str:
+    return "".join(c for c in text if c != "\x00" and not "\ud800" <= c <= "\udfff")
 
 
 def _last_update(
@@ -394,12 +533,14 @@ def next_check(cfg: config.Config, now: str, last: datetime | None, *, complete:
     """Return when a series checked at `now` (ISO) is next due.
 
     recent_days while its last chapter (`last`) is recent, complete_days for a complete series quiet long enough, else
-    quiet_days.
+    quiet_days; quiet_days too with no last chapter, complete or not.
     """
     m = cfg["metadata"]
     at = datetime.fromisoformat(now)
-    age = at - last if last is not None else timedelta.max
-    if age < timedelta(days=m["recent_months"] * DAYS_PER_MONTH):
+    age = at - last if last is not None else None
+    if age is None:
+        days = m["quiet_days"]
+    elif age < timedelta(days=m["recent_months"] * DAYS_PER_MONTH):
         days = m["recent_days"]
     elif complete and age >= timedelta(days=m["complete_months"] * DAYS_PER_MONTH):
         days = m["complete_days"]

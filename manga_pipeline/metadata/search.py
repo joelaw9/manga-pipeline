@@ -2,7 +2,7 @@
 
 A result is accepted when exactly 1 result's title or alternative title equals a name under the lenient key
 (`names.key`); MangaBaka also accepts its top result for the first name when it is close (`close`) and no other result
-is; MangaUpdates also accepts 1 of its top 3 results whose associated names hold a name. Novels never match: the
+is; MangaUpdates also accepts exactly 1 of its top 3 results whose associated names hold a name. Novels never match: the
 library is comics. Each function returns the found id in its source's form, or None.
 """
 
@@ -13,7 +13,7 @@ from rapidfuzz import fuzz
 
 from manga_pipeline import names
 from manga_pipeline.metadata import ids, sources
-from manga_pipeline.replies.sources import AniListHit, MangaBakaSeries
+from manga_pipeline.replies.sources import AniListHit, MangaBakaSeries, MangaUpdatesSeries
 
 CLOSE_RATIO = 90  # rapidfuzz ratio of the lenient keys (D7.18's threshold)
 PREFIX_LENGTH = 15  # a lenient key at least this long that starts the other counts as close (a cut-off title)
@@ -112,11 +112,12 @@ def _mangabaka_by_title(client: sources.MangaBaka, series_names: Sequence[str]) 
 def mangaupdates(client: sources.MangaUpdates, series_names: Sequence[str]) -> str | None:
     """Find the series' MangaUpdates id by title search, name by name.
 
-    Exactly 1 series whose title or hit title is a name; else, when no result's title matches, 1 of the top
-    MANGAUPDATES_ASSOCIATED_CHECKED results whose associated names hold a name. Novels are left out.
+    Exactly 1 series whose title or hit title is a name; else, when no result's title matches, exactly 1 of the top
+    MANGAUPDATES_ASSOCIATED_CHECKED results whose associated names hold a name (each record fetched once, reused
+    across names). Novels are left out.
     """
     wanted = _wanted(series_names)
-    checked: set[int] = set()
+    fetched: dict[int, MangaUpdatesSeries | None] = {}
     for name in series_names[:NAMES_TRIED]:
         results = [r for r in client.search(name) if (r["record"].get("type") or "").lower() != "novel"]
         hits = {
@@ -130,13 +131,14 @@ def mangaupdates(client: sources.MangaUpdates, series_names: Sequence[str]) -> s
             continue  # several series share this name: try the next name
         for r in results[:MANGAUPDATES_ASSOCIATED_CHECKED]:
             series_id = r["record"]["series_id"]
-            if series_id in checked:
-                continue
-            checked.add(series_id)
-            record = client.series(series_id) or {}
+            if series_id not in fetched:
+                fetched[series_id] = client.series(series_id)
+            record = fetched[series_id] or {}
             associated = [record.get("title")] + [a.get("title") for a in record.get("associated") or []]
             if wanted & {names.key(t) for t in associated if t}:
-                return ids.form("mangaupdates", series_id)
+                hits.add(series_id)
+        if len(hits) == 1:
+            return ids.form("mangaupdates", hits.pop())
     return None
 
 

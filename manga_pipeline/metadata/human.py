@@ -12,7 +12,9 @@ from manga_pipeline.metadata import check, ids
 def set_id(conn: db.Connection, series_id: int, source: str, value: str) -> str:
     """Store the id, replacing the series' earlier human id for that source.
 
-    Refused for an unknown series or source, or an id not in the source's form.
+    Every id a search found for the series goes, and its check is made due at once: a search may have gone through the
+    id this one corrects, so that check searches them all again. Refused for an unknown series or source, or an id not
+    in the source's form.
     """
     if source not in ids.SOURCES:
         msg = f"unknown source {source!r}: one of {', '.join(ids.SOURCES)}"
@@ -26,10 +28,12 @@ def set_id(conn: db.Connection, series_id: int, source: str, value: str) -> str:
         raise workflow.Refused(msg)
     with db.transaction(conn):
         conn.execute(
-            "DELETE FROM series_source_id WHERE series_id = %s AND source = %s AND origin = 'human'",
+            """DELETE FROM series_source_id
+            WHERE series_id = %s AND (origin = 'search' OR (source = %s AND origin = 'human'))""",
             (series_id, source),
         )
         conn.execute("INSERT INTO series_source_id VALUES (%s, %s, 'human', %s)", (series_id, source, found))
+        check.make_urgent(conn, series_id)
     return found
 
 

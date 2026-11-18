@@ -19,7 +19,7 @@ def sync(ctx: workflow.Context, listing: Sequence[Series]) -> None:
 
     A listed series no row holds the id of takes the row of a series Kavita no longer lists whose names match and whose
     folder is the listed one's (Kavita recreated the series); else it is a new row, its folder fetched when first
-    needed.
+    needed. Every row of a listed series then takes the names Kavita lists for it.
     """
     conn, cfg = ctx.conn, ctx.cfg
     # An admitted new series is matched first; a listed series named as one still unmatched gets no row of its own
@@ -37,6 +37,7 @@ def sync(ctx: workflow.Context, listing: Sequence[Series]) -> None:
     ).fetchall()
     held = {r["kavita_series_id"] for r in rows}
     gone = [r for r in rows if r["kavita_series_id"] not in listed]
+    holding = [(r, listed[r["kavita_series_id"]]) for r in rows if r["kavita_series_id"] in listed]
     for kseries in (s for s in listed.values() if s["id"] not in held):
         row = _recreated(ctx, kseries, gone)
         with db.transaction(conn):
@@ -56,6 +57,7 @@ def sync(ctx: workflow.Context, listing: Sequence[Series]) -> None:
                 gone.remove(row)
                 conn.execute("UPDATE series SET kavita_series_id = %s WHERE id = %s", (kseries["id"], row["id"]))
         if row is not None:
+            holding.append((row, kseries))
             log.warning(
                 "series %s (%s): Kavita series %s is now %s (Kavita recreated it)",
                 row["id"],
@@ -63,6 +65,33 @@ def sync(ctx: workflow.Context, listing: Sequence[Series]) -> None:
                 row["kavita_series_id"],
                 kseries["id"],
             )
+    _rename(conn, holding)
+
+
+def _rename(conn: db.Connection, holding: Sequence[tuple[db.Row, Series]]) -> None:
+    """Give each row the names Kavita now lists for its series, in 1 transaction; each renamed series is logged."""
+    renamed = [
+        (row, listed_names)
+        for row, kseries in holding
+        if (listed_names := _listed_names(kseries)) != (row["name"], row["localized_name"], row["original_name"])
+    ]
+    if not renamed:
+        return
+    with db.transaction(conn):
+        db.executemany(
+            conn,
+            "UPDATE series SET name = %s, localized_name = %s, original_name = %s WHERE id = %s",
+            [(*listed_names, row["id"]) for row, listed_names in renamed],
+        )
+    for row, listed_names in renamed:
+        log.info(
+            "series %s (%s): Kavita now names it %s", row["id"], row["name"], " / ".join(n or "-" for n in listed_names)
+        )
+
+
+def _listed_names(kseries: Series) -> tuple[str, str | None, str | None]:
+    """Return a listed series' name, localized name and original name as a row stores them (an empty one None)."""
+    return kseries["name"], kseries.get("localizedName") or None, kseries.get("originalName") or None
 
 
 def _recreated(ctx: workflow.Context, kseries: Series, gone: list[db.Row]) -> db.Row | None:
