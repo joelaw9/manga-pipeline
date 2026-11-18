@@ -93,7 +93,7 @@ class RecordDecisionRow(TypedDict):
 
 
 class RecordJunkRow(RecordDecisionRow):
-    """A junk table row: its origin and its key, the JSON array [tiles text, aspect] read by position."""
+    """A junk table row: its origin and its key, (tiles text, aspect), built from its JSON array."""
 
     origin: str
     key: tuple[str, float]
@@ -106,7 +106,7 @@ class FrameVector(TypedDict):
 
 
 class RecordFrameRow(RecordDecisionRow):
-    """A frames table row: its key, the JSON array [vector, aspect] read by position."""
+    """A frames table row: its key, (vector, aspect), built from its JSON array."""
 
     key: tuple[FrameVector, float]
 
@@ -118,7 +118,7 @@ class TemplateRef(TypedDict):
 
 
 class RecordMarkRow(RecordDecisionRow):
-    """A marks table row: its key, the JSON array [template, width, height] read by position."""
+    """A marks table row: its key, (template, width, height), built from its JSON array."""
 
     key: tuple[TemplateRef, int, int]
 
@@ -241,11 +241,44 @@ def load(folder: Path) -> Record:
 
 
 def decisions(record: Record) -> DecisionBlock:
-    """Return a record's series.decisions block as a DecisionBlock, copied through JSON.
+    """Return a record's series.decisions block as a DecisionBlock: its rows' read fields, each key a tuple.
 
-    Unchecked: check does not read the block; a malformed one fails where it is read.
+    Unchecked: check does not read the block; a malformed one fails here (a key of another length included) or where
+    it is read.
     """
-    return json.loads(json.dumps(record["series"]["decisions"]))
+    block = json.loads(json.dumps(record["series"]["decisions"]))
+    junk: list[RecordJunkRow] = []
+    frames: list[RecordFrameRow] = []
+    marks: list[RecordMarkRow] = []
+    for r in block["rows"]["junk"]:
+        tiles, aspect = r["key"]
+        junk.append(
+            {
+                "row": r["row"],
+                "series": r["series"],
+                "decision": r["decision"],
+                "added": r["added"],
+                "origin": r["origin"],
+                "key": (tiles, aspect),
+            }
+        )
+    for r in block["rows"]["frames"]:
+        vec, aspect = r["key"]
+        frames.append(
+            {
+                "row": r["row"],
+                "series": r["series"],
+                "decision": r["decision"],
+                "added": r["added"],
+                "key": (vec, aspect),
+            }
+        )
+    for r in block["rows"]["marks"]:
+        tpl, w, h = r["key"]
+        marks.append(
+            {"row": r["row"], "series": r["series"], "decision": r["decision"], "added": r["added"], "key": (tpl, w, h)}
+        )
+    return {"rows": {"junk": junk, "frames": frames, "marks": marks}, "templates": block.get("templates", {})}
 
 
 def parse(rec):
