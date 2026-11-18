@@ -526,6 +526,41 @@ class PageFiles:
         return name in self.blanked
 
 
+@dataclass(frozen=True)
+class _AvifStood:
+    """An AVIF attempt that stood: its outcome, its pages' records and its reshape (a rendered one's, else None)."""
+
+    outcome: plan.Outcome
+    pages: list[AvifPage]
+    reshape: Reshape | None
+
+
+@dataclass(frozen=True)
+class _LosslessStood:
+    """The lossless attempt (it always stands): its outcome and its pages' records."""
+
+    outcome: plan.Outcome
+    pages: list[LosslessPage]
+
+
+@dataclass(frozen=True)
+class _UntouchedStood:
+    """The untouched attempt (it always stands): its outcome."""
+
+    outcome: plan.Outcome
+
+
+type _Stood = _AvifStood | _LosslessStood | _UntouchedStood
+
+
+@dataclass(frozen=True)
+class _Rejected:
+    """A rejected AVIF attempt: why, and the records of the pages it encoded."""
+
+    why: str
+    pages: list[AvifPage]
+
+
 class _Chapter:
     """1 chapter plan executed into out_dir (the attempts of process_chapter)."""
 
@@ -535,10 +570,6 @@ class _Chapter:
         self.pages, self.out, self.tmp = pages, out_dir, tmp
         self.encoder, self.plan = encoder, chapter_plan
         self.kept = chapter_plan.kept()
-        # what the attempts recorded: the last AVIF attempt's pages, the lossless pages, the rendered reshape
-        self.avif_pages: list[AvifPage] | None = None
-        self.lossless_pages: list[LosslessPage] | None = None
-        self.reshape: Reshape | None = None
 
     def task(self, src: Path, cls: str, yuv: str, fmt: str, *, jpeg_feed: bool) -> PageTask:
         return {
@@ -565,18 +596,18 @@ class _Chapter:
             shutil.move(self.tmp / f"{stem}.avif", self.out / f"{stem}.avif")
         return None
 
-    def rendered_avif(self) -> str | None:
+    def rendered_avif(self, o: plan.Outcome) -> _AvifStood | _Rejected:
         ch = self.plan
         tasks = [
             self.task(p, r["class"], r["yuv"], RENDERED_FMT, jpeg_feed=False)
             for p, r in zip(self.pages.rendered, ch.render, strict=True)
         ]
         results, failed = self.encoder.avif_pages(tasks, stop_on_fail=True)
-        self.avif_pages = results
-        self.reshape = {"kind": reshape_kind(ch.edits), "pages_in": len(self.kept), "pages_out": len(tasks)}
-        return self.avif(results, failed, size_gate=False)
+        reshape: Reshape = {"kind": reshape_kind(ch.edits), "pages_in": len(self.kept), "pages_out": len(tasks)}
+        why = self.avif(results, failed, size_gate=False)
+        return _Rejected(why, results) if why is not None else _AvifStood(o, results, reshape)
 
-    def pages_avif(self, *, size_gate: bool) -> str | None:
+    def pages_avif(self, o: plan.Outcome, *, size_gate: bool) -> _AvifStood | _Rejected:
         ch = self.plan
         tasks: list[PageTask] = []
         for q in self.kept:
@@ -594,10 +625,10 @@ class _Chapter:
             q = by_stem[Path(r["name"]).stem]
             if self.pages.is_blanked(q["name"]):
                 r.update(name=q["name"], bytes_in=q["bytes"])
-        self.avif_pages = results
-        return self.avif(results, failed, size_gate=size_gate)
+        why = self.avif(results, failed, size_gate=size_gate)
+        return _Rejected(why, results) if why is not None else _AvifStood(o, results, None)
 
-    def lossless(self) -> None:
+    def lossless(self, o: plan.Outcome) -> _LosslessStood:
         tasks: list[LosslessTask] = [
             {
                 "src": str(self.pages.original(q["name"])),
@@ -609,52 +640,40 @@ class _Chapter:
             }
             for q in self.kept
         ]
-        self.lossless_pages = self.encoder.lossless_pages(tasks)
+        return _LosslessStood(o, self.encoder.lossless_pages(tasks))
 
-    def untouched(self) -> None:
+    def untouched(self, o: plan.Outcome) -> _UntouchedStood:
         for q in self.kept:
             shutil.copyfile(self.pages.original(q["name"]), self.out / q["name"])
+        return _UntouchedStood(o)
 
-    def first_standing(self) -> tuple[plan.Outcome, str | None]:
-        """Try the plan's outcomes in order; return the 1 that stood and why the first rejected one was (or None).
+    def first_standing(self) -> tuple[_Stood, list[_Rejected]]:
+        """Try the plan's outcomes in order; return the attempt that stood and the rejected ones before it, in order.
 
-        A rejected attempt's output pages, AVIFs and reshape are cleared. RuntimeError when none stands.
+        A rejected attempt's output pages and AVIFs are cleared. RuntimeError when none stands.
         """
-        rejected = None
+        rejected: list[_Rejected] = []
         for o in self.plan.outcomes:
-            why = self.attempt(o)
-            if why is None:
-                return o, rejected
-            if rejected is None:
-                rejected = why
-            self.reshape = None
+            tried = self.attempt(o)
+            if not isinstance(tried, _Rejected):
+                return tried, rejected
+            rejected.append(tried)
             _clear(self.out)
             for f in self.tmp.glob("*.avif"):
                 f.unlink()
         msg = f"{self.plan.name}: no outcome stood"
         raise RuntimeError(msg)
 
-    def record_attempts(self, rec: ChapterRecord, rejected: str | None) -> None:
-        """Add to the record what the attempts left: the first rejection, the last page records, the reshape."""
-        if rejected is not None:
-            rec["avif_rejected"] = rejected
-        if self.avif_pages is not None:
-            rec["avif_pages"] = self.avif_pages
-        if self.lossless_pages is not None:
-            rec["lossless_pages"] = self.lossless_pages
-        if self.reshape is not None:
-            rec["reshape"] = self.reshape
-
-    def attempt(self, o: plan.Outcome) -> str | None:
-        """Run 1 outcome into out_dir. None when it stands, else why it was rejected."""
+    def attempt(self, o: plan.Outcome) -> _Stood | _Rejected:
+        """Run 1 outcome into out_dir: the attempt that stood, or the rejected one."""
         if o["outcome"] == "avif" and o["edits"] == "all":
-            return self.rendered_avif()
+            return self.rendered_avif(o)
         if o["outcome"] == "avif":
-            return self.pages_avif(size_gate=o["gate"] == "floor+size")
+            return self.pages_avif(o, size_gate=o["gate"] == "floor+size")
         if o["outcome"] == "lossless":
-            return self.lossless()
+            return self.lossless(o)
         if o["outcome"] == "untouched":
-            return self.untouched()
+            return self.untouched(o)
         msg = f"{self.plan.name}: unknown outcome {o['outcome']!r}"
         raise ValueError(msg)
 
@@ -712,8 +731,9 @@ def process_chapter(  # noqa: PLR0913  # each a distinct input: PageFiles, cover
     tmp.mkdir(parents=True, exist_ok=True)
     ch = chapter_plan
     run = _Chapter(pages, out_dir, tmp, encoder=encoder, chapter_plan=ch)
-    o, rejected = run.first_standing()
-    avif = (run.avif_pages or []) if o["outcome"] == "avif" else []
+    stood, rejected = run.first_standing()
+    o = stood.outcome
+    avif = stood.pages if isinstance(stood, _AvifStood) else []
     inserted = None
     if o["cover"]:
         if cover is None:
@@ -724,7 +744,7 @@ def process_chapter(  # noqa: PLR0913  # each a distinct input: PageFiles, cover
     if len(outputs) != o["pages_out"]:
         msg = f"{ch.name}: {len(outputs)} output pages, the outcome writes {o['pages_out']}"
         raise RuntimeError(msg)
-    lossless_pages = (run.lossless_pages or []) if o["outcome"] == "lossless" else []
+    lossless_pages = stood.pages if isinstance(stood, _LosslessStood) else []
     scores, lossless = _output_checks(avif, lossless_pages, outputs, inserted)
     rec: ChapterRecord = {
         "route": ch.route,
@@ -746,8 +766,25 @@ def process_chapter(  # noqa: PLR0913  # each a distinct input: PageFiles, cover
         "scores": scores,
         "lossless": lossless,
     }
-    run.record_attempts(rec, rejected)
+    _record_attempts(rec, stood, rejected)
     return rec
+
+
+def _record_attempts(rec: ChapterRecord, stood: _Stood, rejected: list[_Rejected]) -> None:
+    """Add to the record what the attempts left.
+
+    The first rejection's reason, the last AVIF attempt's pages, the lossless pages and a rendered reshape that stood.
+    """
+    if rejected:
+        rec["avif_rejected"] = rejected[0].why
+    if isinstance(stood, _AvifStood):
+        rec["avif_pages"] = stood.pages
+        if stood.reshape is not None:
+            rec["reshape"] = stood.reshape
+    elif rejected:
+        rec["avif_pages"] = rejected[-1].pages
+    if isinstance(stood, _LosslessStood):
+        rec["lossless_pages"] = stood.pages
 
 
 def _output_checks(
