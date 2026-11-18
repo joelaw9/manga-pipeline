@@ -132,7 +132,7 @@ def chapters_showing(conn: db.Connection, series_key: str, kind: str, key: str) 
     return len({ident for k, ident in rows if store.matches(store.parse_key(kind, k), parsed)})
 
 
-def strip_reasons(conn: db.Connection, series_key: str, unit: strip_units.Piece, words: config.JunkConfig) -> list[str]:
+def strip_reasons(conn: db.Connection, series_key: str, unit: strip_units.Piece, words: ocr.WordLists) -> list[str]:
     """Why a strip unit is a candidate (near, OCR keywords); [] when neither."""
     out: list[str] = []
     hit = store.near(conn, series_key, images.sig_from_str(unit["sig"]))
@@ -160,7 +160,7 @@ def _recurrence(conn: db.Connection, series_key: str, kind: str, key: str) -> li
 
 
 def _flagged_probe(
-    conn: db.Connection, series_key: str, block: strip_units.BlockUnit, words: config.JunkConfig
+    conn: db.Connection, series_key: str, block: strip_units.BlockUnit, words: ocr.WordLists
 ) -> Candidate | None:
     """Return the candidate of a strip edge block's first signable probe that is near or has a keyword, or None.
 
@@ -175,7 +175,7 @@ def _flagged_probe(
 
 
 def _block_candidate(
-    conn: db.Connection, series_key: str, block: strip_units.BlockUnit, words: config.JunkConfig, *, first_chapter: bool
+    conn: db.Connection, series_key: str, block: strip_units.BlockUnit, words: ocr.WordLists, *, first_chapter: bool
 ) -> Candidate | None:
     """Return a strip edge block's candidate, or None.
 
@@ -198,7 +198,7 @@ def _block_candidate(
 
 
 def select(
-    conn: db.Connection, series_key: str, identity: str, undecided: Iterable[Unit], words: config.JunkConfig
+    conn: db.Connection, series_key: str, identity: str, undecided: Iterable[Unit], words: ocr.WordLists
 ) -> list[Candidate]:
     """Return the candidates among a chapter's undecided units: [{"kind", "key", "reason", "unit"}].
 

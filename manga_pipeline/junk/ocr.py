@@ -18,12 +18,11 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from typing import TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
 from PIL import Image
-
-from manga_pipeline import config
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +43,15 @@ PARAMS: dict[str, dict[str, str | int | bool]] = {
     "cuda": {**_QUIET, "EngineConfig.onnxruntime.use_cuda": True},
 }
 _serial = threading.Lock()
+
+
+class WordLists(TypedDict):
+    """The keyword test's word lists (config `junk`): keywords, and the weak, paired and suppress terms."""
+
+    keywords: list[str]
+    weak: list[str]
+    paired: list[str]
+    suppress: list[str]
 
 
 def provider_problem(device: str) -> str | None:
@@ -132,7 +140,7 @@ def normalize(s: str) -> str:
     return " ".join(s.split()).lower()
 
 
-def word_list_problem(words: config.JunkConfig) -> str | None:
+def word_list_problem(words: WordLists) -> str | None:
     """Return what is wrong with config `junk`'s word lists, or None.
 
     A weak or a paired term only restricts when a keyword counts, so each must be a keyword.
@@ -141,7 +149,7 @@ def word_list_problem(words: config.JunkConfig) -> str | None:
     return "; ".join(f"junk.{key} terms not in junk.keywords: {terms}" for key, terms in stray.items() if terms) or None
 
 
-def text_hits(text_: str, height: int, words: config.JunkConfig) -> list[str]:
+def text_hits(text_: str, height: int, words: WordLists) -> list[str]:
     """Return the keywords found in a unit's OCR text, in list order.
 
     Each a case-insensitive substring of the normalized text; a weak term counts only on a unit at most MAX_WEAK_PX

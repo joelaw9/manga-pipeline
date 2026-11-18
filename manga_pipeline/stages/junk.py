@@ -371,7 +371,14 @@ def decide(ctx: workflow.Context, chapter, key, row):
     applied = _apply(ctx.conn, sc, key, decide_unit)
     if applied.problem:
         return workflow.NeedsHuman(applied.problem)
-    picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, ctx.cfg["junk"])
+    junk = ctx.cfg["junk"]
+    words: ocr.WordLists = {
+        "keywords": junk["keywords"],
+        "weak": junk["weak"],
+        "paired": junk["paired"],
+        "suppress": junk["suppress"],
+    }
+    picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, words)
     if not picks:
         return _finished(ctx, chapter, applied.edit, applied.watermarks)
     limit = ctx.cfg["junk"]["review_limit"]

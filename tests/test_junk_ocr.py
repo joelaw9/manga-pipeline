@@ -11,8 +11,9 @@ from tests.builders import problem_text
 from tests.timing import budget
 
 
-def words() -> config.JunkConfig:
-    return config.cached()["junk"]
+def words() -> ocr.WordLists:
+    junk = config.cached()["junk"]
+    return {"keywords": junk["keywords"], "weak": junk["weak"], "paired": junk["paired"], "suppress": junk["suppress"]}
 
 
 @budget()
