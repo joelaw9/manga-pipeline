@@ -6,13 +6,13 @@ command with locks), its handler.
 """
 
 import argparse
-import json
 import logging
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import closing, nullcontext
 from dataclasses import dataclass
+from pathlib import Path
 
 from manga_pipeline import (
     archive,
@@ -102,12 +102,12 @@ class Command:
     builds: bool = False  # creates the database when the server has none, and builds one holding no schema record
 
     @property
-    def locked(self):
+    def locked(self) -> bool:
         """Return whether the command takes any run lock: its own locks or lock.IDLE."""
         return bool(self.locks or self.idle)
 
 
-def retry(cfg, args):
+def retry(cfg: config.Config, args: argparse.Namespace) -> None:
     """Make a needs_human chapter, or a series and its needs_human chapters, ready again (`retry`)."""
     with _database(cfg, "retry") as conn:
         if args.series is None:
@@ -118,7 +118,7 @@ def retry(cfg, args):
             log.info("series %s and its needs_human chapters are ready again", args.series)
 
 
-def _database(cfg, what):
+def _database(cfg: config.Config, what: str) -> closing[db.Connection]:
     """Return a connection to the built database, for a command that never builds one (SPEC "State")."""
     if not db.built(cfg):
         msg = f"no database {cfg['database']['name']} built yet: nothing to {what}"
@@ -126,14 +126,14 @@ def _database(cfg, what):
     return closing(db.connect(cfg))
 
 
-def chapter_use(cfg, args):
+def chapter_use(cfg: config.Config, args: argparse.Namespace) -> None:
     """Have a needs_human chapter re-downloaded at validate from the given Suwayomi chapter (`chapter use`)."""
     with _database(cfg, "use") as conn:
         workflow.use_chapter(conn, args.chapter, args.suwayomi_chapter)
     log.info("chapter %s will be re-downloaded from Suwayomi chapter %s", args.chapter, args.suwayomi_chapter)
 
 
-def chapter_drop(cfg, args):
+def chapter_drop(cfg: config.Config, args: argparse.Namespace) -> None:
     """Give a needs_human chapter up: its download goes the retention way first, then the chapter is done.
 
     A crash between leaves it needs_human, and the next drop finds its download already gone.
@@ -160,7 +160,7 @@ def chapter_drop(cfg, args):
     log.info("chapter %s dropped", args.chapter)
 
 
-def series_link(cfg, args):
+def series_link(cfg: config.Config, args: argparse.Namespace) -> None:
     """Link a Suwayomi manga or a hand-placed download folder to a Kavita series (`series link`)."""
     with _database(cfg, "link") as conn:
         kavita_client = kavita.from_config(cfg)
@@ -172,28 +172,28 @@ def series_link(cfg, args):
         identify.link(cfg, conn, kavita_client, args.kavita_series_id, subject)
 
 
-def series_set_id(cfg, args):
+def series_set_id(cfg: config.Config, args: argparse.Namespace) -> None:
     """Set a series' id for a metadata source by hand (`series set-id`); it wins over the rest."""
     with _database(cfg, "set an id in") as conn:
         found = human.set_id(conn, args.series_id, args.source, args.id)
     log.info("series %s: %s id %s set by hand", args.series_id, args.source, found)
 
 
-def series_refetch_covers(cfg, args):
+def series_refetch_covers(cfg: config.Config, args: argparse.Namespace) -> None:
     """Make a series' check due now, so the next intake refreshes its volume covers (`series refetch-covers`)."""
     with _database(cfg, "refetch covers in") as conn:
         human.refetch_covers(conn, args.series_id)
     log.info("series %s: its check is due now: the next intake refreshes its volume covers", args.series_id)
 
 
-def series_new(cfg, args):
+def series_new(cfg: config.Config, args: argparse.Namespace) -> None:
     """Have a held series admitted as a new series, under --name when given (`series new`)."""
     with _database(cfg, "admit a series in") as conn:
         human.new_series(conn, args.series_id, args.name)
     log.info("series %s: to be admitted as a new series%s", args.series_id, f" as {args.name!r}" if args.name else "")
 
 
-def series_edit(cfg, args):
+def series_edit(cfg: config.Config, args: argparse.Namespace) -> None:
     """Apply a hand-edit file of chapter titles and volumes and print the lines it reports (`series edit`)."""
     data = hand_edits.load(args.file)
     with _database(cfg, "edit") as conn:
@@ -202,7 +202,7 @@ def series_edit(cfg, args):
         print(line)
 
 
-def naming_diff(cfg, args):
+def naming_diff(cfg: config.Config, args: argparse.Namespace) -> None:
     """Print what the comparison would rewrite, and the differences 7e never applies (SPEC "Retroactive updates").
 
     Read-only.
@@ -237,7 +237,7 @@ def naming_diff(cfg, args):
                 print(f"series {series['id']}: edit {token}: {hand_edits.describe(naming.Edit(title, volume))}")
 
 
-def rewrite_drop(cfg, args):
+def rewrite_drop(cfg: config.Config, args: argparse.Namespace) -> None:
     """Give up a stuck rewrite before its rename and delete its staged file (`rewrite drop`)."""
     with _database(cfg, "drop a rewrite in") as conn:
         row = rewrite.drop(conn, args.file_id, cfg["workflow"]["attempt_limit"])
@@ -246,20 +246,20 @@ def rewrite_drop(cfg, args):
     log.info("published file %s: rewrite dropped", args.file_id)
 
 
-def rewrite_retry(cfg, args):
+def rewrite_retry(cfg: config.Config, args: argparse.Namespace) -> None:
     """Have the next export try a failed rewrite again from its next step (`rewrite retry`)."""
     with _database(cfg, "retry a rewrite in") as conn:
         rewrite.retry(conn, args.file_id)
     log.info("published file %s: rewrite tried again by the next export", args.file_id)
 
 
-def metadata_import(cfg, args, conn):
+def metadata_import(cfg: config.Config, args: argparse.Namespace, conn: db.Connection | None) -> None:
     """Import the old metadata tool's ids, covers and overrides from its state and config files (`metadata import`)."""
     state, overrides = importer.read_state(args.state_file), importer.read_overrides(args.config_file)
-    importer.run(workflow.context(cfg, conn, "intake"), state, overrides)
+    importer.run(workflow.context(cfg, locked_connection(conn), "intake"), state, overrides)
 
 
-def metadata_audit(cfg, args):
+def metadata_audit(cfg: config.Config, args: argparse.Namespace) -> None:
     """Print the library's source-id audit (`metadata audit`).
 
     It lists the series whose source ids disagree, the sources no origin gives an id for and the Suwayomi manga no
@@ -269,7 +269,7 @@ def metadata_audit(cfg, args):
     audit.run(cfg, kavita.from_config(cfg), suwayomi.from_config(cfg), sources.new_sources(), state)
 
 
-def junk_import(cfg, args):
+def junk_import(cfg: config.Config, args: argparse.Namespace) -> None:
     """Import junk decisions from a bulk-converter junk store or a pipeline database and print the counts.
 
     The `junk import` command.
@@ -289,15 +289,15 @@ def junk_import(cfg, args):
     )
 
 
-def _junk_db(cfg):
+def _junk_db(cfg: config.Config) -> closing[db.Connection]:
     return _database(cfg, "list, show or decide")
 
 
-def _folder(cfg, row):
+def _folder(cfg: config.Config, row: db.Row) -> Path:
     return candidates.folder(cfg, row["folder"])
 
 
-def junk_list(cfg, args):
+def junk_list(cfg: config.Config, args: argparse.Namespace) -> None:
     """Print the open junk candidates to decide, 1 line each with its image paths (`junk list`; --all: every one)."""
     with _junk_db(cfg) as conn:
         try:
@@ -306,13 +306,13 @@ def junk_list(cfg, args):
             raise workflow.Refused(str(e)) from None
         for r in rows:
             folder = _folder(cfg, r)
-            fields = [str(r["id"]), r["series_key"], r["kind"], f"chapters {review.chapters(conn, r['id'])}"]
+            fields: list[str] = [str(r["id"]), r["series_key"], r["kind"], f"chapters {review.chapters(conn, r['id'])}"]
             if args.all:
                 fields += [f"reviews {r['reviews']}", f"verdict {r['verdict'] or '-'}"]
             print("	".join([*fields, str(folder / "unit.png"), str(folder / "context.png")]))
 
 
-def junk_show(cfg, args):
+def junk_show(cfg: config.Config, args: argparse.Namespace) -> None:
     """Print an open junk candidate's reason, chapters, OCR text and image paths (`junk show`)."""
     with _junk_db(cfg) as conn:
         try:
@@ -320,7 +320,7 @@ def junk_show(cfg, args):
         except review.Refused as e:
             raise workflow.Refused(str(e)) from None
         folder = _folder(cfg, row)
-        info = json.loads((folder / "info.json").read_bytes())
+        info = candidates.read_info(folder)
         print(f"candidate {row['id']}: {row['kind']} of series {row['series_key']}")
         print(f"why: {row['reason']}")
         print(f"chapters: {review.chapters(conn, row['id'])}")
@@ -329,7 +329,7 @@ def junk_show(cfg, args):
         print(f"context: {folder / 'context.png'}")
 
 
-def junk_decide(cfg, args):
+def junk_decide(cfg: config.Config, args: argparse.Namespace) -> None:
     """Record a verdict on a junk candidate, by claude under a review run, else by a human (`junk decide`)."""
     decider = "claude" if os.environ.get(review.REVIEW_ID_VARIABLE) else "human"
     with _junk_db(cfg) as conn:
@@ -348,16 +348,24 @@ def locked_connection(conn: db.Connection | None) -> db.Connection:
     return conn
 
 
-def _unlocked(handler):
+def _unlocked(
+    handler: Callable[[config.Config, argparse.Namespace], None],
+) -> Callable[[config.Config, argparse.Namespace, db.Connection | None], None]:
     """Return the command-table handler of a command without locks: its handler opens what it needs itself."""
     return lambda cfg, args, _conn: handler(cfg, args)
 
 
 S, X = lock.SHARED, lock.EXCLUSIVE
 COMMANDS = {
-    "intake": Command(("intake",), S, "intake", INTAKE_CHECKS, lambda cfg, _args, conn: intake.run(cfg, conn)),
-    "process": Command(("process",), S, "process", PROCESS_CHECKS, lambda cfg, _args, conn: process.run(cfg, conn)),
-    "export": Command(("export",), S, "export", EXPORT_CHECKS, lambda cfg, _args, conn: export.run(cfg, conn)),
+    "intake": Command(
+        ("intake",), S, "intake", INTAKE_CHECKS, lambda cfg, _args, conn: intake.run(cfg, locked_connection(conn))
+    ),
+    "process": Command(
+        ("process",), S, "process", PROCESS_CHECKS, lambda cfg, _args, conn: process.run(cfg, locked_connection(conn))
+    ),
+    "export": Command(
+        ("export",), S, "export", EXPORT_CHECKS, lambda cfg, _args, conn: export.run(cfg, locked_connection(conn))
+    ),
     "status": Command((), None, None, (), _unlocked(lambda cfg, _args: status.run(cfg))),
     "retry": Command((), None, None, (), _unlocked(retry)),
     "chapter use": Command((), None, None, (), _unlocked(chapter_use)),
@@ -384,13 +392,19 @@ COMMANDS = {
         REVIEW_CHECKS,
         lambda cfg, _args, conn: review_run.run(cfg, locked_connection(conn)),
     ),
-    "state reset": Command((), X, None, RESET_CHECKS, lambda cfg, _args, conn: state.reset(cfg, conn)),
-    "state adopt": Command((), X, None, ADOPT_CHECKS, lambda cfg, _args, conn: state.adopt(cfg, conn), builds=True),
-    "state version": Command((), X, None, VERSION_CHECKS, lambda cfg, _args, conn: state.version(cfg, conn)),
+    "state reset": Command(
+        (), X, None, RESET_CHECKS, lambda cfg, _args, conn: state.reset(cfg, locked_connection(conn))
+    ),
+    "state adopt": Command(
+        (), X, None, ADOPT_CHECKS, lambda cfg, _args, conn: state.adopt(cfg, locked_connection(conn)), builds=True
+    ),
+    "state version": Command(
+        (), X, None, VERSION_CHECKS, lambda cfg, _args, conn: state.version(cfg, locked_connection(conn))
+    ),
 }
 
 
-def parser():
+def parser() -> argparse.ArgumentParser:
     """Build the argument parser: the global --config and --set, and every command."""
     p = argparse.ArgumentParser(prog="manga_pipeline", description=DESCRIPTION)
     p.add_argument("--config", help="config file (default: config.yaml in the project root)")
@@ -419,7 +433,7 @@ def parser():
     return p
 
 
-def _retry_command(commands):
+def _retry_command(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
     """Add the retry command to the subparsers."""
     retry = commands.add_parser("retry", help="make a needs_human chapter or series ready again")
     target = retry.add_mutually_exclusive_group(required=True)
@@ -427,7 +441,7 @@ def _retry_command(commands):
     target.add_argument("--series", type=int, metavar="ID", help="a series and its chapters")
 
 
-def _series_commands(commands):
+def _series_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
     """Add the series commands to the subparsers."""
     series = commands.add_parser("series", help="series identification").add_subparsers(
         dest="series_command", required=True, metavar="ACTION"
@@ -462,7 +476,7 @@ def _series_commands(commands):
     link.set_defaults(command="series link")
 
 
-def _naming_commands(commands):
+def _naming_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
     """Add the naming commands to the subparsers."""
     naming = commands.add_parser("naming", help="chapter naming").add_subparsers(
         dest="naming_command", required=True, metavar="ACTION"
@@ -472,7 +486,7 @@ def _naming_commands(commands):
     diff.set_defaults(command="naming diff")
 
 
-def _rewrite_commands(commands):
+def _rewrite_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
     """Add the rewrite commands to the subparsers."""
     rewrites = commands.add_parser("rewrite", help="retroactive rewrites of published files").add_subparsers(
         dest="rewrite_command", required=True, metavar="ACTION"
@@ -485,7 +499,7 @@ def _rewrite_commands(commands):
     retry_rewrite.set_defaults(command="rewrite retry")
 
 
-def _metadata_commands(commands):
+def _metadata_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
     """Add the metadata commands to the subparsers."""
     metadata = commands.add_parser("metadata", help="series metadata").add_subparsers(
         dest="metadata_command", required=True, metavar="ACTION"
@@ -499,7 +513,7 @@ def _metadata_commands(commands):
     audit_.set_defaults(command="metadata audit")
 
 
-def _junk_commands(commands):
+def _junk_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
     """Add the junk commands to the subparsers."""
     junk = commands.add_parser("junk", help="junk decisions").add_subparsers(
         dest="junk_command", required=True, metavar="ACTION"
@@ -524,7 +538,7 @@ def _junk_commands(commands):
     )
 
 
-def _chapter_commands(commands):
+def _chapter_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
     """Add the chapter commands to the subparsers."""
     chapter = commands.add_parser("chapter", help="settle a needs_human chapter").add_subparsers(
         dest="chapter_command", required=True, metavar="ACTION"
@@ -538,7 +552,7 @@ def _chapter_commands(commands):
     drop.set_defaults(command="chapter drop")
 
 
-def _state_commands(commands):
+def _state_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
     """Add the state commands to the subparsers."""
     state = commands.add_parser("state", help="workflow state and share ownership").add_subparsers(
         dest="state_command", required=True, metavar="ACTION"
@@ -551,7 +565,7 @@ def _state_commands(commands):
         sub.set_defaults(command=name)
 
 
-def main(argv=None):
+def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line's command; return its exit code.
 
     Exit code: 0 done, 1 an unexpected error (logged with its traceback), a failed smoke check or a failed junk review,
@@ -583,14 +597,20 @@ def main(argv=None):
             conn.close()
 
 
-def _under_locks(p, cfg, command, args, conn):
+def _under_locks(
+    p: argparse.ArgumentParser,
+    cfg: config.Config,
+    command: Command,
+    args: argparse.Namespace,
+    conn: db.Connection | None,
+) -> int:
     """Run the command under its locks (SPEC "Run lock"), its log set up there; return its exit code.
 
     3 when another run holds a lock it takes.
     """
     names = tuple(workflow.owner(name) for name in command.locks)
     try:
-        with lock.held(conn, cfg, names, command.idle) if command.locked else nullcontext():
+        with lock.held(locked_connection(conn), cfg, names, command.idle) if command.locked else nullcontext():
             try:
                 logs.setup(cfg, command.log)
             except config.ConfigError as e:
@@ -602,7 +622,13 @@ def _under_locks(p, cfg, command, args, conn):
         return 3
 
 
-def _run(p, cfg, command, args, conn):
+def _run(
+    p: argparse.ArgumentParser,
+    cfg: config.Config,
+    command: Command,
+    args: argparse.Namespace,
+    conn: db.Connection | None,
+) -> int:
     """Run the command's preflight checks, schema steps and handler; return its exit code (main's docstring)."""
     try:
         preflight.run(cfg, command.checks)
@@ -630,7 +656,7 @@ def _run(p, cfg, command, args, conn):
     return 0
 
 
-def _open(cfg, command):
+def _open(cfg: config.Config, command: Command) -> db.Connection:
     """Open the command's 1 connection, before its locks (SPEC "Run lock").
 
     A command that builds creates a missing database; for any other, a database missing or holding no schema record is

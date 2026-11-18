@@ -28,7 +28,6 @@ LOADS = {
 
 # (module path below manga_pipeline/, enclosing function) of every load allowed; "" for module level.
 READERS = {
-    ("cli.py", "junk_show"),
     ("clients/kavita.py", "_authenticated"),
     ("clients/kavita.py", "_libraries"),
     ("clients/kavita.py", "_metadata"),
@@ -51,6 +50,7 @@ READERS = {
     ("convert/plan.py", "read_page_aspect"),
     ("convert/record_reader.py", "decisions"),
     ("convert/record_reader.py", "load"),
+    ("junk/candidates.py", "read_info"),
     ("fleet.py", "_read_digest"),
     ("hand_edits.py", "load"),
     ("junk/review_run.py", "_reply"),

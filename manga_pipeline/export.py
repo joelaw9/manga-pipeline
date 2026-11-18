@@ -7,7 +7,7 @@ that are ready, writes series fields when no scan is awaited, and requests at mo
 
 import logging
 from datetime import timedelta
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from manga_pipeline import config, db, errors, kavita_link, retention, rewrite, workflow
 from manga_pipeline.clients import http
@@ -21,12 +21,12 @@ log = logging.getLogger(__name__)
 REQUESTED_AT = "export.kavita_scan_requested_at"  # meta: when the last library scan request succeeded
 
 
-def run(cfg, conn):
+def run(cfg: config.Config, conn: db.Connection) -> None:
     """conn: the command's connection, holding its run lock (cli.main)."""
     workflow.run_part(workflow.context(cfg, conn, "export"), work)
 
 
-def work(ctx: workflow.Context):
+def work(ctx: workflow.Context) -> None:
     """Do 1 export run's work in the order the module docstring gives.
 
     The retroactive rewrites run in it too (SPEC "Retroactive updates"): rewrite.compare, finish_all and restore_all.
@@ -62,7 +62,7 @@ def work(ctx: workflow.Context):
 BEFORE_PUBLISH = workflow.STAGES[: workflow.STAGES.index("publish")]
 
 
-def new_series(ctx: workflow.Context):
+def new_series(ctx: workflow.Context) -> None:
     """Publish each new series Kavita does not hold that is ready, in a run where no scan is awaited.
 
     Ready: none of its chapters ready or claimed before publish, and its batch open (nothing published, or not yet
@@ -87,7 +87,7 @@ def new_series(ctx: workflow.Context):
             workflow.drain(ctx, {"publish": publish.run}, series_id)
 
 
-def _folder_ready(ctx: workflow.Context, series):
+def _folder_ready(ctx: workflow.Context, series: db.Row) -> bool:
     """Create the series' folder, or check the one there holds only its own files.
 
     Its own: those it published and those a crash left renamed in but unrecorded (a chapter at publish whose staged file
@@ -112,7 +112,7 @@ def _folder_ready(ctx: workflow.Context, series):
     return _hold(ctx, series, f"folder {series['folder']} holds files the pipeline did not publish: {listed}")
 
 
-def _own_files(ctx: workflow.Context, series, folder):
+def _own_files(ctx: workflow.Context, series: db.Row, folder: Path) -> set[str]:
     """Names of the files the series published, and of those a crash left renamed in but unrecorded."""
     own = {
         PurePosixPath(r[0]).name
@@ -133,28 +133,28 @@ def _own_files(ctx: workflow.Context, series, folder):
     return own
 
 
-def _hold(ctx: workflow.Context, series, reason):
+def _hold(ctx: workflow.Context, series: db.Row, reason: str) -> bool:
     with db.transaction(ctx.conn):
         workflow.needs_human(ctx.conn, "series", series["id"], reason)
     log.warning("%s: series %s (%s): %s", ctx.part, series["id"], series["name"], reason)
     return False
 
 
-def _comicinfo(ctx: workflow.Context, chapter):
+def _comicinfo(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     return (rewrite.comicinfo_run if chapter["kind"] == "rewrite" else comicinfo.run)(ctx, chapter)
 
 
-def _publish(ctx: workflow.Context, chapter):
+def _publish(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     # a rewrite, or a better copy, queues on its file's row (SPEC "Retroactive updates")
     return (rewrite.publish_run if chapter["published_file_id"] is not None else publish.run)(ctx, chapter)
 
 
-def _in_kavita(ctx: workflow.Context, series_id):
+def _in_kavita(ctx: workflow.Context, series_id: int) -> bool:
     row = db.one_row(ctx.conn, "SELECT kavita_series_id FROM series WHERE id = %s", (series_id,))
     return row["kavita_series_id"] is not None
 
 
-def folder_moved(ctx: workflow.Context, series_id):
+def folder_moved(ctx: workflow.Context, series_id: int) -> bool:
     """Return whether a Kavita series' files lie elsewhere than its recorded folder (or in no single folder).
 
     Then the series is needs_human, naming both, and nothing is published into it. A new series (no Kavita id) is not
@@ -179,7 +179,7 @@ def folder_moved(ctx: workflow.Context, series_id):
     return True
 
 
-def scan_awaited(ctx: workflow.Context):
+def scan_awaited(ctx: workflow.Context) -> str | None:
     """Return the time of the last library scan request while it is still awaited, else None.
 
     Awaited: less than kavita.rescan_after_minutes ago, with chapters still waiting on kavita_scan.
@@ -191,7 +191,7 @@ def scan_awaited(ctx: workflow.Context):
     return previous if previous > cutoff else None
 
 
-def _waiting(ctx: workflow.Context):
+def _waiting(ctx: workflow.Context) -> int:
     """Chapters waiting on kavita_scan, and rewritten files waiting for Kavita to re-read them."""
     return (
         rewrite.waiting(ctx.conn)
@@ -206,7 +206,7 @@ def _waiting(ctx: workflow.Context):
     )
 
 
-def request_scan(ctx: workflow.Context):
+def request_scan(ctx: workflow.Context) -> None:
     """Request at most 1 library scan per run, never while one is awaited.
 
     Awaited: requested less than kavita.rescan_after_minutes ago with chapters still waiting on kavita_scan. Requested
