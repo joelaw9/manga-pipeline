@@ -218,6 +218,15 @@ class _Top(NamedTuple):
     chapters: list[Json]
 
 
+class _Source(NamedTuple):
+    """A checked source: its file name, sha256 and fate (each text) and the output it names (unchecked)."""
+
+    file: str
+    sha256: str
+    fate: str
+    output: Json
+
+
 class RecordError(ValueError):
     """The series record cannot be used."""
 
@@ -407,12 +416,12 @@ def _check_calibration(groups: Json) -> None:
 
 
 def _check_chapters(chapters: list[Json]) -> dict[str, dict[str, Json]]:
-    """Every chapter an object with its keys, its output (text) and its file each listed once.
+    """Every chapter an object with its keys, its output and its file (text) each listed once.
 
     Returns {output, lower case: chapter}, in the chapters' order.
     """
     outputs: dict[str, dict[str, Json]] = {}
-    files: set[Json] = set()
+    files: set[str] = set()
     for c in chapters:
         if not isinstance(c, dict):
             msg = f"record: chapter {c!r} is not an object"
@@ -430,67 +439,80 @@ def _check_chapters(chapters: list[Json]) -> dict[str, dict[str, Json]]:
             msg = f"record: output {output!r} listed twice"
             raise RecordError(msg)
         outputs[low] = c
-        if c["file"] in files:
-            msg = f"record: chapter file {c['file']!r} listed twice"
+        file = c["file"]
+        if not isinstance(file, str):
+            msg = f"record: chapter {output!r}: file {file!r} is not text"
             raise RecordError(msg)
-        files.add(c["file"])
+        if file in files:
+            msg = f"record: chapter file {file!r} listed twice"
+            raise RecordError(msg)
+        files.add(file)
     return outputs
 
 
-def _check_sources(sources: list[Json], outputs: dict[str, dict[str, Json]]) -> list[dict[str, Json]]:
+def _check_sources(sources: list[Json], outputs: dict[str, dict[str, Json]]) -> list[_Source]:
     """Every source well formed and listed once; a chapter or merged source names an output (outputs: lower case).
 
-    Returns the sources, each an object.
+    Returns the checked sources.
     """
-    seen: set[tuple[Json, Json]] = set()
-    checked: list[dict[str, Json]] = []
+    seen: set[tuple[str, str]] = set()
+    checked: list[_Source] = []
     for entry in sources:
         s = _check_source(entry)
-        if (s["file"], s["sha256"]) in seen:
-            msg = f"record: source {s['file']!r} listed twice"
+        if (s.file, s.sha256) in seen:
+            msg = f"record: source {s.file!r} listed twice"
             raise RecordError(msg)
-        seen.add((s["file"], s["sha256"]))
-        if s["fate"] in (CHAPTER, MERGED):
-            output = s.get("output") or ""
+        seen.add((s.file, s.sha256))
+        if s.fate in (CHAPTER, MERGED):
+            output = s.output or ""
             if not isinstance(output, str):
-                msg = f"record: source {s['file']!r} names output {output!r}, not text"
+                msg = f"record: source {s.file!r} names output {output!r}, not text"
                 raise RecordError(msg)
             if output.lower() not in outputs:
-                msg = f"record: source {s['file']!r} names output {s.get('output')!r}, not a chapter"
+                msg = f"record: source {s.file!r} names output {s.output!r}, not a chapter"
                 raise RecordError(msg)
         checked.append(s)
     return checked
 
 
-def _check_source(s: Json) -> dict[str, Json]:
-    """1 source: an object of file, sha256 and a known fate; trash_run and trash_folder together. Returns it."""
+def _text(s: dict[str, Json], key: str) -> str:
+    """Return a source's text field; RecordError naming it when it is missing or not text."""
+    value = s.get(key)
+    if not isinstance(value, str):
+        msg = f"record: source {s.get('file')!r}: {key!r} missing"
+        raise RecordError(msg)
+    return value
+
+
+def _check_source(s: Json) -> _Source:
+    """1 source: an object of file, sha256 and a known fate; trash_run and trash_folder together. Returns it checked."""
     if not isinstance(s, dict):
         msg = f"record: source {s!r} is not an object"
         raise RecordError(msg)
-    for k in ("file", "sha256", "fate"):
-        if not isinstance(s.get(k), str):
-            msg = f"record: source {s.get('file')!r}: {k!r} missing"
-            raise RecordError(msg)
-    if s["fate"] not in FATES:
-        msg = f"record: source {s['file']!r}: unknown fate {s['fate']!r}"
+    file, sha256, fate = _text(s, "file"), _text(s, "sha256"), _text(s, "fate")
+    if fate not in FATES:
+        msg = f"record: source {file!r}: unknown fate {fate!r}"
         raise RecordError(msg)
     if ("trash_run" in s) != ("trash_folder" in s) or (s.get("trash_run") is None) != (s.get("trash_folder") is None):
-        msg = f"record: source {s['file']!r}: trash_run and trash_folder go together"
+        msg = f"record: source {file!r}: trash_run and trash_folder go together"
         raise RecordError(msg)
-    return s
+    return _Source(file, sha256, fate, s.get("output"))
 
 
-def _check_chapter_sources(chapters: list[dict[str, Json]], sources: list[dict[str, Json]]) -> None:
-    """Every chapter's sources a list, each a chapter or merged source of that output."""
-    by_name: dict[Json, list[dict[str, Json]]] = {}
+def _check_chapter_sources(chapters: list[dict[str, Json]], sources: list[_Source]) -> None:
+    """Every chapter's sources a list of text, each a chapter or merged source of that output."""
+    by_name: dict[str, list[_Source]] = {}
     for s in sources:
-        by_name.setdefault(s["file"], []).append(s)
+        by_name.setdefault(s.file, []).append(s)
     for c in chapters:
         listed = c["sources"]
         if not isinstance(listed, list):
             msg = f"record: chapter {c['output']!r}: sources {listed!r} is not a list"
             raise RecordError(msg)
         for f in listed:
-            if not any(s["fate"] in (CHAPTER, MERGED) and s.get("output") == c["output"] for s in by_name.get(f, [])):
+            if not isinstance(f, str):
+                msg = f"record: chapter {c['output']!r}: source {f!r} is not text"
+                raise RecordError(msg)
+            if not any(s.fate in (CHAPTER, MERGED) and s.output == c["output"] for s in by_name.get(f, [])):
                 msg = f"record: chapter {c['output']!r}: source {f!r} not in sources"
                 raise RecordError(msg)

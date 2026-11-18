@@ -4,6 +4,7 @@ Load from a series folder, parse (the stage rule) and check (the structural rule
 tests/test_record.py (its read path).
 """
 
+import copy
 import json
 
 import pytest
@@ -254,6 +255,18 @@ def test_unusable_file_is_refused(tmp_path, rec, msg):
             id="chapter-sources-not-a-list",
         ),
         pytest.param(
+            _set(("chapters", 0, "file"), ["x"]),
+            record.RecordError,
+            r"chapter 'Vol.1 Ch.1.cbz': file \['x'\] is not text",
+            id="chapter-file-not-text",
+        ),
+        pytest.param(
+            _set(("chapters", 0, "sources"), [{"a": 1}]),
+            record.RecordError,
+            r"chapter 'Vol.1 Ch.1.cbz': source \{'a': 1\} is not text",
+            id="chapter-source-not-text",
+        ),
+        pytest.param(
             _delete(("chapters", 0, "pages_out")), record.RecordError, r"lacks \['pages_out'\]", id="chapter-lacks-key"
         ),
         pytest.param(_delete(("series", "naming", "restart")), record.RecordError, "naming.restart", id="no-restart"),
@@ -304,14 +317,18 @@ def test_check_accepts_a_partial_stages_record_parse_does_not():
 @budget(load="pure")
 def test_a_schema_3_record_parses():
     rec = series_record([CH1], schema=3)
-    assert record.parse(rec) is None, "a frozen schema-3 record is read too"
+    before = copy.deepcopy(rec)
+    record.parse(rec)
+    assert rec == before, "a frozen schema-3 record is read too, and left as it was"
 
 
 @budget(load="pure")
 def test_decisions_of_any_object_shape_pass():
     rec = pilot_record()
     rec["series"]["decisions"] = {"rows": {"junk": [{"decision": "maybe"}]}}
-    assert record.parse(rec) is None, "the decision rows are not checked by the reader"
+    before = copy.deepcopy(rec)
+    record.parse(rec)
+    assert rec == before, "the decision rows are not checked by the reader, and left as they were"
 
 
 @budget(load="pure")
