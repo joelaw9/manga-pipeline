@@ -286,7 +286,7 @@ def _route(chapter, chapter_plan, cover):
 
     A mix of formats that stays untouched is logged.
     """
-    plan.routes(chapter_plan, None if cover is None else cover["avif"]["ok"])
+    plan.routes(chapter_plan, cover=None if cover is None else cover["avif"]["ok"])
     if chapter_plan.route == "untouched-flag":
         log.warning(
             "chapter %s: formats %s mix with others: untouched",
