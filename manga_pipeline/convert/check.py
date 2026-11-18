@@ -6,14 +6,15 @@ page bytes, not archive sizes, in the size rule (the download is deflated, the s
 
 import zipfile
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from manga_pipeline import archive, images
-from manga_pipeline.convert import image, pages
+from manga_pipeline.convert import image, pages, plan
 
 
-def _extensions(fmt):
+def _extensions(fmt: str) -> tuple[str | None, ...]:
     return pages.EXT_ALIASES.get(fmt, (images.EXTENSION.get(fmt),))
 
 
@@ -24,13 +25,13 @@ class _Read:
     Its failures, the pages' formats, the decodable pages ({"name", "sha1"}) and the bytes of every page read.
     """
 
-    fails: list = field(default_factory=list)
-    fmts: Counter = field(default_factory=Counter)
-    actual: list = field(default_factory=list)
+    fails: list[str] = field(default_factory=list)
+    fmts: Counter[str] = field(default_factory=Counter)
+    actual: list[image.OutputPage] = field(default_factory=list)
     out_bytes: int = 0
 
 
-def check(cbz, rec, x_dir, kept):
+def check(cbz: Path, rec: image.ChapterRecord, x_dir: Path, kept: Sequence[plan.PlanPage]) -> list[str]:
     """Return the post-check's failures ([] when the staged CBZ passes).
 
     rec: image.process_chapter's record; x_dir: the extracted source pages; kept: the plan's kept pages ([{"name",
@@ -55,9 +56,9 @@ def check(cbz, rec, x_dir, kept):
     ]
 
 
-def _entry_fails(infos, extra):
+def _entry_fails(infos: list[zipfile.ZipInfo], extra: list[str]) -> list[str]:
     """Return the archive's own failures: not store mode, folders, entries that are not pages."""
-    fails = []
+    fails: list[str] = []
     if any(i.compress_type != zipfile.ZIP_STORED for i in infos):
         fails.append("not-store-mode")
     if any("/" in i.filename for i in infos):
@@ -67,7 +68,7 @@ def _entry_fails(infos, extra):
     return fails
 
 
-def _read_pages(z, names, rec, x_dir):
+def _read_pages(z: zipfile.ZipFile, names: list[str], rec: image.ChapterRecord, x_dir: Path) -> _Read:
     """Read each page entry in order and check it.
 
     Its extension, that it decodes, then (a decodable page) its lossless match and its AVIF score.
@@ -94,12 +95,12 @@ def _read_pages(z, names, rec, x_dir):
     return read
 
 
-def _lossless_fails(name, page, source, x_dir):
+def _lossless_fails(name: str, page: pages.Page, source: image.LosslessSource, x_dir: Path) -> list[str]:
     """Check a lossless page against its source ({"source", "mode"}).
 
     A luma check on a colour source is checked exact.
     """
-    fails = []
+    fails: list[str] = []
     mode = source["mode"]
     original = pages.Page((Path(x_dir) / source["source"]).read_bytes())
     if mode == "luma" and pages.has_colour(original):
@@ -110,7 +111,7 @@ def _lossless_fails(name, page, source, x_dir):
     return fails
 
 
-def _score_fails(name, score):
+def _score_fails(name: str, score: float | None) -> list[str]:
     """Check an AVIF page's score: present and at least the floor."""
     if score is None:
         return [f"score-missing: {name}"]
@@ -119,7 +120,7 @@ def _score_fails(name, score):
     return []
 
 
-def _sequence_fails(actual, expected):
+def _sequence_fails(actual: list[image.OutputPage], expected: list[image.OutputPage]) -> list[str]:
     """Check the decodable pages against the record's output.
 
     The same count, then the same names and contents in order.
@@ -132,21 +133,21 @@ def _sequence_fails(actual, expected):
     return []
 
 
-def _format_fails(rec, fmts):
+def _format_fails(rec: image.ChapterRecord, fmts: Counter[str]) -> list[str]:
     """Check that an AVIF outcome holds AVIF pages only."""
     if rec["outcome"] == "avif" and set(fmts) != {images.AVIF}:
         return ["mixed-formats: " + "+".join(sorted(fmts))]
     return []
 
 
-def _order_fails(names):
+def _order_fails(names: list[str]) -> list[str]:
     """Check that the entries sort the same naturally and plainly."""
     if sorted(names, key=archive.natural_key) != sorted(names):
         return ["page-order-ambiguous: natural and lexical order differ"]
     return []
 
 
-def _size_fails(rec, kept, out_bytes):
+def _size_fails(rec: image.ChapterRecord, kept: Sequence[plan.PlanPage], out_bytes: int) -> list[str]:
     """Check that the lossless and size-gated AVIF outcomes are not larger than the source pages."""
     if not (rec["outcome"] == "lossless" or rec.get("gate") == "floor+size"):
         return []
