@@ -4,7 +4,7 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import db, export, notify, workflow
+from manga_pipeline import db, export, notify, status, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.errors import Unreachable
 
@@ -193,4 +193,19 @@ def test_an_unreachable_discord_never_changes_export_s_result(tmp_path):
     world.run(export)
     assert world.rows("SELECT value FROM meta WHERE key = 'export.last_result'") == [("ok",)], (
         "SPEC 'Needs human': Discord never fails the part"
+    )
+
+
+@budget(load="db")
+def test_status_shows_the_reports_not_sent_and_the_titles_changed(conn):
+    queued(conn, "a", "b")
+    with db.transaction(conn):
+        notify.queue(conn, "title", 9, 'series 9 (N): AniList title changed: "A" -> "B"', "rename it in Kavita")
+        conn.execute("UPDATE notification SET failed = 'HTTP 400 from discord webhook' WHERE text = 'b'")
+    with conn.transaction():
+        lines = status.report(conn)
+    assert any(line.startswith("  2 queued, the oldest since ") for line in lines), "SPEC 'Needs human': unsent shown"
+    assert "  refused: b: HTTP 400 from discord webhook" in lines, "a refused report is shown with why"
+    assert any(line.startswith('  series 9 (N): AniList title changed: "A" -> "B" (seen ') for line in lines), (
+        "SPEC 'Retroactive updates': a changed title shows in status"
     )

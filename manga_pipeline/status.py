@@ -1,10 +1,12 @@
 """The status command (SPEC "CLI", "Needs human"): what is where, what waits and on what, and what needs a human.
 
+Also the series titles changed at the sources, and the Discord reports not sent.
+
 Read-only: it never creates, migrates or writes the database.
 """
 
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from manga_pipeline import config, db, kavita_link, rewrite, workflow
 from manga_pipeline.db import sql
@@ -47,6 +49,8 @@ def _report(conn: db.Connection) -> list[str]:
         *_unattached(conn),
         *_rewrites(conn),
         *_needs_human(conn),
+        *_titles(conn),
+        *_discord(conn),
         *_redownloads(conn),
         *_notes(conn),
         *_not_taken(conn),
@@ -182,6 +186,32 @@ def _needs_human(conn: db.Connection) -> list[str]:
 def _human(line: tuple[str, str]) -> str:
     text, fix = line
     return f"  {text} -> {fix}" if fix else f"  {text}"
+
+
+TITLES_SHOWN_DAYS = 30
+
+
+def _titles(conn: db.Connection) -> list[str]:
+    lines = [f"Series titles changed at the sources (last {TITLES_SHOWN_DAYS} days, not applied):"]
+    since = (datetime.fromisoformat(db.now(conn)) - timedelta(days=TITLES_SHOWN_DAYS)).isoformat()
+    rows = conn.execute(
+        "SELECT text, queued_at FROM notification WHERE kind = 'title' AND queued_at >= %s ORDER BY id DESC", (since,)
+    ).fetchall()
+    return lines + ([f"  {r['text']} (seen {r['queued_at']})" for r in rows] or ["  none"])
+
+
+def _discord(conn: db.Connection) -> list[str]:
+    """List the reports not sent to Discord: those queued (Discord off or not reached yet), those Discord refused."""
+    lines = ["Discord reports not sent:"]
+    queued = db.one_row(
+        conn,
+        "SELECT count(*) AS n, min(queued_at) AS oldest FROM notification WHERE sent_at IS NULL AND failed IS NULL",
+    )
+    if queued["n"]:
+        lines.append(f"  {queued['n']} queued, the oldest since {queued['oldest']} (sent by export)")
+    refused = conn.execute("SELECT text, failed FROM notification WHERE failed IS NOT NULL ORDER BY id").fetchall()
+    lines += [f"  refused: {r['text']}: {r['failed']}" for r in refused]
+    return lines if queued["n"] or refused else [*lines, "  none"]
 
 
 def _redownloads(conn: db.Connection) -> list[str]:

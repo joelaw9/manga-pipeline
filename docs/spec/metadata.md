@@ -153,7 +153,7 @@ The rewritten files are indexed by the run's 1 library scan. A published file ke
 
 `naming diff [SERIES]` is read-only: per series, the rewrites the comparison would make (file, old and new volume, new name, its cover: inserted, dropped, wanted, or unknown for a file whose cover is not known yet, which it does not read), and apart the differences it does not apply.
 
-A check never renames a series. Its `Series` name stays the one Kavita has; a changed title at the sources is reported (log, `status`, Discord) and changes nothing.
+A check never renames a series. Its `Series` name stays the one Kavita has; a changed title at the sources is reported (log, `status`, Discord; SPEC "Needs human") and changes nothing. The title watched is AniList's English title, less ` @COMIC` (the one a new series is named by): it is changed when the record a check stores holds another, non-empty one than the stored record of the same AniList id, for a series Kavita holds or that is admitted (a new series not yet admitted is named from its record when it is). Each change (old to new) is reported once; `status` lists those of the last 30 days.
 
 ### Hand edits
 
