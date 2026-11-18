@@ -180,7 +180,7 @@ ignore_names = [
     "MAX_IMAGE_PIXELS",  # Pillow's module setting (images.py)
     "row_factory",  # sqlite3.Connection's attribute (junk/importing.py)
 ]
-# TypedDict fields are read by key, which vulture cannot see: scripts/vulture_check.py whitelists every one it finds.
+# TypedDict fields are read by key, which vulture cannot see: scripts/vulture_check.py drops the findings on them.
 
 [tool.coverage.run]
 branch = true

@@ -62,7 +62,7 @@ Import contracts (import-linter, `[tool.importlinter]` in `pyproject.toml`: each
 lint-imports --no-cache
 ```
 
-Dead code (vulture over the program only, `[tool.vulture]`: program code must be used by the program; must report nothing; the script whitelists every TypedDict field, which is read by key; a new `ignore_names` entry needs the user's approval first):
+Dead code (vulture over the program only, `[tool.vulture]`: program code must be used by the program; must report nothing; the script drops only the findings on TypedDict field declarations, which are read by key; a new `ignore_names` entry needs the user's approval first):
 
 ```bash
 python scripts/vulture_check.py
@@ -122,7 +122,7 @@ python -m manga_pipeline.cli --help
 | `tests/fakes/` | `http.py` (`Clock`, `Urlopen`, `CannedService`, `NoNetwork`), `suwayomi.py` (`FakeSuwayomi`, `cbz`), `kavita.py` (`FakeKavita`: a scan is queued until `run_scans()`, then indexes a temp library with Kavita's name rule), `sources.py` (`fake_sources()`: in-memory metadata sources, every call in `calls`); they import the clients, never a part, a stage or `workflow` |
 | `tests/fixtures_api/` | Suwayomi replies recorded from the real server by reads only |
 | `tests/timing.py` | `@budget` per-test time budgets (copied from the unit-tests skill; project code now) |
-| `scripts/vulture_check.py` | the dead-code check: vulture over the program with a generated whitelist of its TypedDict fields |
+| `scripts/vulture_check.py` | the dead-code check: vulture over the program, less the findings on TypedDict field declarations (located with ast) |
 
 ## Python standards
 

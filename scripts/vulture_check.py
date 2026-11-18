@@ -1,53 +1,83 @@
-"""The dead-code check (CLAUDE.md "Core commands"): vulture over the program, its TypedDict fields whitelisted.
+"""The dead-code check (CLAUDE.md "Core commands"): vulture over the program, less its TypedDict fields.
 
-A TypedDict field is read by key (`cfg["logging"]["dir"]`), which vulture cannot see. So every field declared in the
-body of a class of manga_pipeline/ whose bases name TypedDict (generic ones included) goes into a whitelist written to
-a temporary folder, and vulture runs over the program and that whitelist with `[tool.vulture]` of pyproject.toml.
+A TypedDict field is read by key (`cfg["logging"]["dir"]`), which vulture cannot see, so it reports every field as an
+unused variable. This runs vulture over manga_pipeline/ with `[tool.vulture]` of pyproject.toml and drops only the
+findings that sit on a field declaration in a TypedDict class body (found with ast: a class whose bases name TypedDict,
+generic ones included, or another TypedDict class of the program); every other finding is printed.
 
-Usage: python scripts/vulture_check.py. Exit status: vulture's (0 when it reports nothing).
+Usage: python scripts/vulture_check.py. Exit status: 0 when nothing is left, 1 when findings are left, vulture's own
+status when it fails.
 """
 
 import ast
 import subprocess
 import sys
-import tempfile
-from collections.abc import Iterable
+from collections.abc import Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PROGRAM = ROOT / "manga_pipeline"
+PROGRAM = "manga_pipeline"
+VULTURE_FOUND_CODE = 3  # vulture's exit status when it reports unused code
+
+type Location = tuple[Path, int]  # a file (resolved) and a line number
 
 
-def _is_typeddict(node: ast.ClassDef) -> bool:
-    """Return whether a class's bases name TypedDict (as `TypedDict` or `typing.TypedDict`)."""
-    return any(
-        (isinstance(base, ast.Name) and base.id == "TypedDict")
-        or (isinstance(base, ast.Attribute) and base.attr == "TypedDict")
-        for base in node.bases
-    )
+def _base_names(node: ast.ClassDef) -> set[str]:
+    """Return the names a class's bases give: `TypedDict`, `typing.TypedDict` and `Parent` give their last part."""
+    names: set[str] = set()
+    for base in node.bases:
+        if isinstance(base, ast.Name):
+            names.add(base.id)
+        elif isinstance(base, ast.Attribute):
+            names.add(base.attr)
+    return names
 
 
-def typeddict_fields(trees: Iterable[ast.Module]) -> set[str]:
-    """Return the name of every field declared in a TypedDict class body of the trees."""
+def typeddict_fields(trees: Mapping[Path, ast.Module]) -> set[Location]:
+    """Return the location of every field declared in a TypedDict class body of the trees.
+
+    A class is a TypedDict when a base names TypedDict or a TypedDict class of the trees (matched by class name).
+    """
+    classes = [
+        (path, node) for path, tree in trees.items() for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+    ]
+    typed = {"TypedDict"}
+    while True:
+        found = {node.name for _, node in classes if _base_names(node) & typed}
+        if found <= typed:
+            break
+        typed |= found
     return {
-        statement.target.id
-        for tree in trees
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ClassDef) and _is_typeddict(node)
+        (path, statement.lineno)
+        for path, node in classes
+        if _base_names(node) & typed
         for statement in node.body
         if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name)
     }
 
 
+def location(finding: str, root: Path) -> Location:
+    """Return the file and line of a vulture report line ("path:line: message"), the path resolved under root."""
+    path, _, rest = finding.partition(":")
+    line, _, _ = rest.partition(":")
+    return (root / path).resolve(), int(line)
+
+
 def main() -> int:
-    """Write the whitelist of the program's TypedDict fields, run vulture with it and return vulture's exit status."""
-    trees = [ast.parse(path.read_text(encoding="utf-8"), str(path)) for path in sorted(PROGRAM.rglob("*.py"))]
-    with tempfile.TemporaryDirectory() as folder:
-        whitelist = Path(folder, "typeddict_fields.py")
-        lines = [f"_.{name}  # a TypedDict field, read by key\n" for name in sorted(typeddict_fields(trees))]
-        whitelist.write_text("".join(lines), encoding="utf-8", newline="\n")
-        command = [sys.executable, "-m", "vulture", str(PROGRAM), str(whitelist)]
-        return subprocess.run(command, cwd=ROOT, check=False).returncode
+    """Run vulture over the program and print its findings that are not TypedDict fields; see the module docstring."""
+    trees = {
+        path.resolve(): ast.parse(path.read_text(encoding="utf-8"), str(path))
+        for path in sorted((ROOT / PROGRAM).rglob("*.py"))
+    }
+    fields = typeddict_fields(trees)
+    command = [sys.executable, "-m", "vulture", PROGRAM]
+    done = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
+    if done.returncode not in (0, VULTURE_FOUND_CODE):
+        sys.stderr.write(done.stdout + done.stderr)
+        return done.returncode
+    left = [line for line in done.stdout.splitlines() if line and location(line, ROOT) not in fields]
+    sys.stdout.write("".join(f"{line}\n" for line in left))
+    return 1 if left else 0
 
 
 if __name__ == "__main__":
