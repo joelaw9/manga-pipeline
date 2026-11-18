@@ -60,7 +60,7 @@ ANILIST_SEARCH = """query ($s: String) { Page(perPage: 8) { media(search: $s, ty
 class _MangaBakaSourceSeries(TypedDict):
     """The data of GET /source/{site}/{id}: the series MangaBaka holds for that id (main story and spin-offs)."""
 
-    series: list[MangaBakaSeries] | None
+    series: NotRequired[list[MangaBakaSeries] | None]
 
 
 class _MangaBakaReply[T](TypedDict):
@@ -72,7 +72,7 @@ class _MangaBakaReply[T](TypedDict):
 class _MangaUpdatesSearch(TypedDict):
     """The reply of MangaUpdates' series search."""
 
-    results: list[MangaUpdatesResult] | None
+    results: NotRequired[list[MangaUpdatesResult] | None]
 
 
 class _MangaDexCoverEntry(TypedDict):
@@ -143,15 +143,15 @@ class _TapasEpisode(TypedDict):
     id: int
     scene: int
     title: str
-    publish_date: str | None
+    publish_date: NotRequired[str | None]
 
 
 class _TapasPagination(TypedDict):
     """A Tapas list page's pagination: whether a page follows, the next page's number and the episode count."""
 
     has_next: bool
-    page: int | None
-    total: int | None
+    page: NotRequired[int | None]
+    total: NotRequired[int | None]
 
 
 class _TapasPage(TypedDict):
@@ -171,21 +171,21 @@ class _WebtoonsEpisode(TypedDict):
     """An episode of a Webtoons list page: its site number, title and when it went up (epoch milliseconds)."""
 
     episodeNo: int
-    episodeTitle: str | None
-    exposureDateMillis: int | None
+    episodeTitle: NotRequired[str | None]
+    exposureDateMillis: NotRequired[int | None]
 
 
 class _WebtoonsResult(TypedDict):
     """A Webtoons list page: its episodes and the cursor of the next page (0 or null after the last)."""
 
-    episodeList: list[_WebtoonsEpisode] | None
-    nextCursor: int | None
+    episodeList: NotRequired[list[_WebtoonsEpisode] | None]
+    nextCursor: NotRequired[int | None]
 
 
 class _WebtoonsReply(TypedDict):
     """Webtoons' reply: success false for no such series, when it carries no result."""
 
-    success: bool
+    success: NotRequired[bool]
     result: NotRequired[_WebtoonsResult | None]
 
 

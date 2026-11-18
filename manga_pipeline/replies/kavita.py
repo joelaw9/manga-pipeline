@@ -3,7 +3,7 @@
 Type-only (local library kavita.md); the program reads each reply unchecked.
 """
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 
 class Library(TypedDict):
@@ -24,23 +24,23 @@ class Series(TypedDict):
 
     id: int
     name: str
-    localizedName: str | None
-    originalName: str | None
+    localizedName: NotRequired[str | None]
+    originalName: NotRequired[str | None]
     libraryId: int
-    coverImage: str | None
-    aniListId: int
-    malId: int
-    mangaBakaId: int
-    nameLocked: object
-    sortName: object
-    sortNameLocked: object
-    localizedNameLocked: object
-    coverImageLocked: object
-    cbrId: object
-    comicVineId: object
-    hardcoverId: object
-    metronId: object
-    metadataProviderOverride: object
+    coverImage: NotRequired[str | None]
+    aniListId: NotRequired[int]
+    malId: NotRequired[int]
+    mangaBakaId: NotRequired[int]
+    nameLocked: NotRequired[object]
+    sortName: NotRequired[object]
+    sortNameLocked: NotRequired[object]
+    localizedNameLocked: NotRequired[object]
+    coverImageLocked: NotRequired[object]
+    cbrId: NotRequired[object]
+    comicVineId: NotRequired[object]
+    hardcoverId: NotRequired[object]
+    metronId: NotRequired[object]
+    metadataProviderOverride: NotRequired[object]
 
 
 class Tag(TypedDict):
@@ -65,23 +65,23 @@ class SeriesMetadata(TypedDict):
     """
 
     seriesId: int
-    summary: str
-    summaryLocked: bool
-    publicationStatus: int
-    publicationStatusLocked: bool
-    ageRating: int
-    ageRatingLocked: bool
-    language: str
-    languageLocked: bool
-    genres: list[Tag]
-    genresLocked: bool
-    tags: list[Tag]
-    tagsLocked: bool
-    writers: list[Person]
-    writerLocked: bool
-    pencillers: list[Person]
-    pencillerLocked: bool
-    webLinks: str
+    summary: NotRequired[str | None]
+    summaryLocked: NotRequired[bool]
+    publicationStatus: NotRequired[int | None]
+    publicationStatusLocked: NotRequired[bool]
+    ageRating: NotRequired[int | None]
+    ageRatingLocked: NotRequired[bool]
+    language: NotRequired[str | None]
+    languageLocked: NotRequired[bool]
+    genres: NotRequired[list[Tag] | None]
+    genresLocked: NotRequired[bool]
+    tags: NotRequired[list[Tag] | None]
+    tagsLocked: NotRequired[bool]
+    writers: NotRequired[list[Person] | None]
+    writerLocked: NotRequired[bool]
+    pencillers: NotRequired[list[Person] | None]
+    pencillerLocked: NotRequired[bool]
+    webLinks: NotRequired[str | None]
 
 
 class KavitaFile(TypedDict):

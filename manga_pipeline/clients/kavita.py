@@ -151,7 +151,7 @@ class Kavita:
         Kavita applies every field it is sent and resets those left out (an omitted aniListId becomes 0, an omitted
         coverImageLocked unlocks the cover).
         """
-        body: dict[str, object] = {name: series[name] for name in UPDATE_SERIES_FIELDS if name in series}
+        body: dict[str, object] = {name: series.get(name) for name in UPDATE_SERIES_FIELDS if name in series}
         body.update(changes, id=series["id"])
         self._call("POST", "/api/Series/update", body)
 

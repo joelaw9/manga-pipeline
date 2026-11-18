@@ -10,28 +10,28 @@ from typing import NotRequired, TypedDict
 class MangaBakaLink(TypedDict):
     """A site MangaBaka links a series to: its id there (an int, or MangaUpdates' base36 text), null when unknown."""
 
-    id: int | str | None
+    id: NotRequired[int | str | None]
 
 
 class MangaBakaLinks(TypedDict):
     """A MangaBaka series' `source`: the sites it links the series to that the program reads (the cross-link hub)."""
 
-    anilist: MangaBakaLink | None
-    manga_updates: MangaBakaLink | None
-    my_anime_list: MangaBakaLink | None
+    anilist: NotRequired[MangaBakaLink | None]
+    manga_updates: NotRequired[MangaBakaLink | None]
+    my_anime_list: NotRequired[MangaBakaLink | None]
 
 
 class MangaBakaTitle(TypedDict):
     """A secondary title of a MangaBaka series."""
 
-    title: str | None
+    title: NotRequired[str | None]
 
 
 class MangaBakaTag(TypedDict):
     """A weighted tag of a MangaBaka series: its name and weight (core, defining, recurrent, incidental, unweighted)."""
 
     name: str
-    weight: str | None
+    weight: NotRequired[str | None]
 
 
 class MangaBakaSeries(TypedDict):
@@ -42,19 +42,19 @@ class MangaBakaSeries(TypedDict):
     """
 
     id: int
-    state: str
-    type: str | None
-    status: str | None
-    content_rating: str | None
-    title: str | None
-    romanized_title: str | None
-    native_title: str | None
-    secondary_titles: dict[str, list[MangaBakaTitle] | None] | None
-    description: str | None
-    canonical_url: str | None
-    genres: list[str] | None
-    tags_v2: list[MangaBakaTag] | None
-    source: MangaBakaLinks | None
+    state: NotRequired[str]
+    type: NotRequired[str | None]
+    status: NotRequired[str | None]
+    content_rating: NotRequired[str | None]
+    title: NotRequired[str | None]
+    romanized_title: NotRequired[str | None]
+    native_title: NotRequired[str | None]
+    secondary_titles: NotRequired[dict[str, list[MangaBakaTitle] | None] | None]
+    description: NotRequired[str | None]
+    canonical_url: NotRequired[str | None]
+    genres: NotRequired[list[str] | None]
+    tags_v2: NotRequired[list[MangaBakaTag] | None]
+    source: NotRequired[MangaBakaLinks | None]
 
 
 class MangaUpdatesGenre(TypedDict):
@@ -72,34 +72,33 @@ class MangaUpdatesCategory(TypedDict):
 class MangaUpdatesTitle(TypedDict):
     """An associated name of a MangaUpdates series."""
 
-    title: str | None
+    title: NotRequired[str | None]
 
 
 class MangaUpdatesSeries(TypedDict):
     """A MangaUpdates series record: its type (Manga, Novel, ...), names, HTML description, genres and categories."""
 
-    series_id: int
-    type: str | None
-    title: str | None
-    associated: list[MangaUpdatesTitle] | None
-    description: str | None
-    genres: list[MangaUpdatesGenre] | None
-    categories: list[MangaUpdatesCategory] | None
+    type: NotRequired[str | None]
+    title: NotRequired[str | None]
+    associated: NotRequired[list[MangaUpdatesTitle] | None]
+    description: NotRequired[str | None]
+    genres: NotRequired[list[MangaUpdatesGenre] | None]
+    categories: NotRequired[list[MangaUpdatesCategory] | None]
 
 
 class MangaUpdatesHit(TypedDict):
     """The record of a MangaUpdates search result: the series' id, title and type."""
 
     series_id: int
-    title: str | None
-    type: str | None
+    title: NotRequired[str | None]
+    type: NotRequired[str | None]
 
 
 class MangaUpdatesResult(TypedDict):
     """A MangaUpdates search result: its record and the title the search matched."""
 
     record: MangaUpdatesHit
-    hit_title: str | None
+    hit_title: NotRequired[str | None]
 
 
 class MangaDexLinks(TypedDict):
@@ -129,10 +128,10 @@ class MangaDexTag(TypedDict):
 class MangaDexAttributes(TypedDict):
     """A MangaDex manga's attributes the program reads: its links, original language, description per language, tags."""
 
-    links: MangaDexLinks | None
-    originalLanguage: str | None
-    description: dict[str, str] | None
-    tags: list[MangaDexTag]
+    links: NotRequired[MangaDexLinks | None]
+    originalLanguage: NotRequired[str | None]
+    description: NotRequired[dict[str, str] | None]
+    tags: NotRequired[list[MangaDexTag] | None]
 
 
 class MangaDexCoverArt(TypedDict):
@@ -144,7 +143,7 @@ class MangaDexCoverArt(TypedDict):
 class MangaDexRelationship(TypedDict):
     """A relationship of a MangaDex manga; attributes only for one included (cover_art)."""
 
-    type: str
+    type: NotRequired[str]
     attributes: NotRequired[MangaDexCoverArt]
 
 
@@ -152,34 +151,34 @@ class MangaDexManga(TypedDict):
     """A MangaDex manga record (GET /manga/{id} or /manga, cover art included): its UUID, attributes, relationships."""
 
     id: str
-    attributes: MangaDexAttributes
-    relationships: list[MangaDexRelationship]
+    attributes: NotRequired[MangaDexAttributes | None]
+    relationships: NotRequired[list[MangaDexRelationship] | None]
 
 
 class MangaDexAggregateChapter(TypedDict):
     """A chapter of a MangaDex aggregate volume: its number as text."""
 
-    chapter: str | None
+    chapter: NotRequired[str | None]
 
 
 class MangaDexAggregateVolume(TypedDict):
     """A volume of a MangaDex aggregate: its number as text ("none": no volume) and its chapters, keyed or listed."""
 
-    volume: str | None
-    chapters: dict[str, MangaDexAggregateChapter] | list[MangaDexAggregateChapter]
+    volume: NotRequired[str | None]
+    chapters: NotRequired[dict[str, MangaDexAggregateChapter] | list[MangaDexAggregateChapter] | None]
 
 
 class MangaDexAggregate(TypedDict):
     """A MangaDex manga's aggregate: its volumes, a mapping keyed by number or a list ([] when empty)."""
 
-    volumes: dict[str, MangaDexAggregateVolume] | list[MangaDexAggregateVolume]
+    volumes: NotRequired[dict[str, MangaDexAggregateVolume] | list[MangaDexAggregateVolume] | None]
 
 
 class MangaDexCover(TypedDict):
     """A MangaDex cover's attributes: its volume as text (null for none), locale and file name."""
 
-    volume: str | None
-    locale: str | None
+    volume: NotRequired[str | None]
+    locale: NotRequired[str | None]
     fileName: str
 
 
