@@ -355,3 +355,5 @@ def test_an_id_that_leads_to_a_novel_is_not_used(world):
 @budget(load="pure")
 def test_every_record_a_check_fetches_has_its_place_in_fetched():
     assert set(records.STORED) == set(typing.get_type_hints(records.Records)), "1 (source, kind) per record name"
+    own = set(typing.get_type_hints(records.SeriesRecords))
+    assert set(records.SOURCE_RECORDS) == own, "each source's own record is 1 of the records the fields come from"

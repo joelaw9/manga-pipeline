@@ -3,7 +3,7 @@
 A record a source does not have (no id, not found, a novel's) is None. Types and the stored names only.
 """
 
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from manga_pipeline.replies.sources import (
     AniListMedia,
@@ -31,8 +31,11 @@ class Records(SeriesRecords):
     mangadex_covers: list[MangaDexCover] | None
 
 
-# {record name: (source, kind)} it is stored under in `fetched`. A record named for its source is that source's own:
-# the one a check reports the source found by.
+# Each source's own record (SeriesRecords' fields), in the order a check reports them: a check reports a source found
+# by it.
+type SourceRecord = Literal["mangabaka", "mangaupdates", "mangadex", "anilist"]
+SOURCE_RECORDS: tuple[SourceRecord, ...] = ("mangabaka", "mangaupdates", "mangadex", "anilist")
+# {record name: (source, kind)} it is stored under in `fetched`.
 STORED = {
     "mangabaka": ("mangabaka", "series"),
     "mangaupdates": ("mangaupdates", "series"),

@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from manga_pipeline import config, db, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import covers, ids, platforms, refresh, search, sources
-from manga_pipeline.metadata.records import STORED, Records
+from manga_pipeline.metadata.records import SOURCE_RECORDS, STORED, Records
 from manga_pipeline.replies.kavita import SeriesMetadata
 from manga_pipeline.replies.sources import AniListMedia, MangaBakaSeries, MangaUpdatesSeries
 from manga_pipeline.replies.suwayomi import Manga
@@ -147,9 +147,7 @@ def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool
         )[0]
     covers.refresh_volumes(ctx, series_id)  # the cover list just stored may choose another file for a volume
     fetched = ", ".join(
-        f"{name} {'found' if record is not None else 'not found'}"
-        for name, record in records.items()
-        if STORED[name][0] == name
+        f"{STORED[name][0]} {'found' if records[name] is not None else 'not found'}" for name in SOURCE_RECORDS
     )
     log.info(
         "series %s (%s): checked: %s; data %s (version %s)",
