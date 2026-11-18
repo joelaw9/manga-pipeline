@@ -14,9 +14,9 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from typing import TypeIs
 
-from manga_pipeline import config, db, workflow
+from manga_pipeline import config, db, notify, workflow
 from manga_pipeline.db import sql
-from manga_pipeline.metadata import covers, ids, platforms, refresh, search, sources
+from manga_pipeline.metadata import admit, covers, ids, platforms, refresh, search, sources
 from manga_pipeline.metadata.records import SOURCE_RECORDS, STORED, Records
 from manga_pipeline.replies.kavita import SeriesMetadata
 from manga_pipeline.replies.sources import AniListMedia, MangaBakaSeries, MangaUpdatesSeries
@@ -158,9 +158,7 @@ def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool
         if _store_disagreement(conn, series, stored, known, str(e)):
             log.warning("series %s (%s): needs_human: %s", series_id, series["name"], e)
         return False
-    for name, record in records.items():
-        if _scrub(record):
-            log.warning("series %s (%s): %s record: %s", series_id, series["name"], name, SCRUBBED)
+    _scrub_records(series, records)
     platform = _platform(clients, series, kavita_meta, records, _stored_platform(conn, series_id))
     if _scrub(platform):
         log.warning("series %s (%s): platform list: %s", series_id, series["name"], SCRUBBED)
@@ -174,6 +172,7 @@ def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool
     with db.transaction(conn):
         if _ids_changed(conn, series, stored):
             return False
+        retitled = _title_change(conn, series, records["anilist"])
         changed = _store(conn, series_id, known, records, now)
         _store_platform(conn, series_id, platform, now)
         if cover is not None:
@@ -195,6 +194,8 @@ def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool
             },
         )[0]
     covers.refresh_volumes(ctx, series_id)  # the cover list just stored may choose another file for a volume
+    if retitled is not None:
+        log.warning("%s (not applied)", retitled)
     fetched = ", ".join(
         f"{STORED[name][0]} {'found' if records[name] is not None else 'not found'}" for name in SOURCE_RECORDS
     )
@@ -384,6 +385,29 @@ def _comic[R: (MangaBakaSeries, MangaUpdatesSeries, AniListMedia)](
     return record
 
 
+def _title_change(conn: db.Connection, series: db.Row, media: AniListMedia | None) -> str | None:
+    """Queue the report of a changed AniList English title and return its text; None when unchanged.
+
+    SPEC "Retroactive updates": a series Kavita holds or that is admitted is never renamed; a changed title is reported
+    (log, `status`, Discord). Only the same AniList id's record is compared, both titles set. Inside the store
+    transaction, before the record is stored.
+    """
+    if series["kavita_series_id"] is None and series["admitted_at"] is None:
+        return None  # a new series not admitted yet is named from its record when it is admitted
+    row = conn.execute(
+        "SELECT payload FROM fetched WHERE series_id = %s AND source = 'anilist' AND kind = 'media'", (series["id"],)
+    ).fetchone()
+    old: AniListMedia | None = row["payload"] if row else None
+    if old is None or media is None or old["id"] != media["id"]:
+        return None
+    before, after = admit.anilist_title(old), admit.anilist_title(media)
+    if before is None or after is None or before == after:
+        return None
+    text = f'series {series["id"]} ({series["name"]}): AniList title changed: "{before}" -> "{after}"'
+    notify.queue(conn, "title", series["id"], text, "rename the series in Kavita if wanted")
+    return text
+
+
 def _ids_changed(conn: db.Connection, series: db.Row, stored: list[ids.Known]) -> bool:
     """Return whether the series' stored ids are no longer `stored`, read when its check began (logged).
 
@@ -468,6 +492,13 @@ def _drop(value: object, path: tuple[str, ...]) -> None:
         children = list(value.values()) if head == "*" else [value.get(head)]
     for child in children:
         _drop(child, rest)
+
+
+def _scrub_records(series: db.Row, records: Records) -> None:
+    """Scrub each fetched record (_scrub) in place, logging each one that held what PostgreSQL cannot store."""
+    for name, record in records.items():
+        if _scrub(record):
+            log.warning("series %s (%s): %s record: %s", series["id"], series["name"], name, SCRUBBED)
 
 
 def _scrub(value: object) -> bool:
