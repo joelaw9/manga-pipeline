@@ -45,9 +45,11 @@ if TYPE_CHECKING:
 
 
 class StoredStripScan(strip_units.StripScan):
-    """A strip chapter's scan as junk_scan holds it: strip_units.scan's, with its content pages and their logos."""
+    """A strip chapter's scan as junk_scan holds it: strip_units.scan's, with its content pages' logos.
 
-    content: list[int]  # the content pages' download indexes
+    A scan an older version stored also holds "content" (the content pages' download indexes), which nothing reads.
+    """
+
     marks: list[logo_units.StripLogo]
 
 
@@ -273,7 +275,7 @@ def _scan_strip(
         lambda im: ocr.text(im, device),
         lambda sig: decisions.decide("block", sig) is None,
     )
-    sc: StoredStripScan = {**units, "content": content, "marks": marks}
+    sc: StoredStripScan = {**units, "marks": marks}
     return sc, [("block", b["sig"]) for b in sc["blocks"]]
 
 
@@ -489,7 +491,7 @@ def write_images(ctx: workflow.Context, chapter: db.Row, key: str, picks: Sequen
     """Write the images of new candidates (SPEC "Junk decisions", candidates).
 
     The download's pages are extracted again to the scratch folder, which is removed afterwards. A strip unit is
-    rendered over the content pages, as the scan laid them.
+    rendered over the download's content pages (strip.content_indexes of its page names), as the scan laid them.
     """
     work = _scratch(ctx, chapter)
     try:

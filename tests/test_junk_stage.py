@@ -469,6 +469,18 @@ def test_a_badge_in_a_strip_chapter_is_offered_and_blanked_on_its_page(site, mon
     site.download("Long", 2, strip_logo_cbz("s2"))
     site.parts()
     assert site.chapters() == [("junk", "waiting", "junk_decision")]
+    ((scan,),) = site.rows("SELECT scan FROM junk_scan")
+    assert list(json.loads(scan)) == [
+        "layout",
+        "width",
+        "height",
+        "gaps",
+        "spans",
+        "blocks",
+        "measured",
+        "middle",
+        "marks",
+    ], "a strip scan is stored as strip_units.scan gives it, with its logos (no content pages: nothing reads them)"
     kinds = decide_kinds(site.cfg, {"block": "keep", "probe": "keep", "piece": "keep", "logo": "junk"})
     assert kinds.count("logo") == 1, kinds
     run_part(site.cfg, process)
