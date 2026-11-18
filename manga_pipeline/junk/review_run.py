@@ -10,6 +10,7 @@ folder and run the 3 junk commands, nothing else. When Claude has ended, each ca
 review.
 """
 
+import copy
 import json
 import logging
 import os
@@ -18,7 +19,9 @@ import shutil
 import subprocess
 import sys
 import uuid
+from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePath
+from typing import Literal, TypedDict
 
 import yaml
 
@@ -31,18 +34,27 @@ TIMEOUT_S = 15 * 60  # the Claude process is killed after this
 PROMPT = Path(__file__).with_name("review_prompt.md")
 OS_VARIABLES = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE")
 WINDOWS_VARIABLES = ("USERPROFILE", "SYSTEMROOT", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA", "COMSPEC", "PATHEXT")
-PATH_KEYS = (("logging", "dir"),)
+PATH_KEYS: tuple[tuple[Literal["logging"], Literal["dir"]], ...] = (("logging", "dir"),)
 
 
 class ReviewError(RuntimeError):
     """Claude's run failed (non-zero exit, an error result, or the time limit)."""
 
 
-def child_config(cfg):
+class ClaudeReply(TypedDict, total=False):
+    """The fields junk review reads of the result object `claude -p --output-format json` prints."""
+
+    permission_denials: list[object]
+    is_error: bool
+    subtype: str
+    num_turns: int
+
+
+def child_config(cfg: config.Config) -> config.Config:
     """Return the resolved config with every secret null and every configured path absolute."""
-    out = json.loads(json.dumps(cfg))
+    out = copy.deepcopy(cfg)
     for section, name in config.secret_keys():
-        out[section][name] = None
+        out[str(section)][str(name)] = None
     for section, name in PATH_KEYS:
         out[section][name] = str(config.abs_path(out[section][name]))
     for name, value in out["paths"].items():
@@ -51,11 +63,14 @@ def child_config(cfg):
     return out
 
 
-def child_env(token, review_id, environ=None):
+def child_env(token: str | None, review_id: str, environ: Mapping[str, str] | None = None) -> dict[str, str]:
     """Return Claude's environment: the OS variables present, the project root as PYTHONPATH, the token, the review id.
 
     Nothing else.
     """
+    if token is None:
+        msg = "junk.claude_token is not set: Claude cannot log in"
+        raise ReviewError(msg)
     environ = os.environ if environ is None else environ
     names = OS_VARIABLES + (WINDOWS_VARIABLES if os.name == "nt" else ())
     env = {n: environ[n] for n in names if n in environ}
@@ -65,7 +80,7 @@ def child_env(token, review_id, environ=None):
     return env
 
 
-def join_command(parts):
+def join_command(parts: Iterable[str]) -> str:
     """Return a command line as Claude's Bash tool reads it.
 
     A POSIX shell on every platform (Git Bash on Windows, which drops backslashes), so paths go in forward slashes
@@ -74,7 +89,7 @@ def join_command(parts):
     return shlex.join(p.replace("\\", "/") for p in parts)
 
 
-def rule_path(path):
+def rule_path(path: str | PurePath) -> str:
     """Return an absolute path as a Claude Code permission rule writes it.
 
     `//` and its POSIX form, a Windows drive as its lower-case letter (F: -> //f/...). A single leading `/` would
@@ -86,11 +101,15 @@ def rule_path(path):
     return "/" + p.as_posix()
 
 
-def command(cfg, prefix):
-    """Return the claude -p command line."""
+def command(cfg: config.Config, prefix: str) -> list[str]:
+    """Return the claude -p command line; ReviewError when junk.claude_path is no executable."""
+    claude = shutil.which(cfg["junk"]["claude_path"])
+    if claude is None:
+        msg = f"junk.claude_path {cfg['junk']['claude_path']!r} is no executable"
+        raise ReviewError(msg)
     candidates = str(config.abs_path(cfg["paths"]["candidates"]))
     return [
-        shutil.which(cfg["junk"]["claude_path"]),
+        claude,
         "-p",
         "--output-format",
         "json",
@@ -108,7 +127,7 @@ def command(cfg, prefix):
     ]
 
 
-def _meta(conn, values):
+def _meta(conn: db.Connection, values: Iterable[tuple[str, str]]) -> None:
     with db.transaction(conn):
         db.executemany(
             conn,
@@ -117,7 +136,7 @@ def _meta(conn, values):
         )
 
 
-def run(cfg, conn):
+def run(cfg: config.Config, conn: db.Connection) -> None:
     """Run 1 review. Raises ReviewError when Claude's run failed; the reviews are counted either way."""
     _meta(conn, [("last_start", workflow.now(conn))])
     with db.transaction(conn):
@@ -162,7 +181,7 @@ def run(cfg, conn):
         raise ReviewError(result)
 
 
-def _claude(cfg, prefix, review_id):
+def _claude(cfg: config.Config, prefix: str, review_id: str) -> str:
     """Run Claude; returns "ok: ..." or "error: ..."."""
     prompt = PROMPT.read_text(encoding="utf-8").replace("{prefix}", prefix)
     env = child_env(cfg["junk"]["claude_token"], review_id)
@@ -180,12 +199,9 @@ def _claude(cfg, prefix, review_id):
         )
     except subprocess.TimeoutExpired:
         return f"error: claude was killed after {TIMEOUT_S} s"
-    try:
-        reply = json.loads(done.stdout.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        reply = None
-    if isinstance(reply, dict) and reply.get("permission_denials"):
-        log.warning("junk review %s: claude was refused %s", review_id, reply["permission_denials"])
+    reply = _reply(done.stdout)
+    if isinstance(reply, dict) and (denials := reply.get("permission_denials")):
+        log.warning("junk review %s: claude was refused %s", review_id, denials)
     if done.returncode != 0:
         return f"error: claude exited {done.returncode}"
     if not isinstance(reply, dict):
@@ -193,3 +209,11 @@ def _claude(cfg, prefix, review_id):
     if reply.get("is_error"):
         return f"error: claude reported an error ({reply.get('subtype')})"
     return f"ok: {reply.get('num_turns')} turn(s)"
+
+
+def _reply(stdout: bytes) -> ClaudeReply | None:
+    """Return the result object Claude printed (its stdout as JSON); None when that is no JSON. Unchecked."""
+    try:
+        return json.loads(stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None

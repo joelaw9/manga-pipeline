@@ -97,6 +97,22 @@ def test_claude_gets_no_pipeline_variable_and_no_api_key_and_its_commands_work(w
     assert not (config.abs_path(cfg["paths"]["scratch"]) / "junk-review").exists(), "the config copy is deleted"
 
 
+@budget(load="pure")
+def test_claudes_environment_needs_the_token():
+    """A run without junk.claude_token (preflight refuses one) fails before Claude starts: it could not log in."""
+    with pytest.raises(review_run.ReviewError, match="claude_token"):
+        review_run.child_env(None, "r1", {})
+    assert review_run.child_env("t", "r1", {})["CLAUDE_CODE_OAUTH_TOKEN"] == "t", "the token is passed on"
+
+
+@budget(load="pure")
+def test_the_command_line_needs_an_executable_claude(tmp_path):
+    """A junk.claude_path that is no executable (preflight refuses one) fails before Claude starts."""
+    cfg: config.Config = {**config.cached(), "junk": {**config.cached()["junk"], "claude_path": str(tmp_path / "none")}}
+    with pytest.raises(review_run.ReviewError, match="no executable"):
+        review_run.command(cfg, "junk")
+
+
 @budget(load="subprocess", seconds=20)
 def test_the_child_config_holds_no_secret_and_absolute_paths(world):
     child = review_run.child_config(world.cfg)
