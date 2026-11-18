@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from manga_pipeline import config, db, kavita_link, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients.kavita_match import normalize, series_names
+from manga_pipeline.metadata import check
 from manga_pipeline.replies.kavita import Series
 
 log = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ def sync(ctx: workflow.Context, listing: Sequence[Series]) -> None:
             else:
                 gone.remove(row)
                 conn.execute("UPDATE series SET kavita_series_id = %s WHERE id = %s", (kseries["id"], row["id"]))
+                check.make_urgent(conn, row["id"])  # its check was put off while Kavita held no series
         if row is not None:
             holding.append((row, kseries))
             log.warning(

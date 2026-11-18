@@ -101,8 +101,8 @@ def _admit(ctx: workflow.Context, series: db.Row, library: _Library) -> None:
                 conn,
                 "series",
                 series["id"],
-                f"new series {name!r}: {double}, a double hit -> series link MANGA_ID KAVITA_SERIES_ID if it is that"
-                f" series, else series new {series['id']}",
+                f"new series {name!r}: {double}, a double hit -> series link (MANGA_ID, or --folder FOLDER)"
+                f" KAVITA_SERIES_ID if it is that series, else series new {series['id']}",
             )
         elif clash:
             workflow.needs_human(
@@ -135,16 +135,16 @@ def _id_clash(conn: db.Connection, series: db.Row) -> str | None:
         (series["id"],),
     ).fetchall()
     known: dict[int, list[ids.Known]] = {}
-    names: dict[int, str] = {}
+    series_names: dict[int, str] = {}
     for r in rows:
         known.setdefault(r["id"], []).append((r["source"], r["origin"], r["source_id"]))
-        names[r["id"]] = r["name"]
+        series_names[r["id"]] = r["name"]
     own, _ = ids.resolve(known.pop(series["id"], []))
     for other, held in known.items():
         agreed, _ = ids.resolve(held)
         for source, value in sorted(own.items()):
             if agreed.get(source) == value:
-                return f"series {other} ({names[other]}) holds its {source} id {value}"
+                return f"series {other} ({series_names[other]}) holds its {source} id {value}"
     return None
 
 

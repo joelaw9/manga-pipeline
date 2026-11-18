@@ -703,7 +703,7 @@ def _clear(conn: db.Connection, file_id: int) -> None:
 
 
 def drop(conn: db.Connection, file_id: int, limit: int) -> db.Row:
-    """`rewrite drop FILE_ID`: clear a stuck rewrite that has not renamed its file in, with its progress carry.
+    """`rewrite drop FILE_ID`: clear a stuck rewrite, with its progress carry.
 
     Stuck: its attempts at workflow.attempt_limit, or its progress wait failed. The caller removes the staged file it
     names; the next comparison of its series starts again. A failed wait keeps its cover refresh due (carry_cover): the

@@ -14,7 +14,7 @@ from PIL import Image
 
 from manga_pipeline import db, intake
 from manga_pipeline.clients import http
-from manga_pipeline.metadata import check, human, records, search
+from manga_pipeline.metadata import check, human, ids, records, search
 
 from tests.fakes.sources import FakeMangaUpdates
 from tests.timing import budget
@@ -399,6 +399,30 @@ def test_a_set_id_made_while_a_check_fetches_is_never_undone(world, earlier):
 
 
 @budget(load="db")
+def test_a_set_id_made_while_a_check_finds_a_disagreement_is_never_undone(world, monkeypatch):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.kavita.metadata_rows[kavita_id] = {"webLinks": "https://anilist.co/manga/1"}
+    world.suwayomi.add_tracker(world.manga("Solo Leveling"), 2, 2)  # its anilist ids disagree: 1 and 2
+    resolve = ids.resolve
+    settled = []
+
+    def set_id_then_resolve(known):
+        if not settled:  # the person settles it once the check has read the ids, before it stores
+            settled.append(True)
+            with closing(db.connect(world.cfg)) as conn:
+                human.set_id(conn, series_id(world, kavita_id), "anilist", "2")
+        return resolve(known)
+
+    monkeypatch.setattr(ids, "resolve", set_id_then_resolve)
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    assert world.rows("SELECT status FROM series WHERE id = %s", sid) == [("ok",)], (
+        "a disagreement found on the ids read before a set-id stores nothing: the series is not held"
+    )
+    assert sid in due_now(world), "and its check stays due"
+
+
+@budget(load="db")
 @pytest.mark.parametrize("bad", ["\x00", "\ud800"], ids=["nul", "lone-surrogate"])
 def test_a_character_the_database_cannot_hold_is_removed_from_a_fetched_record(world, bad):
     world.kavita_series("Solo Leveling")
@@ -446,6 +470,30 @@ def test_a_never_completed_series_kavita_no_longer_holds_is_not_due_on_the_next_
     del world.kavita.series_rows[kavita_id]
     world.run(intake)
     assert sid not in due_now(world), "its next check moved by the quiet interval, completed or not"
+
+
+@budget(load="db")
+def test_a_never_completed_series_kavita_recreates_is_checked_at_the_next_intake(world, monkeypatch):
+    kavita_id = world.kavita_series("Solo Leveling")
+
+    def down(_name):
+        msg = "mangabaka"
+        raise http.Unreachable(msg, "down")
+
+    monkeypatch.setattr(world.sources.mangabaka, "search", down)
+    world.download(world.manga("Solo Leveling"), "Chapter 2")  # a download gives the row its folder
+    world.run(intake)
+    monkeypatch.undo()
+    sid = series_id(world, kavita_id)
+    row = world.kavita.series_rows.pop(kavita_id)
+    world.run(intake)  # gone: its next check moves by the quiet interval
+    world.kavita.series_rows[kavita_id + 50] = {**row, "id": kavita_id + 50}  # Kavita recreated it
+    for entry in world.kavita.files.values():
+        entry["series"] = kavita_id + 50
+    world.run(intake)
+    assert world.rows("SELECT data_version > 0 FROM series_check WHERE series_id = %s", sid) == [(True,)], (
+        "a series Kavita recreates is checked at the next intake, not after the quiet interval"
+    )
 
 
 @budget(load="db")
