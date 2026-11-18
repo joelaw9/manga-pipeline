@@ -6,23 +6,45 @@ chapters are named with them (metadata/naming.py).
 """
 
 import json
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
+from typing import TypedDict
 
 from manga_pipeline import chapter_names, db, names, volumes, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import naming
+from manga_pipeline.replies import Json
 
 FIELDS = ("title", "volume")
 
 
-def apply(ctx: workflow.Context, data, series_id=None):
+class EditChange(TypedDict, total=False):
+    """A chapter's change as the edit file gives it, checked: the fields it sets (title None: untitled)."""
+
+    title: str | None
+    volume: int | None
+
+
+class NamedChapter(TypedDict):
+    """A chapter of the series as the edits would leave it (_chapters): its key and naming, and its file name."""
+
+    key: naming.EditKey
+    kind: str
+    season: int | None
+    number: float
+    volume: float | None
+    name: str
+
+
+def apply(ctx: workflow.Context, data: Json, series_id: int | None = None) -> list[str]:
     """Check data (the edit file's JSON) whole and store its edits in 1 transaction; returns the lines to print.
 
     Refused naming every problem found.
     """
-    problems = []
-    chapters = _chapters_of(data, problems)
-    series = _series(ctx, data.get("series"), series_id, problems)
+    problems: list[str] = []
+    edit = _edit_object(data)
+    chapters = _chapters_of(edit, problems)
+    series = _series(ctx, edit.get("series"), series_id, problems)
     wanted = _wanted(chapters, problems)
     if series is None:
         raise workflow.Refused("\n".join(problems))
@@ -42,14 +64,19 @@ def apply(ctx: workflow.Context, data, series_id=None):
     return [f"series {series['id']} ({series['name']}): {line}" for line in lines]
 
 
-def _chapters_of(data, problems):
-    """Return the edit file's 'chapters' object ({} when it is not a non-empty object); its problems added to problems.
-
-    Refused when the file is not a JSON object.
-    """
+def _edit_object(data: Json) -> Mapping[str, Json]:
+    """Return the edit file's JSON object; Refused when the file is not a JSON object."""
     if not isinstance(data, dict):
         msg = "the edit file must be a JSON object with 'series' and 'chapters'"
         raise workflow.Refused(msg)
+    return data
+
+
+def _chapters_of(data: Mapping[str, Json], problems: list[str]) -> Mapping[str, Json]:
+    """Return the edit file's 'chapters' object ({} when it is not a non-empty object).
+
+    Its problems are added to problems.
+    """
     problems.extend(f"unknown key {k!r} (series, chapters)" for k in data if k not in ("series", "chapters"))
     chapters = data.get("chapters")
     if not isinstance(chapters, dict) or not chapters:
@@ -58,13 +85,13 @@ def _chapters_of(data, problems):
     return chapters
 
 
-def _wanted(chapters, problems):
-    """Return {edit_key: (token, {field: value}, whether the change is valid)} of the edit file's chapters.
+def _wanted(chapters: Mapping[str, Json], problems: list[str]) -> dict[naming.EditKey, tuple[str, EditChange | None]]:
+    """Return {edit_key: (token, its checked change, None when the change is not valid)} of the edit file's chapters.
 
     Their problems added to problems (a token that is no chapter, or names one already given, or whose change is not an
     object, is left out).
     """
-    wanted = {}
+    wanted: dict[naming.EditKey, tuple[str, EditChange | None]] = {}
     for token, change in chapters.items():
         try:
             key = naming.parse_token(token)
@@ -77,58 +104,66 @@ def _wanted(chapters, problems):
         if not isinstance(change, dict) or not change:
             problems.append(f"chapter {token!r}: give an object of title and/or volume")
             continue
-        found = _change_problems(token, change)
+        checked, found = _change(token, change)
         problems += found
-        fields = {f: v.strip() if isinstance(v, str) else v for f, v in change.items() if f in FIELDS}
-        wanted[key] = (token, fields, not found)
+        wanted[key] = (token, None if found else checked)
     return wanted
 
 
-def _change_problems(token, change):
-    """Return the problems of 1 chapter's change.
+def _change(token: str, change: Mapping[str, Json]) -> tuple[EditChange, list[str]]:
+    """Return 1 chapter's change, checked (its title stripped), and its problems.
 
-    An unknown field, a title that is not a non-empty text or null, a volume that is not a whole number from 0 or null.
+    A problem: an unknown field, a title that is not a non-empty text or null, a volume that is not a whole number
+    from 0 or null.
     """
     problems = [f"chapter {token!r}: unknown field {f!r} (title, volume)" for f in change if f not in FIELDS]
-    title, volume = change.get("title"), change.get("volume")
-    if "title" in change and title is not None and not (isinstance(title, str) and title.strip()):
-        problems.append(f"chapter {token!r}: title must be a non-empty text or null, not {title!r}")
-    if (
-        "volume" in change
-        and volume is not None
-        and (isinstance(volume, bool) or not isinstance(volume, int) or volume < 0)
-    ):
-        problems.append(f"chapter {token!r}: volume must be a whole number from 0 or null, not {volume!r}")
-    return problems
+    checked: EditChange = {}
+    if "title" in change:
+        title = change["title"]
+        if title is None or (isinstance(title, str) and title.strip()):
+            checked["title"] = title.strip() if isinstance(title, str) else None
+        else:
+            problems.append(f"chapter {token!r}: title must be a non-empty text or null, not {title!r}")
+    if "volume" in change:
+        volume = change["volume"]
+        if volume is None or (not isinstance(volume, bool) and isinstance(volume, int) and volume >= 0):
+            checked["volume"] = volume
+        else:
+            problems.append(f"chapter {token!r}: volume must be a whole number from 0 or null, not {volume!r}")
+    return checked, problems
 
 
-def _merged(stored, wanted):
+def _merged(
+    stored: Mapping[naming.EditKey, naming.Edit], wanted: dict[naming.EditKey, tuple[str, EditChange | None]]
+) -> dict[naming.EditKey, naming.Edit]:
     """Return the series' edits once the valid wanted changes are applied over the stored ones ({edit_key: Edit}).
 
     An edit left with no field is gone.
     """
     merged = dict(stored)
-    for key, (_, change, ok) in wanted.items():
+    for key, (_, change) in wanted.items():
         old = stored.get(key, naming.Edit(None, None))
-        if ok:
+        if change is not None:
             merged[key] = naming.Edit(change.get("title", old.title), change.get("volume", old.volume))
     return {k: e for k, e in merged.items() if (e.title, e.volume) != (None, None)}
 
 
-def _unmatched(after, wanted):
+def _unmatched(after: list[NamedChapter], wanted: dict[naming.EditKey, tuple[str, EditChange | None]]) -> list[str]:
     """Return a problem for each wanted chapter that does not match exactly 1 of the series' chapters.
 
     after: _chapters.
     """
-    problems = []
-    for key, (token, _, _) in wanted.items():
+    problems: list[str] = []
+    for key, (token, _) in wanted.items():
         found = [c for c in after if c["key"] == key]
         if len(found) != 1:
             problems.append(f"chapter {token!r}: {len(found) or 'no'} chapters of the series match")
     return problems
 
 
-def _new_clashes(ctx: workflow.Context, series, stored, after):
+def _new_clashes(
+    ctx: workflow.Context, series: db.Row, stored: Mapping[naming.EditKey, naming.Edit], after: list[NamedChapter]
+) -> list[str]:
     """Return the clashes of the series' chapters as the edits leave them (after) that the stored edits do not have.
 
     Only what these edits make, wherever it lands.
@@ -136,15 +171,21 @@ def _new_clashes(ctx: workflow.Context, series, stored, after):
     try:
         existing = _clashes(_chapters(ctx, series, stored))
     except volumes.VolumeError:  # unnamable as it stands (a volume that is not whole): these edits may fix it
-        existing = {}
+        existing: dict[tuple[str, frozenset[naming.EditKey]], str] = {}
     return [m for k, m in _clashes(after).items() if k not in existing]
 
 
-def _store(conn, series_id, stored, merged, wanted):
+def _store(
+    conn: db.Connection,
+    series_id: int,
+    stored: Mapping[naming.EditKey, naming.Edit],
+    merged: Mapping[naming.EditKey, naming.Edit],
+    wanted: dict[naming.EditKey, tuple[str, EditChange | None]],
+) -> list[str]:
     """Store each wanted chapter's edit as merged leaves it (removed when it has no field left); a line per chapter."""
-    lines = []
+    lines: list[str] = []
     now = workflow.now(conn)
-    for key, (token, _, _) in wanted.items():
+    for key, (token, _) in wanted.items():
         kind, season, number = key
         e = merged.get(key)
         if stored.get(key) == e:
@@ -169,7 +210,7 @@ def _store(conn, series_id, stored, merged, wanted):
     return lines
 
 
-def load(path):
+def load(path: str | Path) -> Json:
     """Return the edit file's JSON; Refused when it cannot be read or is not JSON."""
     try:
         with Path(path).open(encoding="utf-8") as f:
@@ -179,7 +220,7 @@ def load(path):
         raise workflow.Refused(msg) from None
 
 
-def _series(ctx: workflow.Context, name, series_id, problems):
+def _series(ctx: workflow.Context, name: Json, series_id: int | None, problems: list[str]) -> db.Row | None:
     if not isinstance(name, str) or not name.strip():
         problems.append("'series' must be the series' Kavita name")
         return None
@@ -201,7 +242,7 @@ def _series(ctx: workflow.Context, name, series_id, problems):
     return rows[0]
 
 
-def _chapters(ctx: workflow.Context, series, edits):
+def _chapters(ctx: workflow.Context, series: db.Row, edits: Mapping[naming.EditKey, naming.Edit]) -> list[NamedChapter]:
     """Return the series' chapters as the edits would leave them: [{key, kind, season, number, volume, title, name}].
 
     name: the file name it holds or would get.
@@ -220,7 +261,7 @@ def _chapters(ctx: workflow.Context, series, edits):
         (series["id"],),
     ).fetchall()
     published = {r[0] for r in published}
-    out = []
+    out: list[NamedChapter] = []
     for r in rows:
         if r.key in published:
             continue
@@ -243,19 +284,20 @@ def _chapters(ctx: workflow.Context, series, edits):
     return out
 
 
-def _clashes(chapters):
+def _clashes(chapters: list[NamedChapter]) -> dict[tuple[str, frozenset[naming.EditKey]], str]:
     """Return {(what, the 2 chapters' keys): problem} of the series' chapters, each pair once.
 
     A problem: 2 chapters of 1 file name or 1 (volume, number), or main volumes decreasing along a season's chapter
     numbers.
     """
-    problems = {}
+    problems: dict[tuple[str, frozenset[naming.EditKey]], str] = {}
     for c in chapters:
         token = naming.edit_token(*c["key"])
         for o in chapters:
             if o is c:
                 continue
             pair = frozenset((c["key"], o["key"]))
+            volume, other = c["volume"], o["volume"]
             if o["name"] == c["name"]:
                 problems[("name", pair)] = f"chapter {token!r}: file name {c['name']!r} is another chapter's"
             elif c["volume"] is not None and c["volume"] == o["volume"] and c["number"] == o["number"]:
@@ -266,18 +308,18 @@ def _clashes(chapters):
             elif (
                 c["kind"] == o["kind"] == names.MAIN
                 and c["season"] == o["season"]
-                and None not in (c["volume"], o["volume"])
-                and (o["number"] - c["number"]) * (o["volume"] - c["volume"]) < 0
+                and volume is not None
+                and other is not None
+                and (o["number"] - c["number"]) * (other - volume) < 0
             ):
-                volume, other = names.fmt_num(c["volume"]), names.fmt_num(o["volume"])
                 problems[("order", pair)] = (
-                    f"chapter {token!r}: volume {volume} is out of order with chapter "
-                    f"{names.fmt_num(o['number'])} in volume {other}"
+                    f"chapter {token!r}: volume {names.fmt_num(volume)} is out of order with chapter "
+                    f"{names.fmt_num(o['number'])} in volume {names.fmt_num(other)}"
                 )
     return problems
 
 
-def describe(e):
+def describe(e: naming.Edit | None) -> str:
     """Return an edit as printed: its fields, or "edit removed" for None."""
     if e is None:
         return "edit removed"

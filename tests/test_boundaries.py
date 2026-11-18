@@ -28,7 +28,6 @@ LOADS = {
 
 # (module path below manga_pipeline/, enclosing function) of every load allowed; "" for module level.
 READERS = {
-    ("baseline.py", "_fill_naming"),
     ("cli.py", "junk_show"),
     ("clients/kavita.py", "_authenticated"),
     ("clients/kavita.py", "_libraries"),
@@ -73,8 +72,6 @@ READERS = {
     ("metadata/sources.py", "_webtoons_page"),
     ("metadata/tags.py", "load"),
     ("names.py", "read_identity"),
-    ("rewrite.py", "comicinfo_run"),
-    ("rewrite.py", "publish_run"),
     ("rewrite_covers.py", "read_result"),
     ("stages/convert.py", "read_output_pages"),
     ("stages/convert.py", "read_result"),
