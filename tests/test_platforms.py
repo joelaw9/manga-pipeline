@@ -55,7 +55,7 @@ def stored_list(platform, ref):
     if platform == platforms.TAPAS:
         client = tapas_client(ref)
         series_id = client.series_id(ref)
-        items, total = present(client.episodes(series_id))
+        items, total = present(client.episodes(present(series_id)))
         return platforms.tapas_record(ref, items, total, series_id)
     client = webtoons_client(*ref.split(":"))
     app_only = client.app_only(ref)
@@ -140,7 +140,7 @@ def test_the_tapas_id_needs_the_html_page_and_the_list_is_read_whole():
     client = sources.Tapas(service)
     series_id = client.series_id("brother-knows-best")
     assert present(service.headers)["Accept"] == "text/html", "the JSON form of /info lacks the tapastic meta"
-    items, total = present(client.episodes(series_id))
+    items, total = present(client.episodes(present(series_id)))
     assert series_id == "255099"
     assert len(items) == len({i[3] for i in items})
     assert total == 91
