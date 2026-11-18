@@ -245,6 +245,12 @@ def save_png(im: Image.Image, path: Path) -> None:
     im.save(path, "PNG", compress_level=1)
 
 
+def as_box(values: Sequence[int]) -> Box:
+    """Return a box given as 4 values ([x0, y0, x1, y1], as JSON holds it) as a Box; ValueError for another count."""
+    x0, y0, x1, y1 = values
+    return x0, y0, x1, y1
+
+
 GRAY, TINTED, COLOUR, GRAY_MARK = "gray", "tinted", "colour", "gray-mark"  # page classes (SPEC "Page classes")
 MARK_DILATION = 3  # tiles: coloured tiles this close (Manhattan) belong to one mark
 MARK_BLOCK = 8  # px: side of the colour tiles (classify, _mark_box)

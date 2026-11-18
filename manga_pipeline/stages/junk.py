@@ -469,9 +469,8 @@ def seen_kind(kind):
 
 def _strip_images(sc, paths, sizes, pick):
     content = sc["content"]
-    width, pages, height = strip.strip_layout([sizes[i] for i in content])
-    for p, i in zip(pages, content, strict=True):
-        p["path"] = str(paths[i])
+    width, laid, height = strip.strip_layout([sizes[i] for i in content])
+    pages: list[strip.StripPage] = [{**p, "path": str(paths[i])} for p, i in zip(laid, content, strict=True)]
     u = pick["unit"]
     unit_im = strip.render_rows(pages, width, u["start"], u["end"])
     lo, hi = max(0, u["start"] - candidates.CONTEXT_PX), min(height, u["end"] + candidates.CONTEXT_PX)

@@ -20,7 +20,7 @@ from PIL import Image
 from manga_pipeline import db, images, strip
 
 from tests import pages as fx
-from tests.builders import add_series, site_cfg
+from tests.builders import add_series, present, site_cfg
 from tests.timing import budget
 
 RC, SC = strip.RESTITCH, strip.SLICE_REPAIR
@@ -112,7 +112,9 @@ def render_cuts(layout, cuts, x_dir, out_dir):
 
     strip.render of `layout` ({"width", "pages": [{"name", "top", "th"}], "kept"}) over the planned cuts.
     """
-    outputs = [{"name": strip.output_name(n), "rows": [a, b]} for n, (a, b) in enumerate(itertools.pairwise(cuts), 1)]
+    outputs: list[strip.RenderOutput] = [
+        {"name": strip.output_name(n), "rows": [a, b]} for n, (a, b) in enumerate(itertools.pairwise(cuts), 1)
+    ]
     return strip.render(outputs, x_dir, out_dir, layout)
 
 
@@ -542,7 +544,7 @@ def test_a_gap_inside_a_removed_range_is_no_cut_candidate():
 @budget(load="pure")
 def test_removed_ranges_in_any_order_at_both_strip_ends():
     """Removed ranges are sorted; ones touching the strip's start and end leave no empty kept range."""
-    removed = [{"start": 2500, "end": 3000}, {"start": 0, "end": 500}]
+    removed: list[strip.RowRange] = [{"start": 2500, "end": 3000}, {"start": 0, "end": 500}]
     assert strip.cut_strip(3000, [], removed) == {
         "kept": [(500, 2500)],
         "cuts": [0, 2000],
@@ -583,7 +585,7 @@ def test_output_name(n, want):
 def test_a_single_uncropped_part_keeps_its_mode(tmp_path):
     """A cover passes through render as it is (a gray cover stays gray)."""
     Image.new("L", (50, 60), 90).save(tmp_path / "000_cover.png")
-    (out,) = strip.render([{"name": "001", "parts": [["000_cover.png", None]]}], tmp_path, tmp_path / "out")
+    (out,) = strip.render([{"name": "001", "parts": [("000_cover.png", None)]}], tmp_path, tmp_path / "out")
     assert (out.name, Image.open(out).mode, Image.open(out).size) == ("001.png", "L", (50, 60)), "mode kept"
 
 
@@ -1004,7 +1006,7 @@ def test_cover_named_page_is_never_band_checked(tmp_path):
         art(seed=i).save(p)
     fx.stack(fx.warning_banner(), art(seed=9)).save(tmp_path / "000_cover.png")
     paths.insert(0, tmp_path / "000_cover.png")
-    sizes = [images.file_dimensions(p) for p in paths]
+    sizes = [present(images.file_dimensions(p)) for p in paths]
     assert strip.band_pages(paths, sizes, ASPECT) == [], "a cover-named page is never band-checked"
 
 
