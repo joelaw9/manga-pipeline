@@ -607,10 +607,12 @@ def test_pieces_after_the_first_tail_band_measured(tmp_path):
     assert len(blocks) == 4, blocks
     (s1, e1), (dot_s, dot_e), (s2, e2) = blocks[1], blocks[2], blocks[3]
     sc = su.scan(st)
-    dot = sc["measured"][f"{dot_s}:{dot_e}"]
-    assert su.inked({"start": dot_s, "end": dot_e, "gap": False, "blank": False, **dot}) is not None, (
-        "the dot's rows alone: ink, no W1 blank"
-    )
+    match sc["measured"][f"{dot_s}:{dot_e}"]:
+        case {"sig": str()} as dot:
+            piece_: su.SignedPiece = {"start": dot_s, "end": dot_e, "gap": False, "blank": False, **dot}
+        case dot:
+            pytest.fail(f"the dot's rows are signed: {dot}")
+    assert su.inked(piece_) is not None, "the dot's rows alone: ink, no W1 blank"
     assert (dot_e - dot_s) + (dot_s - e1) + (s2 - dot_e) >= su.WEDGE_PX
     sigs = {(b["start"], b["end"]): b["sig"] for b in sc["blocks"]}
     got = su.decide(sc, store(("block", sigs[(s1, e1)], "junk", 1), ("block", sigs[(s2, e2)], "junk", 2)))
@@ -661,7 +663,7 @@ def test_tail_pieces_split_at_every_gap():
 
 @budget(load="pure")
 def test_w1_drops_gaps_blank_uniform_and_unsignable_pieces():
-    p: su.MeasuredPiece = {
+    p: su.SignedPiece = {
         "start": 0,
         "end": 50,
         "gap": False,
@@ -692,7 +694,7 @@ def test_w3_reads_the_nearest_non_blank_neighbours():
     A short line between two credit bands is a wedge; a blank piece between it and a band does not stop that; a
     removed non-band range does.
     """
-    piece_: su.MeasuredPiece = {
+    piece_: su.SignedPiece = {
         "start": 1100,
         "end": 1130,
         "gap": False,
@@ -703,10 +705,10 @@ def test_w3_reads_the_nearest_non_blank_neighbours():
         "ink": 200,
         "sig": tsig("ink"),  # an inked run is signed
     }
-    blank: su.MeasuredPiece = {**piece_, "start": 1130, "end": 1180, "gap": True}
+    blank: su.SignedPiece = {**piece_, "start": 1130, "end": 1180, "gap": True}
     assert su.tail_classes([piece_, blank], [(1000, 1100), (1180, 1300)], []) == {0: "wedge", 1: "blank"}
     assert su.tail_classes([piece_, blank], [(1000, 1100)], [(1180, 1300)]) == {0: piece_, 1: "blank"}
-    tall: su.MeasuredPiece = {**piece_, "end": 1100 + su.WEDGE_PX}
+    tall: su.SignedPiece = {**piece_, "end": 1100 + su.WEDGE_PX}
     assert su.tail_classes([tall], [(1000, 1100), (tall["end"], 1300)], []) == {0: tall}
 
 
@@ -717,7 +719,7 @@ def test_w3_measures_a_piece_with_its_gutters():
     An 84 px line + 2 x 40 px gutters = 164 px between 2 credit bands is reviewed; a 30 px line with 2 x 20 px gutters
     (70 px) is a wedge.
     """
-    line: su.MeasuredPiece = {
+    line: su.SignedPiece = {
         "start": 1140,
         "end": 1224,
         "gap": False,
@@ -737,7 +739,7 @@ def test_w3_measures_a_piece_with_its_gutters():
         1: line,
         2: "blank",
     }
-    short: su.MeasuredPiece = {**line, "start": 1120, "end": 1150}
+    short: su.SignedPiece = {**line, "start": 1120, "end": 1150}
     gaps = [{**line, "start": 1100, "end": 1120, "gap": True}, {**line, "start": 1150, "end": 1170, "gap": True}]
     assert su.tail_classes([gaps[0], short, gaps[1]], [(1000, 1100), (1170, 1300)], []) == {
         0: "blank",

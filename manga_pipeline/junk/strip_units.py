@@ -80,13 +80,19 @@ class Measure(TypedDict):
     unsignable: bool
 
 
-class PieceMeasure(Measure):
-    """What the tail rules read of a gap-free run (measure_piece): Measure and the signature text.
+class SignedMeasure(Measure):
+    """A gap-free run's measure with its signature text: the run is neither uniform nor unsignable."""
 
-    The signature is None when the run is uniform or unsignable.
-    """
+    sig: str
 
-    sig: str | None
+
+class UnsignedMeasure(Measure):
+    """A gap-free run's measure without a signature: the run is uniform or unsignable (a W1 blank)."""
+
+    sig: None
+
+
+type PieceMeasure = SignedMeasure | UnsignedMeasure  # measure_piece's, told apart by the signature
 
 
 class StripScan(TypedDict):
@@ -181,20 +187,19 @@ class BlankPiece(TailPiece):
     blank: Literal[True]
 
 
-class MeasuredPiece(TailPiece, PieceMeasure):
-    """A tail piece holding span rows, with the scan's measurements of its rows."""
+class SignedPiece(TailPiece, SignedMeasure):
+    """A tail piece holding span rows, with the scan's measurements of its rows and their signature."""
 
     blank: Literal[False]
 
 
-type ClassedPiece = BlankPiece | MeasuredPiece
-
-
-class SignedPiece(TailPiece, Measure):
-    """A tail piece that is no W1 blank (inked): it holds span rows, is measured and signed."""
+class UnsignedPiece(TailPiece, UnsignedMeasure):
+    """A tail piece holding span rows that are uniform or unsignable, with the scan's measurements of them."""
 
     blank: Literal[False]
-    sig: str
+
+
+type ClassedPiece = BlankPiece | UnsignedPiece | SignedPiece
 
 
 class StripDecision(TypedDict):
@@ -228,13 +233,10 @@ def measure_piece(im: Image.Image) -> PieceMeasure:
     uniform = images.is_uniform(im)
     sig = None if uniform else images.signature(im)
     unsignable = sig is not None and images.unsignable(sig)
-    return {
-        "std": float(g.std()),
-        "ink": int(np.abs(g - np.median(g)).max()),
-        "uniform": uniform,
-        "unsignable": unsignable,
-        "sig": None if sig is None or unsignable else images.sig_to_str(sig),
-    }
+    std, ink = float(g.std()), int(np.abs(g - np.median(g)).max())
+    if sig is None or unsignable:
+        return {"std": std, "ink": ink, "uniform": uniform, "unsignable": unsignable, "sig": None}
+    return {"std": std, "ink": ink, "uniform": uniform, "unsignable": unsignable, "sig": images.sig_to_str(sig)}
 
 
 # ---------------------------------------------------------------- the scan, which decodes
@@ -504,18 +506,18 @@ def tail_pieces(layout: Layout, removed: Iterable[strip.RowRange], start: int) -
 
 
 def inked(p: ClassedPiece) -> SignedPiece | None:
-    """Return a tail piece that is no W1 blank with its signature, else None (W1 blank).
+    """Return a tail piece that is no W1 blank, else None (W1 blank).
 
-    W1 blank: a gap, all blank rows, uniform, unsignable, or flat (luma std < BLANK_STD and ink <= BLANK_INK). A piece
-    that is none of these holds span rows, is measured, and is signed: measure_piece signs every run that is neither
-    uniform nor unsignable.
+    W1 blank: a gap, all blank rows (BlankPiece), uniform or unsignable (an UnsignedPiece, as measure_piece writes it;
+    a signed one's flags are read too), or flat (luma std < BLANK_STD and ink <= BLANK_INK).
     """
-    if p["gap"] or p["blank"] is True:
-        return None
-    sig = p["sig"]
-    if p["uniform"] or p["unsignable"] or (p["std"] < BLANK_STD and p["ink"] <= BLANK_INK) or sig is None:
-        return None
-    return {**p, "sig": sig}
+    match p:
+        case {"gap": False, "sig": str()} if not (
+            p["uniform"] or p["unsignable"] or (p["std"] < BLANK_STD and p["ink"] <= BLANK_INK)
+        ):
+            return p
+        case _:
+            return None
 
 
 def tail_classes(
@@ -668,7 +670,11 @@ def _measured_pieces(
         if m is None:
             msg = f"tail piece {p['start']}-{p['end']} was not measured by the scan"
             raise ValueError(msg)
-        pieces.append({**p, "blank": False, **m})
+        match m:  # a piece takes its measure's shape: signed, or uniform or unsignable
+            case {"sig": None}:
+                pieces.append({**p, "blank": False, **m})
+            case _:
+                pieces.append({**p, "blank": False, **m})
     return pieces
 
 
