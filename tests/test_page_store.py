@@ -3,6 +3,7 @@
 SPEC "Parts", hand-off between parts.
 """
 
+import json
 import shutil
 
 import psycopg
@@ -83,12 +84,12 @@ def test_save_outside_a_transaction_is_refused(conn):
 
 
 @budget(load="db", seconds=2.0)
-@pytest.mark.parametrize("incomplete", [{"index": 1, "name": "2.jpg"}])  # a page as an untyped caller may pass it
-def test_save_refuses_a_page_missing_a_field_and_keeps_the_stored_rows(conn, tmp_path, incomplete):
+def test_save_refuses_a_page_missing_a_field_and_keeps_the_stored_rows(conn, tmp_path):
     chapter_id = new_chapter(conn)
     measured = images.measure_pages(chapter_cbz(tmp_path / "c.cbz", n=1, blank=False))
     with db.transaction(conn):
         page_store.save(conn, chapter_id, measured)
+    incomplete = json.loads('{"index": 1, "name": "2.jpg"}')  # a page as an untyped caller passes it: JSON data
     with pytest.raises(ValueError, match="lacks"), db.transaction(conn):
         page_store.save(conn, chapter_id, [*measured, incomplete])
     assert list(page_store.load(conn, chapter_id).values()) == measured, "a refused save changes no stored row"

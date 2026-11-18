@@ -49,19 +49,18 @@ def load(conn: db.Connection, chapter_id: int) -> dict[int, images.MeasuredPage]
     out: dict[int, images.MeasuredPage] = {}
     query = sql.SQL("SELECT {} FROM page WHERE chapter_id = %s ORDER BY page_index").format(_columns())
     for row in conn.execute(query, (chapter_id,)):
-        index, name, size, sha1, width, height, fmt, blank, phash, junk_signature, colour_class, chroma = row
-        out[index] = {
-            "index": index,
-            "name": name,
-            "bytes": size,
-            "sha1": sha1,
-            "width": width,
-            "height": height,
-            "format": fmt,
-            "blank": bool(blank),
-            "phash": phash,
-            "junk_signature": junk_signature,
-            "colour_class": colour_class,
-            "chroma": chroma,
+        out[row["page_index"]] = {
+            "index": row["page_index"],
+            "name": row["name"],
+            "bytes": row["bytes"],
+            "sha1": row["sha1"],
+            "width": row["width"],
+            "height": row["height"],
+            "format": row["format"],
+            "blank": bool(row["blank"]),
+            "phash": row["phash"],
+            "junk_signature": row["junk_signature"],
+            "colour_class": row["colour_class"],
+            "chroma": row["chroma"],
         }
     return out
