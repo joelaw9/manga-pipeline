@@ -3,6 +3,7 @@
 What Claude's process gets, when Claude is started at all, and how reviews are counted.
 """
 
+import copy
 import json
 import os
 import shutil
@@ -162,6 +163,19 @@ def test_an_error_result_exits_1_and_records_no_success(world, tmp_path):
     with closing(db.connect(cfg)) as conn:
         meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
     assert meta["junk-review.last_result"].startswith("error")
+    assert "junk-review.last_success" not in meta
+
+
+@budget(load="subprocess", seconds=20)
+def test_a_review_that_cannot_start_claude_records_why(world, tmp_path):
+    """No claude executable (preflight refuses that run): the review fails and records the reason, not "not run"."""
+    cfg = copy.deepcopy(world.cfg)
+    cfg["junk"]["claude_path"] = str(tmp_path / "none")
+    with closing(db.connect(cfg)) as conn, pytest.raises(review_run.ReviewError, match="no executable"):
+        review_run.run(cfg, conn)
+    with closing(db.connect(cfg)) as conn:
+        meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
+    assert "is no executable" in meta["junk-review.last_result"], "the reason Claude did not start is recorded"
     assert "junk-review.last_success" not in meta
 
 

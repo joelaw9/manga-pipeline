@@ -164,7 +164,10 @@ def run(cfg: config.Config, conn: db.Connection) -> None:
         child = folder / f"{review_id}.yaml"
         child.write_bytes(yaml.safe_dump(child_config(cfg), sort_keys=False).encode("utf-8"))
         prefix = join_command([sys.executable, "-m", "manga_pipeline.cli", "--config", str(child), "junk"])
-        result = _claude(cfg, prefix, review_id)
+        try:
+            result = _claude(cfg, prefix, review_id)
+        except ReviewError as e:  # Claude could not start: recorded as the result
+            result = f"error: {e}"
     finally:
         with db.transaction(conn):
             counted = conn.execute(
@@ -211,8 +214,11 @@ def _claude(cfg: config.Config, prefix: str, review_id: str) -> str:
     return f"ok: {reply.get('num_turns')} turn(s)"
 
 
-def _reply(stdout: bytes) -> ClaudeReply | None:
-    """Return the result object Claude printed (its stdout as JSON); None when that is no JSON. Unchecked."""
+def _reply(stdout: bytes) -> ClaudeReply | list[object] | str | float | bool | None:
+    """Return what Claude printed, its stdout as JSON: any JSON value, an object read as its result; None for no JSON.
+
+    Unchecked: an object is not checked to be a result object.
+    """
     try:
         return json.loads(stdout.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
