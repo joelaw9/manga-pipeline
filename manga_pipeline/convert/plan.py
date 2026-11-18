@@ -393,7 +393,14 @@ def _edits(entries: list[PlanPage], edit: ChapterEdit, layout: SeriesLayout, fil
         "blank": _blanks(entries, edit, name),
     }
     if layout.kind == "strip":
-        out["strip"] = _strip_spec(content, edit, files)
+        if edit["drop_pages"] or edit["bands"] or edit["join"] or edit["split"]:
+            msg = "chapter_edit of a strip chapter may hold strip_removed only"
+            raise EditError(msg)
+        if content:  # its pages have their files, all in 1 folder
+            out["strip"] = _strip_spec(content, edit, files[0].parent)
+        elif edit["strip_removed"]:
+            msg = f"chapter_edit strip_removed ends past the strip's 0 rows: {edit['strip_removed']!r}"
+            raise EditError(msg)
         return out
     if edit["strip_removed"]:
         msg = "chapter_edit of a page chapter holds strip_removed"
@@ -408,21 +415,12 @@ def _edits(entries: list[PlanPage], edit: ChapterEdit, layout: SeriesLayout, fil
     return out
 
 
-def _strip_spec(content: list[PlanPage], edit: ChapterEdit, files: list[Path]) -> StripSpec | None:
-    """Return a strip chapter's strip spec ({"width", "pages", "kept", "cuts"}) over its non-cover pages.
+def _strip_spec(content: list[PlanPage], edit: ChapterEdit, x_dir: Path) -> StripSpec:
+    """Return a strip chapter's strip spec ({"width", "pages", "kept", "cuts"}) over its non-cover pages (1 or more).
 
-    The edit's removed rows taken out; None when it has no such pages. files: the chapter's page files, in its folder.
-    Raises EditError for another edit or rows past the strip, NeedsHuman when nothing is kept.
+    The edit's removed rows taken out; x_dir: the folder of the pages' files. Raises EditError for rows past the strip,
+    NeedsHuman when nothing is kept.
     """
-    if edit["drop_pages"] or edit["bands"] or edit["join"] or edit["split"]:
-        msg = "chapter_edit of a strip chapter may hold strip_removed only"
-        raise EditError(msg)
-    if not content:
-        if edit["strip_removed"]:
-            msg = f"chapter_edit strip_removed ends past the strip's 0 rows: {edit['strip_removed']!r}"
-            raise EditError(msg)
-        return None
-    x_dir = files[0].parent
     sizes = [q["size"] for q in content]
     rows = [strip.page_rows(images.open_flat(x_dir / q["name"])[0]) for q in content]
     st = strip.make_strip([x_dir / q["name"] for q in content], sizes, rows)
