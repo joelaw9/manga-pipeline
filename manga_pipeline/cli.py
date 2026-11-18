@@ -163,13 +163,13 @@ def chapter_drop(cfg, args):
 def series_link(cfg, args):
     """Link a Suwayomi manga or a hand-placed download folder to a Kavita series (`series link`)."""
     with _database(cfg, "link") as conn:
-        identify.link(
-            cfg,
-            conn,
-            kavita.from_config(cfg),
-            args.kavita_series_id,
-            identify.link_subject(cfg, suwayomi.from_config(cfg), manga_id=args.manga_id, folder=args.folder),
-        )
+        kavita_client = kavita.from_config(cfg)
+        suwayomi_client = suwayomi.from_config(cfg)
+        if args.folder is not None:
+            subject = identify.folder_link_subject(cfg, suwayomi_client, args.folder)
+        else:
+            subject = identify.manga_link_subject(suwayomi_client, args.manga_id)
+        identify.link(cfg, conn, kavita_client, args.kavita_series_id, subject)
 
 
 def series_set_id(cfg, args):

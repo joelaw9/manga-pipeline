@@ -15,11 +15,12 @@ from pathlib import Path
 from manga_pipeline import config, db, errors, identify, names, workflow
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.metadata import check
+from manga_pipeline.replies import suwayomi as suwayomi_replies
 
 log = logging.getLogger(__name__)
 
 
-def scan(ctx: workflow.Context):
+def scan(ctx: workflow.Context) -> None:
     """Record each new settled download as a chapter.
 
     A manga folder that cannot be listed is not taken (`_list`); any other folder that cannot be read raises its OSError
@@ -30,7 +31,7 @@ def scan(ctx: workflow.Context):
     held = _held(ctx)
     listed, unlistable = _list(root)
     settled_by = time.time() - ctx.cfg["intake"]["settle_minutes"] * 60
-    folders = {}
+    folders: dict[tuple[str, str], list[str]] = {}
     for key, listed_files in listed.items():
         files = [
             n
@@ -40,13 +41,14 @@ def scan(ctx: workflow.Context):
         ]
         if files:
             folders[key] = files
-    unmatched, found = list(unlistable), []
+    unmatched: list[tuple[Path, str]] = list(unlistable)
+    found: list[workflow.NewChapter] = []
     if folders:
-        by_folder = {}
+        by_folder: dict[tuple[str, str], list[tuple[suwayomi_replies.Manga, suwayomi_replies.Source]]] = {}
         for manga in ctx.suwayomi.library_manga():
-            key = suwayomi.download_folders(manga)
-            if key is not None:  # no extension installed: no folder name to rebuild
-                by_folder.setdefault(key, []).append(manga)
+            source = manga["source"]
+            if source is not None:  # no extension installed: no folder name to rebuild
+                by_folder.setdefault(suwayomi.download_folders(source, manga["title"]), []).append((manga, source))
         kavita_series = identify.KavitaSeries(ctx)
         for key, files in sorted(folders.items()):
             paths = [root / key[0] / key[1] / name for name in files]
@@ -55,7 +57,7 @@ def scan(ctx: workflow.Context):
                 unmatched += [(p, f"{len(mangas)} library manga map to its folder") for p in paths]
                 continue
             if mangas:
-                unmatched_here, found_here = _manga_downloads(ctx, mangas[0], paths, kavita_series)
+                unmatched_here, found_here = _manga_downloads(ctx, mangas[0][0], mangas[0][1], paths, kavita_series)
             else:
                 unmatched_here, found_here = _folder_downloads(ctx, f"{key[0]}/{key[1]}", paths, kavita_series)
             unmatched += unmatched_here
@@ -63,7 +65,7 @@ def scan(ctx: workflow.Context):
     _record(ctx, found, unmatched)
 
 
-def _settled(path, settled_by):
+def _settled(path: Path, settled_by: float) -> bool:
     """Return whether the file was last modified at or before settled_by.
 
     SPEC "Suwayomi": a file still being written is skipped; a file gone since the listing is not settled (False).
@@ -76,7 +78,7 @@ def _settled(path, settled_by):
         return False
 
 
-def _held(ctx: workflow.Context):
+def _held(ctx: workflow.Context) -> set[str]:
     """Return the paths open chapters hold.
 
     Their downloads, the re-downloads they expect and the rejected copies they are still removing (SPEC "Bad
@@ -93,7 +95,7 @@ def _held(ctx: workflow.Context):
     return {row[0] for row in rows}
 
 
-def _list(root):
+def _list(root: Path) -> tuple[dict[tuple[str, str], list[str]], list[tuple[Path, str]]]:
     """List the downloads under <downloads>/mangas.
 
     Returns ({(source folder, manga folder): [CBZ file names]}, [(manga folder path, reason)]). A manga folder that
@@ -102,7 +104,8 @@ def _list(root):
     raises, as does a manga folder's share error (SHARE_ERRNOS) or any error once the root itself cannot be read.
     Never Path.glob: it swallows the OSError of a folder it cannot read.
     """
-    folders, unlistable = {}, []
+    folders: dict[tuple[str, str], list[str]] = {}
+    unlistable: list[tuple[Path, str]] = []
     for source in _entries(root, dirs=True):
         for title in _entries(Path(root, source), dirs=True):
             folder = Path(root, source, title)
@@ -126,33 +129,42 @@ def _list(root):
     return folders, unlistable
 
 
-def _entries(folder, dirs):
+def _entries(folder: Path, *, dirs: bool) -> list[str]:
     with os.scandir(folder) as it:
         return sorted(e.name for e in it if e.is_dir() == dirs)
 
 
-def _manga_downloads(ctx: workflow.Context, manga, paths, kavita_series):
+def _manga_downloads(
+    ctx: workflow.Context,
+    manga: suwayomi_replies.Manga,
+    source: suwayomi_replies.Source,
+    paths: list[Path],
+    kavita_series: identify.KavitaSeries,
+) -> tuple[list[tuple[Path, str]], list[workflow.NewChapter]]:
     """([(path, reason)] not taken, [workflow.NewChapter]) for 1 manga's downloads."""
     series = identify.series_for(ctx, manga, kavita_series)
     if isinstance(series, identify.NotTaken):
         return ([(p, series.reason) for p in paths] if series.listed else []), []
-    chapters = {}
+    chapters: dict[str, list[suwayomi_replies.Chapter]] = {}
     for chapter in ctx.suwayomi.chapters(manga["id"]):
         chapters.setdefault(suwayomi.chapter_file(chapter["scanlator"], chapter["name"]), []).append(chapter)
-    unmatched, found = [], []
+    unmatched: list[tuple[Path, str]] = []
+    found: list[workflow.NewChapter] = []
     for path in paths:
         hits = chapters.get(path.name, [])
         if len(hits) > 1:
             why = f"{len(hits)} chapters of Suwayomi manga {manga['id']} rebuild to this file name"
             unmatched.append((path, why))
         elif hits:
-            found.append(_found(ctx, series, path, hits[0], manga["source"]["displayName"]))
+            found.append(_found(ctx, series, path, hits[0], source["displayName"]))
         else:  # no chapter rebuilds to it: a hand-placed chapter of the manga's series
             found.append(_found(ctx, series, path, None, None))
     return unmatched, found
 
 
-def _folder_downloads(ctx: workflow.Context, folder, paths, kavita_series):
+def _folder_downloads(
+    ctx: workflow.Context, folder: str, paths: list[Path], kavita_series: identify.KavitaSeries
+) -> tuple[list[tuple[Path, str]], list[workflow.NewChapter]]:
     """([(path, reason)] not taken, [workflow.NewChapter]) for a hand-placed folder's downloads."""
     series = identify.series_for_folder(ctx, folder, paths, kavita_series)
     if isinstance(series, identify.NotTaken):
@@ -160,14 +172,16 @@ def _folder_downloads(ctx: workflow.Context, folder, paths, kavita_series):
     return [], [_found(ctx, series, path, None, None) for path in paths]
 
 
-def _found(ctx: workflow.Context, series, path, chapter, source):
+def _found(
+    ctx: workflow.Context, series: db.Row, path: Path, chapter: suwayomi_replies.Chapter | None, source: str | None
+) -> workflow.NewChapter:
     """chapter: the Suwayomi chapter the file rebuilds to, None for a hand-placed one."""
     identity = names.identity(names.parse(path.stem))
     chapter_id, url = (chapter["id"], chapter["realUrl"] or None) if chapter else (None, None)
     return workflow.NewChapter(series["id"], identity, config.to_stored(ctx.cfg, path), chapter_id, source, url)
 
 
-def _record(ctx: workflow.Context, found, unmatched):
+def _record(ctx: workflow.Context, found: list[workflow.NewChapter], unmatched: list[tuple[Path, str]]) -> None:
     """Add the chapters not yet open at their path, and replace unmatched_download (first seen kept)."""
     stamp = workflow.now(ctx.conn)
     with db.transaction(ctx.conn):

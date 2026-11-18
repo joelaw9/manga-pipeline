@@ -404,11 +404,12 @@ def manga_folder(title: str) -> str:
     return valid_filename(title)
 
 
-def download_folders(manga: Manga) -> tuple[str, str] | None:
-    """(source folder, manga folder) a manga's downloads lie in under MANGAS_FOLDER; None with no source installed."""
-    if manga["source"] is None:
-        return None
-    return source_folder(manga["source"]["displayName"]), manga_folder(manga["title"])
+def download_folders(source: Source, title: str) -> tuple[str, str]:
+    """(source folder, manga folder) a manga's downloads lie in under MANGAS_FOLDER: of its installed source and title.
+
+    A manga with no source installed (Manga.source None) has no folder to rebuild.
+    """
+    return source_folder(source["displayName"]), manga_folder(title)
 
 
 def chapter_file(scanlator: str | None, name: str) -> str:

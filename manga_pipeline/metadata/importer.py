@@ -204,7 +204,7 @@ def _link_overrides(
             continue
         try:
             # series link's own path: a held row of the manga is merged, the series' folder is filled
-            subject = identify.link_subject(ctx.cfg, ctx.suwayomi, manga_id=found["id"])
+            subject = identify.manga_link_subject(ctx.suwayomi, found["id"])
             identify.link(ctx.cfg, ctx.conn, ctx.kavita, kseries["id"], subject)
         except workflow.Refused as e:
             unknown.append(f"{name!r} ({e})")

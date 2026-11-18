@@ -27,7 +27,7 @@ OUTCOME = {
 LAYOUTS = ("strip", "pages")
 
 
-def needed(conn, series):
+def needed(conn: db.Connection, series: db.Row) -> bool:
     """Return whether the series must have a baseline before its chapters go on.
 
     True for a series Kavita holds that has none, or whose bulk rows were recorded before their source name, kind and
@@ -44,7 +44,7 @@ def needed(conn, series):
     )[0]
 
 
-def record_problem(cfg, series):
+def record_problem(cfg: config.Config, series: db.Row) -> str | None:
     """Why the series' record cannot be used yet (no file, partial, broken, no known layout), or None."""
     try:
         record = _load(cfg, series)
@@ -62,7 +62,7 @@ def record_problem(cfg, series):
     return None
 
 
-def take(ctx: workflow.Context, series):
+def take(ctx: workflow.Context, series: db.Row) -> str | None:
     """Take the series' baseline from its record.
 
     Returns None once the series has one; else why not (the chapter waits). A record whose series name is not one of the
@@ -95,11 +95,11 @@ def take(ctx: workflow.Context, series):
     return None
 
 
-def _load(cfg, series):
+def _load(cfg: config.Config, series: db.Row) -> record_reader.Record:
     return record_reader.load(config.to_local(cfg, series["folder"]))
 
 
-def _fill_naming(conn, series, record):
+def _fill_naming(conn: db.Connection, series: db.Row, record: record_reader.Record) -> None:
     """Fill in the source name, kind and volume source of the series' bulk rows that lack them, from the record.
 
     Rows are matched by output file name (the series' folder may have moved since); a row the record no longer lists
@@ -113,8 +113,9 @@ def _fill_naming(conn, series, record):
     ).fetchall()
     for r in rows:
         c = chapters.get(PurePosixPath(r["library_path"]).name)
+        values: tuple[str | None, str, str | None]
         if c is None:
-            side = json.loads(r["identity"])[2]
+            side = names.read_identity(r["identity"])[2]
             values = (None, names.SIDE if side else names.MAIN, None)
         else:
             values = (Path(c["file"]).stem, c["kind"], c["volume_source"])
@@ -124,7 +125,7 @@ def _fill_naming(conn, series, record):
         )
 
 
-def _write(conn, series, record, name, layout):
+def _write(conn: db.Connection, series: db.Row, record: record_reader.Record, name: str, layout: str) -> None:
     stamp = workflow.now(conn)
     for c in record["chapters"]:
         conn.execute(
