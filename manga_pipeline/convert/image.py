@@ -22,7 +22,7 @@ import multiprocessing
 import shutil
 import time
 from collections import Counter
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Executor, Future, ProcessPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
@@ -404,7 +404,7 @@ class Encoder:
         An exception cancels the rest, waits for what runs and is raised.
         """
         jobs: list[LosslessJob] = [{**t, "tools": self.tool_paths} for t in tasks]
-        return _run_all(self.pool, lossless_page, jobs)
+        return _run_all(self.pool, jobs)
 
 
 def grays_losslessly(cls: str, entry: plan.PlanPage) -> bool:
@@ -474,11 +474,9 @@ def lossless_page(task: LosslessJob) -> LosslessPage:
     }
 
 
-def _run_all(
-    pool: Executor, fn: Callable[[LosslessJob], LosslessPage], tasks: Sequence[LosslessJob]
-) -> list[LosslessPage]:
-    """Run lossless page tasks; an exception cancels the rest, waits for what runs and is raised."""
-    futures = [pool.submit(fn, t) for t in tasks]
+def _run_all(pool: Executor, tasks: Sequence[LosslessJob]) -> list[LosslessPage]:
+    """Run lossless_page on each task in the workers; an exception cancels the rest, waits for what runs, is raised."""
+    futures = [pool.submit(lossless_page, t) for t in tasks]
     try:
         return [f.result() for f in futures]
     except BaseException:
