@@ -304,16 +304,31 @@ def test_update_series_resends_the_series_whole_with_the_changes():
     kv, service = client({"/api/Series/update": {}})
     series = kavita_series(7, "N")
     series["coverImageLocked"], series["aniListId"], series["libraryId"] = True, 1, 3
+    del series["cbrId"]
     kv.update_series(series, aniListId=2)
     method, path, body = service.sent[-1]
     assert (method, path) == ("POST", "/api/Series/update")
-    assert body == {
-        **{name: series[name] for name in kavita.UPDATE_SERIES_FIELDS},
-        "id": 7,
-        "aniListId": 2,
-    }, "every field Kavita reads is resent (an omitted one is reset); fields it does not read are not"
-    assert body["coverImageLocked"] is True, "a locked cover stays locked"
-    assert "libraryId" not in body, "a field the update does not read is not sent"
+    assert set(body) == {
+        "id",
+        "name",
+        "nameLocked",
+        "sortName",
+        "sortNameLocked",
+        "localizedName",
+        "localizedNameLocked",
+        "coverImageLocked",
+        "aniListId",
+        "malId",
+        "mangaBakaId",
+        "comicVineId",
+        "hardcoverId",
+        "metronId",
+        "metadataProviderOverride",
+    }, "every field the update reads is resent (an omitted one is reset); libraryId, which it does not read, is not"
+    assert "cbrId" not in body, "a field the series lacks is not sent"
+    assert (body["id"], body["aniListId"], body["coverImageLocked"], body["name"]) == (7, 2, True, "N"), (
+        "the series' own values are resent, with the change"
+    )
 
 
 @budget()
