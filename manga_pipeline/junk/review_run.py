@@ -54,7 +54,7 @@ def child_config(cfg: config.Config) -> config.Config:
     """Return the resolved config with every secret null and every configured path absolute."""
     out = copy.deepcopy(cfg)
     for section, name in config.secret_keys():
-        out[str(section)][str(name)] = None
+        out[section][name] = None
     for section, name in PATH_KEYS:
         out[section][name] = str(config.abs_path(out[section][name]))
     for name, value in out["paths"].items():
