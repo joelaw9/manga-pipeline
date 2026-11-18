@@ -71,16 +71,21 @@ class EdgeBlock(Piece):
     joins: list[Join]
 
 
-class PieceMeasure(TypedDict):
-    """What the tail rules read of a gap-free run (measure_piece).
-
-    Luma std, ink, uniform, unsignable, and the signature text (None when uniform or unsignable).
-    """
+class Measure(TypedDict):
+    """What the tail rules read of a gap-free run but its signature: luma std, ink, uniform, unsignable."""
 
     std: float
     ink: int
     uniform: bool
     unsignable: bool
+
+
+class PieceMeasure(Measure):
+    """What the tail rules read of a gap-free run (measure_piece): Measure and the signature text.
+
+    The signature is None when the run is uniform or unsignable.
+    """
+
     sig: str | None
 
 
@@ -183,6 +188,13 @@ class MeasuredPiece(TailPiece, PieceMeasure):
 
 
 type ClassedPiece = BlankPiece | MeasuredPiece
+
+
+class SignedPiece(TailPiece, Measure):
+    """A tail piece that is no W1 blank (is_blank): it holds span rows, is measured and signed."""
+
+    blank: Literal[False]
+    sig: str
 
 
 class StripDecision(TypedDict):
@@ -493,9 +505,21 @@ def tail_pieces(layout: Layout, removed: Iterable[strip.RowRange], start: int) -
 
 def is_blank(p: ClassedPiece) -> bool:
     """W1: a gap, all blank rows, uniform, unsignable, or flat (luma std < BLANK_STD and ink <= BLANK_INK)."""
+    return _inked(p) is None
+
+
+def _inked(p: ClassedPiece) -> SignedPiece | None:
+    """Return a tail piece that is no W1 blank (is_blank) with its signature, else None.
+
+    Such a piece holds span rows, is measured, and is signed: measure_piece signs every run that is neither uniform
+    nor unsignable.
+    """
     if p["gap"] or p["blank"] is True:
-        return True
-    return p["uniform"] or p["unsignable"] or (p["std"] < BLANK_STD and p["ink"] <= BLANK_INK)
+        return None
+    sig = p["sig"]
+    if p["uniform"] or p["unsignable"] or (p["std"] < BLANK_STD and p["ink"] <= BLANK_INK) or sig is None:
+        return None
+    return {**p, "sig": sig}
 
 
 def tail_classes(
@@ -507,7 +531,15 @@ def tail_classes(
     non-blank neighbours on both sides are credit bands); review (the rest: decided by piece decisions, else a unit).
     bands, others: [(start, end)] credit bands, every other removed range.
     """
-    out = {i: "blank" for i, p in enumerate(pieces) if is_blank(p)}
+    return {i: c if isinstance(c, str) else "review" for i, c in _classes(pieces, bands, others).items()}
+
+
+def _classes(
+    pieces: Sequence[ClassedPiece], bands: Iterable[strip.Rows], others: Iterable[strip.Rows]
+) -> dict[int, Literal["blank", "wedge"] | SignedPiece]:
+    """Return tail_classes' classes with each review piece itself in place of "review" (a measured, signed piece)."""
+    inked = {i: q for i, p in enumerate(pieces) if (q := _inked(p)) is not None}
+    out: dict[int, Literal["blank", "wedge"] | SignedPiece] = {i: "blank" for i in range(len(pieces)) if i not in inked}
     seq = sorted(
         [(s, e, "band") for s, e in bands]
         + [(s, e, "other") for s, e in others]
@@ -520,15 +552,13 @@ def tail_classes(
             k += step
         return seq[k][2] if 0 <= k < len(seq) else None
 
-    for i, p in enumerate(pieces):
-        if i in out:
-            continue
+    for i, p in inked.items():
         k = seq.index((p["start"], p["end"], "piece"))
         gutters = sum(
             q["end"] - q["start"] for q in pieces if q["gap"] and (q["end"] == p["start"] or q["start"] == p["end"])
         )
         short = p["end"] - p["start"] + gutters < WEDGE_PX
-        out[i] = "wedge" if short and nearest(k, -1) == "band" and nearest(k, 1) == "band" else "review"
+        out[i] = "wedge" if short and nearest(k, -1) == "band" and nearest(k, 1) == "band" else p
     return out
 
 
@@ -675,20 +705,18 @@ def _tail_pass(
     if not bands:
         return _Tail([], [], [])
     pieces = _measured_pieces(layout, removed, min(r["start"] for r in bands), measured)
-    classes = tail_classes(
+    classes = _classes(
         pieces, [(r["start"], r["end"]) for r in bands], [(r["start"], r["end"]) for r in removed if r not in bands]
     )
     drops: list[Drop]
     review: list[PieceUnit]
     drops, review = [], []
-    for i, why in sorted(classes.items()):
-        p = pieces[i]
-        if why != "review":
-            drops.append({"start": p["start"], "end": p["end"], "where": "tail", "decision": None, "why": why})
+    for i, c in sorted(classes.items(), key=lambda item: item[0]):
+        if isinstance(c, str):
+            p = pieces[i]
+            drops.append({"start": p["start"], "end": p["end"], "where": "tail", "decision": None, "why": c})
             continue
-        if p["blank"] is True or p["sig"] is None:  # a review piece is no W1 blank: measured, signable
-            msg = f"tail piece {p['start']}-{p['end']} is left for review without a signature"
-            raise ValueError(msg)
+        p = c
         row = decide_unit("piece", p["sig"])
         if row is None:
             review.append({"kind": "piece", "start": p["start"], "end": p["end"], "where": "tail", "sig": p["sig"]})

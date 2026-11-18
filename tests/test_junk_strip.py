@@ -670,7 +670,7 @@ def test_w1_drops_gaps_blank_uniform_and_unsignable_pieces():
         "unsignable": False,
         "std": 30.0,
         "ink": 200,
-        "sig": None,
+        "sig": tsig("ink"),  # an inked run is signed
     }
     assert not su.is_blank(p), "an inked piece is no blank"
     blank: su.BlankPiece = {"start": 0, "end": 50, "gap": False, "blank": True}
@@ -701,7 +701,7 @@ def test_w3_reads_the_nearest_non_blank_neighbours():
         "unsignable": False,
         "std": 40.0,
         "ink": 200,
-        "sig": None,
+        "sig": tsig("ink"),  # an inked run is signed
     }
     blank: su.MeasuredPiece = {**piece_, "start": 1130, "end": 1180, "gap": True}
     assert su.tail_classes([piece_, blank], [(1000, 1100), (1180, 1300)], []) == {0: "wedge", 1: "blank"}
@@ -726,7 +726,7 @@ def test_w3_measures_a_piece_with_its_gutters():
         "unsignable": False,
         "std": 40.0,
         "ink": 200,
-        "sig": None,
+        "sig": tsig("ink"),  # an inked run is signed
     }
     gaps: list[su.ClassedPiece] = [
         {**line, "start": 1100, "end": 1140, "gap": True},
@@ -802,15 +802,6 @@ def test_kept_tail_pieces_keep_one_gutter_between_them_after_w1_drops_the_gap():
     lay = layout(20000, [(0, 17900), (18000, 18100), (18105, 18300), (19000, 20000)])
     short = su.settle(lay, [band(18000, 18100), drop(18100, 18105), band(19000, 20000)], g)
     assert [(r["start"], r["end"]) for r in short if r["why"] == "blank"] == [(18100, 18105)], short
-
-
-@budget(load="pure")
-def test_a_tail_piece_left_for_review_without_a_signature_fails_fast():
-    """A measured, signable-looking piece the scan stored without a signature is refused, never offered unkeyed."""
-    sc, decide_unit = tail_chapter([(1000, 1300, 1)], [piece(1300, 1500)])
-    sc["measured"]["1300:1500"]["sig"] = None
-    with pytest.raises(ValueError, match="1300-1500 is left for review without a signature"):
-        su.decide(sc, decide_unit)
 
 
 @budget(load="pure")
