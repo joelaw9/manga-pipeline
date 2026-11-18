@@ -220,22 +220,48 @@ def _cleanup(task: PageTask, qs: list[int]) -> None:
         _tmp(tmp, src, tag).unlink(missing_ok=True)
 
 
-def _cancel[T](jobs: Collection[Future[T]]) -> None:
+type _Scored = tuple[float, float]  # a page's score and the seconds scoring took
+type _JobFuture = Future[Encoded] | Future[_Scored]  # avif_pages' jobs: a page's encode or its score
+type _PageFuture = _JobFuture | Future[LosslessPage]  # any page work in the pool or the scorer's threads
+
+
+@dataclass(frozen=True)
+class _Encoding:
+    """A page's encode in the workers: its task's index, the quality and the future of its Encoded."""
+
+    page: int
+    q: int
+    future: Future[Encoded]
+
+
+@dataclass(frozen=True)
+class _Scoring:
+    """A page's score in the scorer's threads: its task's index, the quality, its encode and the future of its score."""
+
+    page: int
+    q: int
+    encoded: Encoded
+    future: Future[_Scored]
+
+
+def _cancel(jobs: Collection[_PageFuture]) -> None:
     """Cancel queued work and wait for running work, so no page is still writing into the chapter's folders."""
     for g in jobs:
         g.cancel()
-    wait([g for g in jobs if not g.cancelled()])
+    for g in jobs:
+        if not g.cancelled():
+            g.exception()  # waits for it to finish; its own error is not raised here
 
 
-def _retries(task: PageTask, score: float, tried: list[int]) -> bool:
-    """Return whether a page scored under SCORE_FLOOR at its first quality is encoded once more.
+def _retry_q(task: PageTask, score: float, tried: list[int]) -> int | None:
+    """Return the quality a page scored under SCORE_FLOOR at its first quality is encoded at once more, else None.
 
     tried: the qualities encoded.
     """
-    return score < SCORE_FLOOR and task["retry_q"] is not None and len(tried) == 1
+    return task["retry_q"] if score < SCORE_FLOOR and len(tried) == 1 else None
 
 
-def _drop_queued[T, V](jobs: dict[Future[T], V]) -> None:
+def _drop_queued(jobs: dict[_JobFuture, _Encoding | _Scoring]) -> None:
     """Cancel the queued jobs and forget them; the running ones stay."""
     for g in [g for g in jobs if g.cancel()]:
         jobs.pop(g)
@@ -289,6 +315,7 @@ class Encoder:
         Returns (the finished pages' records in task order, the failing page's record or None): {"name", "fmt",
         "class", "yuv", "jpeg_feed", "bytes_in", "q", "score", "bytes_out", "ok", "retried", "sec"}.
         """
+        jobs: dict[_JobFuture, _Encoding | _Scoring]
         recs: dict[int, AvifPage]
         failed: AvifPage | None
         jobs, recs, failed = {}, {}, None
@@ -300,31 +327,37 @@ class Encoder:
         def encode(i: int, q: int) -> None:
             qs[i].append(q)
             job: EncodeTask = {**tasks[i], "tools": self.tool_paths}
-            jobs[self.pool.submit(encode_page, (job, q))] = (i, q, None)
+            future = self.pool.submit(encode_page, (job, q))
+            jobs[future] = _Encoding(i, q, future)
 
         for i, t in enumerate(tasks):
             encode(i, t["q"])
         try:
             while jobs:
-                done, _ = wait(jobs, return_when=FIRST_COMPLETED)
+                # Future is invariant: typeshed's wait takes futures of 1 result type, these are encodes and scores.
+                done, _ = wait(jobs, return_when=FIRST_COMPLETED)  # pyright: ignore[reportArgumentType]
                 for f in done:
-                    i, q, enc = jobs.pop(f)
-                    r = f.result()
-                    if enc is None:  # encoded: score it
+                    work = jobs.pop(f)
+                    i = work.page
+                    if isinstance(work, _Encoding):  # encoded: score it
+                        r = work.future.result()
                         secs[i] += r["sec"]
-                        jobs[scorers.submit(self._score, r["ref"], r["dec"])] = (i, q, r)
+                        scoring = scorers.submit(self._score, r["ref"], r["dec"])
+                        jobs[scoring] = _Scoring(i, work.q, r, scoring)
                         continue
+                    score, sec = work.future.result()
                     task = tasks[i]
-                    s = round(r[0], 2)
-                    secs[i] += r[1]
-                    if _retries(task, s, qs[i]):
+                    s = round(score, 2)
+                    secs[i] += sec
+                    retry = _retry_q(task, s, qs[i])
+                    if retry is not None:
                         if failed is None:
-                            encode(i, task["retry_q"])
+                            encode(i, retry)
                         else:
                             _cleanup(task, qs[i])
                         continue
                     _cleanup(task, qs[i])
-                    recs[i] = _page_record(task, qs[i], s, enc["bytes_out"], secs[i])
+                    recs[i] = _page_record(task, qs[i], s, work.encoded["bytes_out"], secs[i])
                     if stop_on_fail and failed is None and not recs[i]["ok"]:
                         failed = recs[i]
                         _drop_queued(jobs)
@@ -443,8 +476,10 @@ def lossless_page(task: LosslessJob) -> LosslessPage:
     }
 
 
-def _run_all[T, R](pool: Executor, fn: Callable[[T], R], tasks: Sequence[T]) -> list[R]:
-    """Run page tasks; an exception cancels the rest, waits for what runs and is raised."""
+def _run_all(
+    pool: Executor, fn: Callable[[LosslessJob], LosslessPage], tasks: Sequence[LosslessJob]
+) -> list[LosslessPage]:
+    """Run lossless page tasks; an exception cancels the rest, waits for what runs and is raised."""
     futures = [pool.submit(fn, t) for t in tasks]
     try:
         return [f.result() for f in futures]
