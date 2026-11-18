@@ -22,7 +22,7 @@ def sync(ctx: workflow.Context, listing: Sequence[Series]) -> None:
     needed.
     """
     conn, cfg = ctx.conn, ctx.cfg
-    # A published new series is matched first; a listed series named as one still unmatched gets no row of its own
+    # An admitted new series is matched first; a listed series named as one still unmatched gets no row of its own
     claimed = kavita_link.attach_all(ctx, listing)
     listed = {
         s["id"]: s

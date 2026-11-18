@@ -5,7 +5,9 @@ A new series whose first metadata check completed gets its name and folder, once
 The name is the one a person gave (`series new --name`), else the stored AniList English title, else the names the
 series arrived under (a folder's ComicInfo Series before its title folder; a manga's title). It must be unique under
 Kavita's name normalising among the library's series, the other new series Kavita does not hold yet and the folders
-under the library root, and must leave a folder name once made safe; else the series is needs_human.
+under the library root, and must leave a folder name once made safe; and none of its agreed ids may be one a series
+the library holds or an admitted new series holds (a double hit), unless a person confirmed it (`series new` after a
+completed check); else the series is needs_human.
 """
 
 import logging
@@ -16,6 +18,7 @@ from typing import TYPE_CHECKING
 from manga_pipeline import config, db, names, workflow
 from manga_pipeline.clients.kavita_match import normalize, series_names
 from manga_pipeline.db import sql
+from manga_pipeline.metadata import ids
 from manga_pipeline.replies.kavita import Series
 
 if TYPE_CHECKING:
@@ -91,8 +94,17 @@ def _admit(ctx: workflow.Context, series: db.Row, library: _Library) -> None:
     name = name_for(conn, series)
     safe = names.folder_name(name)
     with db.transaction(conn):
-        clash = _clash(conn, series, name, safe, library)
-        if clash:
+        double = _id_clash(conn, series)
+        clash = double or _clash(conn, series, name, safe, library)
+        if double:
+            workflow.needs_human(
+                conn,
+                "series",
+                series["id"],
+                f"new series {name!r}: {double}, a double hit -> series link MANGA_ID KAVITA_SERIES_ID if it is that"
+                f" series, else series new {series['id']}",
+            )
+        elif clash:
             workflow.needs_human(
                 conn, "series", series["id"], f"new series {name!r}: {clash} -> series new {series['id']} --name NAME"
             )
@@ -105,6 +117,35 @@ def _admit(ctx: workflow.Context, series: db.Row, library: _Library) -> None:
         log.warning("series %s (%s): not admitted: %s", series["id"], series["name"], clash)
     else:
         log.info("series %s (%s): admitted as new series %r, folder %r", series["id"], series["name"], name, safe)
+
+
+def _id_clash(conn: db.Connection, series: db.Row) -> str | None:
+    """Return which series holds one of the series' agreed ids (SPEC "Source ids", a human id winning), or None.
+
+    The series compared are those the library holds: a Kavita id, or admitted (in this run too: inside the admission's
+    transaction). None for a series a person confirmed (`series new` after its check completed).
+    """
+    if series["admit_confirmed"]:
+        return None
+    rows = conn.execute(
+        """SELECT s.id, s.name, i.source, i.origin, i.source_id
+        FROM series_source_id i JOIN series s ON s.id = i.series_id
+        WHERE s.id = %s OR s.kavita_series_id IS NOT NULL OR s.admitted_at IS NOT NULL
+        ORDER BY s.id""",
+        (series["id"],),
+    ).fetchall()
+    known: dict[int, list[ids.Known]] = {}
+    names: dict[int, str] = {}
+    for r in rows:
+        known.setdefault(r["id"], []).append((r["source"], r["origin"], r["source_id"]))
+        names[r["id"]] = r["name"]
+    own, _ = ids.resolve(known.pop(series["id"], []))
+    for other, held in known.items():
+        agreed, _ = ids.resolve(held)
+        for source, value in sorted(own.items()):
+            if agreed.get(source) == value:
+                return f"series {other} ({names[other]}) holds its {source} id {value}"
+    return None
 
 
 def _clash(conn: db.Connection, series: db.Row, name: str, safe: str, library: _Library) -> str | None:

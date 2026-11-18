@@ -20,12 +20,12 @@ def world(tmp_path):
     return World(tmp_path)
 
 
-def ready(world, title="Brand New Thing", chapters=(1, 2, 3), al_id=7):
+def ready(world, title="Brand New Thing", chapters=(1, 2, 3), al_id=7, english=None):
     """Add a new series whose chapters all wait for export at comicinfo.
 
-    Admitted, then taken, validated and processed.
+    Admitted (under english, its AniList English title, when given), then taken, validated and processed.
     """
-    media = {"id": al_id, "format": "MANGA", "title": {"romaji": title, "english": None, "native": None}}
+    media = {"id": al_id, "format": "MANGA", "title": {"romaji": title, "english": english, "native": None}}
     world.sources.anilist.results[title] = [media]
     world.sources.anilist.records[("media", str(al_id))] = media
     manga = world.manga(title)
@@ -158,6 +158,39 @@ def test_intake_between_publish_and_attach_makes_no_second_row(world):
     assert world.rows("SELECT series_id FROM suwayomi_manga WHERE manga_id = %s", second) == [(sid,)]
 
 
+@budget(load="db", seconds=20)
+def test_a_publish_killed_after_its_rename_attaches_at_the_next_intake_once_kavita_lists_it(world):
+    sid, _ = ready(world)
+    only_comicinfo = SimpleNamespace(
+        __name__="manga_pipeline.export", work=lambda ctx: workflow.drain(ctx, {"comicinfo": comicinfo.run})
+    )
+    world.run(only_comicinfo)
+    (staged, target), *_ = world.rows("SELECT staged_path, library_path FROM chapter ORDER BY id")
+    folder = world.library / "Brand New Thing"
+    folder.mkdir()
+    config.to_local(world.cfg, staged).replace(folder / target.rpartition("/")[2])  # renamed in, then killed
+    world.kavita.add_series("Brand New Thing", "Brand New Thing", LIBRARY_ID)  # Kavita's own scan found the file
+    world.run(intake)
+    assert world.rows("SELECT id FROM series") == [(sid,)], "the listed series is the admitted one: no second row"
+    assert kavita_id(world, sid) is not None, "attached with no published_file row yet"
+
+
+@budget(load="db", seconds=30)
+def test_an_attached_new_series_kavita_recreates_keeps_its_row_through_its_comicinfo_name(world):
+    sid, _ = ready(world, english="Shiny Title")
+    world.run(export)
+    world.kavita.run_scans()
+    world.run(export)
+    old = kavita_id(world, sid)
+    assert old is not None, "set up: attached"
+    del world.kavita.series_rows[old]
+    new = world.kavita.add_series("Shiny Title", "Shiny Title", LIBRARY_ID)  # Kavita recreated it under a new id
+    world.run(intake)
+    assert world.rows("SELECT id, name, kavita_series_id FROM series") == [(sid, "Brand New Thing", new)], (
+        "matched by its ComicInfo name (not its row name) and its folder: the row takes the new id"
+    )
+
+
 @budget(load="db", seconds=30)
 def test_after_the_rescan_window_a_published_series_still_waits_for_its_id(world):
     sid, manga = ready(world)
@@ -185,7 +218,7 @@ def test_a_listed_series_of_its_name_in_another_folder_is_neither_attached_nor_a
     assert status == "needs_human", (
         "a manga whose strict hit a published new series is named as is held, not a second Kavita series"
     )
-    assert "published new series not found in Kavita yet" in reason, (
+    assert "admitted new series not found in Kavita yet" in reason, (
         "a manga whose strict hit a published new series is named as is held, not a second Kavita series"
     )
 

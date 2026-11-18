@@ -49,8 +49,9 @@ def refetch_covers(conn: db.Connection, series_id: int) -> None:
 def new_series(conn: db.Connection, series_id: int, name: str | None = None) -> None:
     """Make a held new series not yet admitted pending again (status ok), under name when given.
 
-    Its check is made due at once: the next intake checks it and admits it (metadata/admit.py). Refused for any other
-    series, and for a name with nothing in it.
+    Its check is made due at once: the next intake checks it and admits it (metadata/admit.py). When its check has
+    completed, its admission compared its ids, so the person saw them: it is then confirmed a series of its own and its
+    ids are not compared again. Refused for any other series, and for a name with nothing in it.
     """
     if name is not None and not name.strip():
         msg = "--name is empty"
@@ -69,7 +70,9 @@ def new_series(conn: db.Connection, series_id: int, name: str | None = None) -> 
             msg = f"series {series_id} is not held (needs_human): it is admitted at the next intake"
             raise workflow.Refused(msg)
         conn.execute(
-            "UPDATE series SET status = 'ok', status_reason = NULL, admit_name = %s WHERE id = %s",
-            (name.strip() if name is not None else None, series_id),
+            """UPDATE series SET status = 'ok', status_reason = NULL, admit_name = %s, admit_confirmed =
+                EXISTS (SELECT 1 FROM series_check WHERE series_id = %s AND data_version > 0)
+            WHERE id = %s""",
+            (name.strip() if name is not None else None, series_id, series_id),
         )
         check.make_urgent(conn, series_id)
