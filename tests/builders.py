@@ -174,6 +174,7 @@ class ConfigChanges(TypedDict, total=False):
     kavita: config.KavitaConfig
     metadata: config.MetadataConfig
     export: config.ExportConfig
+    notify: config.NotifyConfig
     tools: config.ToolsConfig
     convert: config.ConvertConfig
     sources: config.SourcesConfig

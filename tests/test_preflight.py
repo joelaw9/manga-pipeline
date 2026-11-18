@@ -48,6 +48,7 @@ def test_shipped_checks():
         "share folders": (HARD, preflight.share_folders),
         "workflow settings": (HARD, preflight.workflow_settings),
         "service settings": (HARD, preflight.service_settings),
+        "discord settings": (HARD, preflight.discord_settings),
         "share ownership": (HARD, preflight.share_ownership),
         "staging folder": (HARD, preflight.staging_folder),
         "image tools": (HARD, preflight.image_tools),
@@ -328,6 +329,34 @@ def test_service_settings_pass_with_urls_a_key_and_a_path_map():
 )
 def test_service_settings_name_what_is_missing(tmp_path, change, problem):
     assert problem in preflight.service_settings(services(tmp_path, **change)), "SPEC 'Preflight': service settings"
+
+
+@budget(load="fs")
+@pytest.mark.parametrize("url", [None, "https://discord.invalid/api/webhooks/1/secret-token"], ids=["off", "https"])
+def test_discord_settings_pass_with_no_webhook_or_an_https_url(tmp_path, url):
+    assert preflight.discord_settings(services(tmp_path, notify__discord_webhook=url)) is None, (
+        "SPEC 'Needs human': Discord is off without a webhook"
+    )
+
+
+@budget(load="fs")
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://discord.invalid/api/webhooks/1/secret-token",
+        "https://",
+        "https://discord.invalid/api/webhooks/1/secret token",
+        "https://discord.invalid/api/webhooks/1/secret-token\n",
+        "",
+        12345,
+    ],
+    ids=["http", "no-host", "space", "newline", "empty", "number"],
+)
+def test_discord_settings_refuse_a_bad_webhook_and_never_show_it(tmp_path, url):
+    problem = preflight.discord_settings(services(tmp_path, notify__discord_webhook=url))
+    assert problem is not None, "SPEC 'Needs human': the webhook must be an https URL with a host"
+    assert "MANGA_PIPELINE_NOTIFY_DISCORD_WEBHOOK" in problem, "the problem names the variable that sets it"
+    assert "secret" not in problem, "the webhook is a secret: never shown"
 
 
 @budget(load="fs")

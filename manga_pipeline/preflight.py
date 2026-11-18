@@ -228,6 +228,29 @@ def service_settings(cfg: config.Config) -> str | None:
     return "; ".join(problems) or None
 
 
+def discord_settings(cfg: config.Config) -> str | None:
+    """Check notify.discord_webhook: unset (Discord off), or an https URL with a host (SPEC "Needs human").
+
+    The value is never shown: it is a secret whole.
+    """
+    url = cfg["notify"]["discord_webhook"]
+    if url is None:
+        return None
+    parts = urllib.parse.urlsplit(url) if isinstance(url, str) else None
+    if (
+        parts is None
+        or parts.scheme != "https"
+        or not parts.netloc
+        or not url.isprintable()
+        or any(c.isspace() for c in url)
+    ):
+        return (
+            "notify.discord_webhook must be an https URL with a host and no spaces or control characters "
+            f"(env {config.ENV_PREFIX}_NOTIFY_DISCORD_WEBHOOK)"
+        )
+    return None
+
+
 def share_ownership(cfg: config.Config) -> str | None:
     """Check that the share's owner file holds this database's id (SPEC "State"); the database is not upgraded."""
     path = owner_file(cfg)
@@ -345,6 +368,7 @@ FOLDER_LAYOUT = Check("folder layout", HARD, folder_layout)
 SHARE_FOLDERS_PRESENT = Check("share folders", HARD, share_folders)
 WORKFLOW_SETTINGS = Check("workflow settings", HARD, workflow_settings)
 SERVICE_SETTINGS = Check("service settings", HARD, service_settings)
+DISCORD_SETTINGS = Check("discord settings", HARD, discord_settings)
 SHARE_OWNERSHIP = Check("share ownership", HARD, share_ownership)
 OCR_DEVICE = Check("OCR device", HARD, ocr_device)
 JUNK_WORD_LISTS = Check("junk word lists", HARD, junk_word_lists)

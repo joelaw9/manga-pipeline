@@ -130,6 +130,12 @@ class MetadataConfig(TypedDict):
     complete_days: int
 
 
+class NotifyConfig(TypedDict):
+    """The notify section; discord_webhook is a secret, None = Discord off (SPEC "Needs human")."""
+
+    discord_webhook: str | None
+
+
 class ExportConfig(TypedDict):
     """The export section."""
 
@@ -196,6 +202,7 @@ class Config(TypedDict):
     kavita: KavitaConfig
     metadata: MetadataConfig
     export: ExportConfig
+    notify: NotifyConfig
     tools: ToolsConfig
     convert: ConvertConfig
     sources: SourcesConfig
