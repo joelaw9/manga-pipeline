@@ -190,9 +190,8 @@ class VolumeCover(TypedDict):
 
 @final
 class AvifCover(TypedDict):
-    """An outcome's volume cover in AVIF: its format (AVIF) and its AVIF that passed the gate, copied in."""
+    """An outcome's volume cover in AVIF: its AVIF that passed the gate, copied in."""
 
-    format: str
     avif: PassedAvif
 
 
@@ -688,7 +687,7 @@ def routes(plan: ChapterPlan, *, cover: VolumeCover | None = None) -> None:
         avif = cover["avif"]
         if avif["ok"] is False:  # the discriminant: a failed AVIF goes in no outcome
             return None
-        return {"format": fmt, "avif": avif}
+        return {"avif": avif}
 
     def outcome(name: str, gate: str | None, edits: str, cover_fmts: Iterable[str], pages: int) -> Outcome:
         inserted = taken(cover_fmts)
