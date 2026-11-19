@@ -6,9 +6,9 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import cli, config, db, export, intake, library_copy, lock, process
+from manga_pipeline import cli, config, db, export, intake, library_copy, lock, process, source_review
 
-from tests.builders import add_chapter, add_series, running, settle
+from tests.builders import WinFileNotFoundError, add_chapter, add_series, running, settle
 from tests.source_world import FILES, SERIES, candidate, library, link, main, make_world, pages, zipped
 from tests.timing import budget
 
@@ -79,6 +79,19 @@ def test_survey_ends_on_an_unreachable_share(world, capsys, monkeypatch):
     assert code == 1
     assert lines == [], "a share that cannot be reached is no file's defect"
     assert "share" in err
+
+
+@budget(load="db", seconds=3)
+def test_survey_lists_only_a_file_read_as_the_file_s_defect(world, capsys, monkeypatch):
+    def broken(*_args):
+        msg = "a program error past the file read"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(library_copy, "published_junk", broken)
+    code, lines, err = main(world, capsys, "source", "survey")
+    assert code == 1, "an error past reading the file is the program's, never listed as the file's defect"
+    assert lines == [], lines
+    assert "a program error past the file read" in err
 
 
 @budget(load="db", seconds=3)
@@ -322,6 +335,22 @@ def test_retire_is_refused_while_a_re_download_expects_a_chapter_of_its_manga(wo
     assert ran.code == 2
     assert "unfinished chapters hold or expect" in ran.err
     assert world.suwayomi.manga_rows[new]["inLibrary"]
+
+
+@budget(load="db", seconds=3)
+def test_retire_on_a_dropped_share_changes_nothing(world, capsys, monkeypatch):
+    old, _, _ = two_sources(world)
+
+    def dropped(_self):
+        error = WinFileNotFoundError(errno.ENOENT, "The network path was not found")
+        error.winerror = 53  # how Windows reports a dropped SMB share
+        raise error
+
+    monkeypatch.setattr(source_review.Path, "iterdir", dropped)
+    ran = main(world, capsys, "source", "retire", "1", str(old), "--yes")
+    assert ran.code != 0, "a download folder that cannot be seen is never read as empty"
+    assert world.suwayomi.manga_rows[old]["inLibrary"], "the manga stays in the library"
+    assert len(world.rows("SELECT 1 FROM suwayomi_manga")) == 2, "and stays linked"
 
 
 @budget(load="db", seconds=4)

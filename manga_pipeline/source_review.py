@@ -157,7 +157,13 @@ def chapter_keys(rows: Sequence[suwayomi_replies.Chapter]) -> set[validation.Cha
 
 def measure_file(ctx: workflow.Context, row: db.Row, series_layout: str | None) -> FileMeasures:
     """Return a published file's measures (library_copy.original) and junk (None without a layout)."""
-    m = library_copy.original(ctx, row)
+    return with_original(ctx, row, series_layout, library_copy.original(ctx, row))
+
+
+def with_original(
+    ctx: workflow.Context, row: db.Row, series_layout: str | None, m: library_copy.Measures[float | None]
+) -> FileMeasures:
+    """Return a published file's measures from its original's (m) and its junk (None without a layout)."""
     junk = None if series_layout is None else library_copy.published_junk(ctx, row, series_layout, m.median_page_width)
     return FileMeasures(row, m, junk, library_copy.rating(row["source_name"]))
 
@@ -230,12 +236,13 @@ def survey(ctx: workflow.Context) -> list[str]:
         head = f"series {series['id']} {series['name']} ({series_layout or 'no layout'}, {len(files)} files)"
         measured: list[FileMeasures] = []
         for f in files:
-            try:
+            try:  # only reading the file is guarded: a defect elsewhere is a program error, not the file's
                 with workflow.share_errors():  # an unreachable share ends the survey: only a file's defect is listed
-                    measured.append(measure_file(ctx, f, series_layout))
+                    original = library_copy.original(ctx, f)
             except (OSError, *archive.UNREADABLE) as e:
                 found.append((0, f"{head}: file {f['id']} ({f['library_path']}) cannot be read: {e}"))
                 break
+            measured.append(with_original(ctx, f, series_layout, original))
         else:
             c = combine(measured)
             crossed = triggers(c, series_layout)
@@ -479,7 +486,7 @@ def _refuse_busy(
         msg = f"manga {manga_id} has {len(queued)} chapters in Suwayomi's download queue"
         raise workflow.Refused(msg)
     for folder in _download_folders(ctx.cfg, found):
-        files = sorted(folder.glob("*.cbz")) if folder.is_dir() else []
+        files = [p for p in _listed(folder) if p.suffix.lower() == ".cbz"]
         if files:
             msg = f"manga {manga_id} has {len(files)} CBZ files in its download folder {folder}"
             raise workflow.Refused(msg)
@@ -510,4 +517,18 @@ def _download_folders(cfg: config.Config, found: suwayomi_replies.Manga) -> list
         source_folder, manga_folder = suwayomi.download_folders(found["source"], found["title"])
         return [mangas / source_folder / manga_folder]
     title = suwayomi.manga_folder(found["title"])
-    return sorted(d / title for d in mangas.iterdir() if d.is_dir()) if mangas.is_dir() else []
+    return sorted(d / title for d in _listed(mangas) if d.is_dir())
+
+
+def _listed(folder: Path) -> list[Path]:
+    """Return a folder's entries; none when it does not exist.
+
+    A dropped SMB share raises (errors.dropped_share), never reads as an empty folder: retire must not take a manga
+    out of the library on a folder it could not see.
+    """
+    try:
+        return sorted(folder.iterdir())
+    except FileNotFoundError as e:
+        if errors.dropped_share(e):
+            raise
+        return []
