@@ -300,5 +300,5 @@ def decide_junk(cfg, verdict="keep"):
     with closing(db.connect(cfg)) as conn:
         rows = review.listing(conn, cfg, everything=True)
         for r in rows:
-            review.decide(conn, r["id"], verdict, "human", workflow.now(conn))
+            review.decide(conn, r["id"], verdict, None, workflow.now(conn))
     return len(rows)

@@ -378,7 +378,7 @@ def junk_show(cfg: config.Config, args: argparse.Namespace) -> None:
     """Print an open junk candidate's reason, chapters, OCR text and image paths (`junk show`)."""
     with _junk_db(cfg) as conn:
         try:
-            row = review.get_open(conn, args.id)
+            row = review.get_open(conn, args.id, os.environ.get(review.REVIEW_ID_VARIABLE))
         except review.Refused as e:
             raise workflow.Refused(str(e)) from None
         folder = _folder(cfg, row)
@@ -393,13 +393,13 @@ def junk_show(cfg: config.Config, args: argparse.Namespace) -> None:
 
 def junk_decide(cfg: config.Config, args: argparse.Namespace) -> None:
     """Record a verdict on a junk candidate, by claude under a review run, else by a human (`junk decide`)."""
-    decider = "claude" if os.environ.get(review.REVIEW_ID_VARIABLE) else "human"
+    review_id = os.environ.get(review.REVIEW_ID_VARIABLE)
     with _junk_db(cfg) as conn:
         try:
-            review.decide(conn, args.id, args.verdict, decider, workflow.now(conn))
+            review.decide(conn, args.id, args.verdict, review_id, workflow.now(conn))
         except review.Refused as e:
             raise workflow.Refused(str(e)) from None
-    log.info("junk candidate %s decided %s by %s", args.id, args.verdict, decider)
+    log.info("junk candidate %s decided %s by %s", args.id, args.verdict, "claude" if review_id else "human")
 
 
 def locked_connection(conn: db.Connection | None) -> db.Connection:

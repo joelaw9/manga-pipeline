@@ -161,12 +161,12 @@ def test_unsure_makes_the_chapter_needs_human_until_decided_and_retried(site):
     site.parts()
     (cand,) = open_candidates(site)
     with closing(db.connect(site.cfg)) as conn:
-        review.decide(conn, cand["id"], "unsure", "claude", workflow.now(conn))
+        review.decide(conn, cand["id"], "unsure", None, workflow.now(conn))
         assert review.listing(conn, site.cfg) == [], "an unsure candidate is never listed to Claude again"
     run_part(site.cfg, process)
     assert site.chapters() == [("junk", "needs_human", None)], "unsure: a person decides"
     with closing(db.connect(site.cfg)) as conn:
-        review.decide(conn, cand["id"], "keep", "human", workflow.now(conn))
+        review.decide(conn, cand["id"], "keep", None, workflow.now(conn))
         workflow.retry_chapter(conn, site.rows("SELECT id FROM chapter")[0][0])
     run_part(site.cfg, process)
     assert site.chapters()[0][0] != "junk", "decided and retried, the chapter goes on"
@@ -261,6 +261,60 @@ def test_junk_commands_list_show_decide_and_refuse(site, tmp_path, capsys, monke
     )
     assert cli.main(["--config", path, "junk", "decide", str(cand["id"]), "junk"]) == 0
     assert site.rows("SELECT decider, verdict FROM junk_decision") == [("claude", "junk")], "Claude's verdict"
+
+
+@budget(load="db", seconds=10)
+def test_inside_a_review_a_candidate_it_did_not_list_is_neither_shown_nor_decided(site, tmp_path, capsys, monkeypatch):
+    """`junk show` and `junk decide` under a review id refuse (exit 2) an open candidate that review never listed."""
+    site.download("Alpha", 2, cbz(credit=True))
+    site.parts()
+    path = str(config_file(tmp_path, site.cfg))
+    (cand,) = open_candidates(site)
+    monkeypatch.setenv(review.REVIEW_ID_VARIABLE, "r1")
+    capsys.readouterr()
+    assert cli.main(["--config", path, "junk", "show", str(cand["id"])]) == 2, "show refuses an unlisted candidate"
+    assert "not listed by this review" in capsys.readouterr().err, "the refusal says why"
+    assert cli.main(["--config", path, "junk", "decide", str(cand["id"]), "junk"]) == 2, (
+        "decide refuses an unlisted candidate"
+    )
+    assert "not listed by this review" in capsys.readouterr().err, "the refusal says why"
+    assert site.rows("SELECT count(*) FROM junk_decision") == [(0,)], "no verdict is recorded"
+
+
+@budget(load="db", seconds=10)
+def test_a_candidate_an_ended_review_listed_is_refused_in_the_next_review(site, tmp_path, capsys, monkeypatch):
+    """A candidate listed by review r0, which has ended, is not r1's to decide: exit 2 and no decision."""
+    site.download("Alpha", 2, cbz(credit=True))
+    site.parts()
+    path = str(config_file(tmp_path, site.cfg))
+    (cand,) = open_candidates(site)
+    monkeypatch.setenv(review.REVIEW_ID_VARIABLE, "r0")
+    assert cli.main(["--config", path, "junk", "list"]) == 0
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE junk_candidate SET reviews = reviews + 1, review_open = 0")  # as junk review ends r0
+    monkeypatch.setenv(review.REVIEW_ID_VARIABLE, "r1")
+    assert cli.main(["--config", path, "junk", "decide", str(cand["id"]), "junk"]) == 2, (
+        "another review's candidate is refused"
+    )
+    capsys.readouterr()
+    assert site.rows("SELECT count(*) FROM junk_decision") == [(0,)], "no verdict is recorded"
+
+
+@budget(load="db", seconds=10)
+def test_with_no_review_id_a_person_decides_a_candidate_a_review_listed(site, tmp_path, capsys, monkeypatch):
+    """Outside a review, `junk decide` takes any open candidate, one a running review listed included, as human."""
+    site.download("Alpha", 2, cbz(credit=True))
+    site.parts()
+    path = str(config_file(tmp_path, site.cfg))
+    (cand,) = open_candidates(site)
+    monkeypatch.setenv(review.REVIEW_ID_VARIABLE, "r1")
+    assert cli.main(["--config", path, "junk", "list"]) == 0
+    capsys.readouterr()
+    monkeypatch.delenv(review.REVIEW_ID_VARIABLE)
+    assert cli.main(["--config", path, "junk", "decide", str(cand["id"]), "keep"]) == 0, (
+        "a person decides an open candidate whatever review listed it"
+    )
+    assert site.rows("SELECT decider, verdict FROM junk_decision") == [("human", "keep")], "a person's verdict"
 
 
 @budget(load="db", seconds=10)
@@ -392,7 +446,7 @@ def decide_kinds(cfg, verdicts):
     with closing(db.connect(cfg)) as conn:
         rows = review.listing(conn, cfg, everything=True)
         for r in rows:
-            review.decide(conn, r["id"], verdicts[r["kind"]], "human", workflow.now(conn))
+            review.decide(conn, r["id"], verdicts[r["kind"]], None, workflow.now(conn))
     return sorted(r["kind"] for r in rows)
 
 
@@ -576,8 +630,8 @@ def test_an_edge_page_decided_junk_frees_its_chapter_though_its_band_is_unsure(s
     assert sorted(c["kind"] == "band" for c in got) == [False, True], "the edge page and its band are both offered"
     with closing(db.connect(site.cfg)) as conn:
         for c in got:
-            verdict, who = ("unsure", "claude") if c["kind"] == "band" else ("junk", "human")
-            review.decide(conn, c["id"], verdict, who, workflow.now(conn))
+            verdict = "unsure" if c["kind"] == "band" else "junk"
+            review.decide(conn, c["id"], verdict, None, workflow.now(conn))
     run_part(site.cfg, process)
     assert site.chapters()[0][0] != "junk", "the page is dropped, so its band holds nothing: no person is asked"
     (edit,) = edits(site)

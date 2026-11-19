@@ -55,17 +55,23 @@ def chapters(conn: db.Connection, candidate_id: int) -> int:
     )[0]
 
 
-def get_open(conn: db.Connection, candidate_id: int) -> db.Row:
-    """Return the candidate row of candidate_id; Refused unless it is open."""
+def get_open(conn: db.Connection, candidate_id: int, review_id: str | None = None) -> db.Row:
+    """Return the candidate row of candidate_id; Refused unless it is open.
+
+    With a review id, Refused too unless that review listed it and is still open on it.
+    """
     row = conn.execute("SELECT * FROM junk_candidate WHERE id = %s", (candidate_id,)).fetchone()
     if row is None or not candidates.is_open(conn, row):
         msg = f"junk candidate {candidate_id} is not open (unknown, decided, or no chapter waits on it)"
         raise Refused(msg)
+    if review_id and (row["review_id"] != review_id or row["review_open"] != 1):
+        msg = f"junk candidate {candidate_id} was not listed by this review"
+        raise Refused(msg)
     return row
 
 
-def decide(conn: db.Connection, candidate_id: int, verdict: str, decider: str, at: str) -> db.Row:
-    """Record a verdict on an open candidate.
+def decide(conn: db.Connection, candidate_id: int, verdict: str, review_id: str | None, at: str) -> db.Row:
+    """Record a verdict on an open candidate, by claude under a review id (only one that review listed), else a human.
 
     junk / keep become a series-scoped decision on its key; unsure marks it (its chapters become needs_human at the
     next process run).
@@ -73,8 +79,9 @@ def decide(conn: db.Connection, candidate_id: int, verdict: str, decider: str, a
     if verdict not in VERDICTS:
         msg = f"verdict must be one of {VERDICTS}, got {verdict!r}"
         raise Refused(msg)
+    decider = "claude" if review_id else "human"
     with db.transaction(conn):
-        row = get_open(conn, candidate_id)
+        row = get_open(conn, candidate_id, review_id)
         if verdict == "unsure":
             conn.execute("UPDATE junk_candidate SET verdict = 'unsure' WHERE id = %s", (candidate_id,))
             return row
