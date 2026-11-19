@@ -5,7 +5,8 @@ Copy this file into the project's test package (for example tests/timing.py). Py
     python -m tests.timing discover -s tests -t .          # unittest; any `python -m unittest` arguments work
     python -m tests.timing --timings out.json tests.test_x  # custom report path
 
-Over-budget tests are reported, never failed. pytest wiring: see the skill's references/timing.md.
+Over-budget tests are reported, never failed. Budgets are set for a serial run: a parallel run passes
+check_budgets=False to report(). pytest wiring: see the skill's references/timing.md.
 """
 
 import argparse
@@ -64,15 +65,18 @@ def row(test_id, seconds, tag):
 def report(rows, out, path, *, check_budgets=True):
     """Print the slowest tests, over-budget tests and untagged tests; write all rows to path as JSON.
 
-    Budgets are set for a serial run: with check_budgets False (a parallel run) the over-budget list is not printed.
+    Budgets are set for a serial run. With check_budgets False (a parallel run, whose times include contention)
+    no test is counted, listed or marked as over budget, and the JSON says budgets_checked false.
     """
+    if not check_budgets:
+        rows = [{**r, "over": False} for r in rows]
     rows = sorted(rows, key=lambda r: r["seconds"], reverse=True)
     total = sum(r["seconds"] for r in rows)
     out.write(f"\nTiming: {len(rows)} tests, {total:.1f}s total\n")
     out.write(f"Slowest {min(SLOWEST, len(rows))}:\n")
     for r in rows[:SLOWEST]:
         out.write(f"  {r['seconds']:8.3f}s  {_tag(r):<22}  {r['id']}\n")
-    over = [r for r in rows if r["over"]] if check_budgets else []
+    over = [r for r in rows if r["over"]]
     out.write(f"Over budget: {len(over)}\n" if check_budgets else "Over budget: not checked (parallel run)\n")
     for r in over:
         out.write(f"  {r['seconds']:8.3f}s > {r['budget']:.3f}s  {r['load']:<10}  {r['id']}\n")
@@ -87,6 +91,7 @@ def report(rows, out, path, *, check_budgets=True):
             {
                 "run_at": datetime.now(UTC).isoformat(timespec="seconds"),
                 "total_seconds": round(total, 3),
+                "budgets_checked": check_budgets,
                 "tests": rows,
             },
             f,
