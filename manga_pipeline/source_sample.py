@@ -132,17 +132,19 @@ def judge(s: Sampling, row: db.Row) -> list[str]:
     applied = _junk(s, paths, verdict.pages)
     if applied.problem:
         return [f"{head}: its junk edit is refused ({applied.problem}): a person decides"]
-    ours = library_copy.Copy(
+    candidate = library_copy.Copy(
         library_copy.measured(head, measures.summary(verdict.pages), measures.bits_per_pixel(verdict.pages)),
         library_copy.rating(suwayomi.chapter_file(hit["scanlator"], hit["name"]).removesuffix(".cbz")),
         measures.junk(applied.edit, s.layout, measures.summary(verdict.pages)["median_page_width"] or 0),
     )
-    theirs = source_review.measure_file(s.ctx, row, s.layout)
-    outcome = library_copy.decide(ours, library_copy.Copy(theirs.measures, theirs.rating, theirs.junk), s.layout)
+    published = source_review.measure_file(s.ctx, row, s.layout)
+    outcome = library_copy.decide(
+        candidate, library_copy.Copy(published.measures, published.rating, published.junk), s.layout
+    )
     out = [
         f"{head}: {_outcome(outcome)}",
-        f"  ours:   {_copy_text(ours.measures, ours.junk, ours.rating)}",
-        f"  theirs: {_copy_text(theirs.measures, theirs.junk, theirs.rating)}",
+        f"  candidate: {_copy_text(candidate.measures, candidate.junk, candidate.rating)}",
+        f"  published: {_copy_text(published.measures, published.junk, published.rating)}",
         *(f"  note: {note}" for note in verdict.notes),
     ]
     picks = candidates.select(

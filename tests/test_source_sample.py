@@ -67,7 +67,7 @@ def test_a_wider_copy_would_replace_its_files_and_the_sample_touches_no_download
     assert ran.code == 0, ran
     for file_id in (3, 4, 5):
         assert file_line(ran.lines, file_id).endswith(": better: would replace"), ran.lines
-    assert "  ours:   pages 3, width 24, strip length 4500," in "\n".join(ran.lines)
+    assert "  candidate: pages 3, width 24, strip length 4500," in "\n".join(ran.lines)
     assert ran.lines[-1].startswith("junk counts only what the series' stored decisions remove: a lower bound")
     assert [w[0] for w in world.suwayomi.writes].count("chapter_pages") == 3, "pages come through the reader API"
     assert not [w for w in world.suwayomi.writes if w[0] in ("enqueue", "start_downloader", "set_in_library")]
@@ -87,7 +87,7 @@ def test_a_recompressed_copy_is_a_duplicate(world, capsys):
     assert ran.code == 0, ran
     assert "file 5 #5 / chapter" in ran.lines[1]
     assert ": duplicate: would be dropped (bits per pixel " in ran.lines[1], ran.lines
-    assert ran.lines[3] == "  theirs: pages 3, width 16, strip length 4500, bits per pixel 50.00, junk 0, rating 1"
+    assert ran.lines[3] == "  published: pages 3, width 16, strip length 4500, bits per pixel 50.00, junk 0, rating 1"
 
 
 @budget(load="db", seconds=4)
@@ -199,4 +199,4 @@ def test_measure_and_sample_read_the_library_under_a_windows_share_root(world, c
     ran = main(world, capsys, "source", "sample", "1", str(manga), "--chapters", "1", cfg=cfg)
     assert ran.code == 0, ran
     assert file_line(ran.lines, 5).endswith(": better: would replace")
-    assert "  theirs: pages 3, width 16," in ran.lines[3], "the library file read under the root"
+    assert "  published: pages 3, width 16," in ran.lines[3], "the library file read under the root"
