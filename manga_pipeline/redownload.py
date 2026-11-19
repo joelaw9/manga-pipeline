@@ -233,7 +233,7 @@ def _match(
     if found is None:
         return None
     other = ctx.suwayomi.fetch_manga_and_chapters(found["id"])["chapters"]
-    ours = ctx.suwayomi.chapters(reference) if reference else []
+    ours = [numbering(row) for row in ctx.suwayomi.chapters(reference)] if reference else []
     row = pick_chapter(chapter["identity"], chapter["number"], ours, other)  # a download past discover has one
     return None if row is None else target(ctx, row["id"])
 
@@ -256,19 +256,29 @@ def pick_manga(hits: Sequence[suwayomi_replies.Manga], known: Iterable[str]) -> 
     return scored[0][2]
 
 
+def numbering(row: suwayomi_replies.Chapter) -> tuple[str, float | None]:
+    """(names.identity JSON, number as float or None) of a Suwayomi chapter row, parsed as its download file's stem."""
+    item = names.parse(suwayomi.chapter_file(row["scanlator"], row["name"])[: -len(".cbz")])
+    return names.identity(item), (None if item.number is None else float(item.number))
+
+
 def _parsed(row: suwayomi_replies.Chapter) -> tuple[list[str | None], float | None]:
     """(identity list, number as float or None) of a Suwayomi chapter row, parsed as its download file's stem."""
-    item = names.parse(suwayomi.chapter_file(row["scanlator"], row["name"])[: -len(".cbz")])
-    return names.read_identity(names.identity(item)), (None if item.number is None else float(item.number))
+    identity, number = numbering(row)
+    return names.read_identity(identity), number
 
 
 def pick_chapter(
-    identity: str, number: float, ours: Sequence[suwayomi_replies.Chapter], other: Sequence[suwayomi_replies.Chapter]
+    identity: str,
+    number: float,
+    ours: Sequence[tuple[str, float | None]],
+    other: Sequence[suwayomi_replies.Chapter],
 ) -> suwayomi_replies.Chapter | None:
     """Return the row of `other` (the other source's chapters) that is our chapter; None when not confident.
 
-    identity is the chapter's names.identity JSON, number its number. The row is checked against `ours` (the original
-    source's chapters) for numbering that agrees.
+    identity is the chapter's names.identity JSON, number its number. The row is checked against `ours`, the numbering
+    reference: (names.identity JSON, number or None) of each chapter it must agree with (the original source's
+    chapters, numbering; or a series' published files).
     """
     me = names.read_identity(identity)
     key = tuple(me[1:4])
@@ -282,8 +292,8 @@ def pick_chapter(
     for _, ident, _ in parsed:
         by_key.setdefault(tuple(ident[1:4]), []).append(ident[4])
     neighbours: list[list[str | None]] = []
-    for row in ours:
-        ident, n = _parsed(row)
+    for their_identity, n in ours:
+        ident = names.read_identity(their_identity)
         same_run = tuple(ident[1:3]) == key[:2] and tuple(ident[1:4]) != key  # same season and side label, not ours
         if n is not None and same_run and abs(n - number) <= NEIGHBOURS:
             neighbours.append(ident)

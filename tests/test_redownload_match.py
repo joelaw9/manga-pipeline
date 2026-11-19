@@ -33,6 +33,11 @@ def rows(names_, scanlator=None, start=1):
     return out
 
 
+def reference(chapters):
+    """Return the numbering reference pick_chapter takes of Suwayomi chapter rows."""
+    return [redownload.numbering(row) for row in chapters]
+
+
 def chapter_of(stem):
     """Return the identity and number pick_chapter takes of our chapter, named stem."""
     item = names.parse(stem)
@@ -77,7 +82,7 @@ ORIGINAL = rows([f"Chapter {n}" for n in range(1, 21)])
 @budget(load="pure")
 def test_the_chapter_with_our_number_is_ours_when_the_numbering_agrees():
     other = rows([f"Ch. {n}" for n in range(1, 21)], start=100)
-    found = present(redownload.pick_chapter(*chapter_of("Chapter 12"), ORIGINAL, other))
+    found = present(redownload.pick_chapter(*chapter_of("Chapter 12"), reference(ORIGINAL), other))
     assert found["name"] == "Ch. 12", "the same season, side label and number, whatever the label or title"
 
 
@@ -85,32 +90,38 @@ def test_the_chapter_with_our_number_is_ours_when_the_numbering_agrees():
 def test_a_chapter_numbered_with_2_readings_is_never_picked_for_the_shorter_decimal():
     ours = rows([f"Chapter {n}" for n in range(1, 21)] + ["Chapter 12.1"])
     other = rows([f"Ch. {n}" for n in range(1, 21)] + ["Ch. 12.10"], start=100)
-    assert redownload.pick_chapter(*chapter_of("Chapter 12.1"), ours, other) is None, "12.10 is not chapter 12.1"
+    assert redownload.pick_chapter(*chapter_of("Chapter 12.1"), reference(ours), other) is None, (
+        "12.10 is not chapter 12.1"
+    )
     with_ours = rows([f"Ch. {n}" for n in range(1, 21)] + ["Ch. 12.10", "Ch. 12.1"], start=100)
-    assert present(redownload.pick_chapter(*chapter_of("Chapter 12.1"), ours, with_ours))["name"] == "Ch. 12.1"
+    assert (
+        present(redownload.pick_chapter(*chapter_of("Chapter 12.1"), reference(ours), with_ours))["name"] == "Ch. 12.1"
+    )
 
 
 @budget(load="pure")
 def test_numbering_that_does_not_agree_is_not_confident():
     other = rows([f"Chapter {n}" for n in range(30, 50)], start=100)  # another numbering (absolute vs per season)
     other += rows(["Chapter 12"], start=500)
-    assert redownload.pick_chapter(*chapter_of("Chapter 12"), ORIGINAL, other) is None
+    assert redownload.pick_chapter(*chapter_of("Chapter 12"), reference(ORIGINAL), other) is None
 
 
 @budget(load="pure")
 def test_neighbours_with_unlike_titles_disagree():
     ours = rows([f"Chapter {n} - Title {n}" for n in range(1, 21)])
     shifted = rows([f"Chapter {n} - Title {n + 1}" for n in range(1, 21)], start=100)  # off by 1 in content
-    assert redownload.pick_chapter(*chapter_of("Chapter 12 - Title 12"), ours, shifted) is None
+    assert redownload.pick_chapter(*chapter_of("Chapter 12 - Title 12"), reference(ours), shifted) is None
     same = rows([f"Chapter {n} - Title {n}" for n in range(1, 21)], start=100)
-    assert present(redownload.pick_chapter(*chapter_of("Chapter 12 - Title 12"), ours, same))["id"] == 111
+    assert present(redownload.pick_chapter(*chapter_of("Chapter 12 - Title 12"), reference(ours), same))["id"] == 111
 
 
 @budget(load="pure")
 def test_fewer_than_3_neighbours_are_not_enough():
     ours = rows(["Chapter 1", "Chapter 2", "Chapter 3"])
     other = rows(["Chapter 1", "Chapter 2", "Chapter 3"], start=100)
-    assert redownload.pick_chapter(*chapter_of("Chapter 2"), ours, other) is None, "only 2 other chapters to compare"
+    assert redownload.pick_chapter(*chapter_of("Chapter 2"), reference(ours), other) is None, (
+        "only 2 other chapters to compare"
+    )
 
 
 @budget(load="pure")
@@ -118,7 +129,7 @@ def test_another_season_with_the_same_number_is_not_ours():
     ours = rows([f"S2 Chapter {n}" for n in range(1, 21)])
     other = rows([f"S1 Chapter {n}" for n in range(1, 21)], start=100)
     other += rows([f"S2 Chapter {n}" for n in range(1, 21)], start=200)
-    found = present(redownload.pick_chapter(*chapter_of("S2 Chapter 5"), ours, other))
+    found = present(redownload.pick_chapter(*chapter_of("S2 Chapter 5"), reference(ours), other))
     assert found["name"] == "S2 Chapter 5"
 
 
@@ -128,8 +139,12 @@ def test_an_aggregator_row_per_group_picks_our_scanlator_or_none():
     other = rows(groups, start=100)
     found = present(
         redownload.pick_chapter(
-            *chapter_of("Fan Group_Chapter 12"), rows([("Fan Group", f"Chapter {n}") for n in range(1, 21)]), other
+            *chapter_of("Fan Group_Chapter 12"),
+            reference(rows([("Fan Group", f"Chapter {n}") for n in range(1, 21)])),
+            other,
         )
     )
     assert (found["scanlator"], found["name"]) == ("Fan Group", "Chapter 12")
-    assert redownload.pick_chapter(*chapter_of("Other_Chapter 12"), ORIGINAL, other) is None, "2 groups, neither ours"
+    assert redownload.pick_chapter(*chapter_of("Other_Chapter 12"), reference(ORIGINAL), other) is None, (
+        "2 groups, neither ours"
+    )
