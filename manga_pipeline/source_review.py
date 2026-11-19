@@ -7,6 +7,7 @@ nothing else. Every path is a stored path made local (config.to_local).
 
 import statistics
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import NamedTuple
 
 from manga_pipeline import config, db, library_copy, names, redownload, rewrite, validation, workflow
@@ -424,15 +425,19 @@ def _skipping(conn: db.Connection, series_id: int) -> Callable[[db.Row], str | N
 def retire(ctx: workflow.Context, series_id: int, manga_id: int) -> list[str]:
     """Remove the manga from Suwayomi's library, then delete its link to the series (SPEC "Source review", step 7).
 
-    Refused while the manga has a chapter queued, a CBZ in its download folder, or a chapter an unfinished chapter of
-    the series holds or expects. Prints first the series' published chapter keys no other linked manga lists. Out of
-    the library first: a library manga with no link would be discovered as a new series.
+    Refused while the manga has a chapter queued, a CBZ in its download folder (any source folder's folder of its
+    title when its source is not installed), or a chapter an unfinished chapter of the series holds or expects; and
+    for a manga Suwayomi no longer has. Prints first the series' published chapter keys no other linked manga lists.
+    Out of the library first: a library manga with no link would be discovered as a new series.
     """
     reviewed(ctx, series_id)
     linked(ctx.conn, series_id, manga_id)
-    found, source = manga(ctx, manga_id)
+    found = ctx.suwayomi.manga(manga_id)
+    if found is None:
+        msg = f"Suwayomi has no manga {manga_id}: there is nothing to take out of its library"
+        raise workflow.Refused(msg)
     listed = ctx.suwayomi.chapters(manga_id)
-    _refuse_busy(ctx, series_id, (found, source), listed)
+    _refuse_busy(ctx, series_id, found, listed)
     covered: set[validation.ChapterKey] = set()
     for (other,) in ctx.conn.execute(
         "SELECT manga_id FROM suwayomi_manga WHERE series_id = %s AND manga_id <> %s", (series_id, manga_id)
@@ -450,23 +455,19 @@ def retire(ctx: workflow.Context, series_id: int, manga_id: int) -> list[str]:
 
 
 def _refuse_busy(
-    ctx: workflow.Context,
-    series_id: int,
-    found: tuple[suwayomi_replies.Manga, suwayomi_replies.Source],
-    listed: Sequence[suwayomi_replies.Chapter],
+    ctx: workflow.Context, series_id: int, found: suwayomi_replies.Manga, listed: Sequence[suwayomi_replies.Chapter]
 ) -> None:
     """Refuse (exit 2) while the manga has a chapter queued, a CBZ downloaded, or a chapter a chapter holds."""
-    manga_id, title = found[0]["id"], found[0]["title"]
+    manga_id = found["id"]
     queued = [e for e in ctx.suwayomi.download_queue()["queue"] if e["chapter"]["mangaId"] == manga_id]
     if queued:
         msg = f"manga {manga_id} has {len(queued)} chapters in Suwayomi's download queue"
         raise workflow.Refused(msg)
-    source_folder, manga_folder = suwayomi.download_folders(found[1], title)
-    folder = config.abs_path(ctx.cfg["paths"]["downloads"]) / suwayomi.MANGAS_FOLDER / source_folder / manga_folder
-    files = sorted(folder.glob("*.cbz")) if folder.is_dir() else []
-    if files:
-        msg = f"manga {manga_id} has {len(files)} CBZ files in its download folder {folder}"
-        raise workflow.Refused(msg)
+    for folder in _download_folders(ctx.cfg, found):
+        files = sorted(folder.glob("*.cbz")) if folder.is_dir() else []
+        if files:
+            msg = f"manga {manga_id} has {len(files)} CBZ files in its download folder {folder}"
+            raise workflow.Refused(msg)
     ids = [c["id"] for c in listed]
     held = ctx.conn.execute(
         """SELECT id FROM chapter WHERE series_id = %(series)s AND status <> 'done'
@@ -481,3 +482,17 @@ def _refuse_busy(
             f"{', '.join(str(r['id']) for r in held)})"
         )
         raise workflow.Refused(msg)
+
+
+def _download_folders(cfg: config.Config, found: suwayomi_replies.Manga) -> list[Path]:
+    """Return the folders a manga's downloads may lie in: its own, or with no source installed, every source's.
+
+    A source's folder is named by the installed source's display name; with none, the folder of its title under every
+    source folder is checked, which may be another source's manga of the same title (conservative).
+    """
+    mangas = config.abs_path(cfg["paths"]["downloads"]) / suwayomi.MANGAS_FOLDER
+    if found["source"] is not None:
+        source_folder, manga_folder = suwayomi.download_folders(found["source"], found["title"])
+        return [mangas / source_folder / manga_folder]
+    title = suwayomi.manga_folder(found["title"])
+    return sorted(d / title for d in mangas.iterdir() if d.is_dir()) if mangas.is_dir() else []

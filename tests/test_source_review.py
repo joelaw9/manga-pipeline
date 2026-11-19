@@ -268,6 +268,30 @@ def test_retire_is_refused_while_a_re_download_expects_a_chapter_of_its_manga(wo
     assert world.suwayomi.manga_rows[new]["inLibrary"]
 
 
+@budget(load="db", seconds=4)
+def test_retire_ends_a_manga_whose_source_is_uninstalled_once_no_source_folder_holds_its_title(world, capsys):
+    gone = world.suwayomi.add_manga("Delta", "999")
+    link(world, gone)
+    del world.suwayomi.manga_rows[gone]
+    ran = main(world, capsys, "source", "retire", "1", str(gone), "--yes")
+    assert ran.code == 2
+    assert f"Suwayomi has no manga {gone}" in ran.err, "a manga Suwayomi no longer has is refused, naming why"
+    orphan = world.suwayomi.add_manga(SERIES, "999")  # its extension is gone: no source folder can be named
+    world.suwayomi.add_chapter(orphan, "Chapter 1", scanlator="Gone")
+    link(world, orphan)
+    left = world.mangas / "Gone (EN)" / SERIES / "Gone_Chapter 1.cbz"
+    left.parent.mkdir(parents=True)
+    left.write_bytes(b"PK")
+    ran = main(world, capsys, "source", "retire", "1", str(orphan), "--yes")
+    assert ran.code == 2
+    assert "CBZ files in its download folder" in ran.err, "the folder of its title under any source folder counts"
+    left.unlink()
+    ran = main(world, capsys, "source", "retire", "1", str(orphan), "--yes")
+    assert ran.code == 0, ran
+    assert not world.suwayomi.manga_rows[orphan]["inLibrary"], "the old source's manga leaves Suwayomi's library"
+    assert world.rows("SELECT manga_id FROM suwayomi_manga WHERE manga_id = %s", orphan) == []
+
+
 # ---------------------------------------------------------------- locks
 
 
