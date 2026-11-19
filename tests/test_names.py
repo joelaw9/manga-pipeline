@@ -203,6 +203,46 @@ def test_name_shapes_of_the_full_library(stem, num, want):
 
 
 @budget(load="pure")
+@pytest.mark.parametrize(
+    ("stem", "want"),
+    [
+        ("Season 2_ Chapter 3", ("", "2", "3")),
+        ("Group_Season 2_ Chapter 3", ("Group", "2", "3")),
+        ("S2_ Chapter 3", ("", "2", "3")),
+        ("Season 2 _ Chapter 3", ("", "2", "3")),
+        ("S2_Chapter 3", ("S2", None, "3")),
+        ("Vol.2 Ch.3", ("", None, "3")),
+        ("TeamS2_ Chapter 3", ("TeamS2", None, "3")),
+        ("Vikija_Season 1 Finale _ A Priceless Gift", ("Vikija", None, None)),
+        ("_dumbcat__Chapter 45_ End of Season 1", ("dumbcat", None, "45")),
+        ("Season 2 Chapter 3", ("", "2", "3")),
+        ("S1 - Chapter 1", ("", "1", "1")),
+        ("(S2) Episode 100", ("", "2", "100")),
+        ("[Season 2] Chapter 2", ("", "2", "2")),
+    ],
+    ids=[
+        "season-underscore",
+        "group-season-underscore",
+        "s2-underscore",
+        "season-spaced-underscore",
+        "s2-underscore-no-space",
+        "vol-ch",
+        "team-s2-not-a-tag",
+        "season-finale-title",
+        "dumbcat-end-of-season",
+        "season-space",
+        "s1-dash",
+        "paren-s2",
+        "bracket-season",
+    ],
+)
+def test_season_tag_before_the_number(stem, want):
+    """A season tag followed by "_" (Suwayomi's ":") is the season; a tag glued to a group name is not."""
+    it = parse_name(stem, None, NAMES)
+    assert (it.group, it.season, it.number) == want, "(group, season, number)"
+
+
+@budget(load="pure")
 def test_label_word_without_a_number_is_a_title():
     assert p("Story of a Knight").title == "Story of a Knight", "Story / Day / Page / # are labels only before a number"
 
