@@ -2,6 +2,8 @@
 
 import io
 import logging
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -170,27 +172,47 @@ def test_a_copy_with_2_extra_credit_pages_gets_the_outcome_a_download_of_it_gets
 # ---------------------------------------------------------------- a Windows share root (SPEC "Source review")
 
 
-def windows_roots(cfg, form):
-    r"""Return cfg with every share root written as another Windows machine writes it.
+@pytest.fixture
+def mapped_drive(world):
+    """Map a free drive letter onto the world's share (subst: no admin rights), as a mapped drive gives one.
 
-    "unc": the loopback administrative share of the folder's drive (\\localhost\C$\...); "drive": a drive-letter path
-    with backslashes, as a mapped drive gives one.
+    The letter is unmapped after the test. A letter another test's worker took meanwhile makes subst fail: the next one
+    is tried.
+    """
+    subst = Path(os.environ["SYSTEMROOT"]) / "System32" / "subst.exe"
+    for letter in "ZYXWVUTSRQPONMLKJIH":
+        drive = f"{letter}:"
+        taken = Path(f"{drive}\\").exists()
+        if not taken and subprocess.run([subst, drive, world.share], capture_output=True, check=False).returncode == 0:
+            break
+    else:
+        pytest.fail("no free drive letter to map the share onto")
+    yield drive
+    subprocess.run([subst, drive, "/D"], capture_output=True, check=True)
+
+
+def windows_roots(cfg, share, base):
+    r"""Return cfg with every share root moved from the folder share to base, written with backslashes.
+
+    base: a loopback administrative share (\\localhost\C$\...) or a mapped drive (Z:), as another Windows machine
+    writes the root.
     """
     paths = dict(cfg["paths"])
     for root in config.SHARE_ROOTS:
-        local = Path(paths[root]).resolve()
-        paths[root] = (
-            f"\\\\localhost\\{local.drive[0]}$\\{str(local)[3:]}" if form == "unc" else str(local).replace("/", "\\")
-        )
+        paths[root] = base + "\\" + str(Path(paths[root]).resolve().relative_to(share.resolve()))
     return {**cfg, "paths": paths}
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="a Windows share root")
 @budget(load="db", seconds=6)
 @pytest.mark.parametrize("form", ["unc", "drive"])
-def test_measure_and_sample_read_the_library_under_a_windows_share_root(world, capsys, form):
-    cfg = windows_roots(world.cfg, form)
-    assert cfg["paths"]["library"].startswith("\\\\localhost\\" if form == "unc" else Path(world.share).drive)
+def test_measure_and_sample_read_the_library_under_a_windows_share_root(world, capsys, request, form):
+    share = world.share.resolve()
+    unc = f"\\\\localhost\\{share.drive[0]}$\\{str(share)[3:]}"
+    base = unc if form == "unc" else request.getfixturevalue("mapped_drive")
+    cfg = windows_roots(world.cfg, world.share, base)
+    assert cfg["paths"]["library"].startswith(base + "\\")
+    assert Path(cfg["paths"]["library"]).is_dir(), "the root reaches the share's library folder"
     ran = main(world, capsys, "source", "measure", "1", cfg=cfg)
     assert ran.code == 0, ran
     files = [line for line in ran.lines if line.startswith("file ")]
