@@ -1,0 +1,22 @@
+{
+ "data": {
+  "fetchChapterPages": {
+   "pages": [
+    "/api/v1/manga/131755/chapter/77/page/0",
+    "/api/v1/manga/131755/chapter/77/page/1",
+    "/api/v1/manga/131755/chapter/77/page/2",
+    "/api/v1/manga/131755/chapter/77/page/3",
+    "/api/v1/manga/131755/chapter/77/page/4",
+    "/api/v1/manga/131755/chapter/77/page/5",
+    "/api/v1/manga/131755/chapter/77/page/6",
+    "/api/v1/manga/131755/chapter/77/page/7",
+    "/api/v1/manga/131755/chapter/77/page/8",
+    "/api/v1/manga/131755/chapter/77/page/9",
+    "/api/v1/manga/131755/chapter/77/page/10",
+    "/api/v1/manga/131755/chapter/77/page/11",
+    "/api/v1/manga/131755/chapter/77/page/12",
+    "/api/v1/manga/131755/chapter/77/page/13"
+   ]
+  }
+ }
+}

@@ -2,7 +2,8 @@
 
 GraphQL errors, paging, the reads, the writes' requests, the source-call rules and the download file names. Replies
 under tests/fixtures_api were recorded from a real Suwayomi v2.4.2366 by reads only; the replies of the calls that
-write are written by hand from its schema.
+write are written by hand from its schema. The page list (`suwayomi_chapter_pages.json`) is the reader API's reply for a
+chapter of a manga outside the library; that chapter's first page GET answered HTTP 200, image/avif.
 """
 
 import copy
@@ -221,6 +222,16 @@ def test_chapter_by_id_and_an_absent_one():
 
 
 @budget(load="pure")
+@pytest.mark.parametrize("in_library", [True, False])
+def test_set_in_library_sends_the_flag(in_library):
+    s, service = client({"data": {"updateManga": {"manga": {"id": 9}}}})  # its shape, from introspection
+    s.set_in_library(9, in_library=in_library)
+    query, variables = sent_query(service)
+    assert variables == {"id": 9, "in": in_library}
+    assert "updateManga(input: {id: $id, patch: {inLibrary: $in}})" in query
+
+
+@budget(load="pure")
 def test_a_write_that_fails_is_a_failure():
     s, _ = client({"errors": [{"message": "boom", "path": ["enqueueChapterDownloads"]}], "data": None})
     with pytest.raises(suwayomi.GraphQLError, match="boom"):
@@ -250,8 +261,73 @@ def test_fetch_manga_and_chapters_returns_both():
     assert service.options == [(suwayomi.SOURCE_TIMEOUT, False)]
 
 
+@budget(load="fs")
+def test_chapter_pages_returns_the_page_paths_the_reader_serves():
+    s, service = client(recorded("chapter_pages"))  # a chapter of a manga outside the library
+    got = s.chapter_pages(814439)
+    assert len(got) == 14
+    assert got[0] == "/api/v1/manga/131755/chapter/77/page/0", "paths below the base URL, in reading order"
+    query, variables = sent_query(service)
+    assert variables == {"id": 814439}
+    assert "fetchChapterPages(input: {chapterId: $id})" in query
+    assert service.options == [(suwayomi.SOURCE_TIMEOUT, False)], "SPEC 'Services': its timeout is not retried"
+
+
 @budget(load="pure")
-@pytest.mark.parametrize("call", [lambda s: s.search_source("7", "T"), lambda s: s.fetch_manga_and_chapters(9)])
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"data": {"fetchChapterPages": {"pages": "/api/v1/manga/1/chapter/1/page/0"}}},
+        {"data": {"fetchChapterPages": {"pages": ["http://elsewhere.invalid/page/0"]}}},
+        {"data": {"fetchChapterPages": None}},
+        {"data": None},
+        [],
+    ],
+    ids=["not-a-list", "not-a-path", "no-call", "no-data", "not-an-object"],
+)
+def test_a_page_list_reply_of_another_shape_is_refused(reply):
+    s, _ = client(reply)
+    with pytest.raises(suwayomi.replies.ReplyShapeError, match="no list of page paths"):
+        s.chapter_pages(1)
+
+
+@budget(load="pure")
+def test_page_returns_the_bytes_of_its_path_on_the_base_url():
+    service = CannedService("suwayomi", {"/api/v1/manga/9/chapter/3/page/0": b"page bytes"})
+    s = suwayomi.Suwayomi("http://suwayomi.invalid/", service)
+    assert s.page("/api/v1/manga/9/chapter/3/page/0") == b"page bytes"
+    assert service.sent == [("GET", "/api/v1/manga/9/chapter/3/page/0", None)]
+    assert service.options == [(suwayomi.SOURCE_TIMEOUT, False)], "SPEC 'Services': its timeout is not retried"
+    with pytest.raises(ValueError, match="a path below the base URL"):
+        s.page("http://elsewhere.invalid/page/0")
+
+
+@budget(load="pure")
+def test_a_page_the_source_cannot_serve_means_the_source_is_unavailable():
+    error = http.HttpError(500, "http://suwayomi.invalid/api/v1/manga/9/chapter/3/page/0", b"No route to host")
+    s = suwayomi.Suwayomi("http://suwayomi.invalid", CannedService("suwayomi", {"/api/v1/": error}))
+    with pytest.raises(suwayomi.SourceUnavailableError, match="No route to host"):
+        s.page("/api/v1/manga/9/chapter/3/page/0")
+    missing = http.HttpError(404, "http://suwayomi.invalid/api/v1/manga/9/chapter/3/page/9", b"")
+    s = suwayomi.Suwayomi("http://suwayomi.invalid", CannedService("suwayomi", {"/api/v1/": missing}))
+    with pytest.raises(http.HttpError):
+        s.page("/api/v1/manga/9/chapter/3/page/9")
+
+
+@budget(load="pure")
+def test_a_page_that_times_out_while_suwayomi_answers_means_the_source_is_unavailable():
+    timeout = http.HttpTimeoutError("GET timed out after 120 s")
+    service = CannedService("suwayomi", {"/api/v1/": timeout, GRAPHQL: PING})
+    with pytest.raises(suwayomi.SourceUnavailableError, match="timed out"):
+        suwayomi.Suwayomi("http://suwayomi.invalid", service).page("/api/v1/manga/9/chapter/3/page/0")
+    assert sent_query(service)[0] == "{ __typename }", "SPEC 'Services': Suwayomi is asked a trivial query"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    "call",
+    [lambda s: s.search_source("7", "T"), lambda s: s.fetch_manga_and_chapters(9), lambda s: s.chapter_pages(90)],
+)
 def test_an_error_raised_while_the_query_ran_means_the_source_is_unavailable(call):
     s, _ = client(PATH_ERROR)
     with pytest.raises(suwayomi.SourceUnavailableError, match="No route to host"):

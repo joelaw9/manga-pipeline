@@ -51,6 +51,10 @@ Any CBZ under the downloads folder is taken once its modified time has settled, 
 
 A Suwayomi manga, or a hand-placed folder, is matched to a series by a stored link, a source id, or exactly 1 Kavita name (a folder: its name, else its files' ComicInfo Series); a near or double hit is `needs_human`, fixed with `series link`; no hit is a new series, admitted under its own name and folder after its first metadata check (`series new` settles a held one); a library manga with no downloads is linked when it matches. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#series-identification)
 
+## Source review
+
+The `source` commands take a library series, step by step, to a better source in Suwayomi: survey, measure, search, sample (pages through the reader API, judged by the better-copy rule, nothing stored), then switch, replace and retire by hand. Rules: [docs/spec/downloads.md](docs/spec/downloads.md#source-review)
+
 ## Services
 
 Suwayomi and Kavita are reached through 1 HTTP layer: what is retried, when a service counts as unreachable, how Kavita's paths map to local ones, and the read-only `smoke` check. Rules: [docs/spec/services.md](docs/spec/services.md#services)

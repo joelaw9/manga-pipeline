@@ -34,6 +34,7 @@ READERS = {
     ("clients/kavita.py", "_series"),
     ("clients/kavita.py", "_series_page"),
     ("clients/kavita.py", "_volumes"),
+    ("clients/suwayomi.py", "_chapter_pages"),
     ("clients/suwayomi.py", "_chapters"),
     ("clients/suwayomi.py", "_downloads"),
     ("clients/suwayomi.py", "_fetched"),

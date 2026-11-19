@@ -11,7 +11,8 @@ from typing import NotRequired, TypedDict
 
 from manga_pipeline import config
 from manga_pipeline.clients import http
-from manga_pipeline.replies.suwayomi import Chapter, DownloadStatus, Manga, MangaAndChapters, Source
+from manga_pipeline.replies import suwayomi as replies
+from manga_pipeline.replies.suwayomi import Chapter, ChapterPages, DownloadStatus, Manga, MangaAndChapters, Source
 
 PAGE_SIZE = 50  # library manga per query: the whole library in 1 query times out
 SOURCE_TIMEOUT = 120  # seconds; a source search or chapter fetch waits on the source's site
@@ -135,6 +136,12 @@ class _Fetched(TypedDict):
     """The data of the fetchMangaAndChapters mutation."""
 
     fetchMangaAndChapters: MangaAndChapters
+
+
+class _Pages(TypedDict):
+    """The data of the fetchChapterPages mutation."""
+
+    fetchChapterPages: ChapterPages
 
 
 class GraphQLError(Exception):
@@ -273,6 +280,14 @@ class Suwayomi:
         """Start Suwayomi's downloader."""
         self.graphql("mutation { startDownloader(input: {}) { downloadStatus { state } } }", _unread)
 
+    def set_in_library(self, manga_id: int, *, in_library: bool) -> None:
+        """Put a manga in Suwayomi's library, or take it out (its chapters and files stay)."""
+        query = (
+            "mutation ($id: Int!, $in: Boolean!)"
+            " { updateManga(input: {id: $id, patch: {inLibrary: $in}}) { manga { id } } }"
+        )
+        self.graphql(query, _unread, {"id": manga_id, "in": in_library})
+
     # --- calls that make Suwayomi reach a download source
 
     def search_source(self, source_id: str, title: str) -> list[Manga]:
@@ -300,30 +315,64 @@ class Suwayomi:
         )
         return self._source_call(query, _fetched, {"id": manga_id})["fetchMangaAndChapters"]
 
+    def chapter_pages(self, chapter_id: int) -> list[str]:
+        """Return the page URLs Suwayomi's reader serves for a chapter, relative to the base URL, in reading order.
+
+        Any chapter, of a manga in the library or not; nothing is downloaded. SourceUnavailableError when the source
+        cannot serve it.
+        """
+        query = "mutation ($id: Int!) { fetchChapterPages(input: {chapterId: $id}) { pages } }"
+        return self._source_call(query, _chapter_pages, {"id": chapter_id})["fetchChapterPages"]["pages"]
+
+    def page(self, url: str) -> bytes:
+        """Return a page's bytes: a page URL chapter_pages gave, fetched from the source by Suwayomi.
+
+        SourceUnavailableError when the source cannot serve it (HTTP 500 after the retries, or a timeout while Suwayomi
+        answers a ping). ValueError for a URL that is not a path.
+        """
+        if not url.startswith("/"):
+            msg = f"suwayomi: a page URL is a path below the base URL, got {url!r}"
+            raise ValueError(msg)
+        try:
+            return self._from_source("GET", f"{self.base}{url}", headers={"Accept": "image/*"}).body
+        except http.HttpError as e:
+            if e.status == HTTPStatus.INTERNAL_SERVER_ERROR:
+                raise SourceUnavailableError(str(e)) from None
+            raise
+
     def _source_call[T](self, query: str, read: Callable[[bytes], Reply[T]], variables: Mapping[str, object]) -> T:
         """Send a call Suwayomi answers from a source's site; return its `data`.
 
         An error raised while the query ran (it carries a `path`) is the source's; one without a path (the query is
-        wrong) is a GraphQLError. A timeout is not retried: when Suwayomi still answers a ping, the source is what
-        hangs.
+        wrong) is a GraphQLError.
         """
-        try:
-            reply = self._service.request(
-                "POST",
-                f"{self.base}/api/graphql",
-                json=_body(query, variables),
-                timeout=SOURCE_TIMEOUT,
-                retry_timeout=False,
-            )
-        except http.HttpTimeoutError as e:
-            self.ping()
-            raise SourceUnavailableError(str(e)) from None
+        reply = self._from_source("POST", f"{self.base}/api/graphql", json=_body(query, variables))
         try:
             return _data(reply, read)
         except GraphQLError as e:
             if all("path" in error for error in e.errors):
                 raise SourceUnavailableError(str(e)) from None
             raise
+
+    def _from_source(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        json: Mapping[str, object] | None = None,
+    ) -> http.Response:
+        """Send a request Suwayomi answers from a source's site.
+
+        A timeout is not retried: when Suwayomi still answers a ping, the source is what hangs (SourceUnavailableError).
+        """
+        try:
+            return self._service.request(
+                method, url, headers=headers, json=json, timeout=SOURCE_TIMEOUT, retry_timeout=False
+            )
+        except http.HttpTimeoutError as e:
+            self.ping()
+            raise SourceUnavailableError(str(e)) from None
 
 
 def from_config(cfg: config.Config) -> Suwayomi:
@@ -343,7 +392,7 @@ def _data[T](reply: http.Response, read: Callable[[bytes], Reply[T]]) -> T:
 
 
 # --- readers of Suwayomi's replies, 1 per query's data shape: each takes the reply's JSON as the shape its query asks
-# for, unchecked (an approved unchecked boundary: CLAUDE.md, "Code standards")
+# for, unchecked (an approved unchecked boundary: CLAUDE.md, "Code standards"); the page list's is checked
 
 
 def _unread(body: bytes) -> Reply[object]:
@@ -389,6 +438,13 @@ def _source_search(body: bytes) -> Reply[_SourceSearch]:
 def _fetched(body: bytes) -> Reply[_Fetched]:
     """Read the fetchMangaAndChapters mutation's reply; unchecked."""
     return json.loads(body)
+
+
+def _chapter_pages(body: bytes) -> Reply[_Pages]:
+    """Read the fetchChapterPages mutation's reply, checked (replies.suwayomi.check_chapter_pages)."""
+    reply = json.loads(body)
+    replies.check_chapter_pages(reply)
+    return reply
 
 
 # --- where Suwayomi writes a download: <source folder>/<manga folder>/<chapter file>

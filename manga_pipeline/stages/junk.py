@@ -17,7 +17,6 @@ import re
 import shutil
 from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
 
 from PIL import Image
 
@@ -37,26 +36,10 @@ from manga_pipeline import (
 )
 from manga_pipeline.convert import plan
 from manga_pipeline.db import sql
-from manga_pipeline.junk import candidates, logo_units, ocr, page_units, store, strip_units
-
-if TYPE_CHECKING:
-    import numpy as np
-    from numpy.typing import NDArray
+from manga_pipeline.junk import candidates, chapter_scan, logo_units, ocr, page_units, store, strip_units
 
 
-class StoredStripScan(strip_units.StripScan):
-    """A strip chapter's scan as junk_scan holds it: strip_units.scan's, with its content pages' logos.
-
-    A scan an older version stored also holds "content" (the content pages' download indexes), which nothing reads.
-    """
-
-    marks: list[logo_units.StripLogo]
-
-
-type Scan = StoredStripScan | page_units.PageScan | page_units.SplitScan  # junk_scan.scan, told apart by its layout
-
-
-def read_scan(text: str) -> Scan:
+def read_scan(text: str) -> chapter_scan.Scan:
     """Return a chapter's stored scan (junk_scan.scan, JSON text). Unchecked."""
     return json.loads(text)
 
@@ -196,17 +179,14 @@ def _sample(ctx: workflow.Context, chapter: db.Row, series: db.Row) -> list[list
 
 def _aspects(ctx: workflow.Context, series: db.Row, sizes: Sequence[strip.Size]) -> list[float]:
     """Return the series' page aspect candidates: stored, else computed from this chapter and stored."""
-    row = db.one_row(ctx.conn, "SELECT page_aspect FROM series_conversion WHERE series_id = %s", (series["id"],))
-    if row["page_aspect"] is not None:
-        return plan.read_page_aspect(series["id"], row["page_aspect"])
-    aspects = strip.page_aspect([sizes])
-    if aspects is not None:
+    aspects, stored = chapter_scan.page_aspects(ctx.conn, series["id"], sizes)
+    if aspects and not stored:
         with db.transaction(ctx.conn):
             ctx.conn.execute(
                 "UPDATE series_conversion SET page_aspect = coalesce(page_aspect, %s) WHERE series_id = %s",
                 (json.dumps(aspects), series["id"]),
             )
-    return aspects or []
+    return aspects
 
 
 # ---------------------------------------------------------------- scan
@@ -226,20 +206,21 @@ def scan(ctx: workflow.Context, chapter: db.Row, series: db.Row, key: str) -> wo
             layout = _layout(ctx, chapter, series, [paths[i] for i in content])
         except volumes.VolumeError as e:
             return workflow.NeedsHuman(str(e))
+        pages = chapter_scan.Extracted(paths, names, sizes)
+        sc: chapter_scan.Scan
         if layout == "strip":
-            sc, units = _scan_strip(ctx, key, paths, sizes, content)
+            sc = chapter_scan.scan_strip(pages, store.Decisions(ctx.conn, key), ctx.cfg["junk"]["ocr_device"])
             nul = _nul_rows(sc)
             if nul:  # PostgreSQL's jsonb cannot hold it: storing the scan would fail every claim query
                 rows = ", ".join(f"{s}-{e}" for s, e in nul)
                 return workflow.NeedsHuman(f"OCR text of strip rows {rows} holds a NUL character: it cannot be stored")
         else:
             uniform = [m["junk_signature"] is None for m in measured]
-            sc = page_units.scan(paths, names, sizes, uniform, _aspects(ctx, series, sizes))
-            units = _page_units(sc)
+            sc = chapter_scan.scan_pages(pages, uniform, _aspects(ctx, series, sizes))
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)  # the claim's folder: nothing of it is kept
     at = workflow.now(ctx.conn)
-    seen = candidates.seen_rows(key, chapter["identity"], units, at)
+    seen = candidates.seen_rows(key, chapter["identity"], chapter_scan.seen_units(sc), at)
 
     def record(conn: db.Connection) -> None:
         conn.execute(
@@ -255,40 +236,6 @@ def scan(ctx: workflow.Context, chapter: db.Row, series: db.Row, key: str) -> wo
     return workflow.Ready(record=record)
 
 
-def _scan_strip(
-    ctx: workflow.Context, key: str, paths: Sequence[Path], sizes: Sequence[strip.Size], content: list[int]
-) -> tuple[StoredStripScan, list[tuple[str, str]]]:
-    cpaths = [paths[i] for i in content]
-    rows: list[NDArray[np.bool_]]
-    logos: list[logo_units.Logo]
-    rows, logos = [], []
-    for i, path in zip(content, cpaths, strict=True):
-        im = strip.open_page(path)
-        rows.append(strip.page_rows(im))
-        logo = logo_units.measure(i, im)
-        if logo is not None:
-            logos.append(logo)
-    st = strip.make_strip(cpaths, [sizes[i] for i in content], rows)
-    placed = dict(zip(content, st.pages, strict=True))
-    marks = [_strip_logo(logo, placed[logo["page"]]) for logo in logos]
-    decisions = store.Decisions(ctx.conn, key)
-    device = ctx.cfg["junk"]["ocr_device"]
-    units = strip_units.scan(
-        st,
-        lambda im: ocr.text(im, device),
-        lambda sig: decisions.decide("block", sig) is None,
-    )
-    sc: StoredStripScan = {**units, "marks": marks}
-    return sc, [("block", b["sig"]) for b in sc["blocks"]]
-
-
-def _strip_logo(logo: logo_units.Logo, page: strip.LaidPage) -> logo_units.StripLogo:
-    """Return a logo with its tight box's rows in the strip (its page laid there), end exclusive."""
-    _, y0, _, y1 = logo["tight"]
-    top, th, h = page["top"], page["th"], page["h"]
-    return {**logo, "rows": [top + y0 * th // h, top + -(-y1 * th // h)]}
-
-
 def _nul_rows(sc: strip_units.StripScan) -> list[tuple[int, int]]:
     """Return [(start, end)] of the strip units whose OCR text holds a NUL.
 
@@ -298,66 +245,7 @@ def _nul_rows(sc: strip_units.StripScan) -> list[tuple[int, int]]:
     return [(u["start"], u["end"]) for u in units if "\x00" in u.get("text", "")]
 
 
-def _page_units(sc: page_units.PageScan | page_units.SplitScan) -> list[tuple[str, str]]:
-    if sc["split"] is True:
-        return []
-    out: list[tuple[str, str]] = []
-    for u in sc["edges"]:
-        if u["frame"]:
-            out.append(("frame", u["frame"]))
-        if u["sig"]:
-            out.append(("page", u["sig"]))
-    out += [("band", b["sig"]) for found in sc["bands"].values() for b in found]
-    return out
-
-
 # ---------------------------------------------------------------- decide
-
-
-class _Applied(NamedTuple):
-    """What decisions make of a chapter's scan: its edit, watermarks to remember, undecided units, refusal.
-
-    Its chapter edit, the watermark rows [(series key, key)] to remember, the units left undecided (the layout's, then
-    the logos'), and why the edit is refused (strip_units' kept_problem; None when it is not).
-    """
-
-    edit: plan.ChapterEdit
-    watermarks: list[tuple[str, str]]
-    undecided: Sequence[candidates.Unit]
-    problem: str | None
-
-
-def _apply(conn: db.Connection, sc: Scan, key: str, decide_unit: store.DecideUnit) -> _Applied:
-    """Apply the decisions on a scan: its layout's, then the logos' on what that leaves.
-
-    A strip's layout decisions take the series' known watermarks; a refused strip edit stops before the logos.
-    """
-    edit: plan.ChapterEdit = {
-        "drop_pages": [],
-        "bands": [],
-        "join": [],
-        "split": False,
-        "strip_removed": [],
-        "blank": [],
-    }
-    watermarks: list[tuple[str, str]] = []
-    undecided: list[candidates.Unit]
-    if sc["layout"] == "strip":
-        known = conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
-        got = strip_units.decide(sc, decide_unit, [images.sig_from_str(r["key"]) for r in known])
-        if got["kept_problem"]:
-            return _Applied(edit, [], [], got["kept_problem"])
-        edit["strip_removed"] = got["removed"]
-        watermarks = [(key, k) for k in got["watermarks"]]
-        logos = logo_units.decide(sc["marks"], logo_units.strip_survives(edit["strip_removed"]), decide_unit)
-        undecided = [*got["undecided"], *logos["undecided"]]
-    else:
-        got = page_units.decide(sc, decide_unit)
-        edit = {**edit, **got["edit"]}
-        logos = logo_units.decide(sc["marks"], logo_units.page_survives(edit), decide_unit)
-        undecided = [*got["undecided"], *logos["undecided"]]
-    edit["blank"] = logos["blank"]
-    return _Applied(edit, watermarks, undecided, None)
 
 
 def _remember(conn: db.Connection, watermarks: Iterable[tuple[str, str]]) -> None:
@@ -413,26 +301,21 @@ def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> wor
     def decide_unit(kind: str, text: str) -> db.Row | None:
         return decisions.decide(kind, store.parse_key(kind, text))
 
-    applied = _apply(ctx.conn, sc, key, decide_unit)
+    known = ctx.conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
+    applied = chapter_scan.apply(sc, decide_unit, [r["key"] for r in known])
+    watermarks = [(key, k) for k in applied.watermarks]
     if applied.problem:
         return workflow.NeedsHuman(applied.problem)
-    junk = ctx.cfg["junk"]
-    words: ocr.WordLists = {
-        "keywords": junk["keywords"],
-        "weak": junk["weak"],
-        "paired": junk["paired"],
-        "suppress": junk["suppress"],
-    }
-    picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, words)
+    picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, ocr.word_lists(ctx.cfg["junk"]))
     if not picks:
-        return _finished(ctx, chapter, applied.edit, applied.watermarks)
+        return _finished(ctx, chapter, applied.edit, watermarks)
     limit = ctx.cfg["junk"]["review_limit"]
     rows = [candidates.find(ctx.conn, decisions, p["kind"], p["key"]) for p in picks]
     held = [r for r in rows if r is not None and (r["verdict"] == "unsure" or candidates.stuck(r, limit))]
     if held:
         # the chapter keeps the candidates it waits on open, so junk decide can name them
         def hold(conn: db.Connection) -> None:
-            _remember(conn, applied.watermarks)
+            _remember(conn, watermarks)
             ids = sorted(r["id"] for r in rows if r is not None)
             conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
 
@@ -443,7 +326,7 @@ def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> wor
     at = workflow.now(ctx.conn)
 
     def wait(conn: db.Connection) -> None:
-        _remember(conn, applied.watermarks)
+        _remember(conn, watermarks)
         ids = candidates.join(conn, key, picks, at)
         conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
 

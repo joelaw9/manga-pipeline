@@ -31,6 +31,8 @@ from manga_pipeline import (
     retention,
     rewrite,
     smoke,
+    source_review,
+    source_sample,
     state,
     status,
     volumes,
@@ -87,6 +89,19 @@ LINK_CHECKS = SMOKE_CHECKS
 IMPORT_CHECKS = SMOKE_CHECKS
 # series edit reads the series' open downloads on the share and its override file to name its chapters.
 EDIT_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SHARE_FOLDERS_PRESENT, preflight.NAMING_OVERRIDES)
+# source survey, measure and search read the clients and scope; survey and measure read library files.
+SOURCE_READ_CHECKS = SMOKE_CHECKS
+SOURCE_MEASURE_CHECKS = (*SMOKE_CHECKS, preflight.SHARE_FOLDERS_PRESENT)
+# source sample reads library files and runs the junk stage's scan and OCR in the scratch folder.
+SAMPLE_CHECKS = (
+    *LOCKED_CHECKS,
+    preflight.WORKFLOW_SETTINGS,
+    preflight.FLEET_VERSION,
+    preflight.SERVICE_SETTINGS,
+    preflight.OCR_DEVICE,
+    preflight.JUNK_WORD_LISTS,
+    preflight.SCRATCH_SPACE,
+)
 
 
 @dataclass(frozen=True)
@@ -269,6 +284,53 @@ def metadata_audit(cfg: config.Config, args: argparse.Namespace) -> None:
     audit.run(cfg, kavita.from_config(cfg), suwayomi.from_config(cfg), sources.new_sources(), state)
 
 
+def _lines(lines: list[str]) -> None:
+    for line in lines:
+        print(line)
+
+
+def source_survey(cfg: config.Config, _args: argparse.Namespace) -> None:
+    """Print every series in scope with its combined measures and the triggers it crosses (`source survey`)."""
+    with db.read_only(cfg) as conn:
+        _lines(source_review.survey(workflow.context(cfg, conn, "source")))
+
+
+def source_measure(cfg: config.Config, args: argparse.Namespace) -> None:
+    """Print a series' published files' measures and its linked manga (`source measure`)."""
+    with db.read_only(cfg) as conn:
+        _lines(source_review.measure(workflow.context(cfg, conn, "source"), args.series_id))
+
+
+def source_search(cfg: config.Config, args: argparse.Namespace) -> None:
+    """Print what each source's search finds for a series (`source search`)."""
+    with db.read_only(cfg) as conn:
+        _lines(source_review.search(workflow.context(cfg, conn, "source"), args.series_id, args.source))
+
+
+def source_sample_command(cfg: config.Config, args: argparse.Namespace, conn: db.Connection | None) -> None:
+    """Print the better-copy rule's outcome on a manga's copies of a series' files (`source sample`)."""
+    ctx = workflow.context(cfg, locked_connection(conn), "source")
+    _lines(source_sample.sample(ctx, args.series_id, args.manga_id, args.chapters))
+
+
+def source_switch(cfg: config.Config, args: argparse.Namespace, conn: db.Connection | None) -> None:
+    """Link a manga to a series and add it to Suwayomi's library (`source switch`)."""
+    ctx = workflow.context(cfg, locked_connection(conn), "source")
+    _lines(source_review.switch(ctx, args.series_id, args.manga_id))
+
+
+def source_replace(cfg: config.Config, args: argparse.Namespace, conn: db.Connection | None) -> None:
+    """Queue a linked manga's copies of a series' published files (`source replace`)."""
+    ctx = workflow.context(cfg, locked_connection(conn), "source")
+    _lines(source_review.replace(ctx, args.series_id, args.manga_id, None if args.all else args.file))
+
+
+def source_retire(cfg: config.Config, args: argparse.Namespace, conn: db.Connection | None) -> None:
+    """Take a manga out of Suwayomi's library and unlink it from a series (`source retire`)."""
+    ctx = workflow.context(cfg, locked_connection(conn), "source")
+    _lines(source_review.retire(ctx, args.series_id, args.manga_id))
+
+
 def junk_import(cfg: config.Config, args: argparse.Namespace) -> None:
     """Import junk decisions from a bulk-converter junk store or a pipeline database and print the counts.
 
@@ -392,6 +454,13 @@ COMMANDS = {
         REVIEW_CHECKS,
         lambda cfg, _args, conn: review_run.run(cfg, locked_connection(conn)),
     ),
+    "source survey": Command((), None, None, SOURCE_MEASURE_CHECKS, _unlocked(source_survey)),
+    "source measure": Command((), None, None, SOURCE_MEASURE_CHECKS, _unlocked(source_measure)),
+    "source search": Command((), None, None, SOURCE_READ_CHECKS, _unlocked(source_search)),
+    "source sample": Command(("source",), S, "source", SAMPLE_CHECKS, source_sample_command),
+    "source switch": Command(("intake", "source"), S, "source", INTAKE_CHECKS, source_switch),
+    "source replace": Command(("intake", "source"), S, "source", INTAKE_CHECKS, source_replace),
+    "source retire": Command(("intake", "source"), S, "source", INTAKE_CHECKS, source_retire),
     "state reset": Command(
         (), X, None, RESET_CHECKS, lambda cfg, _args, conn: state.reset(cfg, locked_connection(conn))
     ),
@@ -429,6 +498,7 @@ def parser() -> argparse.ArgumentParser:
     _metadata_commands(commands)
     _junk_commands(commands)
     _chapter_commands(commands)
+    _source_commands(commands)
     _state_commands(commands)
     return p
 
@@ -550,6 +620,33 @@ def _chapter_commands(commands: "argparse._SubParsersAction[argparse.ArgumentPar
     drop = chapter.add_parser("drop", help="give a needs_human chapter up: its download goes, it is never published")
     drop.add_argument("chapter", type=int, help="chapter id")
     drop.set_defaults(command="chapter drop")
+
+
+def _source_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
+    """Add the source review commands to the subparsers."""
+    source = commands.add_parser("source", help="review a series' source, step by step").add_subparsers(
+        dest="source_command", required=True, metavar="ACTION"
+    )
+    source.add_parser("survey", help="every series in scope by the triggers it crosses (reaches no service)")
+    measure = source.add_parser("measure", help="a series' published files' measures and its linked manga")
+    search = source.add_parser("search", help="search the ranked sources (or the named ones) for a series")
+    search.add_argument("--source", action="append", default=[], metavar="NAME", help='a source, e.g. "Src (EN)"')
+    sample = source.add_parser("sample", help="judge a manga's copies of a series' latest files (stores nothing)")
+    sample.add_argument("--chapters", type=int, default=source_review.SAMPLE_CHAPTERS, help="files to sample")
+    switch = source.add_parser("switch", help="link a manga to a series and add it to Suwayomi's library")
+    replace = source.add_parser("replace", help="queue a linked manga's copies of published files")
+    files = replace.add_mutually_exclusive_group(required=True)
+    files.add_argument("--file", type=int, action="append", metavar="ID", help="a published file (source measure)")
+    files.add_argument("--all", action="store_true", help="every confirmed published file")
+    retire = source.add_parser("retire", help="take a manga out of Suwayomi's library and unlink it")
+    for sub in (measure, search, sample, switch, replace, retire):
+        sub.add_argument("series_id", type=int, help="series id (as status shows it)")
+    for sub in (sample, switch, replace, retire):
+        sub.add_argument("manga_id", type=int, help="Suwayomi manga id")
+    for sub in (switch, replace, retire):
+        sub.add_argument("--yes", action="store_true", required=True, help="confirm")
+    for name, sub in source.choices.items():
+        sub.set_defaults(command=f"source {name}")
 
 
 def _state_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
