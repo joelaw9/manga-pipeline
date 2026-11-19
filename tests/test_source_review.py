@@ -5,7 +5,7 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import db, export, intake, process
+from manga_pipeline import cli, db, export, intake, lock, process
 
 from tests.builders import add_chapter, add_series, running, settle
 from tests.source_world import FILES, SERIES, candidate, library, link, main, make_world, pages, zipped
@@ -307,7 +307,9 @@ def test_a_changing_command_is_refused_while_intake_runs(world, capsys, command)
     assert not [w for w in world.suwayomi.writes if w[0] in ("set_in_library", "enqueue")]
 
 
-@budget(load="db", seconds=2)
-def test_state_reset_waits_for_a_source_command(world, capsys):
-    with running(world.cfg, "source"):
-        assert main(world, capsys, "state", "reset", "--yes")[0] == 3, "a source command holds the idle lock shared"
+@budget()
+def test_every_locked_source_command_holds_the_idle_lock_shared_so_state_reset_waits_for_it():
+    locked = {name: c for name, c in cli.COMMANDS.items() if name.startswith("source ") and c.locked}
+    assert set(locked) == {"source sample", "source switch", "source replace", "source retire"}, locked
+    assert all(c.idle == lock.SHARED for c in locked.values()), {n: c.idle for n, c in locked.items()}
+    assert cli.COMMANDS["state reset"].idle == lock.EXCLUSIVE, "state reset waits for every holder of the idle lock"
