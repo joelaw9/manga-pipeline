@@ -5,6 +5,7 @@ copy (it takes the file: SPEC "Retroactive updates"), or held for a person (a do
 file). Judged at junk, once the series' baseline has recorded what the library holds.
 """
 
+import dataclasses
 import functools
 import zipfile
 from collections.abc import Callable
@@ -56,14 +57,8 @@ def judge(ctx: workflow.Context, chapter: db.Row) -> workflow.Dropped | workflow
     found = _copy_of(ctx, chapter)
     if found is None or isinstance(found, workflow.NeedsHuman):
         return found
-    published, ours, theirs = found
-    rated = RATINGS[names.rating(PurePosixPath(chapter["download_path"]).stem)]
-    their_rated = RATINGS[names.rating(published["source_name"])]
-    if rated > their_rated:
-        return _take(ctx, chapter, published)
-    if rated < their_rated or _worse(ours, theirs):
-        return _duplicate(ctx, chapter, published)
-    return None
+    published, ours, theirs, layout = found
+    return _outcome(ctx, chapter, published, decide(ours, theirs, layout))
 
 
 def after_junk(
@@ -72,10 +67,7 @@ def after_junk(
     """Apply the rest of the better-copy rule at the same rating, once junk has decided the chapter.
 
     edit: its chapter_edit (SPEC "Library copies"). None when it is no copy (or named its file already), or a better
-    copy, which then takes its file (or NeedsHuman for a busy file); else the duplicate's Dropped. Better: neither page
-    width nor bits per pixel below NOT_WORSE of the file's, no more junk, and at least 1 of: width WIDER, bits per
-    pixel BPP_BETTER, less junk. Bits per pixel and junk count only where the file's are known (a bulk-converted file
-    has no original bits per pixel).
+    copy, which then takes its file (or NeedsHuman for a busy file); else the duplicate's Dropped (decide).
     """
     # read again: judge may have made it name its file earlier in this junk call, after the claimed row was read
     named = db.one_row(ctx.conn, "SELECT published_file_id FROM chapter WHERE id = %s", (chapter["id"],))
@@ -84,33 +76,118 @@ def after_junk(
     found = _copy_of(ctx, chapter)
     if found is None or isinstance(found, workflow.NeedsHuman):
         return found
-    published, ours, theirs = found
-    if _worse(ours, theirs):
-        return _duplicate(ctx, chapter, published)
-    layout = _layout(ctx, chapter["series_id"])
-    junk = measures.junk(edit, layout, ours.median_page_width)
-    their_junk = published_junk(ctx, published, layout, theirs.median_page_width)
+    published, ours, theirs, layout = found
+    ours = dataclasses.replace(ours, junk=measures.junk(edit, layout, ours.measures.median_page_width))
+    theirs = dataclasses.replace(theirs, junk=published_junk(ctx, published, layout, theirs.measures.median_page_width))
+    return _outcome(ctx, chapter, published, decide(ours, theirs, layout))
+
+
+def rating(name: str) -> int:
+    """Return the edition rating (RATINGS) of a download's or a published file's source name."""
+    return RATINGS[names.rating(name)]
+
+
+@dataclass(frozen=True)
+class Copy[B: float | None]:
+    """A copy as the better-copy rule compares it: its measures, edition rating (rating) and junk removed.
+
+    junk: measures.junk of what its download lost; None when not known (our copy's: not decided yet; a published
+    file's: published_junk found none).
+    """
+
+    measures: "Measures[B]"
+    rating: int
+    junk: float | None
+
+
+@dataclass(frozen=True)
+class Better:
+    """Our copy is better: it replaces the published file."""
+
+
+@dataclass(frozen=True)
+class Duplicate:
+    """Our copy is not better: a duplicate, dropped; reason says why."""
+
+    reason: str
+
+
+@dataclass(frozen=True)
+class NotSameChapter:
+    """Our copy's length is not the published copy's: not the same chapter, a person decides; reason gives both."""
+
+    reason: str
+
+
+def decide(ours: Copy[float], theirs: Copy[float | None], layout: str) -> Better | Duplicate | NotSameChapter | None:
+    """Apply the better-copy rule (SPEC "Library copies") to our copy against the published file's original.
+
+    First what is judged at once (_at_once); then, our junk not known yet, None (decided once it is). Else Better when
+    no more junk (strip: by more than JUNK_ROWS; only where theirs is known) and at least 1 of: width WIDER, bits per
+    pixel BPP_BETTER, less junk; else a Duplicate. Pure.
+    """
+    found = _at_once(ours, theirs, layout)
+    if found is not None or ours.junk is None:
+        return found
+    mine, its = ours.measures, theirs.measures
     more = less = False
-    if their_junk is not None:
+    if theirs.junk is not None:
         margin = 0 if layout == "pages" else JUNK_ROWS
-        more, less = junk > their_junk + margin, junk < their_junk - margin
+        more, less = ours.junk > theirs.junk + margin, ours.junk < theirs.junk - margin
+    if more:
+        return Duplicate(f"more junk removed: {ours.junk:g} against {theirs.junk:g}")
     better = (
-        ours.median_page_width >= WIDER * theirs.median_page_width
-        or _bpp_compared(ours, theirs, lambda a, b: a >= BPP_BETTER * b)
+        mine.median_page_width >= WIDER * its.median_page_width
+        or _bpp_compared(mine, its, lambda a, b: a >= BPP_BETTER * b)
         or less
     )
-    if more or not better:
-        return _duplicate(ctx, chapter, published)
-    return _take(ctx, chapter, published)
+    return Better() if better else Duplicate("no better in width, bits per pixel or junk")
+
+
+def _at_once(ours: Copy[float], theirs: Copy[float | None], layout: str) -> Better | Duplicate | NotSameChapter | None:
+    """Return what the rule decides before junk, or None.
+
+    In order: not the same chapter (page count, layout pages, or strip length, layout strip, beyond SAME_CHAPTER of
+    theirs); a higher edition rating is Better, a lower one a Duplicate; a page width, or bits per pixel where theirs
+    is known, below NOT_WORSE of theirs is a Duplicate.
+    """
+    mine, its = ours.measures, theirs.measures
+    strip = layout == "strip"
+    measure = "strip_length" if strip else "pages_in"
+    length, their_length = (mine.strip_length, its.strip_length) if strip else (mine.pages_in, its.pages_in)
+    if abs(length - their_length) > SAME_CHAPTER * their_length:
+        return NotSameChapter(f"{measure} {length} against {their_length}")
+    if ours.rating != theirs.rating:
+        return Better() if ours.rating > theirs.rating else Duplicate("a lower edition rating")
+    if mine.median_page_width < NOT_WORSE * its.median_page_width:
+        return Duplicate(f"median page width {mine.median_page_width} against {its.median_page_width}")
+    if _bpp_compared(mine, its, lambda a, b: a < NOT_WORSE * b):
+        return Duplicate(f"bits per pixel {mine.bpp:.2f} against {its.bpp:.2f}")
+    return None
+
+
+def _outcome(
+    ctx: workflow.Context, chapter: db.Row, published: db.Row, verdict: Better | Duplicate | NotSameChapter | None
+) -> workflow.Dropped | workflow.NeedsHuman | None:
+    """Act on decide's verdict: a better copy takes its file, a duplicate is dropped, another chapter is held."""
+    match verdict:
+        case Better():
+            return _take(ctx, chapter, published)
+        case Duplicate(reason):
+            return _duplicate(ctx, chapter, published, reason)
+        case NotSameChapter(reason):
+            return workflow.NeedsHuman(f"not the same chapter as the published {published['library_path']}: {reason}")
+        case None:
+            return None
 
 
 def _copy_of(
     ctx: workflow.Context, chapter: db.Row
-) -> tuple[db.Row, "Measures[float]", "Measures[float | None]"] | workflow.NeedsHuman | None:
-    """Return (the published file, our measures, its original measures) of the chapter's published copy.
+) -> tuple[db.Row, Copy[float], Copy[float | None], str] | workflow.NeedsHuman | None:
+    """Return (the published file, our copy, its original, the series' layout) of the chapter's published copy.
 
-    Returned when the series has 1 confirmed published file of the chapter, still in the library and the same chapter;
-    None when it has none; NeedsHuman otherwise.
+    Returned when the series has 1 confirmed published file of the chapter, still in the library; None when it has
+    none; NeedsHuman for 2 or more, or a volume that cannot be read. Neither copy's junk is filled in.
     """
     key = validation.chapter_key(chapter["identity"])
     rows = [
@@ -140,23 +217,10 @@ def _copy_of(
     if not pages:
         msg = f"chapter {chapter['id']} has no page rows: validate stores them"
         raise ValueError(msg)
-    ours = _measured(f"chapter {chapter['id']}", measures.summary(pages), measures.bits_per_pixel(pages))
-    theirs = _original(ctx, published)
-    strip = _layout(ctx, chapter["series_id"]) == "strip"
-    measure = "strip_length" if strip else "pages_in"
-    mine, its = (ours.strip_length, theirs.strip_length) if strip else (ours.pages_in, theirs.pages_in)
-    if abs(mine - its) > SAME_CHAPTER * its:
-        return workflow.NeedsHuman(
-            f"not the same chapter as the published {published['library_path']}: {measure} {mine} against {its}"
-        )
-    return published, ours, theirs
-
-
-def _worse(ours: "Measures[float]", theirs: "Measures[float | None]") -> bool:
-    """Return whether a page width, or bits per pixel where the file's is known, is below NOT_WORSE of the file's."""
-    return ours.median_page_width < NOT_WORSE * theirs.median_page_width or _bpp_compared(
-        ours, theirs, lambda a, b: a < NOT_WORSE * b
-    )
+    ours = measured(f"chapter {chapter['id']}", measures.summary(pages), measures.bits_per_pixel(pages))
+    ours_rated = rating(PurePosixPath(chapter["download_path"]).stem)
+    theirs = Copy(original(ctx, published), rating(published["source_name"]), None)
+    return published, Copy(ours, ours_rated, None), theirs, _layout(ctx, chapter["series_id"])
 
 
 def _bpp_compared(
@@ -176,7 +240,7 @@ class Measures[B: float | None]:
     bpp: B  # bits per pixel; None when not known (a bulk file's pages are re-encoded)
 
 
-def _measured[B: float | None](what: str, summary: measures.Summary | db.Row, bpp: B) -> Measures[B]:
+def measured[B: float | None](what: str, summary: measures.Summary | db.Row, bpp: B) -> Measures[B]:
     """Build the measures from a measures.summary of a copy's pages and its bits per pixel.
 
     The summary may instead be a stored published row, which holds the same 3 measures. ValueError for a summary of no
@@ -223,17 +287,17 @@ def published_junk(ctx: workflow.Context, published: db.Row, layout: str, width:
     return measures.junk(edit, layout, width)
 
 
-def _duplicate(ctx: workflow.Context, chapter: db.Row, published: db.Row) -> workflow.Dropped:
+def _duplicate(ctx: workflow.Context, chapter: db.Row, published: db.Row, reason: str) -> workflow.Dropped:
     workflow.holds_claim(ctx, chapter)
     retention.put(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]))
 
     def record(conn: db.Connection) -> None:
         handled.record(conn, chapter["series_id"], chapter["identity"], "duplicate", chapter["content_digest"])
 
-    return workflow.Dropped(f"a duplicate of the published {published['library_path']}", record)
+    return workflow.Dropped(f"a duplicate of the published {published['library_path']}: {reason}", record)
 
 
-def _original(ctx: workflow.Context, published: db.Row) -> Measures[float | None]:
+def original(ctx: workflow.Context, published: db.Row) -> Measures[float | None]:
     """Return the published copy's original measurements.
 
     As stored when the pipeline published it, else measured from the library file (the bulk converter's, or published
@@ -242,7 +306,7 @@ def _original(ctx: workflow.Context, published: db.Row) -> Measures[float | None
     re-encoded).
     """
     if published["pages_in"] is not None:  # publish stores the 3 measures together
-        return _measured(published["library_path"], published, published["bpp"])
+        return measured(published["library_path"], published, published["bpp"])
     with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
         names = [n for n in archive.archive_pages(z.namelist()) if not rewrite_covers.is_cover(n)]
         sizes = [images.dimensions(z.read(n)) for n in names]
@@ -251,7 +315,7 @@ def _original(ctx: workflow.Context, published: db.Row) -> Measures[float | None
         msg = f"{published['library_path']}: page sizes cannot be read"
         raise ValueError(msg)
     pages: list[measures.SummaryPage] = [{"width": w, "height": h, "phash": None} for w, h in known]
-    return _measured(published["library_path"], measures.summary(pages), None)
+    return measured(published["library_path"], measures.summary(pages), None)
 
 
 def _take(ctx: workflow.Context, chapter: db.Row, published: db.Row) -> workflow.NeedsHuman | None:
