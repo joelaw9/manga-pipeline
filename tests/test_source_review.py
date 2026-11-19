@@ -174,6 +174,24 @@ def test_replace_queues_the_named_files_chapters_and_skips_a_busy_file_an_unfini
 
 
 @budget(load="db", seconds=3)
+def test_replace_skips_a_chapter_suwayomi_has_downloaded_with_its_file_in_place(world, capsys):
+    manga, chapters = switched(world, capsys)
+    downloaded = world.suwayomi.path(chapters[3])
+    downloaded.parent.mkdir(parents=True)
+    downloaded.write_bytes(zipped(pages()))
+    world.suwayomi.chapter_rows[chapters[3]]["isDownloaded"] = True
+    world.suwayomi.chapter_rows[chapters[4]]["isDownloaded"] = True  # flagged, its file gone: Suwayomi downloads it
+    code, lines, _ = main(world, capsys, "source", "replace", "1", str(manga), "--file", "3", "--file", "4", "--yes")
+    assert code == 0, lines
+    assert lines == [
+        f"file 3 #3: skipped: Suwayomi has chapter {chapters[3]} downloaded, its file in place: that file arrives",
+        f"file 4 #4: queued chapter {chapters[4]} Chapter 4",
+        "queued 1 of 2",
+    ], "Suwayomi queues no second copy of a chapter whose file is in place"
+    assert [e["chapter"] for e in world.suwayomi.queue] == [chapters[4]]
+
+
+@budget(load="db", seconds=3)
 def test_replace_is_refused_for_an_unlinked_manga_or_a_file_of_another_series(world, capsys):
     manga, _ = candidate(world, in_library=True)
     code, _, err = main(world, capsys, "source", "replace", "1", str(manga), "--file", "3", "--yes")

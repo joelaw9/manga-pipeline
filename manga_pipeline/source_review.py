@@ -10,7 +10,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from manga_pipeline import config, db, library_copy, names, redownload, rewrite, validation, workflow
+from manga_pipeline import config, db, errors, library_copy, names, redownload, rewrite, validation, workflow
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.db import sql
 from manga_pipeline.replies import suwayomi as suwayomi_replies
@@ -352,7 +352,8 @@ def replace(ctx: workflow.Context, series_id: int, manga_id: int, file_ids: Sequ
     """Queue the manga's chapters matching the named published files (None: every one), then start the downloader.
 
     Skipped and printed: a file not confirmed, one busy with a change (rewrite.BUSY), one whose chapter key an
-    unfinished chapter of the series has, one with no match. Refused unless the manga is linked to the series and in
+    unfinished chapter of the series has, one with no match, one whose match Suwayomi has downloaded with its file in
+    place (Suwayomi queues no second copy of it). Refused unless the manga is linked to the series and in
     Suwayomi's library.
     """
     reviewed(ctx, series_id)
@@ -366,12 +367,19 @@ def replace(ctx: workflow.Context, series_id: int, manga_id: int, file_ids: Sequ
     skip = _skipping(ctx.conn, series_id)
     listed = ctx.suwayomi.chapters(manga_id)
     ref = reference(rows)
+    (folder,) = _download_folders(ctx.cfg, found)
     out: list[str] = []
     queue: list[int] = []
     for r in wanted:
         head = f"file {r['id']} {key_text(r['identity'])}"
         why = skip(r)
         hit = None if why else redownload.pick_chapter(r["identity"], number(r["identity"]) or 0.0, ref, listed)
+        if (
+            hit is not None
+            and hit["isDownloaded"]
+            and errors.exists(folder / suwayomi.chapter_file(hit["scanlator"], hit["name"]))
+        ):
+            why = f"Suwayomi has chapter {hit['id']} downloaded, its file in place: that file arrives"
         if why or hit is None:
             out.append(f"{head}: skipped: {why or 'no match on the manga'}")
             continue
