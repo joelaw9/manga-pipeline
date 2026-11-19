@@ -55,3 +55,33 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install --group dev
       - run: python -m pip_audit --strict
+  # The same suite on Linux (the program also runs on the LXC). Not a required check yet, so a red run blocks no merge.
+  # The database server is a throwaway container, so durability is off.
+  tests-linux:
+    name: tests-linux
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install --group dev
+      # pg_isready runs over TCP: the image's init-time server listens on the Unix socket only, so a socket check can pass early.
+      - name: PostgreSQL 17 for the tests
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust postgres:17 -c max_connections=300 -c fsync=off -c synchronous_commit=off -c full_page_writes=off
+          for i in $(seq 1 60); do
+            docker exec pg pg_isready -h 127.0.0.1 -U postgres && exit 0 || sleep 1
+          done
+          echo "PostgreSQL did not come up within 60 s" >&2
+          docker logs pg
+          exit 1
+      - run: docker exec pg psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE ROLE mp_test LOGIN CREATEDB PASSWORD 'mp_test'"
+      - run: python -m pytest -q -n auto -rfEs --junitxml=linux.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-junit
+          path: linux.xml
