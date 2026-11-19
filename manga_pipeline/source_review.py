@@ -135,15 +135,16 @@ def manga(ctx: workflow.Context, manga_id: int) -> tuple[suwayomi_replies.Manga,
     return found, found["source"]
 
 
-def chapters(client: suwayomi.Suwayomi, found: suwayomi_replies.Manga) -> list[suwayomi_replies.Chapter]:
-    """Return a manga's chapters: Suwayomi's stored list for a library manga, else fetched from its source.
+def chapters(ctx: workflow.Context, found: suwayomi_replies.Manga) -> list[suwayomi_replies.Chapter]:
+    """Return a manga's chapters: Suwayomi's stored list for a library manga or a linked one, else fetched.
 
-    A library manga is never fetched: a fetch would add a completed series' new chapter before its metadata check
-    can see it as new. Any other is stored outside Suwayomi's library by the fetch.
+    Neither is ever fetched: a fetch would add a completed series' new chapter before its metadata check (which reads
+    every linked manga) can see it as new. Any other is stored outside Suwayomi's library by the fetch.
     """
-    if found["inLibrary"]:
-        return client.chapters(found["id"])
-    return client.fetch_manga_and_chapters(found["id"])["chapters"]
+    link = ctx.conn.execute("SELECT 1 FROM suwayomi_manga WHERE manga_id = %s", (found["id"],)).fetchone()
+    if found["inLibrary"] or link is not None:
+        return ctx.suwayomi.chapters(found["id"])
+    return ctx.suwayomi.fetch_manga_and_chapters(found["id"])["chapters"]
 
 
 def chapter_keys(rows: Sequence[suwayomi_replies.Chapter]) -> set[validation.ChapterKey]:
@@ -308,7 +309,7 @@ def _search_source(ctx: workflow.Context, source_id: str, known: Sequence[str], 
     found = redownload.pick_manga(list(hits.values()), known)
     if found is None:
         return f"no match ({len(hits)} hits)"
-    listed = chapters(ctx.suwayomi, found)
+    listed = chapters(ctx, found)
     keys = {validation.chapter_key(r["identity"]) for r in rows}
     covered = len(keys & chapter_keys(listed))
     ref = reference(rows)

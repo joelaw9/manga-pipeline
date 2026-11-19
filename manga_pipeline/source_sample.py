@@ -81,7 +81,7 @@ def sample(ctx: workflow.Context, series_id: int, manga_id: int, n: int) -> list
     folder = root / f"{series_id}-{manga_id}"
     folder.mkdir(parents=True)
     try:
-        listed = source_review.chapters(ctx.suwayomi, found)
+        listed = source_review.chapters(ctx, found)
         s = Sampling(ctx, series, layout, folder, files, listed, _known(ctx.conn, series_id, files))
         out = [f"series {series_id} {series['name']} ({layout}) against manga {manga_id} {found['title']}"]
         for row in picked:

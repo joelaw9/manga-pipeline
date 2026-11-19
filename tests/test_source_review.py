@@ -131,6 +131,18 @@ def test_search_reads_a_library_manga_from_its_stored_chapters_and_never_fetches
     assert not [w for w in world.suwayomi.writes if w[0] == "fetch_manga_and_chapters"], "a library manga is read"
 
 
+@budget(load="db", seconds=3)
+def test_search_reads_a_linked_manga_outside_the_library_from_its_stored_chapters(world, capsys):
+    manga, _ = candidate(world)  # not in Suwayomi's library
+    link(world, manga)
+    world.suwayomi.add_chapter(manga, "Chapter 6", scanlator="Better", listed=False)  # new at the source
+    code, lines, _ = main(world, capsys, "source", "search", "1", "--source", "Better (EN)")
+    assert code == 0, lines
+    assert "5 chapters," in lines[0], lines
+    assert "not in Suwayomi's library, linked to series 1" in lines[0], lines
+    assert not [w for w in world.suwayomi.writes if w[0] == "fetch_manga_and_chapters"], "a linked manga is read"
+
+
 # ---------------------------------------------------------------- switch
 
 
