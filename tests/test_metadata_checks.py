@@ -404,15 +404,16 @@ def test_a_source_whose_own_id_led_to_a_novel_is_not_fetched_again(world):
 
 
 @budget(load="db")
-def test_an_id_learnt_late_that_disagrees_holds_the_series(world):
+def test_a_record_cross_link_that_disagrees_with_a_known_id_holds_the_series(world):
+    """MangaDex's record links another MangaUpdates id than the one Kavita gives: the series is held."""
     kavita_id = world.kavita_series("Solo Leveling")
     mangadex_linking_mu(world, kavita_id, mu_link="04gtb07")
     world.kavita.metadata_rows[kavita_id]["webLinks"] += f",https://www.mangaupdates.com/series/{MU_LINK}"
     world.run(intake)
     sid = series_id(world, kavita_id)
     status, reason = world.rows("SELECT status, status_reason FROM series WHERE id = %s", sid)[0]
-    assert status == "needs_human", "2 MangaUpdates ids hold the series"
-    assert "mangaupdates ids disagree" in reason, "2 MangaUpdates ids hold the series"
+    assert status == "needs_human", "a record's cross-link that disagrees with a known id holds the series"
+    assert "mangaupdates ids disagree" in reason, "the reason names the source whose ids disagree"
     assert checks(world) == [], "a held check does not complete"
 
 

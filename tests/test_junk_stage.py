@@ -261,6 +261,7 @@ def test_junk_commands_list_show_decide_and_refuse(site, tmp_path, capsys, monke
     assert site.rows("SELECT review_id, review_open, reviews FROM junk_candidate") == [("r1", 1, 0)], (
         "a review's list records its id; the review counts when it ends"
     )
+    assert cli.main(["--config", path, "junk", "show", str(cand["id"])]) == 0, "a review shows a candidate it listed"
     assert cli.main(["--config", path, "junk", "decide", str(cand["id"]), "junk"]) == 0
     assert site.rows("SELECT decider, verdict FROM junk_decision") == [("claude", "junk")], "Claude's verdict"
 

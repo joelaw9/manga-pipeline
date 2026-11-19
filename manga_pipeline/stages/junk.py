@@ -74,7 +74,8 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
 def current_scan(conn: db.Connection, chapter: db.Row) -> db.Row | None:
     """Return the chapter's junk_scan row when it is current, else None.
 
-    Current: same series, same content digest, holding logos (a scan made before logo detection holds none).
+    Current: same series, same content digest, holding logos (a scan made before logo detection holds none), made under
+    the series' layout.
     """
     current = workflow.SCANNED.format(c=sql.Identifier("c"))
     query = sql.SQL("SELECT s.* FROM chapter c JOIN junk_scan s ON s.chapter_id = c.id WHERE c.id = %s AND {}")

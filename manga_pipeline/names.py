@@ -55,7 +55,7 @@ NUM_DOT = re.compile(r"^(?P<num>\d+(?:\.\d+)?)\.\s+(?P<rest>\S.*)$")  # "64. Tit
 # leading season tags: "S1 - Chapter 1", "S1 Episode 29", "(S2) Episode 100", "[Season 2] Chapter 2"; a "_" before
 # the space is Suwayomi's ":" ("Season 2_ Chapter 3")
 SEASON_TAG = re.compile(
-    r"^\s*(?:\[\s*season\s*(\d+)\s*\]|\(\s*s(?:eason)?\s*(\d+)\s*\)|s(\d+)(?:\s*-|_)?(?=\s)|"
+    r"^\s*(?:\[\s*season\s*(\d+)\s*\]|\(\s*s(?:eason)?\s*(\d+)\s*\)|s(\d+)(?:\s*[-_])?(?=\s)|"
     r"season\s*(\d+)\s*[-:_]?(?=\s))\s*",
     re.IGNORECASE,
 )

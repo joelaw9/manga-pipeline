@@ -55,10 +55,10 @@ def chapters(conn: db.Connection, candidate_id: int) -> int:
     )[0]
 
 
-def get_open(conn: db.Connection, candidate_id: int, review_id: str | None = None) -> db.Row:
+def get_open(conn: db.Connection, candidate_id: int, review_id: str | None) -> db.Row:
     """Return the candidate row of candidate_id; Refused unless it is open.
 
-    With a review id, Refused too unless that review listed it and is still open on it.
+    With a review id, Refused too unless that review listed it and is still open on it; None (a person) takes any.
     """
     row = conn.execute("SELECT * FROM junk_candidate WHERE id = %s", (candidate_id,)).fetchone()
     if row is None or not candidates.is_open(conn, row):
