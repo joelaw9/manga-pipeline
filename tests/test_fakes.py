@@ -135,6 +135,32 @@ def test_a_chapter_new_on_the_source_is_listed_only_after_a_fetch(suw):
 
 
 @budget(load="fs")
+def test_the_reader_serves_pages_without_a_download_and_fails_when_the_source_is_down(suw):
+    suw.set_pages(suw.c2, [b"one", b"two"])
+    urls = suw.chapter_pages(suw.c2)
+    assert [suw.page(u) for u in urls] == [b"one", b"two"], "the pages set, in reading order"
+    assert all(u.startswith("/api/v1/manga/") for u in urls), "paths below the base URL, as Suwayomi gives them"
+    assert suw.queue == [], "nothing queued"
+    assert not suw.chapter_rows[suw.c2]["isDownloaded"], "nothing marked downloaded"
+    assert not suw.mangas_root.exists(), "nothing written to the downloads folder"
+    suw.unavailable.add(suw.source)
+    with pytest.raises(suwayomi.SourceUnavailableError):
+        suw.chapter_pages(suw.c2)
+    with pytest.raises(suwayomi.SourceUnavailableError):
+        suw.page(urls[0])
+
+
+@budget(load="fs")
+def test_set_in_library_moves_a_manga_in_and_out_of_the_library(suw):
+    other = suw.add_manga("Elsewhere", suw.source, in_library=False)
+    suw.set_in_library(other, in_library=True)
+    assert [m["id"] for m in suw.library_manga()] == [suw.manga_id, other]
+    suw.set_in_library(suw.manga_id, in_library=False)
+    assert [m["id"] for m in suw.library_manga()] == [other]
+    assert suw.chapters(suw.manga_id), "its chapters stay"
+
+
+@budget(load="fs")
 def test_a_call_the_fake_does_not_answer_fails_loudly(suw):
     with pytest.raises(AssertionError, match="unexpected request"):
         suw.graphql("{ __typename }", json.loads)

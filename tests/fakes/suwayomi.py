@@ -55,6 +55,7 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         self.writes = []  # every write call, in order
         self._next_id = 100
         self.thumbnails = {}  # manga id: image bytes (none: Suwayomi cannot serve it)
+        self.page_bytes = {}  # chapter id: [page bytes] its reader serves (set_pages)
 
     # --- building state
 
@@ -104,6 +105,10 @@ class FakeSuwayomi(suwayomi.Suwayomi):
             "realUrl": f"https://source.invalid/chapter/{chapter_id}",
         }
         return chapter_id
+
+    def set_pages(self, chapter_id, pages):
+        """Set the pages the source serves for a chapter through the reader API: [image bytes], in reading order."""
+        self.page_bytes[chapter_id] = list(pages)
 
     def path(self, chapter_id):
         """Where Suwayomi writes the chapter's CBZ: built by the client's own 3 name helpers."""
@@ -229,6 +234,28 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         for chapter_id in [i for i, c in self.unlisted.items() if c["mangaId"] == manga_id]:
             self.chapter_rows[chapter_id] = self.unlisted.pop(chapter_id)
         return {"manga": self._manga(manga_id), "chapters": self.chapters(manga_id)}
+
+    def set_in_library(self, manga_id, *, in_library):
+        self.writes.append(("set_in_library", manga_id, in_library))
+        _int_id(manga_id)
+        self.manga_rows[manga_id]["inLibrary"] = in_library
+
+    def chapter_pages(self, chapter_id):
+        """As Suwayomi's reader: the page URLs of a chapter whose pages were set; nothing is downloaded."""
+        self.writes.append(("chapter_pages", chapter_id))
+        chapter = self.chapter_rows[chapter_id]
+        self._check_source(self.manga_rows[chapter["mangaId"]]["sourceId"])
+        base = f"/api/v1/manga/{chapter['mangaId']}/chapter/{chapter['sourceOrder']}/page"
+        return [f"{base}/{n}" for n in range(len(self.page_bytes[chapter_id]))]
+
+    def page(self, url):
+        """Return the bytes of a page URL chapter_pages gave."""
+        _, manga_id, _, order, _, n = url.removeprefix("/api/v1/").split("/")
+        self._check_source(self.manga_rows[int(manga_id)]["sourceId"])
+        (chapter_id,) = [
+            i for i, c in self.chapter_rows.items() if c["mangaId"] == int(manga_id) and c["sourceOrder"] == int(order)
+        ]
+        return self.page_bytes[chapter_id][int(n)]
 
     # --- internals
 
