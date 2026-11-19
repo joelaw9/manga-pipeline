@@ -326,6 +326,55 @@ def test_the_cap_holds_and_a_series_cut_short_is_compared_again(tmp_path):
 
 
 @budget(load="db", seconds=30)
+def test_an_unchanged_series_is_compared_without_the_write_lock(world, monkeypatch):
+    """A series whose naming inputs match its stored hash opens no write transaction during the comparison."""
+    library(world)
+    opened = []
+    transaction = db.transaction
+
+    def counted(conn):
+        opened.append(conn)
+        return transaction(conn)
+
+    with closing(db.connect(world.cfg)) as conn:
+        rewrite.compare(world.context(conn, "export"))  # stores the hash of the inputs as they now are
+        assert world.rows("SELECT count(*) FROM chapter WHERE kind = 'rewrite'") == [(0,)], "set up: nothing to change"
+        monkeypatch.setattr(db, "transaction", counted)
+        rewrite.compare(world.context(conn, "export"))
+    assert opened == [], "an unchanged series takes no database-wide write lock"
+
+
+@budget(load="db", seconds=30)
+def test_a_malformed_override_file_holds_its_series_and_the_comparison_goes_on(world):
+    """A series whose override file is malformed is needs_human, and the next series is still compared."""
+    library(world)
+    other = "Tower of God"
+    world.kavita_series(other, bulk=(("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"),), basis="filename")
+    world.kavita.scan_library(4)
+    world.kavita.run_scans()
+    world.download(world.manga(other), "Chapter 2", data=cbz(pages=4, seed="other 2"))
+    for part in (intake, intake, process, export):
+        world.run(part)
+    world.kavita.run_scans()
+    world.run(export)
+    assert world.rows("SELECT name FROM series ORDER BY id") == [(SERIES,), (other,)], "set up: compared in this order"
+    assert world.rows("SELECT count(*) FROM series_naming") == [(2,)], "set up: both hashes stored"
+    folder = config.abs_path(world.cfg["paths"]["naming_overrides"])
+    (folder / f"{SERIES}.yaml").write_bytes(b"- not a mapping\n")
+    (folder / f"{other}.yaml").write_bytes(b'volumes:\n  2: "1-"\n')
+    with closing(db.connect(world.cfg)) as conn:
+        rewrite.compare(world.context(conn, "export"))
+    (status, reason), *_ = world.rows("SELECT status, status_reason FROM series WHERE name = %s", SERIES)
+    assert status == "needs_human", "a malformed override file needs a person"
+    assert "comparing its published files" in reason, "the reason names the comparison"
+    ((queued,),) = world.rows(
+        "SELECT count(*) FROM chapter c JOIN series s ON s.id = c.series_id WHERE c.kind = 'rewrite' AND s.name = %s",
+        other,
+    )
+    assert queued > 0, "the next series is still compared and its rewrite queued"
+
+
+@budget(load="db", seconds=30)
 def test_a_change_landing_during_a_rewrite_is_not_lost(world):
     library(world)
     override(world, {2: "2-"})
