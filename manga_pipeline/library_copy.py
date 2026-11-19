@@ -88,6 +88,16 @@ def rating(name: str) -> int:
 
 
 @dataclass(frozen=True)
+class Measures[B: float | None]:
+    """A copy's measurements the check compares: our copy's bits per pixel is always measured (B float)."""
+
+    pages_in: int
+    median_page_width: int
+    strip_length: int
+    bpp: B  # bits per pixel; None when not known (a bulk file's pages are re-encoded)
+
+
+@dataclass(frozen=True)
 class Copy[B: float | None]:
     """A copy as the better-copy rule compares it: its measures, edition rating (rating) and junk removed.
 
@@ -95,7 +105,7 @@ class Copy[B: float | None]:
     file's: published_junk found none).
     """
 
-    measures: "Measures[B]"
+    measures: Measures[B]
     rating: int
     junk: float | None
 
@@ -228,16 +238,6 @@ def _bpp_compared(
 ) -> bool:
     """test(our bits per pixel, theirs), False where the published file's is not known; ours is always measured."""
     return theirs.bpp is not None and test(ours.bpp, theirs.bpp)
-
-
-@dataclass(frozen=True)
-class Measures[B: float | None]:
-    """A copy's measurements the check compares: our copy's bits per pixel is always measured (B float)."""
-
-    pages_in: int
-    median_page_width: int
-    strip_length: int
-    bpp: B  # bits per pixel; None when not known (a bulk file's pages are re-encoded)
 
 
 def measured[B: float | None](what: str, summary: measures.Summary | db.Row, bpp: B) -> Measures[B]:

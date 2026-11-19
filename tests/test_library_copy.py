@@ -379,13 +379,22 @@ def test_a_bulk_files_junk_comes_from_its_record_and_less_junk_is_better(world):
 # --- the rule alone (library_copy.decide): what a source review's sample is judged by
 
 
-def copy(width=940, bpp=1.0, junk=None, rating=1):
-    """Return a copy of 10 pages, strip length 20000, with these measures."""
+def our_copy(
+    width: int = 940, bpp: float = 1.0, junk: float | None = None, rating: int = 1
+) -> library_copy.Copy[float]:
+    """Return our copy: 10 pages, strip length 20000, with these measures (its bits per pixel always measured)."""
     return library_copy.Copy(library_copy.Measures(10, width, 20000, bpp), rating, junk)
 
 
-def longer(pages, length):
-    """Return a copy of the default measures with another page count and strip length."""
+def their_copy(
+    width: int = 940, bpp: float | None = 1.0, junk: float | None = None, rating: int = 1
+) -> library_copy.Copy[float | None]:
+    """Return a published file's original: 10 pages, strip length 20000, with these measures."""
+    return library_copy.Copy(library_copy.Measures(10, width, 20000, bpp), rating, junk)
+
+
+def longer(pages: int, length: int) -> library_copy.Copy[float]:
+    """Return our copy of the default measures with another page count and strip length."""
     return library_copy.Copy(library_copy.Measures(pages, 940, length, 1.0), 1, None)
 
 
@@ -393,18 +402,18 @@ def longer(pages, length):
 @pytest.mark.parametrize(
     ("ours", "theirs", "want"),
     [
-        (longer(13, 20000), copy(), library_copy.NotSameChapter("pages_in 13 against 10")),
-        (copy(rating=2, width=400), copy(), library_copy.Better()),
-        (copy(rating=0, width=2000), copy(), library_copy.Duplicate("a lower edition rating")),
-        (copy(width=800), copy(), library_copy.Duplicate("median page width 800 against 940")),
-        (copy(bpp=0.5), copy(), library_copy.Duplicate("bits per pixel 0.50 against 1.00")),
-        (copy(width=1000), copy(), None),
-        (copy(width=1000, junk=0), copy(junk=0), library_copy.Better()),
-        (copy(bpp=1.2, junk=0), copy(junk=0), library_copy.Better()),
-        (copy(junk=0), copy(junk=1), library_copy.Better()),
-        (copy(junk=0), copy(junk=0), library_copy.Duplicate("no better in width, bits per pixel or junk")),
-        (copy(width=1000, junk=2), copy(junk=1), library_copy.Duplicate("more junk removed: 2 against 1")),
-        (copy(bpp=0.1, width=1000, junk=0), copy(bpp=None, junk=None), library_copy.Better()),
+        (longer(13, 20000), their_copy(), library_copy.NotSameChapter("pages_in 13 against 10")),
+        (our_copy(rating=2, width=400), their_copy(), library_copy.Better()),
+        (our_copy(rating=0, width=2000), their_copy(), library_copy.Duplicate("a lower edition rating")),
+        (our_copy(width=800), their_copy(), library_copy.Duplicate("median page width 800 against 940")),
+        (our_copy(bpp=0.5), their_copy(), library_copy.Duplicate("bits per pixel 0.50 against 1.00")),
+        (our_copy(width=1000), their_copy(), None),
+        (our_copy(width=1000, junk=0), their_copy(junk=0), library_copy.Better()),
+        (our_copy(bpp=1.2, junk=0), their_copy(junk=0), library_copy.Better()),
+        (our_copy(junk=0), their_copy(junk=1), library_copy.Better()),
+        (our_copy(junk=0), their_copy(junk=0), library_copy.Duplicate("no better in width, bits per pixel or junk")),
+        (our_copy(width=1000, junk=2), their_copy(junk=1), library_copy.Duplicate("more junk removed: 2 against 1")),
+        (our_copy(bpp=0.1, width=1000, junk=0), their_copy(bpp=None, junk=None), library_copy.Better()),
     ],
     ids=[
         "not-the-same-chapter",
@@ -427,10 +436,10 @@ def test_the_better_copy_rule_on_2_copies(ours, theirs, want):
 
 @budget(load="pure")
 def test_strip_junk_differs_only_beyond_500_rows():
-    assert library_copy.decide(copy(width=1000, junk=600), copy(junk=200), "strip") == library_copy.Better()
-    assert library_copy.decide(copy(width=1000, junk=800), copy(junk=200), "strip") == library_copy.Duplicate(
+    assert library_copy.decide(our_copy(width=1000, junk=600), their_copy(junk=200), "strip") == library_copy.Better()
+    assert library_copy.decide(our_copy(width=1000, junk=800), their_copy(junk=200), "strip") == library_copy.Duplicate(
         "more junk removed: 800 against 200"
     )
-    assert library_copy.decide(longer(10, 26000), copy(), "strip") == library_copy.NotSameChapter(
+    assert library_copy.decide(longer(10, 26000), their_copy(), "strip") == library_copy.NotSameChapter(
         "strip_length 26000 against 20000"
     )
