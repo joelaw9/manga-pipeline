@@ -10,7 +10,7 @@ from contextlib import closing
 import pytest
 from PIL import Image
 
-from manga_pipeline import archive, db, names, strip
+from manga_pipeline import archive, config, db, names, strip
 from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates, chapter_scan, ocr, store
 
@@ -88,5 +88,7 @@ def test_page_aspects_are_the_stored_ones_else_computed_from_the_chapter_and_nev
 
 @budget()
 def test_the_word_lists_are_config_junk_s_4_lists():
-    junk = {**WORDS, "ocr_device": "cpu", "review_limit": 3}
-    assert ocr.word_lists(junk) == WORDS, "only the keyword test's lists"
+    junk = config.load()["junk"]
+    lists = ("keywords", "weak", "paired", "suppress")
+    assert set(junk) > set(lists), "config junk holds more than the word lists"
+    assert ocr.word_lists(junk) == {k: junk[k] for k in lists}, "only the keyword test's lists"
