@@ -2,20 +2,32 @@
 
 The junk stage scans a chapter (scan_strip or page_units.scan by the series' layout) and later decides it from the
 stored scan (apply); a source review's sample (SPEC "Source review") runs both on a CBZ in hand. Every input is given:
-the pages, the series' decisions, known watermarks, page aspects and the OCR device. The caller stores what it keeps.
+the pages, the series' decisions, known watermarks, page aspects (page_aspects reads them) and the OCR device. The
+caller stores what it keeps.
 """
 
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-from manga_pipeline import images, strip
+from manga_pipeline import db, images, strip
 from manga_pipeline.convert import plan
 from manga_pipeline.junk import candidates, logo_units, ocr, page_units, store, strip_units
 
 if TYPE_CHECKING:
     import numpy as np
     from numpy.typing import NDArray
+
+
+def page_aspects(conn: db.Connection, series_id: int, sizes: Sequence[strip.Size]) -> tuple[list[float], bool]:
+    """Return the series' page aspect candidates and whether they are stored; writes nothing.
+
+    Stored (series_conversion.page_aspect), else computed from this chapter's page sizes (empty when none is page-like).
+    """
+    row = db.one_row(conn, "SELECT page_aspect FROM series_conversion WHERE series_id = %s", (series_id,))
+    if row["page_aspect"] is not None:
+        return plan.read_page_aspect(series_id, row["page_aspect"]), True
+    return strip.page_aspect([sizes]) or [], False
 
 
 class StoredStripScan(strip_units.StripScan):

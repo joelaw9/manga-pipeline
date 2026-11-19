@@ -14,7 +14,7 @@ from manga_pipeline import archive, db, names, strip
 from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates, chapter_scan, ocr, store
 
-from tests.builders import present, site_cfg
+from tests.builders import add_series, present, site_cfg
 from tests.test_junk_stage import strip_cbz
 from tests.timing import budget
 from tests.world import cbz
@@ -65,3 +65,28 @@ def test_a_scan_and_decision_of_a_cbz_in_hand_writes_nothing(tmp_path, monkeypat
         assert all(p["unit"] in applied.undecided or p["kind"] == "probe" for p in picks), "offered from undecided"
         assert picks or layout == "strip", "the wider credit page is offered for review by its size"
         assert counts(conn) == dict.fromkeys(WRITTEN, 0), "no candidate, sighting, watermark, scan or layout written"
+
+
+@budget(load="db", seconds=3)
+def test_page_aspects_are_the_stored_ones_else_computed_from_the_chapter_and_never_written(tmp_path):
+    cfg = site_cfg(tmp_path)
+    sizes = [(1000, 1500)] * 8
+    with closing(db.connect(cfg)) as conn:
+        series_id = add_series(conn, "Series")
+        with db.transaction(conn):
+            conn.execute(
+                "INSERT INTO series_conversion (series_id, layout, origin) VALUES (%s, 'pages', 'computed')",
+                (series_id,),
+            )
+        assert chapter_scan.page_aspects(conn, series_id, sizes) == ([1.5], False), "computed from the chapter's pages"
+        row = db.one_row(conn, "SELECT page_aspect FROM series_conversion WHERE series_id = %s", (series_id,))
+        assert row["page_aspect"] is None, "the reader writes nothing: the stage stores what it computed"
+        with db.transaction(conn):
+            conn.execute("UPDATE series_conversion SET page_aspect = '[1.4]' WHERE series_id = %s", (series_id,))
+        assert chapter_scan.page_aspects(conn, series_id, sizes) == ([1.4], True), "stored ones win"
+
+
+@budget()
+def test_the_word_lists_are_config_junk_s_4_lists():
+    junk = {**WORDS, "ocr_device": "cpu", "review_limit": 3}
+    assert ocr.word_lists(junk) == WORDS, "only the keyword test's lists"

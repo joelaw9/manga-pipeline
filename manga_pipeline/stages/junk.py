@@ -179,17 +179,14 @@ def _sample(ctx: workflow.Context, chapter: db.Row, series: db.Row) -> list[list
 
 def _aspects(ctx: workflow.Context, series: db.Row, sizes: Sequence[strip.Size]) -> list[float]:
     """Return the series' page aspect candidates: stored, else computed from this chapter and stored."""
-    row = db.one_row(ctx.conn, "SELECT page_aspect FROM series_conversion WHERE series_id = %s", (series["id"],))
-    if row["page_aspect"] is not None:
-        return plan.read_page_aspect(series["id"], row["page_aspect"])
-    aspects = strip.page_aspect([sizes])
-    if aspects is not None:
+    aspects, stored = chapter_scan.page_aspects(ctx.conn, series["id"], sizes)
+    if aspects and not stored:
         with db.transaction(ctx.conn):
             ctx.conn.execute(
                 "UPDATE series_conversion SET page_aspect = coalesce(page_aspect, %s) WHERE series_id = %s",
                 (json.dumps(aspects), series["id"]),
             )
-    return aspects or []
+    return aspects
 
 
 # ---------------------------------------------------------------- scan
@@ -309,14 +306,7 @@ def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> wor
     watermarks = [(key, k) for k in applied.watermarks]
     if applied.problem:
         return workflow.NeedsHuman(applied.problem)
-    junk = ctx.cfg["junk"]
-    words: ocr.WordLists = {
-        "keywords": junk["keywords"],
-        "weak": junk["weak"],
-        "paired": junk["paired"],
-        "suppress": junk["suppress"],
-    }
-    picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, words)
+    picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, ocr.word_lists(ctx.cfg["junk"]))
     if not picks:
         return _finished(ctx, chapter, applied.edit, watermarks)
     limit = ctx.cfg["junk"]["review_limit"]

@@ -54,6 +54,11 @@ class WordLists(TypedDict):
     suppress: list[str]
 
 
+def word_lists(junk: WordLists) -> WordLists:
+    """Return the keyword test's word lists from config `junk` (which holds more keys)."""
+    return {"keywords": junk["keywords"], "weak": junk["weak"], "paired": junk["paired"], "suppress": junk["suppress"]}
+
+
 def provider_problem(device: str) -> str | None:
     """Return why `device` cannot run OCR here, or None.
 

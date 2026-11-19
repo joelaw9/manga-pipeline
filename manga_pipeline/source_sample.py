@@ -19,12 +19,10 @@ from manga_pipeline import (
     measures,
     redownload,
     source_review,
-    strip,
     validation,
     workflow,
 )
 from manga_pipeline.clients import suwayomi
-from manga_pipeline.convert import plan
 from manga_pipeline.junk import candidates, chapter_scan, ocr, store
 from manga_pipeline.replies import suwayomi as suwayomi_replies
 
@@ -148,7 +146,7 @@ def judge(s: Sampling, row: db.Row) -> list[str]:
         *(f"  note: {note}" for note in verdict.notes),
     ]
     picks = candidates.select(
-        s.ctx.conn, store.series_key(s.series), row["identity"], applied.undecided, _words(s.ctx.cfg)
+        s.ctx.conn, store.series_key(s.series), row["identity"], applied.undecided, ocr.word_lists(s.ctx.cfg["junk"])
     )
     out += [f"  for review: {p['kind']} ({p['reason']})" for p in picks]
     return out
@@ -184,12 +182,7 @@ def _junk(s: Sampling, paths: list[Path], pages: list[images.MeasuredPage]) -> c
     if s.layout == "strip":
         sc = chapter_scan.scan_strip(extracted, decisions, s.ctx.cfg["junk"]["ocr_device"])
     else:
-        row = db.one_row(conn, "SELECT page_aspect FROM series_conversion WHERE series_id = %s", (s.series["id"],))
-        aspects = (
-            plan.read_page_aspect(s.series["id"], row["page_aspect"])
-            if row["page_aspect"] is not None
-            else strip.page_aspect([extracted.sizes]) or []
-        )
+        aspects, _ = chapter_scan.page_aspects(conn, s.series["id"], extracted.sizes)
         sc = chapter_scan.scan_pages(extracted, [m["junk_signature"] is None for m in pages], aspects)
 
     def decide_unit(kind: str, text: str) -> db.Row | None:
@@ -197,11 +190,6 @@ def _junk(s: Sampling, paths: list[Path], pages: list[images.MeasuredPage]) -> c
 
     known = conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
     return chapter_scan.apply(sc, decide_unit, [r["key"] for r in known])
-
-
-def _words(cfg: config.Config) -> ocr.WordLists:
-    junk = cfg["junk"]
-    return {"keywords": junk["keywords"], "weak": junk["weak"], "paired": junk["paired"], "suppress": junk["suppress"]}
 
 
 def _outcome(verdict: library_copy.Better | library_copy.Duplicate | library_copy.NotSameChapter | None) -> str:
