@@ -64,6 +64,14 @@ def test_new_database_has_every_table_and_an_id(tmp_path):
 
 
 @budget(load="db")
+def test_chapter_and_published_file_are_indexed_by_series(tmp_path):
+    """The per-series lookups (claim, naming comparison, validation) read through an index on series_id."""
+    with closing(db.connect(db_cfg(tmp_path))) as conn:
+        found = {row[0] for row in conn.execute("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")}
+        assert {"chapter_series", "published_file_series"} <= found, "step 0071 indexes both tables by series_id"
+
+
+@budget(load="db")
 def test_settings_are_in_effect(tmp_path):
     with closing(db.connect(db_cfg(tmp_path))) as conn:
         assert conn.autocommit, "every write goes in an explicit transaction()"

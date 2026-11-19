@@ -540,8 +540,14 @@ def test_a_scanned_junk_chapter_waits_while_another_of_its_series_is_unscanned(c
     series = add_series(ctx.conn, "S")
     scanned = add_chapter(ctx.conn, series, "a", "junk", "2026-01-01T00:00:00+00:00", content_digest="d1", number=1)
     other = add_chapter(ctx.conn, series, "b", "junk", "2026-01-02T00:00:00+00:00", content_digest="d2", number=1)
-    scans = [(scanned, "d1", '{"marks": []}'), (other, "d2", "{}" if old_scan else '{"marks": []}')]
+    scans = [
+        (scanned, "d1", '{"marks": [], "layout": "pages"}'),
+        (other, "d2", '{"layout": "pages"}' if old_scan else '{"marks": [], "layout": "pages"}'),
+    ]
     with db.transaction(ctx.conn):
+        ctx.conn.execute(
+            "INSERT INTO series_conversion (series_id, layout, origin) VALUES (%s, 'pages', 'computed')", (series,)
+        )
         db.executemany(
             ctx.conn,
             "INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at) VALUES"

@@ -248,6 +248,26 @@ def test_a_download_at_a_done_chapters_path_is_a_new_chapter(world):
 
 
 @budget(load="db")
+def test_discovery_checks_files_outside_the_write_transaction(world, monkeypatch):
+    """A stalled share must not hold the database-wide write lock (SPEC "State": a write transaction is short)."""
+    world.kavita_series("Solo Leveling")
+    world.download(world.manga("Solo Leveling"), "Chapter 2")
+    real_exists = discovery.errors.exists
+    in_transaction: list[bool] = []
+    with closing(db.connect(world.cfg)) as conn:
+
+        def exists(local):
+            in_transaction.append(db.in_transaction(conn))
+            return real_exists(local)
+
+        monkeypatch.setattr(discovery.errors, "exists", exists)
+        discovery.scan(world.context(conn, "intake"))
+    assert in_transaction, "the download's file was checked"
+    assert not any(in_transaction), "no file is checked inside a transaction"
+    assert world.rows("SELECT count(*) FROM chapter") == [(1,)], "the download is still a new chapter"
+
+
+@budget(load="db")
 def test_a_chapter_records_its_source_by_display_name(world):
     world.kavita_series("Solo Leveling")
     world.download(world.manga("Solo Leveling"), "Chapter 2")

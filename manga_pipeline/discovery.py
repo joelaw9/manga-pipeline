@@ -182,17 +182,27 @@ def _found(
 
 
 def _record(ctx: workflow.Context, found: list[workflow.NewChapter], unmatched: list[tuple[Path, str]]) -> None:
-    """Add the chapters not yet open at their path, and replace unmatched_download (first seen kept)."""
+    """Add the chapters not yet open at their path, and replace unmatched_download (first seen kept).
+
+    Each file is checked before the write transaction, so a stalled share never holds the write lock.
+    """
+
+    def open_at(download_path: str) -> bool:
+        sql = "SELECT 1 FROM chapter WHERE download_path = %s AND status != 'done'"
+        return ctx.conn.execute(sql, (download_path,)).fetchone() is not None
+
     stamp = workflow.now(ctx.conn)
+    # Checked after the row: confirm moves a download away before its chapter is done, so a file still here once its
+    # chapter reads done is a new download, not one an export confirmed since the listing.
+    kept = [
+        new
+        for new in found
+        if not open_at(new.download_path) and errors.exists(config.to_local(ctx.cfg, new.download_path))
+    ]
     with db.transaction(ctx.conn):
         added = 0
-        for new in found:
-            open_ = ctx.conn.execute(
-                "SELECT 1 FROM chapter WHERE download_path = %s AND status != 'done'", (new.download_path,)
-            ).fetchone()
-            # Checked after the row: confirm moves a download away before its chapter is done, so a file still here
-            # once its chapter reads done is a new download, not one an export confirmed since the listing.
-            if not open_ and errors.exists(config.to_local(ctx.cfg, new.download_path)):
+        for new in kept:
+            if not open_at(new.download_path):
                 workflow.add_chapter(ctx.conn, new)
                 check.make_urgent(ctx.conn, new.series_id)  # a new chapter makes its series' check due at once
                 added += 1

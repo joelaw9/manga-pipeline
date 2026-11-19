@@ -102,11 +102,17 @@ def compare(ctx: workflow.Context) -> None:
 def _compare_series(ctx: workflow.Context, series: db.Row, room: int) -> None:
     """Compare 1 series whose naming inputs changed since its stored hash.
 
-    Record the cover images wanted and queue up to room rewrite chapters; store the hash once every change is queued. 1
-    transaction (the database-wide write lock): the hash and the comparison read the same inputs once.
+    Record the cover images wanted and queue up to room rewrite chapters; store the hash once every change is queued.
+    The hash is first computed with no lock: an unchanged series ends there. Otherwise 1 transaction (the database-wide
+    write lock) hashes again and compares, so the hash and the comparison read the same inputs once.
     """
     conn = ctx.conn
-    # ponytail: it reads the series' open downloads' ComicInfo.xml under the lock, only when the hash changed
+    try:
+        if _hash(ctx, series) == _stored_hash(conn, series["id"]):
+            return
+    except volumes.VolumeError:
+        pass  # reported under the lock below, where needs_human can run
+    # ponytail: a changed series is hashed twice, and its open downloads' ComicInfo.xml is read under the lock
     with db.transaction(conn):
         try:
             digest = _hash(ctx, series)
