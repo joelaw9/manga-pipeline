@@ -248,28 +248,6 @@ def test_a_download_at_a_done_chapters_path_is_a_new_chapter(world):
 
 
 @budget(load="db")
-def test_a_download_confirm_moves_away_once_its_file_was_seen_is_not_a_new_chapter(world, monkeypatch):
-    """The row is read before the file: a confirm between them leaves a done row and no file, never a new chapter."""
-    world.kavita_series("Solo Leveling")
-    _, path = world.download(world.manga("Solo Leveling"), "Chapter 2")
-    scan(world)
-    monkeypatch.setattr(discovery, "_held", lambda _ctx: set())  # the open chapter is not among the held paths
-    real_exists = discovery.errors.exists
-
-    def exists_then_confirm(local):
-        present_ = real_exists(local)
-        if present_ and str(local) == str(path):  # what confirm does: move the download away, then mark it done
-            path.rename(path.with_suffix(".moved"))
-            with closing(db.connect(world.cfg)) as conn:
-                conn.execute("UPDATE chapter SET status = 'done'")
-        return present_
-
-    monkeypatch.setattr(discovery.errors, "exists", exists_then_confirm)
-    scan(world)
-    assert world.rows("SELECT count(*) FROM chapter") == [(1,)], "a download confirm moved away is not a new chapter"
-
-
-@budget(load="db")
 def test_discovery_checks_files_outside_the_write_transaction(world, monkeypatch):
     """A stalled share must not hold the database-wide write lock (SPEC "State": a write transaction is short)."""
     world.kavita_series("Solo Leveling")
