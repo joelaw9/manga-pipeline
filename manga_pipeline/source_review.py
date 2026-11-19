@@ -10,7 +10,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from manga_pipeline import config, db, errors, library_copy, names, redownload, rewrite, validation, workflow
+from manga_pipeline import archive, config, db, errors, library_copy, names, redownload, rewrite, validation, workflow
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.db import sql
 from manga_pipeline.replies import suwayomi as suwayomi_replies
@@ -213,7 +213,7 @@ def file_text(f: FileMeasures) -> str:
 def survey(ctx: workflow.Context) -> list[str]:
     """Return every series in scope with its combined measures and the triggers it crosses, those crossing most first.
 
-    Reaches no service.
+    Reaches no service. A series with a library file that cannot be read is listed with that file's error instead.
     """
     rows = ctx.conn.execute(
         sql.SQL("""SELECT s.* FROM series s WHERE s.kavita_series_id IS NOT NULL
@@ -226,13 +226,19 @@ def survey(ctx: workflow.Context) -> list[str]:
         if not files:
             continue
         series_layout = layout(ctx.conn, series["id"])
-        c = combine([measure_file(ctx, f, series_layout) for f in files])
-        crossed = triggers(c, series_layout)
-        text = (
-            f"series {series['id']} {series['name']} ({series_layout or 'no layout'}, {len(files)} files): "
-            f"{combined_text(c)}; triggers: {', '.join(crossed) or 'none'}"
-        )
-        found.append((len(crossed), text))
+        head = f"series {series['id']} {series['name']} ({series_layout or 'no layout'}, {len(files)} files)"
+        measured: list[FileMeasures] = []
+        for f in files:
+            try:
+                with workflow.share_errors():  # an unreachable share ends the survey: only a file's defect is listed
+                    measured.append(measure_file(ctx, f, series_layout))
+            except (OSError, *archive.UNREADABLE) as e:
+                found.append((0, f"{head}: file {f['id']} ({f['library_path']}) cannot be read: {e}"))
+                break
+        else:
+            c = combine(measured)
+            crossed = triggers(c, series_layout)
+            found.append((len(crossed), f"{head}: {combined_text(c)}; triggers: {', '.join(crossed) or 'none'}"))
     found.sort(key=lambda t: -t[0])  # stable: by id within the same count
     return [text for _, text in found]
 

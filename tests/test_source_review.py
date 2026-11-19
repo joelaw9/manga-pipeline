@@ -1,11 +1,12 @@
 """Source review's survey, measure, search, switch, replace and retire (SPEC "Source review")."""
 
+import errno
 import logging
 from contextlib import closing
 
 import pytest
 
-from manga_pipeline import cli, db, export, intake, lock, process
+from manga_pipeline import cli, config, db, export, intake, library_copy, lock, process
 
 from tests.builders import add_chapter, add_series, running, settle
 from tests.source_world import FILES, SERIES, candidate, library, link, main, make_world, pages, zipped
@@ -53,6 +54,31 @@ def test_survey_lists_a_series_crossing_a_trigger_first_and_leaves_a_series_in_f
     assert lines[0].endswith("triggers: width"), lines[0]
     assert lines[1].startswith("series 1 Alpha"), lines[1]
     assert lines[1].endswith("triggers: none"), lines[1]
+
+
+@budget(load="db", seconds=4)
+def test_survey_lists_a_series_with_an_unreadable_file_with_its_error_and_goes_on(world, capsys):
+    beta = library(world, "Beta")
+    ((file_id, stored),) = world.rows(
+        "SELECT id, library_path FROM published_file WHERE series_id = %s ORDER BY id DESC LIMIT 1", beta
+    )
+    config.to_local(world.cfg, stored).write_bytes(b"not a zip")
+    code, lines, _ = main(world, capsys, "source", "survey")
+    assert code == 0, lines
+    assert lines[0].startswith("series 1 Alpha"), "the next series is still surveyed"
+    assert lines[1].startswith(f"series {beta} Beta (pages, 5 files): file {file_id} ({stored}) cannot be read:")
+
+
+@budget(load="db", seconds=3)
+def test_survey_ends_on_an_unreachable_share(world, capsys, monkeypatch):
+    def dropped(*_args):
+        raise OSError(errno.EIO, "I/O error")
+
+    monkeypatch.setattr(library_copy, "original", dropped)
+    code, lines, err = main(world, capsys, "source", "survey")
+    assert code == 1
+    assert lines == [], "a share that cannot be reached is no file's defect"
+    assert "share" in err
 
 
 @budget(load="db", seconds=3)
