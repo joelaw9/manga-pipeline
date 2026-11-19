@@ -114,11 +114,17 @@ def _layout(ctx: workflow.Context, chapter: db.Row, series: db.Row, content_path
 
     Its override file's `layout`, stored as the series' layout; else the stored one; else measured, for a new series
     over up to strip.SAMPLE_CHAPTERS of its chapters (this one among them), for any other over this chapter.
-    OverrideError for a malformed override file.
+    OverrideError for a malformed override file. An override that changes a stored layout rescans the series' open
+    downloads (workflow.layout_changed).
     """
     wanted = volumes.override_layout(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
     if wanted:
         with db.transaction(ctx.conn):
+            before = ctx.conn.execute(
+                "SELECT layout FROM series_conversion WHERE series_id = %s", (series["id"],)
+            ).fetchone()
+            if before is not None and before[0] != wanted:
+                workflow.layout_changed(ctx.conn, series["id"])
             ctx.conn.execute(
                 """INSERT INTO series_conversion (series_id, layout, origin) VALUES (%s, %s, 'override')
                 ON CONFLICT (series_id) DO UPDATE SET layout = excluded.layout, origin = excluded.origin

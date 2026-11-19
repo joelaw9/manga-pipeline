@@ -44,11 +44,14 @@ SCOPE = sql.SQL("""(s.kavita_library_id IS NULL OR s.kavita_library_id = %(scope
 # A series s whose chapters may be worked: not a new series waiting to be admitted (SPEC "Series identification": a
 # held one's chapters are recorded and wait for its name and folder).
 ADMITTED = sql.SQL("NOT (s.origin = 'new' AND s.admitted_at IS NULL)")
-# A junk-stage chapter {c} holds a current junk scan (SPEC "Junk decisions"): same series, same content digest, and
-# made with logo detection (a scan without "marks" is not current). The one test of a current scan. Fill {c} with
-# sql.Identifier(alias): a plain str becomes a quoted literal.
-SCANNED = sql.SQL("""EXISTS (SELECT 1 FROM junk_scan js WHERE js.chapter_id = {c}.id AND js.series_id = {c}.series_id
-    AND js.content_digest = {c}.content_digest AND jsonb_typeof(js.scan::jsonb -> 'marks') = 'array')""")
+# A junk-stage chapter {c} holds a current junk scan (SPEC "Junk decisions"): same series, same content digest, made
+# with logo detection (a scan without "marks" is not current) and under the series' layout (SPEC "State": an override
+# file may change it). The one test of a current scan. Fill {c} with sql.Identifier(alias): a plain str becomes a
+# quoted literal.
+SCANNED = sql.SQL("""EXISTS (SELECT 1 FROM junk_scan js CROSS JOIN LATERAL (SELECT js.scan::jsonb AS doc) j
+    JOIN series_conversion sc ON sc.series_id = js.series_id
+    WHERE js.chapter_id = {c}.id AND js.series_id = {c}.series_id AND js.content_digest = {c}.content_digest
+    AND jsonb_typeof(j.doc -> 'marks') = 'array' AND j.doc ->> 'layout' = sc.layout)""")
 # A chapter {c} that failed less than RETRY_PAUSE ago is claimed by no machine (SPEC "Chapter stages"). Fill {c} with
 # sql.Identifier(alias).
 RETRY_PAUSE = timedelta(minutes=5)
@@ -679,14 +682,41 @@ def move_chapters(conn: db.Connection, from_series: int, to_series: int) -> None
     """
     junk = STAGES.index("junk")
     later = STAGES[junk + 1 :]
+    _back_to_junk(
+        conn,
+        sql.SQL("series_id = %s AND status NOT IN ('done', 'needs_human') AND stage IN ({stages})").format(
+            stages=sql.SQL(",").join([sql.Placeholder()] * len(later))
+        ),
+        (from_series, *later),
+    )
+    conn.execute("UPDATE chapter SET series_id = %s WHERE series_id = %s", (to_series, from_series))
+
+
+def layout_changed(conn: db.Connection, series_id: int) -> None:
+    """Rescan a series' open downloads under its changed layout (SPEC "State"; inside the caller's transaction).
+
+    Those at convert go back to junk, ready, attempts 0; those waiting at junk become ready. Their scans are stale
+    (SCANNED compares the layout) and are kept, so the candidates a needs_human junk chapter waits on stay open. A
+    chapter past convert is published as converted.
+    """
+    _back_to_junk(
+        conn, sql.SQL("series_id = %s AND kind = 'download' AND stage = 'convert' AND status <> 'done'"), (series_id,)
+    )
+    conn.execute(
+        """UPDATE chapter SET status = 'ready', waiting_on = NULL, wait_data = NULL, updated_at = %s
+        WHERE series_id = %s AND kind = 'download' AND stage = 'junk' AND status = 'waiting'""",
+        (now(conn), series_id),
+    )
+
+
+def _back_to_junk(conn: db.Connection, where: sql.Composable, params: tuple[object, ...]) -> None:
+    """Send the chapters matching `where` back to junk: ready, attempts 0, wait and claim cleared."""
     conn.execute(
         sql.SQL("""UPDATE chapter SET stage = 'junk', status = 'ready', waiting_on = NULL, wait_data = NULL,
             claimed_by = NULL, attempts = 0, retry_after = NULL, updated_at = %s
-        WHERE series_id = %s AND status NOT IN ('done', 'needs_human')
-            AND stage IN ({stages})""").format(stages=sql.SQL(",").join([sql.Placeholder()] * len(later))),
-        (now(conn), from_series, *later),
+        WHERE {where}""").format(where=where),
+        (now(conn), *params),
     )
-    conn.execute("UPDATE chapter SET series_id = %s WHERE series_id = %s", (to_series, from_series))
 
 
 def reset(conn: db.Connection) -> None:

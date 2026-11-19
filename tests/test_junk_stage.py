@@ -13,12 +13,14 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import cli, config, db, export, identify, intake, process, state, workflow
+from manga_pipeline import cli, config, db, errors, export, identify, intake, process, state, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import plan
 from manga_pipeline.junk import candidates, importing, logo_units, ocr, review, store
 from manga_pipeline.metadata import sources
+from manga_pipeline.stages import convert as convert_stage
+from manga_pipeline.stages import junk as junk_stage
 
 from tests import pages as fx
 from tests.builders import config_file, present, run_part
@@ -772,3 +774,130 @@ def test_a_chapter_joining_a_candidate_cleaned_up_meanwhile_fails_once_then_writ
     (cand,) = open_candidates(site)
     images = config.abs_path(site.cfg["paths"]["candidates"]) / cand["folder"]
     assert (images / "unit.png").is_file(), "the retry wrote the candidate's images anew"
+
+
+# ---------------------------------------------------------------- an override's layout change (SPEC "State")
+
+
+def set_override_layout(site, series, layout):
+    """Write the series' override file naming `layout`."""
+    folder = config.abs_path(site.cfg["paths"]["naming_overrides"])
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{series}.yaml").write_bytes(f"layout: {layout}\n".encode())
+
+
+def decided_from(monkeypatch):
+    """Record each junk decision's (chapter id, layout of the scan it is decided from), in order; return the list.
+
+    A decided chapter's scan row is deleted once it leaves junk, so the layout is seen as it is decided.
+    """
+    seen = []
+    real = junk_stage.decide
+
+    def decide(ctx, chapter, key, row):
+        seen.append((chapter["id"], json.loads(row["scan"])["layout"]))
+        return real(ctx, chapter, key, row)
+
+    monkeypatch.setattr(junk_stage, "decide", decide)
+    return seen
+
+
+@budget(load="db", seconds=20)
+def test_a_layout_change_rescans_a_chapter_waiting_on_a_junk_decision_in_the_same_run(site, monkeypatch):
+    """A pages series' waiting chapter is scanned again under the override's strip layout in the run of the change."""
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")  # the real engine reads noise for seconds per block
+    site.download("Alpha", 2, cbz(seed="w2", credit=True))
+    site.parts()
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "the credit page holds the chapter"
+    set_override_layout(site, "Alpha", "strip")
+    site.download("Alpha", 3, cbz(seed="w3"))
+    seen = decided_from(monkeypatch)
+    site.parts()
+    assert [layout for chapter, layout in seen if chapter == 1] == ["strip"], (
+        "the waiting chapter is scanned again under the new layout and decided from that scan in the same run"
+    )
+
+
+@budget(load="db", seconds=30)
+def test_a_layout_change_sends_a_chapter_at_convert_back_to_junk_and_it_converts(site, monkeypatch):
+    """A chapter at convert holding a page edit goes back to junk, then converts under the new layout."""
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")  # the real engine reads noise for seconds per block
+    site.download("Alpha", 2, cbz(seed="v2", credit=True))
+    site.parts()
+    assert decide_junk(site.cfg, "junk") == 1
+    with monkeypatch.context() as m:  # convert is out of reach this run: the chapter stays at convert
+        m.setattr(convert_stage, "run", raise_unreachable)
+        run_part(site.cfg, process)
+    assert site.chapters() == [("convert", "ready", None)], "decided, its page edit waits at convert"
+    set_override_layout(site, "Alpha", "strip")
+    site.download("Alpha", 3, cbz(seed="v3"))
+    seen = decided_from(monkeypatch)
+    site.parts()
+    ((stage, status, error),) = site.rows("SELECT stage, status, last_error FROM chapter WHERE id = 1")
+    assert status != "needs_human", f"the chapter converts with no stale page edit: {error}"
+    assert "chapter_edit" not in (error or ""), f"the chapter converts with no stale page edit: {error}"
+    assert stage == "comicinfo", "the chapter passes convert"
+    assert [layout for chapter, layout in seen if chapter == 1] == ["strip"], (
+        "the chapter at convert is back at junk and decided from a strip scan in the same run"
+    )
+
+
+def raise_unreachable(_ctx, _chapter):
+    service = "vship"
+    raise errors.Unreachable(service, "test: convert out of reach")
+
+
+@budget(load="db", seconds=20)
+def test_a_layout_change_keeps_a_needs_human_chapters_candidate_open_until_decided_and_retried(site, monkeypatch):
+    """A junk chapter held on an unsure candidate keeps it open; decided and retried, it is scanned again."""
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")  # the real engine reads noise for seconds per block
+    site.download("Alpha", 2, cbz(seed="u2", credit=True))
+    site.parts()
+    (cand,) = open_candidates(site)
+    with closing(db.connect(site.cfg)) as conn:
+        review.decide(conn, cand["id"], "unsure", None, workflow.now(conn))
+    run_part(site.cfg, process)
+    assert site.chapters() == [("junk", "needs_human", None)], "unsure: a person decides"
+    set_override_layout(site, "Alpha", "strip")
+    site.download("Alpha", 3, cbz(seed="u3"))
+    site.parts()
+    assert site.chapters()[0] == ("junk", "needs_human", None), "a needs_human chapter is not reset"
+    with closing(db.connect(site.cfg)) as conn:
+        assert cand["id"] in [r["id"] for r in candidates.open_rows(conn)], "its candidate stays open"
+        review.decide(conn, cand["id"], "keep", None, workflow.now(conn))
+        workflow.retry_chapter(conn, 1)
+    seen = decided_from(monkeypatch)
+    run_part(site.cfg, process)
+    assert [layout for chapter, layout in seen if chapter == 1] == ["strip"], (
+        "decided and retried, the chapter is scanned again under strip"
+    )
+
+
+@budget(load="db", seconds=20)
+def test_a_layout_change_leaves_a_converted_chapter_as_it_is(site, monkeypatch):
+    """A chapter already converted (at comicinfo) keeps its stage and status."""
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")  # the real engine reads noise for seconds per block
+    site.download("Alpha", 2, cbz(seed="p2"))
+    site.parts()
+    assert site.chapters() == [("comicinfo", "ready", None)], "converted, it waits for export"
+    set_override_layout(site, "Alpha", "strip")
+    site.download("Alpha", 3, cbz(seed="p3"))
+    site.parts()
+    assert site.chapters()[0] == ("comicinfo", "ready", None), "a converted chapter is published as converted"
+
+
+@budget(load="db", seconds=20)
+def test_an_override_naming_the_same_layout_resets_no_chapter(site):
+    """An override that names the series' own layout changes only its origin: every scan stays current."""
+    site.download("Alpha", 2, cbz(seed="s2", credit=True))
+    site.parts()
+    (before,) = site.rows("SELECT scan FROM junk_scan")
+    set_override_layout(site, "Alpha", "pages")
+    site.download("Alpha", 3, cbz(seed="s3"))
+    site.parts()
+    assert site.rows("SELECT layout, origin FROM series_conversion") == [("pages", "override")], "the origin changes"
+    assert site.chapters()[0] == ("junk", "waiting", "junk_decision"), "the waiting chapter is not reset"
+    assert site.rows("SELECT scan FROM junk_scan WHERE chapter_id = 1") == [before], "its scan is kept"
+    with closing(db.connect(site.cfg)) as conn:
+        chapter = present(conn.execute("SELECT * FROM chapter WHERE id = 1").fetchone())
+        assert junk_stage.current_scan(conn, chapter) is not None, "its scan is still current"
