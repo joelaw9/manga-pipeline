@@ -4,22 +4,39 @@ A chapter the series already has published is a duplicate, a better copy (which 
 or doubtful.
 """
 
+import argparse
 import io
 import json
 import random
 import zipfile
 from contextlib import closing
+from pathlib import PurePosixPath
 
 import pytest
 from PIL import Image
 
-from manga_pipeline import config, db, export, images, intake, library_copy, measures, process, retention, workflow
+from manga_pipeline import (
+    cli,
+    comicinfo,
+    config,
+    db,
+    export,
+    images,
+    intake,
+    library_copy,
+    measures,
+    process,
+    retention,
+    workflow,
+)
+from manga_pipeline.junk import review
 from manga_pipeline.stages import junk
 
 from tests import pages as fx
+from tests import test_rewrites as rewrites
 from tests.fakes.suwayomi import page as fake_page
 from tests.timing import budget
-from tests.world import World, cbz
+from tests.world import World, cbz, decide_junk
 
 
 class CopyWorld(World):
@@ -374,6 +391,325 @@ def test_a_bulk_files_junk_comes_from_its_record_and_less_junk_is_better(world):
     through_junk(world, "Chapter 1")  # the same width; this download loses no page to junk
     ((stage, status, file_id),) = world.rows("SELECT stage, status, published_file_id FROM chapter")
     assert (stage, status, file_id) == ("comicinfo", "ready", 1), "less junk than the bulk file's own download"
+
+
+# --- 2 open copies of 1 chapter: the later waits at junk (open_copy) while the earlier is ahead of it
+
+
+def other_manga(world):
+    """Add the series' manga on a 2nd source, Other (its download folder sorts before Src's); return its id."""
+    world.source = world.suwayomi.add_source("Other")
+    return world.manga("Solo Leveling")
+
+
+def arrival(world):
+    """Return the chapters' download file names in discovery order (discovery time, then id)."""
+    rows = world.rows("SELECT download_path FROM chapter WHERE kind = 'download' ORDER BY discovered_at, id")
+    return [PurePosixPath(path).name for (path,) in rows]
+
+
+def state(world, download):
+    """Return (stage, status, waiting_on, last_error or "") of the chapter of `download` (its path)."""
+    ((stage, status, on, error),) = world.rows(
+        "SELECT stage, status, waiting_on, last_error FROM chapter WHERE download_path = %s",
+        config.to_stored(world.cfg, download),
+    )
+    return stage, status, on, error or ""
+
+
+def chapter_id(world, download):
+    ((found,),) = world.rows("SELECT id FROM chapter WHERE download_path = %s", config.to_stored(world.cfg, download))
+    return found
+
+
+def library_files(world, series="Solo Leveling"):
+    return sorted(p.name for p in (world.library / series).glob("*.cbz"))
+
+
+def published_from(world, name):
+    """Return the source name of the series' library file `name`: the download stem the pipeline published it from."""
+    path = config.to_stored(world.cfg, world.library / "Solo Leveling" / name)
+    ((source,),) = world.rows("SELECT source_name FROM published_file WHERE library_path = %s", path)
+    return source
+
+
+def confirm(world):
+    """Let Kavita run the requested scan, then run export: a published file waiting on it is confirmed."""
+    world.kavita.run_scans()
+    world.run(export)
+
+
+@budget(load="db", seconds=10)
+def test_2_open_copies_of_a_chapter_publish_1_file_and_the_later_is_dropped_as_a_duplicate(world):
+    """2 sources' chapter 5, same measures, other titles, in 1 intake: 1 file; the later copy a duplicate of it."""
+    _, earlier = world.download(other_manga(world), "Chapter 5 - Arise", "Alpha", data=cbz(seed="alpha 5"))
+    _, later = world.download(world.manga_id, "Chapter 5 - Rise", "Beta", data=cbz(seed="beta 5"))
+    world.run(intake)
+    assert arrival(world) == [earlier.name, later.name], "set up: Other's folder is listed first"
+    for part in (process, export):
+        world.run(part)
+    confirm(world)
+    world.run(process)
+    assert library_files(world) == ["Ch.1.cbz", "Ch.5 - Arise.cbz"], "2 open copies of chapter 5 publish 1 file"
+    stage, status, _, error = state(world, later)
+    assert (stage, status) == ("junk", "done"), "the later copy is judged against the earlier's confirmed file"
+    assert error.startswith("dropped: a duplicate of the published"), (
+        "the later copy is judged against the earlier's confirmed file"
+    )
+
+
+@budget(load="db", seconds=10)
+def test_2_open_copies_under_1_file_name_publish_with_no_name_clash(world):
+    """2 sources' chapter 5 under the same name: no chapter needs_human "already in the library"; 1 file."""
+    _, earlier = world.download(other_manga(world), "Chapter 5", data=cbz(seed="other 5"))
+    _, later = world.download(world.manga_id, "Chapter 5", data=cbz(seed="src 5"))
+    world.run(intake)
+    assert arrival(world) == [earlier.name, later.name], "set up: Other's folder is listed first"
+    for part in (process, export):
+        world.run(part)
+    confirm(world)
+    world.run(process)
+    assert world.rows("SELECT count(*) FROM chapter WHERE status = 'needs_human'") == [(0,)], (
+        "the later copy never reaches publish beside the earlier: no name clash"
+    )
+    assert library_files(world) == ["Ch.1.cbz", "Ch.5.cbz"], "1 file of chapter 5"
+    assert state(world, later)[3].startswith("dropped: a duplicate of the published"), "the later copy is a duplicate"
+
+
+@budget(load="db", seconds=10)
+def test_the_later_copy_waits_until_the_earlier_is_confirmed_then_is_judged(world):
+    """The later copy waits open_copy while the earlier converts, publishes and waits for Kavita; judged once done."""
+    _, earlier = world.download(other_manga(world), "Chapter 5 - Arise", "Alpha", data=cbz(seed="alpha 5"))
+    _, later = world.download(world.manga_id, "Chapter 5 - Rise", "Beta", data=cbz(seed="beta 5"))
+    world.run(intake)
+    world.run(process)
+    assert state(world, earlier)[:2] == ("comicinfo", "ready"), "set up: the earlier copy passed junk"
+    assert state(world, later)[:3] == ("junk", "waiting", "open_copy"), "an earlier copy past junk is ahead of it"
+    world.run(export)
+    world.run(process)
+    assert state(world, earlier)[:3] == ("confirm", "waiting", "kavita_scan"), "set up: published, not confirmed"
+    assert state(world, later)[:3] == ("junk", "waiting", "open_copy"), "the earlier copy is not done: still waiting"
+    confirm(world)
+    world.run(process)
+    stage, status, _, error = state(world, later)
+    assert (stage, status) == ("junk", "done"), "the next process judges it against the confirmed file"
+    assert error.startswith("dropped: a duplicate of the published"), (
+        "the next process judges it against the confirmed file"
+    )
+
+
+@budget(load="db", seconds=10)
+def test_the_later_copy_waits_on_an_earlier_held_for_a_person_until_it_is_dropped(world):
+    """An earlier copy needs_human at junk (an unsure candidate) holds the later; chapter drop lets it publish."""
+    _, earlier = world.download(world.manga_id, "Chapter 5", "Alpha", data=cbz(seed="alpha 5", credit=True))
+    world.run(intake)
+    world.run(process)
+    assert state(world, earlier)[:3] == ("junk", "waiting", "junk_decision"), "set up: its credit page is a candidate"
+    with closing(db.connect(world.cfg)) as conn:
+        ((candidate,),) = conn.execute("SELECT id FROM junk_candidate").fetchall()
+        review.decide(conn, candidate, "unsure", None, workflow.now(conn))
+    world.run(process)
+    assert state(world, earlier)[:2] == ("junk", "needs_human"), "set up: unsure, a person decides"
+    _, later = world.download(world.manga_id, "Chapter 5", "Beta", data=cbz(seed="beta 5"))
+    world.run(intake)
+    world.run(process)
+    assert state(world, later)[:3] == ("junk", "waiting", "open_copy"), "an earlier copy at junk is ahead of it"
+    cli.chapter_drop(world.cfg, argparse.Namespace(chapter=chapter_id(world, earlier)))
+    world.run(process)
+    world.run(export)
+    assert state(world, later)[:3] == ("confirm", "waiting", "kavita_scan"), "judged once the earlier is dropped"
+    assert library_files(world) == ["Ch.1.cbz", "Ch.5.cbz"], "the later copy is published"
+
+
+@budget(load="db", seconds=10)
+def test_open_downloads_of_different_chapters_never_wait_on_each_other(world):
+    """Chapter 5 and chapter 6 at junk together: their chapter keys differ, so neither waits."""
+    _, five = world.download(other_manga(world), "Chapter 5", data=cbz(seed="other 5"))
+    _, six = world.download(world.manga_id, "Chapter 6", data=cbz(seed="src 6"))
+    world.run(intake)
+    world.run(process)
+    assert [state(world, five)[:3], state(world, six)[:3]] == [("comicinfo", "ready", None)] * 2, (
+        "no open copy of their chapter"
+    )
+
+
+@budget(load="db", seconds=15)
+def test_a_later_copy_of_a_higher_rating_waits_then_takes_the_earlier_copys_file(world):
+    """The uncensored later copy waits; once the earlier is confirmed it takes that file: 1 file, holding its pages."""
+    _, earlier = world.download(other_manga(world), "Chapter 5", "Alpha", data=cbz(seed="alpha 5"))
+    _, later = world.download(world.manga_id, "Chapter 5 [R18]", "Beta", data=cbz(seed="beta 5"))
+    world.run(intake)
+    assert arrival(world) == [earlier.name, later.name], "set up: Other's folder is listed first"
+    for part in (process, export):
+        world.run(part)
+    confirm(world)
+    for part in (process, export):
+        world.run(part)
+    assert library_files(world) == ["Ch.1.cbz", "Ch.5.cbz"], "1 file of chapter 5"
+    assert published_from(world, "Ch.5.cbz") == later.stem, (
+        "a higher edition rating is a better copy: it replaces the earlier copy's file"
+    )
+
+
+@budget(load="db", seconds=15)
+def test_a_copy_being_downloaded_again_at_validate_holds_no_later_copy(world):
+    """The earlier copy waits on suwayomi_download at validate: the later publishes; the replacement is judged after."""
+    _, earlier = world.download(other_manga(world), "Chapter 5", "Alpha", data=b"PK\x03\x04 truncated download")
+    _, later = world.download(world.manga_id, "Chapter 5", "Beta", data=cbz(seed="beta 5"))
+    world.run(intake)
+    assert state(world, earlier)[:3] == ("validate", "waiting", "suwayomi_download"), "set up: a bad download"
+    world.run(process)
+    assert state(world, later)[:3] == ("comicinfo", "ready", None), "a copy at validate is never waited on"
+    world.run(export)
+    confirm(world)
+    world.suwayomi.finish_downloads(cbz(seed="alpha 5 again"))
+    world.run(intake)
+    assert state(world, earlier)[:2] == ("junk", "ready"), "set up: the replacement passed validate"
+    world.run(process)
+    assert library_files(world) == ["Ch.1.cbz", "Ch.5.cbz"], "1 file of chapter 5"
+    stage, status, _, error = state(world, earlier)
+    assert (stage, status) == ("junk", "done"), "the replacement is judged against the confirmed file"
+    assert error.startswith("dropped: a duplicate of the published"), (
+        "the replacement is judged against the confirmed file"
+    )
+
+
+@budget(load="db", seconds=15)
+def test_an_earlier_copy_reaching_junk_after_the_later_passed_it_waits(world, monkeypatch):
+    """The earlier copy fails once at discover; it reaches junk while the later is past junk, unconfirmed: it waits."""
+    _, earlier = world.download(other_manga(world), "Chapter 5 - Arise", "Alpha", data=cbz(seed="alpha 5"))
+    _, later = world.download(world.manga_id, "Chapter 5 - Rise", "Beta", data=cbz(seed="beta 5"))
+    real = comicinfo.download_number
+
+    def unreadable_once(path):
+        if path.name == earlier.name:
+            msg = "the share hiccups"
+            raise OSError(msg)
+        return real(path)
+
+    with monkeypatch.context() as m:
+        m.setattr(comicinfo, "download_number", unreadable_once)
+        world.run(intake)
+    assert state(world, earlier)[:2] == ("discover", "ready"), "set up: 1 failed attempt at discover"
+    assert arrival(world) == [earlier.name, later.name], "set up: Other's folder is listed first"
+    world.run(process)
+    assert state(world, later)[:2] == ("comicinfo", "ready"), "set up: the later copy passed junk"
+    with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE chapter SET retry_after = NULL")  # the retry pause is over
+    world.run(intake)
+    world.run(process)
+    assert state(world, earlier)[:3] == ("junk", "waiting", "open_copy"), "a copy past junk is ahead of any copy"
+    world.run(export)
+    confirm(world)
+    world.run(process)
+    world.run(export)
+    assert library_files(world) == ["Ch.1.cbz", "Ch.5 - Rise.cbz"], "1 file of chapter 5 is published"
+
+
+@budget(load="db", seconds=30)
+def test_an_open_rewrite_of_the_chapters_file_holds_no_download(tmp_path):
+    """A rewrite chapter of Ch.3, needs_human at publish, is no download: a new copy of chapter 3 is judged as ever."""
+    world = World(tmp_path)
+    rewrites.library(world)
+    rewrites.override(world, {2: "2-"})
+    (world.library / rewrites.SERIES / "Vol.2 Ch.3.cbz").write_bytes(b"someone else's")
+    world.run(export)
+    assert world.rows(
+        "SELECT c.status FROM chapter c JOIN published_file p ON p.id = c.published_file_id"
+        " WHERE c.kind = 'rewrite' AND c.status <> 'done' AND p.library_path LIKE '%/Ch.3.cbz'"
+    ) == [("needs_human",)], "set up: Ch.3's rewrite is held, its target taken"
+    manga = next(i for i, m in world.suwayomi.manga_rows.items() if m["title"] == rewrites.SERIES)
+    _, download = world.download(manga, "Chapter 3", "Grp", data=cbz(pages=4, seed="3 again"))
+    world.run(intake)
+    world.run(process)
+    stage, status, on, error = state(world, download)
+    assert (stage, status, on) == ("junk", "done", None), "an equal copy of the published Ch.3: no open_copy wait"
+    assert error.startswith("dropped: a duplicate of the published"), "an equal copy of the published Ch.3"
+
+
+@budget(load="db", seconds=10)
+def test_2_open_copies_told_apart_by_their_volumes_are_both_published(by_filename):
+    """Vol.1 Chapter 1 and Vol.2 Chapter 1 in a series whose volumes come from file names: 2 chapters, both publish."""
+    world = by_filename
+    world.download(world.manga_id, "Vol.1 Chapter 1", data=cbz(seed="vol 1"))
+    world.download(world.manga_id, "Vol.2 Chapter 1", data=cbz(seed="vol 2"))
+    world.run(intake)
+    for part in (process, export):
+        world.run(part)
+    confirm(world)
+    for part in (process, export):
+        world.run(part)
+    assert library_files(world) == ["Vol.1 Ch.1.cbz", "Vol.1 Ch.3.cbz", "Vol.2 Ch.1.cbz"], (
+        "2 volumes are 2 chapters: the later copy is no copy of the earlier's file"
+    )
+
+
+def better_copy_held_at_junk(world, earlier_name, later_name):
+    """Bring 2 copies of chapter 1 to junk; return (earlier path, later path).
+
+    The earlier copy is a bad download, held at validate; the later, rated above the bulk Ch.1.cbz, takes that file at
+    junk and waits there on its credit page's junk decision; then the earlier's replacement arrives.
+    """
+    _, earlier = world.download(other_manga(world), earlier_name, "Alpha", data=b"PK\x03\x04 truncated download")
+    # 3 pages, as the bulk file's
+    _, later = world.download(world.manga_id, later_name, "Beta", data=cbz(pages=2, seed="beta 1", credit=True))
+    world.run(intake)
+    assert state(world, earlier)[:3] == ("validate", "waiting", "suwayomi_download"), "set up: a bad download"
+    assert arrival(world) == [earlier.name, later.name], "set up: the earlier copy is discovered first"
+    world.run(process)
+    assert state(world, later)[:3] == ("junk", "waiting", "junk_decision"), "set up: its credit page is a candidate"
+    assert world.rows("SELECT count(*) FROM chapter WHERE published_file_id = 1") == [(1,)], "set up: it took Ch.1"
+    world.suwayomi.finish_downloads(cbz(seed="alpha 1 again"))
+    world.run(intake)
+    assert state(world, earlier)[:2] == ("junk", "ready"), "set up: the replacement passed validate"
+    return earlier, later
+
+
+@budget(load="db", seconds=20)
+def test_a_copy_that_took_its_file_is_not_held_by_an_earlier_copy_reaching_junk(world):
+    """The later [R18] copy took Ch.1 at junk before the earlier got there: it publishes, the earlier is a duplicate."""
+    earlier, later = better_copy_held_at_junk(world, "Chapter 1", "Chapter 1 [R18]")
+    world.run(process)
+    assert state(world, later)[:3] == ("junk", "waiting", "junk_decision"), "a copy naming its file is not made to wait"
+    decide_junk(world.cfg)
+    for part in (process, export, process):
+        world.run(part)
+    assert state(world, later)[:2] == ("publish", "done"), "the better copy is published into Ch.1.cbz"
+    stage, status, _, error = state(world, earlier)
+    assert (stage, status) == ("junk", "done"), "the earlier copy, no better, is a duplicate"
+    assert error.startswith("dropped: a duplicate of the published"), "the earlier copy, no better, is a duplicate"
+    assert library_files(world) == ["Ch.1.cbz"], "1 file of chapter 1"
+    assert published_from(world, "Ch.1.cbz") == later.stem, "the file holds the later copy's pages"
+
+
+@budget(load="db", seconds=30)
+def test_an_earlier_copy_better_than_a_busy_file_is_held_then_takes_it_on_retry(tmp_path):
+    """As above, the earlier [R18] copy above the file: held "busy" while the later's rewrite is pending, then takes it.
+
+    The bulk Ch.1 censored, the later copy untagged: a retry after the rewrite finishes lets the earlier take the file.
+    """
+    world = CopyWorld(tmp_path, sources={"ranking": [BEST, "Src (EN)"], "download_timeout_hours": 24})
+    world.kavita_series("Solo Leveling", bulk=(("Ch.1.cbz", "Grp_Chapter 1 [R15]", "1"),))
+    world.manga_id = world.manga("Solo Leveling")
+    earlier, later = better_copy_held_at_junk(world, "Chapter 1 [R18]", "Chapter 1")
+    world.run(process)
+    decide_junk(world.cfg)
+    for part in (process, export, process):
+        world.run(part)
+    assert state(world, later)[:2] == ("publish", "done"), "set up: the later copy is published into Ch.1.cbz"
+    stage, status, _, error = state(world, earlier)
+    assert (stage, status) == ("junk", "needs_human"), "a better copy of a busy file is held"
+    assert "busy" in error, "a better copy of a busy file is held"
+    rewrites.scan(world)
+    world.run(export)
+    with closing(db.connect(world.cfg)) as conn:
+        workflow.retry_chapter(conn, chapter_id(world, earlier))
+    for part in (process, export):
+        world.run(part)
+    assert library_files(world) == ["Ch.1.cbz"], "1 file of chapter 1"
+    assert published_from(world, "Ch.1.cbz") == earlier.stem, (
+        "retried once the rewrite finished, the earlier copy takes the file"
+    )
 
 
 # --- the rule alone (library_copy.decide): what a source review's sample is judged by

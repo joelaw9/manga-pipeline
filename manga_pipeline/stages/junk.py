@@ -1,7 +1,7 @@
 """Stage junk (SPEC "Chapter stages", "State", "Bad downloads", "Junk decisions"): checks, then scan or decide.
 
-First the put-aside check (the series' baseline, taken at validate, recorded what was handled), then the library-copy
-check (SPEC "Library copies"), then a numbered notice title's judgement (notices.py), then junk.
+First the put-aside check (the series' baseline, taken at validate, recorded what was handled), then the open-copy wait
+and the library-copy check (SPEC "Library copies"), then a numbered notice title's judgement (notices.py), then junk.
 
 A chapter with no current scan is scanned (pages extracted to its scratch folder, measured, its units keyed, OCR on
 the strip units no decision covers, every content page's logo measured) and stays ready (Ready), so every ready junk
@@ -50,7 +50,7 @@ def _candidate_ids(text: str) -> list[int]:
 
 
 def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
-    """Run the put-aside, library-copy and notice checks, then scan the chapter, or decide it from its current scan.
+    """Run the put-aside, open-copy, library-copy and notice checks, then scan the chapter, or decide it from its scan.
 
     A chapter with no content digest fails before any check acts: the put-aside check and its scan need the digest.
     """
@@ -61,6 +61,8 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     why = handled.put_aside(ctx, chapter, chapter["content_digest"])
     if why:
         return workflow.Dropped(why)
+    if library_copy.earlier_copy(ctx.conn, chapter):
+        return workflow.Waiting("open_copy")
     outcome = library_copy.judge(ctx, chapter) or notices.judge(ctx, chapter)
     if outcome:
         return outcome
@@ -375,6 +377,11 @@ def junk_decision_over(ctx: workflow.Context, chapter: db.Row) -> bool | workflo
     if held:
         return workflow.NeedsHuman(held_reason(held, limit))
     return not ids
+
+
+def open_copy_over(ctx: workflow.Context, chapter: db.Row) -> bool:
+    """Return whether the open_copy wait is over (SPEC "Library copies"): no earlier open copy is ahead of it now."""
+    return not library_copy.earlier_copy(ctx.conn, chapter)
 
 
 # ---------------------------------------------------------------- candidate images
