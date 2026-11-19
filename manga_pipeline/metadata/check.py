@@ -310,11 +310,15 @@ def _store_platform(conn: db.Connection, series_id: int, platform: platforms.Pla
         )
 
 
+type _Step = Callable[[sources.Sources, Records, list[ids.Known], str], None]  # 1 source's fetch by its id
+
+
 def _fetch(clients: sources.Sources, names: list[str], known: list[ids.Known]) -> Records:
     """Fetch every source's records.
 
     known grows with each search hit (origin search) and each record's cross-links. Disagree as soon as 2 ids of a
-    source differ.
+    source differ. A source with no id at its turn (none agreed, its search missed) is fetched once the others are,
+    by the id a later record's cross-links gave it; no search then, and no third round.
     """
     records: Records = {
         "mangabaka": None,
@@ -324,25 +328,48 @@ def _fetch(clients: sources.Sources, names: list[str], known: list[ids.Known]) -
         "mangadex_covers": None,
         "anilist": None,
     }
-    mb_id = _id_for(known, "mangabaka", lambda: search.mangabaka(clients.mangabaka, names, _agreed(known)))
-    if mb_id is not None and (mb := _comic(clients.mangabaka.series(mb_id), "type", "novel", mb_id)) is not None:
+    turns: tuple[tuple[str, _Step, Callable[[], str | None]], ...] = (
+        ("mangabaka", _mangabaka, lambda: search.mangabaka(clients.mangabaka, names, _agreed(known))),
+        ("mangaupdates", _mangaupdates, lambda: search.mangaupdates(clients.mangaupdates, names)),
+        ("mangadex", _mangadex, lambda: search.mangadex(clients.mangadex, names, _agreed(known))),
+        ("anilist", _anilist, lambda: search.anilist(clients.anilist, names)),
+    )
+    missed: list[tuple[str, _Step]] = []
+    for source, step, searcher in turns:
+        source_id = _id_for(known, source, searcher)
+        if source_id is None:
+            missed.append((source, step))
+        else:
+            step(clients, records, known, source_id)
+    for source, step in missed:
+        if (source_id := _agreed(known).get(source)) is not None:
+            step(clients, records, known, source_id)
+    _agreed(known)
+    return records
+
+
+def _mangabaka(clients: sources.Sources, records: Records, known: list[ids.Known], mb_id: str) -> None:
+    if (mb := _comic(clients.mangabaka.series(mb_id), "type", "novel", mb_id)) is not None:
         records["mangabaka"] = mb
         _learn(known, "mangabaka", ids.mangabaka_ids(mb))
-    mu_id = _id_for(known, "mangaupdates", lambda: search.mangaupdates(clients.mangaupdates, names))
-    if mu_id is not None:
-        records["mangaupdates"] = _comic(clients.mangaupdates.series(mu_id), "type", "novel", mu_id)
-    md_id = _id_for(known, "mangadex", lambda: search.mangadex(clients.mangadex, names, _agreed(known)))
-    if md_id is not None and (md := clients.mangadex.manga(md_id)) is not None:
+
+
+def _mangaupdates(clients: sources.Sources, records: Records, _known: list[ids.Known], mu_id: str) -> None:
+    records["mangaupdates"] = _comic(clients.mangaupdates.series(mu_id), "type", "novel", mu_id)
+
+
+def _mangadex(clients: sources.Sources, records: Records, known: list[ids.Known], md_id: str) -> None:
+    if (md := clients.mangadex.manga(md_id)) is not None:
         records["mangadex"] = md
         records["mangadex_aggregate"] = clients.mangadex.aggregate(md_id)
         records["mangadex_covers"] = clients.mangadex.covers(md_id)
         _learn(known, "mangadex", ids.mangadex_ids(md))
-    al_id = _id_for(known, "anilist", lambda: search.anilist(clients.anilist, names))
-    if al_id is not None and (al := _comic(clients.anilist.media(al_id), "format", "novel", al_id)) is not None:
+
+
+def _anilist(clients: sources.Sources, records: Records, known: list[ids.Known], al_id: str) -> None:
+    if (al := _comic(clients.anilist.media(al_id), "format", "novel", al_id)) is not None:
         records["anilist"] = al
         _learn(known, "anilist", ids.anilist_ids(al))
-    _agreed(known)
-    return records
 
 
 def _agreed(known: Iterable[ids.Known]) -> dict[str, str]:

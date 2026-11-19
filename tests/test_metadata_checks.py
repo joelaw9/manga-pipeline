@@ -353,6 +353,69 @@ def test_an_id_that_leads_to_a_novel_is_not_used(world):
     assert ("myanimelist", "anilist", "9") not in ids_of(world, sid), "nor are its cross-links"
 
 
+MU_LINK = "04gtb06"  # a MangaUpdates id as links hold it (base 36)
+MU = str(int(MU_LINK, 36))
+
+
+def mangadex_linking_mu(world, kavita_id, mu_link=MU_LINK):
+    """Kavita links MangaDex entry MD, whose record links MangaUpdates id mu_link."""
+    world.kavita.metadata_rows[kavita_id] = {"webLinks": f"https://mangadex.org/title/{MD}"}
+    world.sources.mangadex.records[("manga", MD)] = {"id": MD, "attributes": {"links": {"mu": mu_link}}}
+
+
+@budget(load="db")
+def test_a_mangaupdates_id_only_a_later_record_links_is_fetched_in_the_same_check(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    mangadex_linking_mu(world, kavita_id)
+    world.sources.mangaupdates.records[("series", MU)] = {"series_id": int(MU), "title": "Solo Leveling"}
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    found = world.rows("SELECT source FROM fetched WHERE series_id = %s AND payload IS NOT NULL ORDER BY 1", sid)
+    assert ("mangaupdates",) in found, "the MangaUpdates record MangaDex links is stored by the first check"
+    fetches = [c for c in world.sources.calls if c[0] == "FakeMangaUpdates" and c[1] != "search"]
+    assert fetches == [("FakeMangaUpdates", "series", MU)], "it is fetched once, by the id MangaDex links"
+
+
+@budget(load="db")
+def test_no_source_is_fetched_again_when_no_record_links_a_missing_id(world):
+    world.kavita_series("Solo Leveling")
+    world.sources.anilist.results["Solo Leveling"] = [
+        {"id": 7, "title": {"romaji": "Solo Leveling", "english": None, "native": None}}
+    ]
+    world.sources.anilist.records[("media", "7")] = {"id": 7}
+    world.run(intake)
+    assert world.sources.calls == [
+        ("FakeMangaBaka", "search", "Solo Leveling"),
+        ("FakeMangaUpdates", "search", "Solo Leveling"),
+        ("FakeAniList", "search", "Solo Leveling"),
+        ("FakeAniList", "media", "7"),
+    ], "only the first round's calls: no source gained an id after its turn"
+
+
+@budget(load="db")
+def test_a_source_whose_own_id_led_to_a_novel_is_not_fetched_again(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    mangadex_linking_mu(world, kavita_id)
+    world.kavita.metadata_rows[kavita_id]["webLinks"] += f",https://www.mangaupdates.com/series/{MU_LINK}"
+    world.sources.mangaupdates.records[("series", MU)] = {"series_id": int(MU), "type": "Novel"}
+    world.run(intake)
+    fetches = [c for c in world.sources.calls if c[0] == "FakeMangaUpdates"]
+    assert fetches == [("FakeMangaUpdates", "series", MU)], "its own id was tried at its turn: not fetched again"
+
+
+@budget(load="db")
+def test_an_id_learnt_late_that_disagrees_holds_the_series(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    mangadex_linking_mu(world, kavita_id, mu_link="04gtb07")
+    world.kavita.metadata_rows[kavita_id]["webLinks"] += f",https://www.mangaupdates.com/series/{MU_LINK}"
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    status, reason = world.rows("SELECT status, status_reason FROM series WHERE id = %s", sid)[0]
+    assert status == "needs_human", "2 MangaUpdates ids hold the series"
+    assert "mangaupdates ids disagree" in reason, "2 MangaUpdates ids hold the series"
+    assert checks(world) == [], "a held check does not complete"
+
+
 @budget(load="pure")
 def test_every_record_a_check_fetches_has_its_place_in_fetched():
     assert set(records.STORED) == set(typing.get_type_hints(records.Records)), "1 (source, kind) per record name"
