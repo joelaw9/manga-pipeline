@@ -6,7 +6,15 @@
       "Bash(python -m pytest:*)",
       "Bash(python -m ruff:*)",
       "Bash(python -m basedpyright:*)",
-      "Bash(python -m manga_pipeline.cli:*)"
+      "Bash(python -m manga_pipeline.cli --help)",
+      "Bash(python -m manga_pipeline.cli status)",
+      "Bash(python -m manga_pipeline.cli smoke)",
+      "Bash(python -m manga_pipeline.cli naming diff)",
+      "Bash(python -m manga_pipeline.cli naming diff *)",
+      "Bash(python -m manga_pipeline.cli metadata audit)",
+      "Bash(python -m manga_pipeline.cli metadata audit *)",
+      "Bash(python -m manga_pipeline.cli source survey)",
+      "Bash(python -m manga_pipeline.cli source measure *)"
     ]
   }
 }

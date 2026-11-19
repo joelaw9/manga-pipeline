@@ -1,7 +1,7 @@
-# The check main's ruleset requires on every PR (.github/rulesets/main.json), the tests job: lint, format, types, import
-# contracts (lint-imports), dead code (vulture), the full test suite. The audit job (pip-audit: known vulnerabilities in
-# the installed packages) is not required, so an advisory-service outage blocks no merge; it also runs weekly, since
-# advisories land against pins already merged.
+# The checks main's ruleset requires on every PR (.github/rulesets/main.json): the tests job (lint, format, types, import
+# contracts (lint-imports), dead code (vulture), the full test suite, on Windows) and the tests-linux job (the full test
+# suite on Linux). The audit job (pip-audit: known vulnerabilities in the installed packages) is not required, so an
+# advisory-service outage blocks no merge; it also runs weekly, since advisories land against pins already merged.
 name: tests
 on:
   pull_request:
@@ -55,12 +55,14 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install --group dev
       - run: python -m pip_audit --strict
-  # The same suite on Linux (the program also runs on the LXC). Not a required check yet, so a red run blocks no merge.
-  # The database server is a throwaway container, so durability is off.
+  # The same suite on Linux (the program also runs on the LXC). Required by main's ruleset, as the tests job is.
+  # The database server is a throwaway container, so durability is off. The suite takes about 4 minutes here; the
+  # timeout ends a hung run.
   tests-linux:
     name: tests-linux
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -79,9 +81,4 @@ jobs:
           docker logs pg
           exit 1
       - run: docker exec pg psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE ROLE mp_test LOGIN CREATEDB PASSWORD 'mp_test'"
-      - run: python -m pytest -q -n auto -rfEs --junitxml=linux.xml
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: linux-junit
-          path: linux.xml
+      - run: python -m pytest -q -n auto -rfEs

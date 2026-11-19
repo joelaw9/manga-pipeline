@@ -151,7 +151,7 @@ python -m manga_pipeline.cli --help
 
 ## Merging
 
-- `main` changes only through a pull request; its required `tests` check runs lint, format, types, import contracts, dead code and the full test suite (`.github/workflows/tests.yml`, whose `audit` job, pip-audit, is not required; the rule is `.github/rulesets/main.json`, applied as README "Merging" says).
+- `main` changes only through a pull request; it has 2 required checks: `tests` runs lint, format, types, import contracts, dead code and the full test suite, and `tests-linux` runs the full test suite on Linux (`.github/workflows/tests.yml`, whose `audit` job, pip-audit, is not required; the rule is `.github/rulesets/main.json`, applied as README "Merging" says).
 - Local merge commits and squash commits run lint, the format check, the type check, the import contracts, the dead-code check and the full test suite first: `.githooks/pre-merge-commit`, and `.githooks/pre-commit` for a commit that concludes a merge or a squash, both run `.githooks/full-suite`. A fast-forward runs no hook: merge with a plain `git merge BRANCH`, never `--ff` / `--ff-only` or `git pull` of another branch into it. Never skip the hooks with `--no-verify`; fix the failing test instead.
 
 ## Known gotchas
