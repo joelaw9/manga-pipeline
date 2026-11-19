@@ -1,5 +1,6 @@
-# The check main's ruleset requires on every PR (.github/rulesets/main.json), the tests job: lint, format, types, import
-# contracts (lint-imports), dead code (vulture), the full test suite. The audit job (pip-audit: known vulnerabilities in
+# The checks main's ruleset requires on every PR (.github/rulesets/main.json): the tests job (lint, format, types, import
+# contracts (lint-imports), dead code (vulture), the full test suite, on Windows) and the tests-linux job (the full test
+# suite on Linux). The audit job (pip-audit: known vulnerabilities in
 # the installed packages) is not required, so an advisory-service outage blocks no merge; it also runs weekly, since
 # advisories land against pins already merged.
 name: tests
@@ -55,7 +56,7 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install --group dev
       - run: python -m pip_audit --strict
-  # The same suite on Linux (the program also runs on the LXC). Not a required check yet, so a red run blocks no merge.
+  # The same suite on Linux (the program also runs on the LXC). A required check: a red run blocks the merge.
   # The database server is a throwaway container, so durability is off.
   tests-linux:
     name: tests-linux

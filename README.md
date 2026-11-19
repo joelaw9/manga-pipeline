@@ -46,10 +46,16 @@ Any key can also come from an environment variable, `MANGA_PIPELINE_` plus the k
 
 ## Merging
 
-`main` changes only through a pull request whose `tests` check (`.github/workflows/tests.yml`: lint, format, types, import contracts, dead code, the full test suite) passes; its `audit` job (pip-audit, on every PR and weekly) is not required. Once the repo is on GitHub, apply the rule once with the GitHub CLI from the project folder. GitHub enforces it on public repos, and on private ones only with GitHub Pro or a paid organization plan:
+`main` changes only through a pull request whose 2 required checks (`.github/workflows/tests.yml`) pass: `tests` (lint, format, types, import contracts, dead code, the full test suite on Windows) and `tests-linux` (the full test suite on Linux); its `audit` job (pip-audit, on every PR and weekly) is not required. Once the repo is on GitHub, apply the rule once with the GitHub CLI from the project folder. GitHub enforces it on public repos, and on private ones only with GitHub Pro or a paid organization plan:
 
 ```bash
 gh api --method POST "repos/{owner}/{repo}/rulesets" --input .github/rulesets/main.json
+```
+
+To update a ruleset that already exists, send the file with a `PUT` on its id, which `gh api "repos/{owner}/{repo}/rulesets" --jq '.[] | select(.name == "main") | .id'` prints:
+
+```bash
+gh api --method PUT "repos/{owner}/{repo}/rulesets/RULESET_ID" --input .github/rulesets/main.json
 ```
 
 Locally, git hooks in `.githooks/` run the full test suite before every merge commit and squash commit; a failing suite refuses the commit. A fast-forward creates no commit and runs no hook: `git merge --ff` / `--ff-only` and `git pull` (fast-forward only here) move a branch without the suite, so merge branches with a plain `git merge BRANCH`. The scaffold turns the hooks on; a fresh clone needs:
