@@ -8,8 +8,9 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import config, db, intake, process, state
+from manga_pipeline import baseline, config, db, intake, process, state
 
+from tests.builders import WinFileNotFoundError, db_row
 from tests.timing import budget
 from tests.world import World, bulk_record, cbz
 
@@ -144,3 +145,15 @@ def test_the_baseline_stores_the_records_probed_calibration_groups_and_a_reset_k
     with closing(db.connect(world.cfg)) as conn:
         state.reset(world.cfg, conn)
     assert world.rows("SELECT grp, q, fixed, origin FROM series_calibration") == want, "calibration is knowledge"
+
+
+@budget(load="pure")
+def test_a_dropped_share_is_no_missing_record(monkeypatch):
+    def dropped(_cfg, _series):
+        error = WinFileNotFoundError(2, "network name gone")
+        error.winerror = 64
+        raise error
+
+    monkeypatch.setattr(baseline, "_load", dropped)
+    with pytest.raises(FileNotFoundError):
+        baseline.record_problem(config.load(), db_row(folder="library/Solo Leveling"))

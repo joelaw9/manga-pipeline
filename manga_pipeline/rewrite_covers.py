@@ -111,11 +111,20 @@ def is_cover(name: str) -> bool:
 # --- what a published file holds
 
 
+def member_state(members: list[str], volume: str | None) -> str:
+    """Return the cover_state a file's member list gives: a page 000_cover is the cover of its volume, else none.
+
+    members: the archive's member names; volume: its ComicInfo Volume (None or "" for none).
+    """
+    has = any(is_cover(n) for n in archive.archive_pages(members))
+    return f"volume:{volume or ''}" if has else NONE
+
+
 def fill_states(ctx: workflow.Context, series: db.Row) -> bool:
     """Fill the cover_state of the series' published files that have none.
 
-    A bulk file's from its series' record (the output covers.volumes names for each volume), a pipeline file's from its
-    member list (a page 000_cover is the cover of its volume). Returns whether every state is known; a record or file
+    A bulk file's from its series' record (the output covers.volumes names for each volume), any other file's from its
+    member list (member_state). Returns whether every state is known; a record or file
     that cannot be read leaves them unknown and is logged (a share error raises Unreachable).
     """
     conn, cfg = ctx.conn, ctx.cfg
@@ -149,11 +158,10 @@ def _read_states(cfg: config.Config, series: db.Row, rows: list[db.Row]) -> list
                 volumes = record["series"]["covers"]["volumes"]
                 by_output = {c["chapter"]: names.fmt_num(names.to_volume(v)) for v, c in volumes.items()}
             v = by_output.get(PurePosixPath(r["library_path"]).name)
+            out.append((NONE if v is None else f"volume:{v}", r["id"]))
         else:
             with zipfile.ZipFile(config.to_local(cfg, r["library_path"])) as z:
-                has = any(is_cover(n) for n in archive.archive_pages(z.namelist()))
-            v = (r["comicinfo_volume"] or "") if has else None
-        out.append((NONE if v is None else f"volume:{v}", r["id"]))
+                out.append((member_state(z.namelist(), r["comicinfo_volume"]), r["id"]))
     return out
 
 

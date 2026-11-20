@@ -99,7 +99,11 @@ def pages_digest(cbz: Path) -> str:
     The bulk converter's record.pages_digest exactly, so its records' `pages_digest` compare with it.
     """
     with zipfile.ZipFile(cbz) as z:
-        sha1s = [sha1(z.read(n)) for n in archive_pages(z.namelist())]
+        return sha1s_digest([sha1(z.read(n)) for n in archive_pages(z.namelist())])
+
+
+def sha1s_digest(sha1s: list[str]) -> str:
+    r"""Return the content digest of pages by their ordered sha1s: sha256 of the list, "\n"-joined."""
     return hashlib.sha256("\n".join(sha1s).encode()).hexdigest()
 
 

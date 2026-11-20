@@ -29,10 +29,12 @@ class NamedChapter(TypedDict):
     """A chapter of the series as the edits would leave it (_chapters): its key and naming, and its file name.
 
     settled: a published file or a chapter comicinfo named; an open side story not settled can still be renumbered.
+    adopted: an adopted file (origin library), which is not rewritten until it is converted.
     """
 
     key: naming.EditKey
     settled: bool
+    adopted: bool
     kind: str
     season: int | None
     number: float
@@ -171,20 +173,18 @@ def _merged(
 def _unmatched(after: list[NamedChapter], wanted: dict[naming.EditKey, tuple[str, EditChange | None]]) -> list[str]:
     """Return a problem for each wanted chapter that does not match exactly 1 of the series' chapters.
 
-    Or that sets a field of an open side story not named yet (its side number can still change; a null is accepted).
-    after: _chapters.
+    Or that sets a field of an open side story not named yet (its side number can still change; a null is accepted), or
+    of an adopted file (it is not rewritten until it is converted; a null is accepted). after: _chapters.
     """
     problems: list[str] = []
     for key, (token, change) in wanted.items():
         found = [c for c in after if c["key"] == key]
+        sets = change is not None and any(v is not None for v in change.values())
         if len(found) != 1:
             problems.append(f"chapter {token!r}: {len(found) or 'no'} chapters of the series match")
-        elif (
-            found[0]["kind"] == names.SIDE
-            and not found[0]["settled"]
-            and change is not None
-            and any(v is not None for v in change.values())
-        ):
+        elif found[0]["adopted"] and sets:
+            problems.append(f"chapter {token!r}: {found[0]['name']} is adopted and not converted yet: edit it then")
+        elif found[0]["kind"] == names.SIDE and not found[0]["settled"] and sets:
             problems.append(
                 f"chapter {token!r}: side {names.fmt_num(key[2])} is open and not named yet: edit it once it is named"
             )
@@ -305,8 +305,9 @@ def _chapters(
             if file is not None and file["origin"] != "pipeline"
             else names.file_name(number, title, volume)
         )
-        out.append({"key": naming.edit_key(kind, r.season, number), "settled": r.settled, "kind": kind,
-                    "season": r.season, "number": number, "volume": volume, "name": name})  # fmt: skip
+        adopted = file is not None and file["origin"] == "library"
+        out.append({"key": naming.edit_key(kind, r.season, number), "settled": r.settled, "adopted": adopted,
+                    "kind": kind, "season": r.season, "number": number, "volume": volume, "name": name})  # fmt: skip
     return out
 
 

@@ -8,7 +8,7 @@ import json
 import logging
 from pathlib import Path, PurePosixPath
 
-from manga_pipeline import config, db, names, workflow
+from manga_pipeline import config, db, errors, names, workflow
 from manga_pipeline.clients.kavita_match import normalize
 from manga_pipeline.convert import calibrate, record_reader
 from manga_pipeline.junk import importing, store
@@ -48,7 +48,9 @@ def record_problem(cfg: config.Config, series: db.Row) -> str | None:
     """Why the series' record cannot be used yet (no file, partial, broken, no known layout), or None."""
     try:
         record = _load(cfg, series)
-    except FileNotFoundError:
+    except FileNotFoundError as e:
+        if errors.dropped_share(e):
+            raise  # the share, not the record: the run's problem
         return f"no {record_reader.RECORD_NAME} in {series['folder']}"
     except record_reader.RecordError as e:
         return str(e)

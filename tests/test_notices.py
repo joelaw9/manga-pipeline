@@ -153,3 +153,24 @@ def test_an_unnumbered_notice_is_dropped_at_discover(world):
     stage, status_, error, _ = chapter(world)
     assert (stage, status_) == ("discover", "done")
     assert "a notice" in error
+
+
+@budget(load="db", seconds=10)
+def test_a_strip_series_median_counts_its_adopted_files_pages(tmp_path):
+    world = World(tmp_path, validate={"non_chapter_names": NAMES})
+    bulk = tuple((f"Ch.{n}.cbz", f"Grp_Chapter {n}", str(n)) for n in (1, 2, 3))
+    world.kavita_series("Solo Leveling", bulk=bulk, layout="strip")
+    world.run(intake)  # the series' row and its baseline
+    files = [(7, "library", 14), (8, "library", 14), (9, "library", 16), (10, "pipeline", 90)]
+    with closing(db.connect(world.cfg)) as conn:
+        with db.transaction(conn):
+            for n, origin, pages_out in files:
+                conn.execute(
+                    """INSERT INTO published_file (library_path, series_id, identity, state, pages_out, origin)
+                    VALUES (%s, 1, %s, 'confirmed', %s, %s)""",
+                    (f"library/Solo Leveling/Ch.{n}.cbz", json.dumps(["grp", None, "", str(n), ""]), pages_out, origin),
+                )
+        got = notices.median(conn, 1)
+    assert got == 14, (
+        "an adopted strip file holds its download's pages; a bulk or pipeline file's output pages are re-cut"
+    )

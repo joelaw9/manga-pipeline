@@ -45,7 +45,8 @@ def median(conn: db.Connection, series_id: int) -> float | None:
     """Return the series' median page count like with like, or None with fewer than validation.MIN_PUBLISHED files.
 
     In a page-layout series over every published file's source page count (its output's for a bulk-converter file); in
-    a strip series over the files the pipeline published (a bulk-converter strip file holds re-cut pages).
+    a strip series over the files the pipeline published and the adopted ones (a bulk-converter strip file holds re-cut
+    pages; an adopted file holds its download's).
     """
     row = conn.execute("SELECT layout FROM series_conversion WHERE series_id = %s", (series_id,)).fetchone()
     if row is None and not conn.execute("SELECT 1 FROM published_file WHERE series_id = %s", (series_id,)).fetchone():
@@ -53,8 +54,11 @@ def median(conn: db.Connection, series_id: int) -> float | None:
     if row is None:
         msg = f"series {series_id} has no layout (series_conversion): its page counts cannot be compared"
         raise ValueError(msg)
-    count = sql.SQL("pages_in") if row["layout"] == "strip" else sql.SQL("coalesce(pages_in, pages_out)")
-    origin = sql.SQL("AND origin = 'pipeline'") if row["layout"] == "strip" else sql.SQL("")
+    strip = row["layout"] == "strip"
+    count = sql.SQL(
+        "CASE WHEN origin = 'library' THEN pages_out ELSE pages_in END" if strip else "coalesce(pages_in, pages_out)"
+    )
+    origin = sql.SQL("AND origin IN ('pipeline', 'library')") if strip else sql.SQL("")
     counts: list[int] = [
         r[0]
         for r in conn.execute(
