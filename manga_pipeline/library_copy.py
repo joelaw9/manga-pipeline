@@ -57,7 +57,11 @@ def judge(ctx: workflow.Context, chapter: db.Row) -> workflow.Dropped | workflow
     found = _copy_of(ctx, chapter)
     if found is None or isinstance(found, workflow.NeedsHuman):
         return found
-    published, ours, theirs, layout = found
+    published, ours, theirs, layout, digest = found
+    if (
+        digest is not None and digest == chapter["content_digest"]
+    ):  # the published file's own pages: no scan can make it better
+        return _outcome(ctx, chapter, published, Duplicate("the same pages"))
     return _outcome(ctx, chapter, published, decide(ours, theirs, layout))
 
 
@@ -76,7 +80,7 @@ def after_junk(
     found = _copy_of(ctx, chapter)
     if found is None or isinstance(found, workflow.NeedsHuman):
         return found
-    published, ours, theirs, layout = found
+    published, ours, theirs, layout, _ = found
     ours = dataclasses.replace(ours, junk=measures.junk(edit, layout, ours.measures.median_page_width))
     theirs = dataclasses.replace(theirs, junk=published_junk(ctx, published, layout, theirs.measures.median_page_width))
     return _outcome(ctx, chapter, published, decide(ours, theirs, layout))
@@ -215,9 +219,10 @@ def _outcome(
 
 def _copy_of(
     ctx: workflow.Context, chapter: db.Row
-) -> tuple[db.Row, Copy[float], Copy[float | None], str] | workflow.NeedsHuman | None:
-    """Return (the published file, our copy, its original, the series' layout) of the chapter's published copy.
+) -> tuple[db.Row, Copy[float], Copy[float | None], str, str | None] | workflow.NeedsHuman | None:
+    """Return (the published file, our copy, its original, the series' layout, its pages' digest) of the chapter's copy.
 
+    The digest (archive.pages_digest's, every page) when the published file was read for its measurements, else None.
     Returned when the series has 1 confirmed published file of the chapter, still in the library; None when it has
     none; NeedsHuman for 2 or more, or a volume that cannot be read. Neither copy's junk is filled in.
     """
@@ -251,8 +256,9 @@ def _copy_of(
         raise ValueError(msg)
     ours = measured(f"chapter {chapter['id']}", measures.summary(pages), measures.bits_per_pixel(pages))
     ours_rated = rating(PurePosixPath(chapter["download_path"]).stem)
-    theirs = Copy(original(ctx, published), rating(published["source_name"]), None)
-    return published, Copy(ours, ours_rated, None), theirs, _layout(ctx, chapter["series_id"])
+    theirs_measures, digest = _original_read(ctx, published)
+    theirs = Copy(theirs_measures, rating(published["source_name"]), None)
+    return published, Copy(ours, ours_rated, None), theirs, _layout(ctx, chapter["series_id"]), digest
 
 
 def _bpp_compared(
@@ -322,22 +328,42 @@ def _duplicate(ctx: workflow.Context, chapter: db.Row, published: db.Row, reason
 def original(ctx: workflow.Context, published: db.Row) -> Measures[float | None]:
     """Return the published copy's original measurements.
 
-    As stored when the pipeline published it, else measured from the library file (the bulk converter's, or published
-    before they were stored), its cover page left out. Each page is read whole and not decoded: an AVIF page gives no
-    size from its first bytes. bpp: the original's bits per pixel, None when not stored (a bulk file's pages are
-    re-encoded).
+    As stored when the pipeline published it, else measured from the library file (the bulk converter's, an adopted
+    one, or published before they were stored), its cover page left out. Each page is read whole and not decoded: an
+    AVIF page gives no size from its first bytes. bpp: the original's bits per pixel; None when not stored, except for
+    an adopted file (origin library), whose pages are its download's (a bulk file's pages are re-encoded).
+    """
+    return _original_read(ctx, published)[0]
+
+
+def _original_read(ctx: workflow.Context, published: db.Row) -> tuple[Measures[float | None], str | None]:
+    """Return (original's measures, the digest of the file's pages) of a published copy; the digest when it was read.
+
+    The digest is archive.pages_digest's over every page, the cover page too, so it compares with a download's.
     """
     if published["pages_in"] is not None:  # publish stores the 3 measures together
-        return measured(published["library_path"], published, published["bpp"])
+        return measured(published["library_path"], published, published["bpp"]), None
+    sha1s: list[str] = []
+    sizes: list[tuple[int, int] | None] = []
+    lengths: list[int] = []
     with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
-        names = [n for n in archive.archive_pages(z.namelist()) if not rewrite_covers.is_cover(n)]
-        sizes = [images.dimensions(z.read(n)) for n in names]
+        for n in archive.archive_pages(z.namelist()):  # 1 page in memory at a time
+            data = z.read(n)
+            sha1s.append(archive.sha1(data))
+            if not rewrite_covers.is_cover(n):
+                sizes.append(images.dimensions(data))
+                lengths.append(len(data))
     known = [s for s in sizes if s is not None]
     if not sizes or len(known) < len(sizes):
         msg = f"{published['library_path']}: page sizes cannot be read"
         raise ValueError(msg)
     pages: list[measures.SummaryPage] = [{"width": w, "height": h, "phash": None} for w, h in known]
-    return measured(published["library_path"], measures.summary(pages), None)
+    bpp = None
+    if published["origin"] == "library":
+        bpp = measures.bits_per_pixel(
+            [{"width": w, "height": h, "bytes": n} for (w, h), n in zip(known, lengths, strict=True)]
+        )
+    return measured(published["library_path"], measures.summary(pages), bpp), archive.sha1s_digest(sha1s)
 
 
 def _take(ctx: workflow.Context, chapter: db.Row, published: db.Row) -> workflow.NeedsHuman | None:

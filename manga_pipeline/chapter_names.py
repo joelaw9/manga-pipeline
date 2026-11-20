@@ -6,7 +6,7 @@ Every caller that needs a new chapter's volume goes through here: comicinfo, the
 mislabel check and the volume-cover supply (D7.21).
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
 
@@ -68,8 +68,17 @@ def choose_basis(ctx: workflow.Context, series: db.Row, downloads: Mapping[int, 
         return db.one_row(ctx.conn, "SELECT naming_basis FROM series WHERE id = %s", (series["id"],))[0]
 
 
-def inputs(ctx: workflow.Context, series: db.Row, downloads: Mapping[int, str] | None = None) -> Inputs:
-    """(rows, override mapping or None, MangaDex volume map, stored platform list or None) of the series."""
+def inputs(
+    ctx: workflow.Context,
+    series: db.Row,
+    downloads: Mapping[int, str] | None = None,
+    *,
+    planned: Sequence[naming.Row[naming.RowKey]] = (),
+) -> Inputs:
+    """(rows, override mapping or None, MangaDex volume map, stored platform list or None) of the series.
+
+    planned: published rows not stored yet (an adoption's files), added to the stored ones.
+    """
     overrides = volumes.override_file(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
     row = ctx.conn.execute(
         "SELECT payload FROM fetched WHERE series_id = %s AND source = 'mangadex' AND kind = 'aggregate'",
@@ -82,7 +91,7 @@ def inputs(ctx: workflow.Context, series: db.Row, downloads: Mapping[int, str] |
     platform = row["payload"] if row else None
     # ponytail: each call reads every open unnamed chapter's ComicInfo.xml; a series with hundreds of open chapters
     # (a back catalogue) costs that many reads per chapter; store the read fields at validate if that bites
-    rows = [*_published(ctx.conn, series["id"]), *_open(ctx, series["id"], downloads or {})]
+    rows = [*_published(ctx.conn, series["id"]), *planned, *_open(ctx, series["id"], downloads or {})]
     return rows, overrides, mangadex, platform
 
 

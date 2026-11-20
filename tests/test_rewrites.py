@@ -13,8 +13,21 @@ from contextlib import closing
 
 import pytest
 
+from manga_pipeline import (
+    chapter_names,
+    config,
+    db,
+    export,
+    intake,
+    names,
+    process,
+    retention,
+    rewrite,
+    state,
+    workflow,
+)
 from manga_pipeline import comicinfo as comicinfo_xml
-from manga_pipeline import config, db, export, intake, process, retention, rewrite, state, workflow
+from manga_pipeline.metadata import naming
 
 from tests.builders import one
 from tests.timing import budget
@@ -407,3 +420,75 @@ def test_an_out_of_scope_series_gets_no_rewrite(tmp_path):
     with closing(db.connect(out.cfg)) as conn:
         rewrite.compare(out.context(conn, "export"))
     assert world.rows("SELECT count(*) FROM chapter WHERE kind = 'rewrite'") == [(0,)], "outside series.only"
+
+
+@budget(load="db", seconds=30)
+def test_an_adopted_file_is_never_compared_and_counts_at_the_volume_it_holds(world):
+    library(world)
+    world.rows("UPDATE published_file SET origin = 'library' WHERE library_path LIKE %s RETURNING id", "%Ch.3.cbz")
+    override(world, {2: "2-"})
+    with closing(db.connect(world.cfg)) as conn:
+        ctx = world.context(conn, "export")
+        series = db.one_row(conn, "SELECT * FROM series WHERE origin = 'kavita'")
+        queued = rewrite.diff(ctx, series)[0]
+    assert [q[0] for q in queued] == [f"library/{SERIES}/Vol.1 Ch.2.cbz"], (
+        "the bulk file moves to volume 2; the adopted Ch.3 is left as it is"
+    )
+    world.run(export)
+    assert files(world) == ["Ch.3.cbz", "Vol.1 Ch.1.cbz", "Vol.1 Ch.2.cbz"], "no rewrite of the adopted file"
+    assert world.rows("SELECT comicinfo_volume FROM published_file WHERE origin = 'library'") == [(None,)]
+
+
+@budget(load="db", seconds=30)
+def test_naming_inputs_add_planned_rows_to_the_stored_ones(world):
+    library(world)
+    planned: naming.Row[naming.RowKey] = naming.Row(
+        key=("planned", 0),
+        settled=True,
+        kind=names.MAIN,
+        number=4.0,
+        season=None,
+        src_volume="2",
+        volume=2,
+        volume_source="filename",
+        marker_title="",
+        title="",
+        date=None,
+        order=0,
+    )
+    with closing(db.connect(world.cfg)) as conn:
+        ctx = world.context(conn, "export")
+        series = db.one_row(conn, "SELECT * FROM series WHERE origin = 'kavita'")
+        stored = chapter_names.inputs(ctx, series)[0]
+        given = chapter_names.inputs(ctx, series, planned=[planned])[0]
+    assert given == [*stored, planned], "an adoption's files not stored yet are named beside the stored ones"
+
+
+@budget(load="db", seconds=30)
+def test_an_adopted_file_turned_pipeline_file_is_compared_again(world):
+    library(world)
+    world.rows("UPDATE published_file SET origin = 'library' WHERE library_path LIKE %s RETURNING id", "%Ch.3.cbz")
+    override(world, {1: "1-2", 2: "3-"})
+    world.run(export)
+    assert files(world) == ["Ch.3.cbz", "Vol.1 Ch.1.cbz", "Vol.1 Ch.2.cbz"], "set up: the adopted file is left"
+    world.rows("UPDATE published_file SET origin = 'pipeline' WHERE library_path LIKE %s RETURNING id", "%Ch.3.cbz")
+    world.run(export)
+    assert files(world) == ["Vol.1 Ch.1.cbz", "Vol.1 Ch.2.cbz", "Vol.2 Ch.3.cbz"], (
+        "a file's origin is a naming input: converted, it is compared again though nothing else changed"
+    )
+
+
+@budget(load="db", seconds=30)
+def test_a_stored_edit_matching_an_adopted_file_rewrites_nothing(world):
+    library(world)
+    world.rows("UPDATE published_file SET origin = 'library' WHERE library_path LIKE %s RETURNING id", "%Ch.3.cbz")
+    world.rows(
+        """INSERT INTO naming_edit (series_id, season, side, number, title, edited_at)
+        SELECT id, NULL, false, '3', 'The Hunt', '2026-01-01T00:00:00+00:00' FROM series WHERE origin = 'kavita'
+        RETURNING series_id"""
+    )
+    world.run(export)
+    assert files(world) == ["Ch.3.cbz", "Vol.1 Ch.1.cbz", "Vol.1 Ch.2.cbz"], (
+        "an edit stored before the file was adopted does not reach it until it is converted"
+    )
+    assert world.rows("SELECT count(*) FROM chapter WHERE kind = 'rewrite'") == [(0,)]

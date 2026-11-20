@@ -178,16 +178,21 @@ def _plan(ctx: workflow.Context, series: db.Row) -> tuple[dict[int, Change], set
     todo: {published file id: Change} of the files whose volume, cover or (by a hand edit) title should change, in id
     order; wants: the volumes whose cover image intake should fetch (that file's cover is then left for later); unknown:
     some file's cover is not known yet (covers are then left out). VolumeError as naming.resolve raises it.
+
+    An adopted file (origin library) is never changed: it stays at the volume and cover it holds, for covers too.
     """
     conn, sid = ctx.conn, series["id"]
     rows, overrides, mangadex, platform = chapter_names.inputs(ctx, series)
     basis = series["naming_basis"]
     files = {r["id"]: r for r in conn.execute("SELECT * FROM published_file WHERE series_id = %s", (sid,))}
+    adopted = {i for i, f in files.items() if f["origin"] == "library"}
     edits, unedited = chapter_names.edits(conn, sid), {i: f["unedited"] for i, f in files.items()}
     held = rewrite_plan.held(rows, edits, unedited)
-    edited = rewrite_plan.edit_changes(rows, edits, unedited)
+    edited = {i: e for i, e in rewrite_plan.edit_changes(rows, edits, unedited).items() if i not in adopted}
     moved: dict[int, tuple[float | None, str | None]] = {
-        i: v for i, v in rewrite_plan.changes(basis, rows, overrides, mangadex, platform).items() if i not in held
+        i: v
+        for i, v in rewrite_plan.changes(basis, rows, overrides, mangadex, platform).items()
+        if i not in held and i not in adopted
     }
     moved.update({i: (v, source) for i, (v, source, _, _) in edited.items() if i in held})
     states = {i: f["cover_state"] for i, f in files.items()}
@@ -225,6 +230,8 @@ def _plan(ctx: workflow.Context, series: db.Row) -> tuple[dict[int, Change], set
         now = rewrite_plan.moved_rows(rows, moved)
         covered = naming.covered_volumes(basis, now, (overrides or {}).get("volumes") or {}, mangadex)
         for fid, act in rewrite_plan.cover_changes(now, covered, states=states, taken=taken, images=shas).items():
+            if fid in adopted:
+                continue
             if act[0] == "drop":
                 cover[fid] = ("drop",)
             elif (v := names.fmt_num(number := act[1])) in images:
@@ -270,7 +277,8 @@ def _hash(ctx: workflow.Context, series: db.Row) -> str:
     ).fetchall()
     files = conn.execute(
         """SELECT id, library_path, state, comicinfo_volume, comicinfo_number, comicinfo_title, kind, volume_source,
-            source_name, pending_path, indexed_since, pending_error, cover_state, pending_cover, carry_cover, unedited
+            source_name, pending_path, indexed_since, pending_error, cover_state, pending_cover, carry_cover, unedited,
+            origin
         FROM published_file
         WHERE series_id = %s
         ORDER BY id""",

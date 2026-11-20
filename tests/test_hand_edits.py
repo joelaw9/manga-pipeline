@@ -363,3 +363,17 @@ def test_an_open_chapters_edited_volume_names_the_open_chapters_after_it():
     assert got == {3: 2, 4: 2, 5: 2}, (
         "the edited chapter 3 ends volume 1 at chapter 2 as a recorded season volume: the chapters after it follow"
     )
+
+
+@budget(load="db", seconds=30)
+def test_an_edit_of_an_adopted_file_is_refused_and_a_null_is_accepted(world):
+    library(world)
+    world.rows("UPDATE published_file SET origin = 'library' WHERE library_path LIKE %s RETURNING id", "%Ch.3.cbz")
+    with pytest.raises(workflow.Refused) as refused:
+        edit(world, {"3": {"title": "The Hunt"}})
+    assert str(refused.value) == "chapter '3': Ch.3.cbz is adopted and not converted yet: edit it then", (
+        "an adopted file is not rewritten until it is converted, so its edit would never reach it"
+    )
+    assert edit(world, {"3": {"title": None}}) == [f"series 1 ({SERIES}): 3: unchanged"], (
+        "a null removes an edit: accepted"
+    )

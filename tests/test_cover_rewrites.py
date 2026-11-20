@@ -499,3 +499,60 @@ def test_a_failed_cover_refresh_leaves_the_file_waiting_and_a_volume_only_rewrit
     assert world.rows("SELECT count(*) FROM published_file WHERE carry_cover") == [(0,)]
     assert progress(world, kid)["Vol.1 Ch.2.cbz"][0] == 3, "the restore ran once: the page read on is kept"
     assert [w for w in world.kavita.writes if w[0] == "scan_library"] == scans, "no library scan asked for a refresh"
+
+
+@budget(load="db", seconds=60)
+def test_an_adopted_file_takes_no_volume_cover_and_wants_none(world):
+    library(world)
+    world.rows("UPDATE published_file SET origin = 'library' WHERE library_path LIKE %s RETURNING id", "%Ch.3.cbz")
+    override(world, {1: "1-2", 2: "3-"})
+    store_image(world, 2, png(900))
+    world.run(export)
+    assert rewrites(world) == [], "an adopted file is not rewritten until it is converted: no volume, no cover"
+    assert files(world) == ["Ch.3.cbz", "Vol.1 Ch.1.cbz", "Vol.1 Ch.2.cbz"], "it keeps its name"
+    assert world.rows("SELECT count(*) FROM volume_cover_wanted") == [(0,)], "nor wants a cover image fetched"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("members", "volume", "state"),
+    [
+        (["000_cover.jpg", "001.jpg", "ComicInfo.xml"], "2", "volume:2"),
+        (["000_COVER.png", "001.png"], None, "volume:"),
+        (["001.jpg", "002.jpg"], "2", "none"),
+    ],
+)
+def test_a_member_list_gives_the_cover_state(members, volume, state):
+    assert rewrite_covers.member_state(members, volume) == state, (
+        "a page 000_cover, in any case, is the cover of the file's volume (none: no volume); else none"
+    )
+
+
+@budget(load="db", seconds=60)
+def test_a_pipeline_files_unknown_cover_state_is_read_from_its_member_list(world):
+    library(world)
+    (world.library / SERIES / "Ch.3.cbz").write_bytes(bulk_file("Ch.3.cbz", 3, cover=True))
+    world.rows(
+        "UPDATE published_file SET cover_state = NULL, comicinfo_volume = '2' WHERE library_path LIKE %s RETURNING id",
+        "%Ch.3.cbz",
+    )
+    with closing(db.connect(world.cfg)) as conn:
+        series = db.one_row(conn, "SELECT * FROM series WHERE origin = 'kavita'")
+        assert rewrite_covers.fill_states(world.context(conn, "export"), series), "every state known"
+    assert states(world)[f"library/{SERIES}/Ch.3.cbz"] == "volume:2", "its 000_cover page is its volume's cover"
+
+
+@budget(load="db", seconds=60)
+def test_an_adopted_file_heading_a_covered_volume_is_not_given_its_cover(world):
+    library(world)
+    world.rows(
+        "UPDATE published_file SET origin = 'library' WHERE library_path LIKE %s RETURNING id", "%Vol.1 Ch.1.cbz"
+    )
+    override(world, {1: "1-2", 2: "3-"})
+    store_image(world, 1, png(900))
+    world.run(export)
+    assert world.rows(
+        """SELECT count(*) FROM chapter c JOIN published_file p ON p.id = c.published_file_id
+        WHERE c.kind = 'rewrite' AND p.origin = 'library'"""
+    ) == [(0,)], "the adopted Vol.1 Ch.1 heads covered volume 1: no cover is inserted into it"
+    assert states(world)[f"library/{SERIES}/Vol.1 Ch.1.cbz"] == "none", "it holds what it held"

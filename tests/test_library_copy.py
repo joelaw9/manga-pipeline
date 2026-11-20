@@ -34,6 +34,7 @@ from manga_pipeline.stages import junk
 
 from tests import pages as fx
 from tests import test_rewrites as rewrites
+from tests.builders import present
 from tests.fakes.suwayomi import page as fake_page
 from tests.timing import budget
 from tests.world import World, cbz, decide_junk
@@ -59,24 +60,25 @@ def world(tmp_path):
 def published_copy(  # noqa: PLR0913  # 1 published_file row's varied columns
     world,
     source=BEST,
-    pages_in=3,
-    width=16,
+    pages_in: int | None = 3,
+    width: int | None = 16,
     *,
-    strip=4500,
+    strip: int | None = 4500,
     season=None,
     name=None,
     data=None,
     bpp=None,
     junk=None,
+    origin="pipeline",
 ):
-    """Add a pipeline-published file of the series with its stored original measurements."""
+    """Add a published file of the series (a pipeline one by default) with its stored original measurements."""
     path = world.library / "Solo Leveling" / (name or "Ch.5.cbz")
     path.write_bytes(data or cbz(seed="published 5"))
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
         conn.execute(
             """INSERT INTO published_file (library_path, series_id, identity, source, state, pages_in,
                 median_page_width, strip_length, origin, bpp, junk, cover_state)
-            VALUES (%s, 1, %s, %s, 'confirmed', %s, %s, %s, 'pipeline', %s, %s, 'none')""",
+            VALUES (%s, 1, %s, %s, 'confirmed', %s, %s, %s, %s, %s, %s, 'none')""",
             (
                 config.to_stored(world.cfg, path),
                 json.dumps(["grp", season, "", "5", ""]),
@@ -84,6 +86,7 @@ def published_copy(  # noqa: PLR0913  # 1 published_file row's varied columns
                 pages_in,
                 width,
                 strip,
+                origin,
                 bpp,
                 junk,
             ),
@@ -807,4 +810,59 @@ def test_strip_junk_differs_only_beyond_500_rows():
     )
     assert library_copy.decide(longer(10, 26000), their_copy(), "strip") == library_copy.NotSameChapter(
         "strip_length 26000 against 20000"
+    )
+
+
+# ---------------------------------------------------------------- adopted files (origin library)
+
+UNMEASURED = {"pages_in": None, "width": None, "strip": None}
+
+
+def zipped(pages: dict[str, bytes]) -> bytes:
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        for name, page in pages.items():
+            z.writestr(name, page)
+    return data.getvalue()
+
+
+@budget(load="db")
+def test_a_download_with_the_published_files_own_pages_is_a_duplicate_at_once(world):
+    same = zipped({"000_cover.png": fake_page(9, "cover"), **{f"{n:03}.png": fake_page(n, "same") for n in (1, 2, 3)}})
+    world.download(world.manga_id, "Chapter 5", data=same)
+    world.run(intake)
+    published_copy(world, BEST, None, None, data=same, origin="library", strip=None)
+    world.run(process)
+    stage, status, error = outcome(world)
+    assert (stage, status) == ("junk", "done"), "the digest over every page, the cover too, equals the download's"
+    assert "the same pages" in error, "the digest over every page, the cover too, equals the download's"
+
+
+@budget(load="db")
+@pytest.mark.parametrize(("origin", "compared"), [("library", True), ("pipeline", False)])
+def test_an_adopted_files_bits_per_pixel_are_measured_from_it(world, origin, compared):
+    with zipfile.ZipFile(io.BytesIO(cbz(seed="new Chapter 5"))) as z:
+        padded = {n: z.read(n) + bytes(20000) for n in z.namelist()}  # the same pixels in many more bytes
+    through_junk(world, copies=[{"data": zipped(padded), "origin": origin, **UNMEASURED}])
+    stage, status, error = outcome(world)
+    assert (stage, status) == ("junk", "done"), "an equal or worse copy is a duplicate"
+    assert ("bits per pixel" in error and "against" in error) == compared, (
+        "an adopted file holds its download's pages, so its bits per pixel count; a pipeline file's were re-encoded"
+    )
+
+
+@budget(load="db")
+def test_original_gives_an_adopted_files_bits_per_pixel(world):
+    page = fake_page(1, "bpp")
+    world.run(intake)  # the series' row
+    path = published_copy(world, BEST, None, None, data=zipped({"001.png": page}), origin="library", strip=None)
+    ctx = workflow.context(world.cfg, db.connect(world.cfg), "test")
+    try:
+        row = ctx.conn.execute("SELECT * FROM published_file WHERE library_path LIKE %s", ("%Ch.5.cbz",)).fetchone()
+        got = library_copy.original(ctx, present(row))
+    finally:
+        ctx.conn.close()
+    width, height = present(images.dimensions(page))
+    assert got.bpp == pytest.approx(8 * len(page) / (width * height)), (
+        f"source review reads {path.name}'s bits per pixel through original: bytes over pixels"
     )
