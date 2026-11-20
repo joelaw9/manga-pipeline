@@ -31,11 +31,12 @@ def run(cfg: config.Config, conn: db.Connection) -> None:
 
 
 def work(ctx: workflow.Context) -> None:
-    """Do the part's work: remove a killed run's leftovers, end junk decision waits, then drain junk and convert."""
+    """Do the part's work: remove a killed run's leftovers, end junk decision and open copy waits, then drain."""
     with workflow.share_errors():
         clean_scratch(ctx.cfg)
         clean_staging(ctx)
     workflow.end_waits(ctx, "junk_decision", junk.junk_decision_over)
+    workflow.end_waits(ctx, "open_copy", junk.open_copy_over)
     workflow.drain(ctx, STAGES)
 
 

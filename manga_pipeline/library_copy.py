@@ -86,6 +86,28 @@ def after_junk(
     return _outcome(ctx, chapter, published, decide(ours, theirs, layout))
 
 
+def earlier_copy(conn: db.Connection, chapter: db.Row) -> bool:
+    """Return whether another download of the chapter's series that is not done has its chapter key and is ahead of it.
+
+    Ahead: past junk (convert to confirm); or at junk and before it in (names no published file, discovery time, id), so
+    a copy that took its file is ahead of one that took none. A download at discover or validate is never ahead, and a
+    rewrite chapter is no download. Reads only.
+    """
+    key = validation.chapter_key(chapter["identity"])
+    ours = (chapter["published_file_id"] is None, chapter["discovered_at"], chapter["id"])
+    rows = conn.execute(
+        """SELECT id, identity, stage, published_file_id, discovered_at FROM chapter
+        WHERE series_id = %s AND id <> %s AND kind = 'download' AND status <> 'done'
+            AND stage IN ('junk', 'convert', 'comicinfo', 'publish', 'confirm')""",
+        (chapter["series_id"], chapter["id"]),
+    )
+    return any(
+        validation.chapter_key(r["identity"]) == key
+        and (r["stage"] != "junk" or (r["published_file_id"] is None, r["discovered_at"], r["id"]) < ours)
+        for r in rows
+    )
+
+
 def rating(name: str) -> int:
     """Return the edition rating (RATINGS) of a download's or a published file's source name."""
     return RATINGS[names.rating(name)]

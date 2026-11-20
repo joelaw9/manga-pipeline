@@ -1,7 +1,7 @@
 """pytest wiring (SPEC "Tests"): the no-network guard, a fresh process config per test and the timing report.
 
-The per-test timing report is tests/timing.py's. Under pytest-xdist each worker tags its tests' reports with their
-budgets (user_properties) and the controller, which receives every report, writes the 1 report.
+The per-test timing report is tests/timing.py's. Under pytest-xdist each worker tags the reports of its budgeted
+tests with their budgets (user_properties) and the controller, which receives every report, writes the 1 report.
 """
 
 import socket
@@ -121,10 +121,16 @@ def pytest_runtest_logreport(report):
             _tags[report.nodeid] = value
 
 
-def pytest_collection_modifyitems(items):
-    """Tag every collected test with its time budget (tests/timing.py), carried in user_properties."""
+def pytest_collection_modifyitems(config, items):
+    """Record every collected test's time budget (tests/timing.py); an xdist worker also sends it with the reports.
+
+    Only a worker adds it to user_properties, and only for a tagged test: a serial run's JUnit output stays clean.
+    """
     for item in items:
-        item.user_properties.append((TAG, timing.budget_for(getattr(item, "obj", None), getattr(item, "cls", None))))
+        tag = timing.budget_for(getattr(item, "obj", None), getattr(item, "cls", None))
+        _tags[item.nodeid] = tag
+        if tag and hasattr(config, "workerinput"):  # the controller cannot see a worker's _tags
+            item.user_properties.append((TAG, tag))
 
 
 def pytest_terminal_summary(terminalreporter, config):
