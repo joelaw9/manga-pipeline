@@ -10,63 +10,101 @@
   "tags_v2": [
    {
     "name": "Shoujo",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Female Lead",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Female Protagonist",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Based on a Web Novel",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Love Triangle",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Saints",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Fantasy",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Drama",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": true,
+    "implied_by_tag_ids": [
+     125
+    ]
    },
    {
     "name": "Religion",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     601
+    ]
    },
    {
     "name": "Romance",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Historical",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Longstrip",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Full Color",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     93
+    ]
    },
    {
     "name": "Web Comic",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     93
+    ]
    },
    {
     "name": "Manhwa",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    }
   ],
   "status": "completed",
@@ -335,9 +373,9 @@
    "Reincarnation",
    "Magic",
    "Saintess",
-   "Female Protagonist",
    "Childcare",
-   "Misunderstandings"
+   "Misunderstandings",
+   "Orphan"
   ]
  }
 }

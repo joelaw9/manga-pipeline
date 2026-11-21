@@ -1,7 +1,9 @@
 """`metadata import STATE_FILE CONFIG_FILE` (SPEC "Metadata checks", Import): the old metadata tool's data imported.
 
-The old metadata tool's ids, covers and written fields, and its config's manga overrides, into the database. Run
-again, it replaces what it imported before.
+The old metadata tool's ids, covers and written fields, and its config's manga overrides, into the database. Every
+genre and tag list Kavita holds locked counts as the old tool's (it locked every list it wrote; its state file does not
+list them all). Run again, it replaces what it imported before; once `export` has recorded any series' write
+(`series_written` holds a row) it refuses, so a lock set after the cutover is never taken for the old tool's.
 """
 
 import json
@@ -13,6 +15,7 @@ from typing import TYPE_CHECKING, TypedDict
 import yaml
 
 from manga_pipeline import db, identify, workflow
+from manga_pipeline.clients.kavita import Kavita
 from manga_pipeline.clients.kavita_match import normalize
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import ids, library
@@ -121,10 +124,13 @@ def read_overrides(path: str | Path) -> dict[str, int | str]:
 def run(ctx: workflow.Context, state: OldState, overrides: Mapping[str, int | str]) -> None:
     """Import the state file's ids, covers and written fields of each in-scope library series, then link the overrides.
 
-    The library's series are synced to rows first; a series the state file no longer names loses what an earlier
-    import gave it. Logs the counts imported, missing and linked.
+    Refused once `series_written` holds a row (checked again in the transaction that writes). The library's series
+    are synced to rows first; each listed series' locked genre and tag lists are recorded as the old tool's, the state
+    file's series or not; a series with neither a state file entry nor a locked list loses what an earlier import gave
+    it. Logs the counts imported, missing and linked.
     """
     conn = ctx.conn
+    _refuse_after_an_export(conn)
     listing = ctx.kavita.series_in_library(ctx.cfg["kavita"]["library_id"])
     library.sync(ctx, listing)
     rows = {
@@ -137,7 +143,10 @@ def run(ctx: workflow.Context, state: OldState, overrides: Mapping[str, int | st
         )
     }
     missing = sorted(set(state["ids"]) - set(rows), key=int)
+    listed = {str(s["id"]) for s in listing}  # a row Kavita no longer lists has no metadata to read (a 404)
+    locked = _locked_lists(ctx.kavita, [k for k in rows if k in listed])
     with db.transaction(conn):
+        _refuse_after_an_export(conn)  # export runs under another lock: it may have written during the reads above
         # A series the state file no longer names keeps no id imported from an earlier one
         stale: NotNamedParams = {**workflow.scope_params(ctx.cfg), "named": list(state["ids"])}
         not_named = sql.SQL("NOT (s.kavita_series_id::text = ANY(%(named)s::text[])) AND {}").format(workflow.SCOPE)
@@ -152,21 +161,40 @@ def run(ctx: workflow.Context, state: OldState, overrides: Mapping[str, int | st
         )
         for kavita_id, entry in state["ids"].items():
             if kavita_id in rows:
-                _import_series(conn, rows[kavita_id], kavita_id, entry or {}, state)
+                _import_ids(conn, rows[kavita_id], entry or {})
+        for kavita_id in [k for k in rows if k in state["ids"] or k in locked]:
+            _import_written(conn, rows[kavita_id], kavita_id, state, locked.get(kavita_id, []))
     linked, unknown = _link_overrides(ctx, listing, overrides)
     log.info(
-        "metadata import: %d series imported; %d not in the library or out of scope%s; %d override(s) linked%s",
+        "metadata import: %d series imported; %d not in the library or out of scope%s; %d override(s) linked%s;"
+        " %d series' locked genre or tag lists recorded as the old tool's",
         len(state["ids"]) - len(missing),
         len(missing),
         f" (Kavita ids {', '.join(missing[:SHOWN])}{', ...' if len(missing) > SHOWN else ''})" if missing else "",
         linked,
         f"; not found: {', '.join(unknown)}" if unknown else "",
+        len(locked),
     )
 
 
-def _import_series(
-    conn: db.Connection, series_id: int, kavita_id: str, entry: Mapping[str, str | int | None], state: OldState
-) -> None:
+def _refuse_after_an_export(conn: db.Connection) -> None:
+    """Refuse when `export` has recorded any series' write: a lock is then no longer known to be the old tool's."""
+    if conn.execute("SELECT 1 FROM series_written LIMIT 1").fetchone() is not None:
+        msg = "metadata import: export has recorded series writes already; the import only runs before the first export"
+        raise workflow.Refused(msg)
+
+
+def _locked_lists(kv: Kavita, kavita_ids: Sequence[str]) -> dict[str, list[str]]:
+    """Return {Kavita id: the list fields ("genres", "tags") Kavita holds locked} of the listed series given."""
+    found: dict[str, list[str]] = {}
+    for kavita_id in kavita_ids:
+        meta = kv.metadata(int(kavita_id))
+        if fields := (["genres"] if meta.get("genresLocked") else []) + (["tags"] if meta.get("tagsLocked") else []):
+            found[kavita_id] = fields
+    return found
+
+
+def _import_ids(conn: db.Connection, series_id: int, entry: Mapping[str, str | int | None]) -> None:
     conn.execute("DELETE FROM series_source_id WHERE series_id = %s AND origin = 'import'", (series_id,))
     for key, value in entry.items():
         source = OLD_SOURCES.get(key)
@@ -176,13 +204,20 @@ def _import_series(
                 "INSERT INTO series_source_id VALUES (%s, %s, 'import', %s) ON CONFLICT DO NOTHING",
                 (series_id, source, found),
             )
+
+
+def _import_written(
+    conn: db.Connection, series_id: int, kavita_id: str, state: OldState, locked: Sequence[str]
+) -> None:
+    """Store what the old tool wrote to the series: the state file's fields and the locked lists, status, cover."""
     written = state["metadata"].get(kavita_id) or {}
+    fields = list(dict.fromkeys([*(written.get("fields") or []), *locked]))
     cover = state["covers"].get(kavita_id) or {}
     conn.execute(
         """INSERT INTO series_import (series_id, fields, status, cover_sha256) VALUES (%s, %s, %s, %s)
         ON CONFLICT (series_id) DO UPDATE SET fields = excluded.fields, status = excluded.status,
             cover_sha256 = excluded.cover_sha256""",
-        (series_id, json.dumps(written.get("fields") or []), state["status"].get(kavita_id), cover.get("sha256")),
+        (series_id, json.dumps(fields), state["status"].get(kavita_id), cover.get("sha256")),
     )
 
 

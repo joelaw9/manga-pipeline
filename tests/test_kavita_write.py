@@ -406,3 +406,30 @@ def test_a_series_reply_missing_a_field_leaves_that_series_unwritten_and_the_nex
     assert due(world) == [first], "the series Kavita's reply fails stays due"
     assert ("series", second, {"mangaBakaId": 51}) in world.kavita.writes, "the next series is written"
     assert [r for r in caplog.records if "fields not written" in r.getMessage()], "the failure is logged"
+
+
+@budget(load="db")
+def test_a_lock_only_import_row_takes_over_the_locked_lists_and_status(world):
+    kavita_id = checked(world, tags_v2=[{"name": "Nobility", "weight": "core"}])
+    world.kavita.metadata_rows[kavita_id] |= {
+        "genres": [{"id": 1, "title": "Old Genre"}],
+        "genresLocked": True,
+        "tags": [{"id": 2, "title": "Old Tag"}],
+        "tagsLocked": True,
+        "publicationStatus": 0,
+        "publicationStatusLocked": True,
+    }
+    execute(
+        world,
+        'INSERT INTO series_import (series_id, fields) VALUES (%s, \'["genres", "tags"]\')',
+        series_id(world, kavita_id),
+    )
+    world.run(export)
+    m = meta(world, kavita_id)
+    assert sorted(g["title"] for g in m["genres"]) == ["Action", "Completed", "Fantasy"], (
+        "a list `metadata import` recorded from Kavita's lock is the old tool's: replaced, pruned"
+    )
+    assert [t["title"] for t in m["tags"]] == ["Nobility"], (
+        "a list `metadata import` recorded from Kavita's lock is the old tool's: replaced, pruned"
+    )
+    assert m["publicationStatus"] == 2, "a lock-only import row makes the locked status the old tool's too"

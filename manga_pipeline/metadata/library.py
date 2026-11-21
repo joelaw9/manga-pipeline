@@ -19,8 +19,9 @@ def sync(ctx: workflow.Context, listing: Sequence[Series]) -> None:
     """Store each listed series (the library's listing, `Kavita.series_in_library`) the database does not hold.
 
     A listed series no row holds the id of takes the row of a series Kavita no longer lists whose names match and whose
-    folder is the listed one's (Kavita recreated the series); else it is a new row, its folder fetched when first
-    needed. Every row of a listed series then takes the names Kavita lists for it.
+    folder is the listed one's (Kavita recreated the series: what `metadata import` recorded for it is dropped); else
+    it is a new row, its folder fetched when first needed. Every row of a listed series then takes the names Kavita
+    lists for it.
     """
     conn, cfg = ctx.conn, ctx.cfg
     # An admitted new series is matched first; a listed series named as one still unmatched gets no row of its own
@@ -57,6 +58,8 @@ def sync(ctx: workflow.Context, listing: Sequence[Series]) -> None:
             else:
                 gone.remove(row)
                 conn.execute("UPDATE series SET kavita_series_id = %s WHERE id = %s", (kseries["id"], row["id"]))
+                # A new Kavita entity the old metadata tool never wrote: a lock on it is no longer the old tool's
+                conn.execute("DELETE FROM series_import WHERE series_id = %s", (row["id"],))
                 check.make_urgent(conn, row["id"])  # its check was put off while Kavita held no series
         if row is not None:
             holding.append((row, kseries))

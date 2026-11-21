@@ -13,219 +13,335 @@
   "tags_v2": [
    {
     "name": "Swordplay",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Anti-Hero",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Big Breasts",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Voluptuous Female Character",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Male Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Hunted Protagonist",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Misunderstood Protagonist",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Non-Human Protagonist",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Sex Slave",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Based on a Light Novel",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Based on a Novel",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Based on a Web Novel",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Ruins",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Human Becomes Nonhuman",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Protagonist Strong from the Start",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Language Barrier",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Misunderstandings",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Time Skip",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Meta",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Airship",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Monster Hunter",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Witch",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Fantasy",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": [
+     121,
+     317,
+     340,
+     475,
+     497
+    ]
    },
    {
     "name": "Fantasy World",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Sci-Fi",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Breast Fetish",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Ecchi",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Inverted Nipples",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Nudity",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Partial Nudity",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Rape",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Monsters",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Monster Boys",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Ogre",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Dragons",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Non-human",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     247
+    ]
    },
    {
     "name": "Elves",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Goblin",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Action",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Adventure",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Body Modification",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Comedy",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Genetic Modification",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Infertility",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Human Experiment",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Politics",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Romance",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Technology",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Technology Gap",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Prejudice",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Super Powers",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Gore",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Future",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Magic",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    }
   ],
   "status": "releasing",
@@ -562,11 +678,14 @@
    "Non-Human Protagonist",
    "Overpowered Protagonist",
    "Rape",
+   "Language Barrier",
+   "Gore",
    "Fugitive",
    "Misunderstandings",
    "Witch",
    "Dragons",
    "Elf",
+   "Goblin",
    "Politics"
   ]
  }

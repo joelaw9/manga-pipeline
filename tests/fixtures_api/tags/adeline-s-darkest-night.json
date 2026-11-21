@@ -9,247 +9,390 @@
   "tags_v2": [
    {
     "name": "Josei",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Black-Eyed Male Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Purple/Violet-Eyed Character",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Purple/Violet-Eyed Female Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Black-Haired Male Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Blonde-Haired Female Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Blonde-Haired Protagonist",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Primarily Adult Cast",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Female Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Smart Female Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Abused Female Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Illegitimate Female Lead",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Regressed Female Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Determined Female Lead",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Shy Female Lead",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Strong Female Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Duke Male Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Cold Male Lead",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Strong Male Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Female Protagonist",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Regressor Protagonist",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Based on a Novel",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Based on a Web Novel",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Europe",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     450
+    ]
    },
    {
     "name": "Divine/Celestial/Heaven/God Realm",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Age Regression",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Personality Change",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Hidden Motives",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Lack of Communication",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Past Plays a Big Role",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Time Manipulation",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Time Rewind",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Time Travel",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Flashbacks",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     648
+    ]
    },
    {
     "name": "Prophets",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Demon King",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Dukes",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Older Male Younger Female",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Heterosexual",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "European Ambience",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Fantasy",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": [
+     121,
+     698
+    ]
    },
    {
     "name": "Sci-Fi",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": true,
+    "implied_by_tag_ids": [
+     249
+    ]
    },
    {
     "name": "Supernatural",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": true,
+    "implied_by_tag_ids": [
+     423
+    ]
    },
    {
     "name": "Angels",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Non-human",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Demons",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     698
+    ]
    },
    {
     "name": "Second Life",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Dreams",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Female Empowerment",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     69
+    ]
    },
    {
     "name": "Forced into Marriage",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Changing Fate",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Romance",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Sacrifice",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Second Chance",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Nobility",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     1099
+    ]
    },
    {
     "name": "Revenge",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Longstrip",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Full Color",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     93
+    ]
    },
    {
     "name": "Web Comic",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     93
+    ]
    },
    {
     "name": "Manhwa",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Magic",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    }
   ],
   "status": "completed",
@@ -555,11 +698,14 @@
    "Regression",
    "Revenge",
    "Non-Human Protagonist",
+   "Age Regression",
    "Smart Female Lead",
    "Abused Female Lead",
    "Strong Female Lead",
    "Royal Affairs",
    "Strong Male Lead",
+   "Time Manipulation",
+   "Angels",
    "Demon King",
    "Defying Fate"
   ]
