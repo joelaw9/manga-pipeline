@@ -19,7 +19,7 @@ text:
 - an anti-piracy or copyright-warning card or band ("protected by copyright law", "unauthorized reproduction
   prohibited", "DO NOT REPOST", "무단 전재 및 복제를 금합니다") that holds nothing but the notice and the platform's
   or publisher's logo or URL, and a piece of such a card or band (its notice lines, or its logo and URL alone) when
-  context.png shows the notice it belongs to;
+  context.png shows the notice it belongs to, and it is not a piece of an official end card;
 - a scanlation group's or an aggregator site's logo badge stamped on a page.
 
 Content stays: story panels, official chapter title cards (series logo and chapter number), official end cards ("to
