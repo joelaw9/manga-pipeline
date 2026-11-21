@@ -33,7 +33,7 @@ def main():
     runs = len(list(dump.glob("argv-*.json")))
     (dump / f"argv-{runs}.json").write_text(json.dumps(sys.argv[1:]), encoding="utf-8")
     (dump / f"env-{runs}.json").write_text(json.dumps(dict(os.environ)), encoding="utf-8")
-    (dump / f"prompt-{runs}.txt").write_text(sys.stdin.read(), encoding="utf-8")
+    (dump / f"prompt-{runs}.txt").write_bytes(sys.stdin.buffer.read())  # the prompt arrives as UTF-8 bytes
     (child,) = Path(plan["scratch"], "junk-review").glob("*.yaml")
     (dump / f"config-{runs}.yaml").write_bytes(child.read_bytes())  # secret-free by design
     listed, log = [], []
