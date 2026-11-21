@@ -1021,6 +1021,9 @@ def _outcome_columns(
     return set_ + sql.SQL(", retry_after = NULL"), values, None
 
 
+SHARE = "share"  # the service an Unreachable of the share names
+
+
 @contextmanager
 def share_errors() -> Iterator[None]:
     """Turn a share error into Unreachable("share"); other errors pass unchanged.
@@ -1032,8 +1035,7 @@ def share_errors() -> Iterator[None]:
     except OSError as e:
         if e.errno not in SHARE_ERRNOS and getattr(e, "winerror", None) not in SHARE_WINERRORS:
             raise
-        msg = "share"
-        raise Unreachable(msg) from e
+        raise Unreachable(SHARE) from e
 
 
 def _params(ctx: Context, **extra: object) -> dict[str, object]:

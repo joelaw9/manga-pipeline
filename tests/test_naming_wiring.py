@@ -162,6 +162,7 @@ def test_comicinfo_fills_the_bulk_rows_naming_fields_or_waits_for_the_record(wor
 @budget(load="db", seconds=3)
 def test_a_bulk_conversion_wait_left_at_junk_ends_with_a_baseline(world):
     kavita_id = world.series_without_record("Solo Leveling")
+    world.write_record("Solo Leveling", {"schema": 4, "stages": ["structure"]})  # partial: still being written
     world.download(world.manga("Solo Leveling"), "Chapter 2", scanlator="Grp")
     world.run(intake)
     with closing(db.connect(world.cfg)) as conn:  # as an older version left a chapter waiting past validate
