@@ -1,0 +1,4 @@
+# Generic tags a top-up may add, taken only after every other candidate; never also in tag_allowlist.txt.
+# A name here that is neither a consolidation target nor allowlisted is never added by a top-up. One per line.
+Female Protagonist
+Male Protagonist

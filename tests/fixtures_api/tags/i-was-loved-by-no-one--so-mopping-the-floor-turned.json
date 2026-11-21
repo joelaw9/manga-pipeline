@@ -10,67 +10,105 @@
   "tags_v2": [
    {
     "name": "Josei",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Female Lead",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Neglected Female Lead",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Prince Male Lead",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Female Protagonist",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Based on a Web Novel",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Saints",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Maids",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Dead Mother",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Master-Servant Relationship",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     116
+    ]
    },
    {
     "name": "Fantasy",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": [
+     121
+    ]
    },
    {
     "name": "Comedy",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Religion",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     601
+    ]
    },
    {
     "name": "Romance",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Royalty",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Magic",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    }
   ],
   "status": "releasing",
@@ -264,9 +302,9 @@
    "Monsters",
    "Magic",
    "Saintess",
-   "Female Protagonist",
    "Master-Servant Relationship",
-   "Nobility"
+   "Religion",
+   "Female Protagonist"
   ]
  }
 }

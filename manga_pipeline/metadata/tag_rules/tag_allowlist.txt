@@ -1,4 +1,4 @@
-# Tags --fill-empty-tags may add besides those the library already uses
+# Tags a top-up may add, and add past the minimum at a core, defining or recurrent weight
 # (MangaBaka tags are mapped through consolidation.csv first). One per line.
 Nobility
 Strong Female Lead
@@ -98,3 +98,167 @@ Vampires
 Zombies
 Monster Girls
 Gyaru
+# Round 4: story tags kavita_enrich's library held (copied 2026-11-20)
+Acting
+Adoption
+Afterlife
+Age Gap
+Age Regression
+Agriculture
+Aliens
+Alternate Universe
+Amnesia
+Anachronism
+Ancient China
+Angels
+Animals
+Anthropomorphism
+Archery
+Artificial Intelligence
+Asexual
+Aviation
+Battle Royale
+Boarding School
+Body Horror
+Body Swapping
+Bullying
+Butler
+Cannibalism
+Centaur
+Cheating
+Circus
+Class Struggle
+Classic Literature
+Coastal
+College
+Coming of Age
+Conspiracy
+Cosmic Horror
+Creature Taming
+Criminal Organization
+Crossdressing
+Cult
+Cultivation
+Cunnilingus
+Cute Girls Doing Cute Things
+Cyberpunk
+Cyborg
+Death Game
+Denpa
+Desert
+Detective
+Disability
+Drawing
+Dystopian
+E-Sports
+Economics
+Environmental
+Espionage
+Estranged Family
+Exorcism
+Fairy Tale
+Fake Relationship
+Family Life
+Fashion
+Filmmaking
+Fingering
+Found Family
+Gambling
+Goblin
+Gore
+Guns
+Hikikomori
+Homeless
+Human Pet
+Incest
+Indigenous Cultures
+Inner Court Politics
+Inseki
+Iyashikei
+Kaiju
+Kuudere
+LGBTQ+ Themes
+Language Barrier
+Lost Civilization
+Love Triangle
+MILF
+Mafia
+Maids
+Marriage
+Masochism
+Masturbation
+Matchmaking
+Matriarchy
+Medieval
+Memory Manipulation
+Mermaid
+Military
+Mixed Gender Harem
+Monster Boy
+Mythology
+Netori
+Ninja
+Noir
+Nun
+Ojou-sama
+Orphan
+Otaku Culture
+Otome Isekai
+Outdoor Activities
+Parody
+Pirates
+Police
+Polyamorous
+Post-Apocalyptic
+Prison
+Prophecy
+Prostitution
+Psychosexual
+Rehabilitation
+Religion
+Revenge
+Reverse Isekai
+Robots
+Rural
+Sadism
+Samurai
+Satire
+Scissoring
+Shapeshifting
+Ships
+Shrine Maiden
+Skeleton
+Slapstick
+Snowscape
+Space
+Spearplay
+Steampunk
+Succubus
+Suicide
+Super Power
+Surreal Comedy
+Survival
+Swordplay
+Tanned Skin
+Teacher
+Terrorism
+Time Loop
+Time Manipulation
+Time Skip
+Time Travel
+Tomboy
+Torture
+Traditional Games
+Transgender
+Travel
+Tsundere
+Twins
+Unrequited Love
+Urban Fantasy
+Video Games
+War
+Werewolf
+Wilderness
+Writing
+Yakuza
+Youkai

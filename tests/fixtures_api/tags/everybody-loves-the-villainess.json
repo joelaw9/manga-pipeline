@@ -10,111 +10,175 @@
   "tags_v2": [
    {
     "name": "Shoujo",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Villainess",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Long-Haired Male Lead",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Red-Haired Female Lead",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Beautiful Female Lead",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Handsome Male Lead",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Glasses-Wearing Male Lead",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Female Lead",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Married Female Lead",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Calm Female Lead",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Female Protagonist",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Based on a Web Novel",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Europe",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     450
+    ]
    },
    {
     "name": "Memories of Past Life",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Saints",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Heterosexual",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "European Ambience",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Fantasy",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": [
+     340
+    ]
    },
    {
     "name": "Elves",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Death",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Drama",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Religion",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     601
+    ]
    },
    {
     "name": "Romance",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Longstrip",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Full Color",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     93
+    ]
    },
    {
     "name": "Web Comic",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     93
+    ]
    },
    {
     "name": "Manhwa",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    }
   ],
   "status": "completed",
@@ -345,8 +409,8 @@
    "Magic",
    "Villainess",
    "Saintess",
-   "Female Protagonist",
-   "Elf"
+   "Elf",
+   "Religion"
   ]
  }
 }

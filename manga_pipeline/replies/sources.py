@@ -29,10 +29,15 @@ class MangaBakaTitle(TypedDict):
 
 
 class MangaBakaTag(TypedDict):
-    """A weighted tag of a MangaBaka series: its name and weight (core, defining, recurrent, incidental, unweighted)."""
+    """A weighted tag of a MangaBaka series: its name and weight (core, defining, recurrent, incidental, unweighted).
+
+    is_genre marks a tag that is a genre; implied_by_tag_ids lists the tags that imply it (MangaBaka adds it for them).
+    """
 
     name: str
     weight: NotRequired[str | None]
+    is_genre: NotRequired[bool | None]
+    implied_by_tag_ids: NotRequired[list[int] | None]
 
 
 class MangaBakaSeries(TypedDict):

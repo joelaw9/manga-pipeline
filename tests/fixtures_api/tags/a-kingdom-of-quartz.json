@@ -12,95 +12,150 @@
   "tags_v2": [
    {
     "name": "Seinen",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Female Lead",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Non-Human Protagonist",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Fairy Tale",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Foreign",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Family Drama",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     237
+    ]
    },
    {
     "name": "Time Skip",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Fantasy",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": [
+     121,
+     160
+    ]
    },
    {
     "name": "Mythology",
-    "weight": "incidental"
+    "weight": "incidental",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Supernatural",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": true,
+    "implied_by_tag_ids": [
+     423
+    ]
    },
    {
     "name": "Angels",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Non-human",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": false,
+    "implied_by_tag_ids": [
+     247
+    ]
    },
    {
     "name": "Demons",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Action",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Adventure",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Drama",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Disability",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Orphans",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "LGBTQ+",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Mystery",
-    "weight": "defining"
+    "weight": "defining",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Romance",
-    "weight": "unweighted"
+    "weight": "unweighted",
+    "is_genre": true,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Elaborate",
-    "weight": "core"
+    "weight": "core",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    },
    {
     "name": "Magic",
-    "weight": "recurrent"
+    "weight": "recurrent",
+    "is_genre": false,
+    "implied_by_tag_ids": []
    }
   ],
   "status": "completed",
@@ -326,6 +381,8 @@
    "Demons",
    "Orphan",
    "Non-Human Protagonist",
+   "Fairy Tale",
+   "Disability",
    "Magic"
   ]
  }

@@ -2,9 +2,11 @@
 
 Pure: the same records and rule files always give the same lists, with no source request.
 
-Ported from the old metadata tool (`kavita_enrich.py` build_metadata, consolidate, derive_tags, top_up). One change
-(decision D7.6): a top-up adds only consolidation targets and allowlist entries, never a name because other library
-series use it, so a series' tags never depend on the order series are written.
+Ported from the old metadata tool (`kavita_enrich.py` build_metadata, consolidate, derive_tags, top_up). Changes:
+- decision D7.6: a top-up adds only consolidation targets and allowlist entries, never a name because other library
+  series use it, so a series' tags never depend on the order series are written;
+- a top-up takes `top_up_last.txt` names (generic tags) after every other candidate;
+- MangaBaka's tags marked as genres join its genres.
 
 Order: the sources' lists, the consolidation table, derived and promoted tags, the top-up.
 """
@@ -32,7 +34,14 @@ from manga_pipeline.replies.sources import (
 )
 
 RULES = Path(__file__).with_name("tag_rules")
-FILES = ("consolidation.csv", "derived_tags.yaml", "promote_tags.txt", "tag_allowlist.txt", "top_up_exclude.txt")
+FILES = (
+    "consolidation.csv",
+    "derived_tags.yaml",
+    "promote_tags.txt",
+    "tag_allowlist.txt",
+    "top_up_exclude.txt",
+    "top_up_last.txt",
+)
 MIN_GENRES = 4  # a top-up brings a series up to these
 MIN_TAGS = 6
 ANILIST_MIN_TAG_RANK = 60
@@ -40,6 +49,8 @@ MANGABAKA_SPARSE_TAGS = 10  # fewer MangaBaka tags than this: MangaUpdates' cate
 TOP_UP_WEIGHTS = ("core", "defining", "recurrent", "unweighted")
 PAST_MIN_WEIGHTS = ("core", "defining", "recurrent")  # only these are added past the minimum
 RULE_WEIGHTS = ("core", "defining", "recurrent", "incidental")
+ADULT_GENRES = frozenset({"smut", "adult", "hentai"})  # MangaBaka genre tags that count only on adult records
+ADULT_RATINGS = frozenset({"erotica", "pornographic"})
 SMALL_WORDS = {"a", "an", "and", "as", "at", "for", "in", "of", "on", "or", "the", "to"}
 PLURAL_MARKER = re.compile(r"/(?:ies|ves|e?s)\b", re.IGNORECASE)  # MangaUpdates' "Concubine/s", "Elf/ves"
 SHORT_KEY_MAX = 4  # a key this short keeps its final "s"
@@ -72,6 +83,7 @@ class Rules:
     allow_tags: dict[str, str]
     always_tags: frozenset[str]  # allowlisted tags: added past MIN_TAGS too, at a strong weight
     exclude: frozenset[str]  # term keys a top-up never adds
+    last: frozenset[str]  # term keys a top-up takes only after every other candidate
     fingerprint: str  # sha256 of the rule files and of the code that applies them
 
 
@@ -93,6 +105,12 @@ def load(folder: Path = RULES) -> Rules:
         raise ValueError(msg) from None
     derived = _derived(entries, table) + _promoted(_lines(text["promote_tags.txt"]), table)
     allowlisted = _lines(text["tag_allowlist.txt"])
+    last = _lines(text["top_up_last.txt"])
+    allowlisted_keys = {term_key(t) for t in allowlisted}
+    for name in last:
+        if term_key(name) in allowlisted_keys:
+            msg = f"top_up_last.txt: {name!r} is also in tag_allowlist.txt (it would be added past the minimum)"
+            raise ValueError(msg)
     allow_genres: dict[str, str] = {}
     allow_tags: dict[str, str] = {}
     for to_kind, to in table.values():
@@ -105,8 +123,9 @@ def load(folder: Path = RULES) -> Rules:
         derived=derived,
         allow_genres=allow_genres,
         allow_tags=allow_tags,
-        always_tags=frozenset(term_key(t) for t in allowlisted),
+        always_tags=frozenset(allowlisted_keys),
         exclude=frozenset(term_key(t) for t in _lines(text["top_up_exclude.txt"])),
+        last=frozenset(term_key(t) for t in last),
         fingerprint=fingerprint,
     )
 
@@ -265,7 +284,11 @@ def _promoted(lines: Iterable[str], table: Table) -> list[Derived]:
 
 
 def _mangabaka_genres(mb: MangaBakaSeries) -> list[str]:
-    """MangaBaka's genre slugs ("martial_arts", "sci-fi") as names ("Martial Arts", "Sci-Fi")."""
+    """MangaBaka's genre slugs ("martial_arts", "sci-fi") as names ("Martial Arts", "Sci-Fi"), then its genre tags.
+
+    A genre tag counts when no other tag implies it and its weight is not incidental; Smut, Adult and Hentai only on a
+    record rated erotica or pornographic.
+    """
 
     def title(slug: str) -> str:
         words = slug.replace("_", " ").split()
@@ -273,7 +296,16 @@ def _mangabaka_genres(mb: MangaBakaSeries) -> list[str]:
             w if i and w in SMALL_WORDS else "-".join(p.capitalize() for p in w.split("-")) for i, w in enumerate(words)
         )
 
-    return [title(g) for g in mb.get("genres") or []]
+    adult = (mb.get("content_rating") or "").lower() in ADULT_RATINGS
+    tagged = [
+        t["name"]
+        for t in mb.get("tags_v2") or []
+        if t.get("is_genre")
+        and not t.get("implied_by_tag_ids")
+        and (t.get("weight") or "unweighted").lower() != "incidental"
+        and (adult or t["name"].casefold() not in ADULT_GENRES)
+    ]
+    return _unique([title(g) for g in mb.get("genres") or []] + tagged)
 
 
 def _mu_genres(mu: MangaUpdatesSeries) -> list[str]:
@@ -407,7 +439,8 @@ def _top_up_candidates(
     """Return ([(genre, weight)], [(tag, weight)]) a top-up may take, in order.
 
     The order: MangaBaka's genres, its strong tags (strongest first), then MangaUpdates categories MangaBaka has no tag
-    for; each as the table names it, removed ones left out. No MangaBaka record: its categories alone.
+    for; each as the table names it, removed ones left out. No MangaBaka record: its categories alone. Tags in
+    rules.last come after all the others, in the same order.
     """
     table = rules.table
     cand_g: list[tuple[str, str]] = []
@@ -436,7 +469,8 @@ def _top_up_candidates(
     mb_keys = {_canonical_key(t["name"], table) for t in mb_tags}
     for name in mu_categories:
         candidate(name, "tag", skip=mb_keys)
-    return cand_g, cand_t
+    later = [c for c in cand_t if term_key(c[0]) in rules.last]
+    return cand_g, [c for c in cand_t if term_key(c[0]) not in rules.last] + later
 
 
 def _top_up_genres(candidates: Iterable[tuple[str, str]], have: set[str], rules: Rules) -> list[str]:

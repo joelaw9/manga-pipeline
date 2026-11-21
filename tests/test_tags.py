@@ -5,13 +5,14 @@ the lists the new rules give and, for review, what the old metadata tool wrote t
 """
 
 import json
+import re
 import shutil
 from pathlib import Path
 
 import pytest
 
 from manga_pipeline.metadata import tags
-from manga_pipeline.replies.sources import MangaBakaSeries, MangaBakaTag, MangaUpdatesSeries
+from manga_pipeline.replies.sources import MangaBakaSeries, MangaBakaTag, MangaDexManga, MangaUpdatesSeries
 
 from tests.builders import anilist_media, series_records
 from tests.timing import budget
@@ -155,3 +156,84 @@ def test_a_rule_file_that_is_not_valid_stops_the_load(tmp_path, name, text, prob
     (folder / name).write_bytes(text.encode("utf-8"))
     with pytest.raises(ValueError, match=problem):
         tags.load(folder)
+
+
+@budget()
+def test_top_up_takes_last_names_last(rules):
+    held = anilist_media(genres=[], tags=[{"name": f"Held {i}", "rank": 90, "isMediaSpoiler": False} for i in range(5)])
+    both = mb_with(("Female Protagonist", "core"), ("Time Loop", "unweighted"))
+    _, tag_list = tags.compute(series_records(mangabaka=both, anilist=held), rules)
+    assert "Time Loop" in tag_list, "top_up_last.txt: a story tag fills the last place before a generic one"
+    assert "Female Protagonist" not in tag_list, "top_up_last.txt: a generic tag comes after every other candidate"
+    alone = mb_with(("Female Protagonist", "core"))
+    _, tag_list = tags.compute(series_records(mangabaka=alone, anilist=held), rules)
+    assert "Female Protagonist" in tag_list, "top_up_last.txt: with no other candidate the generic tag still fills"
+
+
+@budget(load="fs")
+def test_empty_last_file_keeps_order(tmp_path):
+    folder = tmp_path / "rules"
+    shutil.copytree(tags.RULES, folder)
+    (folder / "top_up_last.txt").write_bytes(b"")
+    empty = tags.load(folder)
+    held = anilist_media(genres=[], tags=[{"name": f"Held {i}", "rank": 90, "isMediaSpoiler": False} for i in range(5)])
+    record = series_records(
+        mangabaka=mb_with(("Female Protagonist", "core"), ("Time Loop", "unweighted")), anilist=held
+    )
+    _, tag_list = tags.compute(record, empty)
+    assert "Female Protagonist" in tag_list, "an empty top_up_last.txt leaves the top-up in weight order, core first"
+    assert "Time Loop" not in tag_list, "an empty top_up_last.txt leaves the top-up in weight order, core first"
+
+
+@budget(load="fs")
+def test_last_name_in_allowlist_is_refused(tmp_path):
+    folder = tmp_path / "rules"
+    shutil.copytree(tags.RULES, folder)
+    (folder / "top_up_last.txt").write_bytes(b"Time Loop\n")
+    with pytest.raises(ValueError, match=re.escape("'Time Loop' is also in tag_allowlist.txt")):
+        tags.load(folder)
+
+
+@budget(load="fs")
+def test_missing_rule_file_raises(tmp_path):
+    folder = tmp_path / "rules"
+    shutil.copytree(tags.RULES, folder)
+    (folder / "top_up_last.txt").unlink()
+    with pytest.raises(FileNotFoundError, match=re.escape("top_up_last.txt")):
+        tags.load(folder)
+
+
+def genre_tag(name, weight="unweighted", *, implied=False) -> MangaBakaTag:
+    return {"name": name, "weight": weight, "is_genre": True, "implied_by_tag_ids": [7] if implied else []}
+
+
+@budget()
+def test_mangabaka_is_genre_tags_are_genres(rules):
+    def genres_of(rating, *genre_tags, slugs=("action", "drama", "comedy", "romance")):
+        # 4 genres already: the top-up adds none, so only the genre-tag reading can add one
+        mb: MangaBakaSeries = {"id": 1, "genres": list(slugs), "content_rating": rating, "tags_v2": list(genre_tags)}
+        return tags.compute(series_records(mangabaka=mb), rules)[0]
+
+    assert "Fantasy" in genres_of("safe", genre_tag("Fantasy")), "a genre tag no tag implies is a genre"
+    assert "Sci-Fi" not in genres_of("safe", genre_tag("Sci-Fi", implied=True)), "an implied genre tag is not"
+    assert "Tragedy" not in genres_of("safe", genre_tag("Tragedy", "incidental")), "an incidental one is not"
+    assert "Hentai" not in genres_of("safe", genre_tag("Smut")), "Smut counts only on an adult record"
+    assert "Hentai" in genres_of("erotica", genre_tag("Smut")), "Smut on an erotica record is Hentai"
+    assert "Hentai" in genres_of("safe", slugs=["smut"]), "MangaBaka's genres list is read as before, smut included"
+
+
+@budget()
+def test_allowlisted_library_name_tops_up(rules):
+    _, tag_list = tags.compute(series_records(mangabaka=mb_with(("Time Skip", "defining"))), rules)
+    assert "Time Skip" in tag_list, "a story tag kavita_enrich's library held is a top-up candidate (allowlist)"
+
+
+@budget()
+def test_spelling_variants_have_one_spelling(rules):
+    md: MangaDexManga = {
+        "id": "x",
+        "attributes": {"tags": [{"attributes": {"group": "genre", "name": {"en": "Girls' Love"}}}]},
+    }
+    mb: MangaBakaSeries = {"id": 1, "genres": [], "tags_v2": []}  # MangaDex's spelling alone: the identity row
+    genres, _ = tags.compute(series_records(mangabaka=mb, mangadex=md), rules)
+    assert [g for g in genres if "love" in g.lower()] == ["Girls Love"], "1 spelling per name: Kavita's Girls Love"

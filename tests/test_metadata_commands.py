@@ -169,3 +169,108 @@ def test_audit_opens_no_database(world: World, monkeypatch, capsys):
     cli.metadata_audit(cfg, argparse.Namespace(state=None))
     assert "series whose ids disagree: 0" in capsys.readouterr().out
     assert not db.built(cfg), "audit builds and migrates no database"
+
+
+def lock(world, kavita_id, *, genres=False, tags=False):
+    world.kavita.metadata_rows[kavita_id] = {
+        "seriesId": kavita_id,
+        "webLinks": "",
+        "genresLocked": genres,
+        "tagsLocked": tags,
+    }
+
+
+@budget(load="db")
+def test_import_records_locked_lists_as_old_tools(world, tmp_path):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.run(intake)
+    lock(world, kavita_id, genres=True, tags=True)
+    k = str(kavita_id)
+    run_import(world, tmp_path, {"ids": {k: {"al": 1}}, "metadata": {k: {"fields": ["summary", "genres"]}}})
+    assert world.rows("SELECT fields FROM series_import") == [(["summary", "genres", "tags"],)], (
+        "a locked list the state file does not name is the old tool's too"
+    )
+
+
+@budget(load="db")
+def test_import_covers_series_missing_from_state(world, tmp_path):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.kavita_series("Unlocked")
+    world.run(intake)
+    lock(world, kavita_id, genres=True, tags=True)
+    run_import(world, tmp_path, {"ids": {}})
+    assert world.rows("SELECT series_id, fields, status, cover_sha256 FROM series_import") == [
+        (series_id(world, kavita_id), ["genres", "tags"], None, None)
+    ], "a locked series the state file lacks gets a row of its locked lists; an unlocked one none"
+
+
+@budget(load="db")
+def test_import_without_locks_unchanged(world, tmp_path):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.run(intake)
+    k = str(kavita_id)
+    run_import(world, tmp_path, {"ids": {k: {"al": 1}}, "metadata": {k: {"fields": ["summary"]}}})
+    assert world.rows("SELECT fields FROM series_import") == [(["summary"],)], "no lock: the state file's fields"
+
+
+@budget(load="db")
+def test_import_skips_series_kavita_no_longer_lists(world, tmp_path, monkeypatch):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.run(intake)
+    del world.kavita.series_rows[kavita_id]  # Kavita deleted it: its metadata would answer 404
+    asked = []
+    monkeypatch.setattr(world.kavita, "metadata", lambda sid: asked.append(sid) or {})
+    run_import(world, tmp_path, {"ids": {}})
+    assert asked == [], "no lock is read for a series the library listing lacks"
+
+
+@budget(load="db")
+def test_import_lock_only_row_replaces_stale_row(world, tmp_path):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.run(intake)
+    k = str(kavita_id)
+    run_import(world, tmp_path, {"ids": {k: {"al": 1}}, "status": {k: 2}, "covers": {k: {"sha256": "ab" * 32}}})
+    lock(world, kavita_id, tags=True)
+    run_import(world, tmp_path, {"ids": {}})
+    assert world.rows("SELECT fields, status, cover_sha256 FROM series_import") == [(["tags"], None, None)], (
+        "a series the state file no longer names keeps only its locked lists"
+    )
+
+
+@budget(load="db")
+def test_reimport_after_an_export_records_no_locks(world, tmp_path):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.run(intake)
+    lock(world, kavita_id, tags=True)
+    with closing(db.connect(world.cfg)) as conn:
+        conn.execute(
+            "INSERT INTO series_written (series_id, kavita_series_id, inputs, written, written_at)"
+            " VALUES (%s, %s, 'x', '{}', 'now')",
+            (series_id(world, kavita_id), kavita_id),
+        )
+    with pytest.raises(workflow.Refused, match="before the first export"):
+        run_import(world, tmp_path, {"ids": {}})
+    assert world.rows("SELECT count(*) FROM series_import") == [(0,)], "nothing imported after an export"
+
+
+@budget(load="db")
+def test_import_refuses_when_an_export_writes_during_its_reads(world, tmp_path, monkeypatch):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.run(intake)
+    lock(world, kavita_id, tags=True)
+    read = world.kavita.metadata
+
+    def metadata_while_export_writes(sid):
+        with closing(db.connect(world.cfg)) as conn:  # export, under its own lock, records a write meanwhile
+            conn.execute(
+                "INSERT INTO series_written (series_id, kavita_series_id, inputs, written, written_at)"
+                " VALUES (%s, %s, 'x', '{}', 'now') ON CONFLICT DO NOTHING",
+                (series_id(world, kavita_id), kavita_id),
+            )
+        return read(sid)
+
+    monkeypatch.setattr(world.kavita, "metadata", metadata_while_export_writes)
+    with pytest.raises(workflow.Refused, match="before the first export"):
+        run_import(world, tmp_path, {"ids": {str(kavita_id): {"al": 1}}})
+    assert world.rows("SELECT count(*) FROM series_import") == [(0,)], "nothing imported: the check is made again"
+    assert world.rows("SELECT count(*) FROM series_source_id WHERE origin = 'import'") == [(0,)], "nothing imported"

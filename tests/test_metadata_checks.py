@@ -657,3 +657,21 @@ def test_the_baseline_pass_leaves_a_2_folder_series_unheld_until_it_can_be_adopt
     assert world.rows("SELECT status, folder, baseline_at FROM series") == [("ok", None, None)], (
         "its check has not completed: not adoptable yet, so not held"
     )
+
+
+@budget(load="db")
+def test_recreated_series_loses_its_import_row(world):
+    old = world.kavita_series("Solo Leveling")
+    world.download(world.manga("Solo Leveling"), "Chapter 2")  # a download gives the row its folder
+    world.run(intake)
+    sid = series_id(world, old)
+    with closing(db.connect(world.cfg)) as conn:
+        conn.execute('INSERT INTO series_import (series_id, fields) VALUES (%s, \'["genres", "tags"]\')', (sid,))
+    row = world.kavita.series_rows.pop(old)
+    world.kavita.series_rows[old + 50] = {**row, "id": old + 50}
+    for entry in world.kavita.files.values():
+        entry["series"] = old + 50
+    world.run(intake)
+    assert world.rows("SELECT count(*) FROM series_import") == [(0,)], (
+        "a recreated series is a new Kavita entity the old tool never wrote: its locks are no longer the old tool's"
+    )

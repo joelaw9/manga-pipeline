@@ -99,7 +99,7 @@
     - all:
         - [Vampire Protagonist, Vampire Female Lead, Vampire Hunter]
 
-- tag: Girls' Love
+- tag: Girls Love
   kind: genre
   rules:
     - all:

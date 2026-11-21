@@ -1,5 +1,5 @@
 group,from_kind,from,series,to_kind,to
-Tag that is a genre,tag,Boys' Love,1,genre,Boys' Love
+Tag that is a genre,tag,Boys' Love,1,genre,Boys Love
 Tag that is a genre,tag,Crime,6,genre,Crime
 Tag that is a genre,tag,Harem,20,genre,Harem
 Tag that is a genre,tag,Historical,17,genre,Historical
@@ -13,18 +13,18 @@ Tag that is a genre,tag,Shounen,7,genre,Shounen
 Tag that is a genre,tag,Supernatural,46,genre,Supernatural
 Tag that is a genre,tag,Tragedy,21,genre,Tragedy
 Tag that is a genre,tag,Wuxia,12,genre,Wuxia
-Genre synonym,genre,Boys Love,2,genre,Boys' Love
-Genre synonym,genre,Yaoi,2,genre,Boys' Love
+Genre synonym,genre,Boys Love,2,genre,Boys Love
+Genre synonym,genre,Yaoi,2,genre,Boys Love
 Genre synonym,genre,Gender bender,32,genre,Gender Bender
 Genre synonym,tag,Gender Bending,15,genre,Gender Bender
 Genre synonym,tag,Gender Swapped Protagonist,,genre,Gender Bender
 Genre synonym,tag,Gender Transformation,,genre,Gender Bender
 Genre synonym,tag,Gender-Swapped Character,,genre,Gender Bender
 Genre synonym,tag,Genderswap,21,genre,Gender Bender
-Genre synonym,genre,Girls Love,36,genre,Girls' Love
-Genre synonym,genre,Shoujo ai,14,genre,Girls' Love
-Genre synonym,genre,Yuri,22,genre,Girls' Love
-Genre synonym,tag,Yuri,17,genre,Girls' Love
+Genre synonym,genre,Girls Love,36,genre,Girls Love
+Genre synonym,genre,Shoujo ai,14,genre,Girls Love
+Genre synonym,genre,Yuri,22,genre,Girls Love
+Genre synonym,tag,Yuri,17,genre,Girls Love
 Genre synonym,genre,Smut,15,genre,Hentai
 Genre synonym,tag,Transmigrated into Another World,,genre,Isekai
 Genre synonym,tag,Transported to Another World,,genre,Isekai
@@ -43,7 +43,7 @@ Narrower term for a genre,tag,Gangs,,genre,Crime
 Narrower term for a genre,tag,Organized Crime,,genre,Crime
 Narrower term for a genre,tag,Male to Female,,genre,Gender Bender
 Narrower term for a genre,tag,Reincarnated as the Opposite Gender,,genre,Gender Bender
-Narrower term for a genre,tag,Lesbian Protagonist,,genre,Girls' Love
+Narrower term for a genre,tag,Lesbian Protagonist,,genre,Girls Love
 Narrower term for a genre,tag,Summoned Into Another World,,genre,Isekai
 Narrower term for a genre,tag,Henshin,3,genre,Magical Girls
 Narrower term for a genre,tag,Martial Artist,,genre,Martial Arts
