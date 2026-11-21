@@ -1,6 +1,6 @@
 # Deploy (LXC)
 
-Units: `deploy/systemd/manga-pipeline-{intake,process,export,junk-review}.{service,timer}` (SPEC "Parts"). They run `/opt/manga-pipeline/.venv/bin/python` and read `/etc/manga-pipeline/pipeline.env` (mode 600, root: the 3 secret keys, never in a session or log; never `ANTHROPIC_API_KEY`).
+Units: `deploy/systemd/manga-pipeline-{intake,process,export,junk-review}.{service,timer}` (SPEC "Parts"). They run `/opt/manga-pipeline/.venv/bin/python` and read `/etc/manga-pipeline/pipeline.env` (mode 600, root: the 3 secret keys, never in a session or log; never `ANTHROPIC_API_KEY`). Single-quote a value that holds `$`, a space or `#`, so systemd and the shell read it the same.
 
 ## Install
 
