@@ -1,14 +1,16 @@
 """A series' baseline (SPEC "State", "Publishing", "Calibration").
 
-What a series Kavita already holds is taken from its bulk-converter record before anything is published into it. Taken
-at validate (`intake`); no library file is opened.
+What a series Kavita already holds is taken from its bulk-converter record before anything is published into it, or,
+with no record, adopted from its own files (adoption.py). Taken at validate (`intake`) and by the daily baseline pass;
+no library file is opened for a record series.
 """
 
 import json
 import logging
 from pathlib import Path, PurePosixPath
 
-from manga_pipeline import config, db, errors, names, workflow
+from manga_pipeline import adoption, config, db, errors, names, workflow
+from manga_pipeline.clients import http
 from manga_pipeline.clients.kavita_match import normalize
 from manga_pipeline.convert import calibrate, record_reader
 from manga_pipeline.junk import importing, store
@@ -44,6 +46,26 @@ def needed(conn: db.Connection, series: db.Row) -> bool:
     )[0]
 
 
+def has_record(cfg: config.Config, folder: str) -> bool:
+    """Return whether a series folder (stored form) holds a bulk-converter record (parsing or not)."""
+    return errors.exists(config.to_local(cfg, folder) / record_reader.RECORD_NAME)
+
+
+def with_folder(ctx: workflow.Context, series: db.Row) -> db.Row | adoption.Problem:
+    """Return the series row with its folder stored: the stored one, else Kavita's, stored now; or why it has none.
+
+    A Kavita error reply raises as the client raises it.
+    """
+    if series["folder"] is not None:
+        return series
+    folder = adoption.folder_of(ctx, series)
+    if isinstance(folder, adoption.Problem):
+        return folder
+    with db.transaction(ctx.conn):
+        ctx.conn.execute("UPDATE series SET folder = %s WHERE id = %s AND folder IS NULL", (folder, series["id"]))
+    return db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (series["id"],))
+
+
 def record_problem(cfg: config.Config, series: db.Row) -> str | None:
     """Why the series' record cannot be used yet (no file, partial, broken, no known layout), or None."""
     try:
@@ -65,11 +87,26 @@ def record_problem(cfg: config.Config, series: db.Row) -> str | None:
 
 
 def take(ctx: workflow.Context, series: db.Row) -> str | None:
-    """Take the series' baseline from its record.
+    """Take the series' baseline from its record, or adopt it when it has none and no baseline (SPEC "State").
 
     Returns None once the series has one; else why not (the chapter waits). A record whose series name is not one of the
-    series' Kavita names records nothing and makes the series needs_human.
+    series' Kavita names, or files that cannot be adopted, record nothing and make the series needs_human.
     """
+    if series["baseline_at"] is None:
+        try:  # the folder first: a record in it is the series' baseline, whatever its stored row lacked
+            found = with_folder(ctx, series)
+        except http.HttpError as e:
+            return _kavita_failed(ctx, series, e)
+        if isinstance(found, adoption.Problem):
+            return _adopt(ctx, series, found)
+        if not has_record(ctx.cfg, found["folder"]):
+            return _adopt(ctx, found, found["folder"])
+        series = found
+    return _from_record(ctx, series)
+
+
+def _from_record(ctx: workflow.Context, series: db.Row) -> str | None:
+    """Take the series' baseline from its record (take's), or fill its bulk rows' naming fields."""
     problem = record_problem(ctx.cfg, series)
     if problem:
         return problem
@@ -95,6 +132,87 @@ def take(ctx: workflow.Context, series: db.Row) -> str | None:
         _write(ctx.conn, series, record, name, layout)
     log.info("%s: series %s baseline taken from its record", ctx.part, series["id"])
     return None
+
+
+def _adopt(ctx: workflow.Context, series: db.Row, folder: str | adoption.Problem) -> str | None:
+    """Adopt the series: its waits first, then every read (adoption.prepare), then 1 transaction.
+
+    folder: with_folder's answer, so Kavita's folder is read once per take.
+    """
+    if series["status"] == "needs_human":  # held by an earlier try: retry --series lets it try again
+        return series["status_reason"]
+    why = adoption.waiting(ctx.conn, series["id"])
+    if why:
+        return why
+    try:
+        found = adoption.prepare(ctx, series, folder)
+    except http.HttpError as e:
+        return _kavita_failed(ctx, series, e)
+    return _record_adoption(ctx, series, found)
+
+
+def _record_adoption(
+    ctx: workflow.Context, series: db.Row, found: adoption.Prepared | list[adoption.Problem]
+) -> str | None:
+    """Record prepare's result in 1 transaction: the adoption, or the series held naming its problems."""
+    if isinstance(found, list):
+        reason = adoption.reason(found)
+        with db.transaction(ctx.conn):
+            if db.one_row(ctx.conn, "SELECT baseline_at FROM series WHERE id = %s", (series["id"],))[0]:
+                return None  # another run adopted it meanwhile
+            workflow.needs_human(ctx.conn, "series", series["id"], reason)
+        return reason
+    with db.transaction(ctx.conn):
+        if db.one_row(ctx.conn, "SELECT baseline_at FROM series WHERE id = %s", (series["id"],))[0]:
+            return None  # another run took it meanwhile
+        _write_adopted(ctx.conn, series, found)
+    log.info("%s: series %s adopted: %d files", ctx.part, series["id"], len(found.files))
+    return None
+
+
+def _kavita_failed(ctx: workflow.Context, series: db.Row, error: http.HttpError) -> str:
+    """Log a Kavita error reply met taking the baseline; return the wait's reason: tried again, no attempt charged."""
+    log.warning("%s: series %s: baseline not taken, Kavita replied with an error: %s", ctx.part, series["id"], error)
+    return f"Kavita replied with an error: {error}"
+
+
+def _write_adopted(conn: db.Connection, series: db.Row, found: adoption.Prepared) -> None:
+    db.executemany(
+        conn,
+        """INSERT INTO published_file (library_path, series_id, identity, state, pages_out, comicinfo_series,
+            comicinfo_volume, comicinfo_number, comicinfo_title, comicinfo_date, origin, source_name, kind,
+            volume_source, cover_state)
+        VALUES (%s, %s, %s, 'confirmed', %s, %s, %s, %s, %s, %s, 'library', %s, %s, %s, %s)""",
+        [
+            (
+                f.library_path,
+                series["id"],
+                f.identity,
+                f.pages_out,
+                series["name"],
+                f.volume,
+                f.number,
+                f.title,
+                f.date,
+                f.source_name,
+                f.kind,
+                f.volume_source,
+                f.cover_state,
+            )
+            for f in found.files
+        ],
+    )
+    if found.layout is not None:
+        conn.execute(
+            """INSERT INTO series_conversion (series_id, layout, origin) VALUES (%s, %s, %s)
+            ON CONFLICT (series_id) DO NOTHING""",
+            (series["id"], *found.layout),
+        )
+    conn.execute(
+        """UPDATE series SET baseline_at = %s, comicinfo_series = %s, folder = coalesce(folder, %s),
+            naming_basis = coalesce(naming_basis, %s) WHERE id = %s""",
+        (workflow.now(conn), series["name"], found.folder, found.basis, series["id"]),
+    )
 
 
 def _load(cfg: config.Config, series: db.Row) -> record_reader.Record:

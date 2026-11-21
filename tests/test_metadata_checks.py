@@ -19,6 +19,7 @@ from manga_pipeline.metadata import check, human, ids, records, search
 from tests.fakes.sources import FakeMangaUpdates
 from tests.timing import budget
 from tests.world import World
+from tests.world import cbz as world_cbz
 
 MD = "2bdf5af2-7d55-4c03-8a1b-8b6b1b9a2b4c"
 
@@ -589,3 +590,70 @@ def test_mangaupdates_accepts_only_exactly_1_associated_hit_of_its_top_3():
     )
     assert calls.count(("FakeMangaUpdates", "series", 1)) == 1, "a record is fetched once, reused across names"
     assert search.mangaupdates(mu, ["C", "B"]) == "2", "exactly 1 of the top 3 holding a name is the series"
+
+
+@budget(load="db", seconds=3)
+def test_the_baseline_pass_runs_after_the_checks_and_adopts_a_series_checked_in_the_same_run(world):
+    world.series_without_record("Solo Leveling")
+    world.run(intake)
+    adopted = world.rows(
+        """SELECT k.data_version, s.baseline_at IS NOT NULL,
+            (SELECT count(*) FROM published_file WHERE origin = 'library')
+        FROM series s JOIN series_check k ON k.series_id = s.id"""
+    )
+    assert adopted == [(1, 1, 1)], "its first check completed in the run, then the pass adopted its file"
+
+
+@budget(load="db", seconds=3)
+def test_the_baseline_pass_holds_a_series_whose_files_lie_in_2_folders(world):
+    kavita_id = world.series_without_record("Solo Leveling")
+    other = world.library / "Solo Leveling Extras"
+    other.mkdir()
+    (other / "Ch.9.cbz").write_bytes(world_cbz(seed="9"))
+    world.kavita.files["/kavita/library/Solo Leveling Extras/Ch.9.cbz"] = {
+        "series": kavita_id,
+        "id": 9001,
+        "chapter": 9501,
+        "bytes": 1,
+        "pages": 3,
+        "pagesRead": 0,
+        "volume": None,
+        "mtime": 0,
+        "modified": "2026-01-01T00:00:00.0000000",
+    }  # as a scan of the 2 folders indexes it
+    world.run(intake)
+    ((status, reason, folder),) = world.rows("SELECT status, status_reason, folder FROM series")
+    assert status == "needs_human", "a person moves the files into 1 folder"
+    assert "2 folders" in reason, "the reason names the folders"
+    assert "bulk-converter record" not in reason, "with no folder it is not known whether a record exists"
+    assert folder is None, "no folder is stored"
+    assert world.rows("SELECT count(*) FROM published_file") == [(0,)]
+
+
+@budget(load="db", seconds=3)
+def test_the_baseline_pass_leaves_a_2_folder_series_unheld_until_it_can_be_adopted(world, monkeypatch):
+    kavita_id = world.series_without_record("Solo Leveling")
+    other = world.library / "Solo Leveling Extras"
+    other.mkdir()
+    (other / "Ch.9.cbz").write_bytes(world_cbz(seed="9"))
+    world.kavita.files["/kavita/library/Solo Leveling Extras/Ch.9.cbz"] = {
+        "series": kavita_id,
+        "id": 9001,
+        "chapter": 9501,
+        "bytes": 1,
+        "pages": 3,
+        "pagesRead": 0,
+        "volume": None,
+        "mtime": 0,
+        "modified": "2026-01-01T00:00:00.0000000",
+    }
+
+    def down(_name):
+        msg = "mangabaka"
+        raise http.Unreachable(msg, "down")
+
+    monkeypatch.setattr(world.sources.mangabaka, "search", down)
+    world.run(intake)
+    assert world.rows("SELECT status, folder, baseline_at FROM series") == [("ok", None, None)], (
+        "its check has not completed: not adoptable yet, so not held"
+    )
