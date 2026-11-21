@@ -1,0 +1,10 @@
+[Unit]
+Description=manga-pipeline process every 10 minutes
+
+[Timer]
+OnCalendar=*:02/10
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=manga-pipeline junk review every 10 minutes
+
+[Timer]
+OnCalendar=*:08/10
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

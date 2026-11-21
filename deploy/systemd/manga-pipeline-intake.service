@@ -1,0 +1,10 @@
+[Unit]
+Description=manga-pipeline intake
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/manga-pipeline
+ExecStart=/opt/manga-pipeline/.venv/bin/python -m manga_pipeline.cli intake
+EnvironmentFile=/etc/manga-pipeline/pipeline.env
+SuccessExitStatus=3
+TimeoutStartSec=4h

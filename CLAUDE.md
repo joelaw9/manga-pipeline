@@ -129,6 +129,7 @@ python -m manga_pipeline.cli --help
 | `tests/timing.py` | `@budget` per-test time budgets (copied from the unit-tests skill; project code now) |
 | `scripts/vulture_check.py` | the dead-code check: vulture over the program, less the findings on TypedDict field declarations (located with ast) |
 | `scripts/adoption_census.py` | the adoption census (plan step A0): read only, `adoption.prepare` over every in-scope record-less series without a baseline, counts as JSON; `python -m scripts.adoption_census [--config PATH]` |
+| `deploy/` | `systemd/manga-pipeline-{intake,process,export,junk-review}.{service,timer}` (the LXC's 4 timers, SPEC "Parts") and `README.md` (install, deploy procedure); no program code |
 
 ## Python standards
 

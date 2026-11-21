@@ -1,0 +1,12 @@
+[Unit]
+Description=manga-pipeline process
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/manga-pipeline
+ExecStart=/opt/manga-pipeline/.venv/bin/python -m manga_pipeline.cli process
+EnvironmentFile=/etc/manga-pipeline/pipeline.env
+SuccessExitStatus=3
+TimeoutStartSec=4h
+Nice=10
+IOSchedulingClass=idle
