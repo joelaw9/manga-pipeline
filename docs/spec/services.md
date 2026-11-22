@@ -29,12 +29,12 @@ The pipeline talks to Suwayomi (GraphQL) and Kavita (REST) through 1 HTTP layer,
 
 ### Discord
 
-- `export` posts the queued reports (SPEC "Needs human") to the webhook `notify.discord_webhook`, a secret whole (its token is part of its path): every log line and error message names it `discord webhook`.
+- `export` and `watch` post the queued reports (SPEC "Needs human") to the webhook `notify.discord_webhook`, a secret whole (its token is part of its path): every log line and error message names it `discord webhook`.
 - A post is JSON `content` with `allowed_mentions` parsing nothing and the suppress-embeds flag; any 2xx answers it. It waits at most 10 seconds and is retried once, so a silent Discord holds `export` briefly; posts are at least 1 second apart. The User-Agent is `manga_pipeline`.
 
 ### Kavita
 
-- The API key is exchanged for a token, kept for the run. A call answered 401 gets 1 new token and 1 more try; a second 401 makes Kavita unreachable, with 1 warning.
+- The API key is exchanged for a token, kept for the run. A call answered 401 gets 1 new token and 1 more try; a second 401 makes Kavita unreachable, with 1 warning. A 401 from authenticate, or a second 401, is Kavita refusing the API key: an incident (SPEC "Needs human").
 - A series Kavita answers with 404 or an empty reply is gone.
 - Kavita reports file paths in its own mount. `paths.kavita_path_map` (Kavita path prefix to local path prefix) turns each into a local path: the longest prefix that ends on a path boundary wins, case counts, and a path under no prefix is an error. A prefix counts without its trailing `/`; 2 entries giving the same prefix are refused (SPEC "Preflight"). Every path from Kavita goes through it.
 - A series' folder is the single folder that holds its files, never the folder Kavita records for the series (for a series under a shared top folder that is the top folder). A series whose files lie in no folder, in 2 or more, or directly in one of a library's own folders has no usable folder.

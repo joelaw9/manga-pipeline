@@ -177,7 +177,11 @@ class World:
         self.kavita_specs = []  # [(id, name, folder, add_series keywords)]: rebuilds the FakeKavita in another process
 
     def context(self, conn, part):
-        """Return the workflow.Context a run of `part` gets, with the world's fakes as its clients and sources."""
+        """Return the workflow.Context a run of `part` gets, with the world's fakes as its clients and sources.
+
+        The FakeKavita forgets a refusal of the run before: a real run builds a new client.
+        """
+        self.kavita.refused = None
         return workflow.Context(
             self.cfg,
             conn,

@@ -49,6 +49,7 @@ def test_shipped_checks():
         "workflow settings": (HARD, preflight.workflow_settings),
         "service settings": (HARD, preflight.service_settings),
         "discord settings": (HARD, preflight.discord_settings),
+        "discord webhook": (HARD, preflight.discord_webhook),
         "share ownership": (HARD, preflight.share_ownership),
         "staging folder": (HARD, preflight.staging_folder),
         "image tools": (HARD, preflight.image_tools),

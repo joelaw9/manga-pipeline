@@ -99,6 +99,7 @@ class Kavita:
         self._service = service or http.Service("kavita")
         self._token: str | None = None
         self._library_folders: set[str] | None = None
+        self.refused: str | None = None  # why Kavita refused the API key in this run (SPEC "Needs human")
 
     # --- reads
 
@@ -330,7 +331,9 @@ class Kavita:
         return self._token
 
     def _refused(self, reason: str) -> Unreachable:
-        log.warning("kavita: %s; Kavita is not asked again in this run", reason)  # Phase 9 adds the notification
+        """Kept in `refused` for the run's owner to report (an incident: SPEC "Needs human")."""
+        log.warning("kavita: %s; Kavita is not asked again in this run", reason)
+        self.refused = reason
         return self._service.mark_unreachable(reason)
 
 
