@@ -251,6 +251,13 @@ def discord_settings(cfg: config.Config) -> str | None:
     return None
 
 
+def discord_webhook(cfg: config.Config) -> str | None:
+    """Check that notify.discord_webhook is set: `watch` has nowhere else to send (SPEC "Needs human")."""
+    if cfg["notify"]["discord_webhook"] is None:
+        return f"notify.discord_webhook is not set: nowhere to send (env {config.ENV_PREFIX}_NOTIFY_DISCORD_WEBHOOK)"
+    return None
+
+
 def share_ownership(cfg: config.Config) -> str | None:
     """Check that the share's owner file holds this database's id (SPEC "State"); the database is not upgraded."""
     path = owner_file(cfg)
@@ -369,6 +376,7 @@ SHARE_FOLDERS_PRESENT = Check("share folders", HARD, share_folders)
 WORKFLOW_SETTINGS = Check("workflow settings", HARD, workflow_settings)
 SERVICE_SETTINGS = Check("service settings", HARD, service_settings)
 DISCORD_SETTINGS = Check("discord settings", HARD, discord_settings)
+DISCORD_WEBHOOK = Check("discord webhook", HARD, discord_webhook)
 SHARE_OWNERSHIP = Check("share ownership", HARD, share_ownership)
 OCR_DEVICE = Check("OCR device", HARD, ocr_device)
 JUNK_WORD_LISTS = Check("junk word lists", HARD, junk_word_lists)

@@ -37,7 +37,7 @@ AVIF quality per series and encode group: taken from the bulk-converter record, 
 
 ## Needs human
 
-A chapter or series that needs a person, or a series title changed at the sources, is reported 3 ways (log, `status`, 1 Discord message per item and reason, queued with the change and sent by `export`); `retry` clears a needs_human item. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#needs-human)
+A chapter or series that needs a person, or a series title changed at the sources, is reported 3 ways (log, `status`, 1 Discord message per item and reason, queued with the change and sent by `export`); `retry` clears a needs_human item. A part with no success in 24 hours, downloads not taken for 24 hours and Kavita refusing the key are incidents: 1 Discord message each while they last, never in a digest, found by the hourly `watch`, which also sends. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#needs-human)
 
 ## Bad downloads
 

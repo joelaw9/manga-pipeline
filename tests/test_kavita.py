@@ -110,6 +110,21 @@ def test_a_refused_api_key_makes_kavita_unreachable():
 
 
 @budget(load="pure")
+def test_a_refused_key_is_kept_by_the_client():
+    refused_at_authenticate, _ = client({AUTH: failure(401)})
+    refused_again, _ = client({"/api/Library/libraries": Each([failure(401), failure(401)])})
+    down, _ = client({"/api/Library/libraries": Unreachable("kavita", "HTTP 503")})
+    for k in (refused_at_authenticate, refused_again, down):
+        with pytest.raises(Unreachable):
+            k.libraries()
+    assert refused_at_authenticate.refused == "HTTP 401 from authenticate: the API key was refused", (
+        "SPEC 'Services': a 401 from authenticate is Kavita refusing the key, kept for its incident"
+    )
+    assert refused_again.refused == "HTTP 401 after re-authentication", "a second 401 is a refusal too"
+    assert down.refused is None, "an unreachable Kavita is not a refused key"
+
+
+@budget(load="pure")
 def test_other_failures_pass_through():
     k, _ = client({"/api/Library/libraries": failure(500, b"boom")})
     with pytest.raises(http.HttpError) as e:

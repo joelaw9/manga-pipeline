@@ -23,6 +23,7 @@ from manga_pipeline import (
     hand_edits,
     handled,
     identify,
+    incidents,
     intake,
     lock,
     logs,
@@ -81,6 +82,9 @@ REVIEW_CHECKS = (
 )
 # state version digests the program, the shared settings, the packages and the tools of this machine.
 VERSION_CHECKS = (preflight.PYTHON_VERSION, preflight.FREE_SPACE, preflight.IMAGE_TOOLS, preflight.SCORER)
+# watch takes no lock and touches no folder: it needs only the database and a webhook, so it still runs when every
+# part stops at its preflight.
+WATCH_CHECKS = (preflight.PYTHON_VERSION, preflight.DISCORD_SETTINGS, preflight.DISCORD_WEBHOOK)
 # smoke takes no lock and touches no folder: it needs only what the clients and scope read.
 SMOKE_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SERVICE_SETTINGS)
 # series link reads both services and writes 1 series' link: what the clients and scope read.
@@ -139,6 +143,12 @@ def _database(cfg: config.Config, what: str) -> closing[db.Connection]:
         msg = f"no database {cfg['database']['name']} built yet: nothing to {what}"
         raise workflow.Refused(msg)
     return closing(db.connect(cfg))
+
+
+def watch(cfg: config.Config, _args: argparse.Namespace) -> None:
+    """Queue the incidents found and send what is queued (`watch`, SPEC "Needs human")."""
+    with _database(cfg, "watch") as conn:
+        incidents.watch(cfg, conn)
 
 
 def chapter_use(cfg: config.Config, args: argparse.Namespace) -> None:
@@ -433,6 +443,7 @@ COMMANDS = {
     "chapter use": Command((), None, None, (), _unlocked(chapter_use)),
     "chapter drop": Command((), None, None, (), _unlocked(chapter_drop)),
     "smoke": Command((), None, None, SMOKE_CHECKS, _unlocked(lambda cfg, _args: smoke.run(cfg))),
+    "watch": Command((), None, None, WATCH_CHECKS, _unlocked(watch)),
     "series link": Command((), None, None, LINK_CHECKS, _unlocked(series_link)),
     "series set-id": Command((), None, None, (), _unlocked(series_set_id)),
     "series new": Command((), None, None, (), _unlocked(series_new)),
@@ -491,6 +502,7 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("export", help="ComicInfo.xml, publish into the library, confirm")
     commands.add_parser("status", help="what is waiting, on what, and what needs a human")
     commands.add_parser("smoke", help="check Suwayomi and Kavita with reads only")
+    commands.add_parser("watch", help="report stalled parts and downloads not taken, and send the queued reports")
     _retry_command(commands)
     _series_commands(commands)
     _naming_commands(commands)

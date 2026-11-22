@@ -274,6 +274,9 @@ def test_kavita_unreachable_skips_the_metadata_step_not_validation(world, monkey
     monkeypatch.setattr(world.kavita, "series_in_library", down)
     world.run(intake)
     assert world.rows("SELECT stage FROM chapter ORDER BY id") == [("junk",), ("junk",)]
+    assert world.rows("SELECT value FROM meta WHERE key = 'intake.last_result'") == [("ok",)], (
+        "SPEC 'Metadata checks': an outage met only in the metadata step leaves the run ok (what it skipped stays due)"
+    )
 
 
 @budget(load="db")

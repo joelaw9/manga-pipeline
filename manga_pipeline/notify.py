@@ -1,4 +1,4 @@
-"""The Discord queue (SPEC "Needs human"): reports are queued in their writer's transaction; export sends them.
+"""The Discord queue (SPEC "Needs human"): reports are queued in their writer's transaction; export and watch send them.
 
 A report is queued once per kind, item and text (the text holds the reason). A send claims each row before its
 post, so 2 senders never post 1 row twice; a crash between a claim and its post loses that message (the log and
@@ -24,8 +24,10 @@ CUT = "…"
 # A refusal of the webhook itself, not of the message: the row waits for a later run
 HOOK_REFUSED = frozenset({HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND})
 UNSENT = sql.SQL("sent_at IS NULL AND failed IS NULL")
+INCIDENTS = sql.SQL("kind = 'incident'")  # sent first, 1 message each, never in a digest
+REPORTS = sql.SQL("kind <> 'incident'")
 
-type Kind = Literal["chapter", "series", "title"]
+type Kind = Literal["chapter", "series", "title", "incident"]
 
 
 def queue(conn: db.Connection, kind: Kind, item_id: int, text: str, fix: str) -> None:
@@ -44,21 +46,24 @@ def queue(conn: db.Connection, kind: Kind, item_id: int, text: str, fix: str) ->
 
 
 def send(conn: db.Connection, discord: discord_client.Discord | None) -> None:
-    """Post the unsent reports, oldest first: 1 message each, or 1 digest when there are more than DIGEST_OVER.
+    """Post the unsent incidents, 1 message each, then the other reports: 1 message each, or 1 digest over DIGEST_OVER.
 
-    Discord off (None): nothing. Never raises for Discord: unreachable or refusing the webhook ends the send with the
-    row unsent (1 warning); a message Discord refuses is marked failed and the send goes on.
+    Oldest first. Discord off (None): nothing. Never raises for Discord: unreachable or refusing the webhook ends the
+    send with the row unsent (1 warning); a message Discord refuses is marked failed and the send goes on.
     """
     if discord is None:
         return
-    unsent = db.one_row(conn, sql.SQL("SELECT count(*) FROM notification WHERE {}").format(UNSENT))[0]
+    while rows := _claim(conn, INCIDENTS, 1):  # none left (or another sender took the last): on to the reports
+        if not _post(conn, discord, rows, message(rows[0]["text"], rows[0]["fix"])):
+            return
+    unsent = db.one_row(conn, sql.SQL("SELECT count(*) FROM notification WHERE {} AND {}").format(UNSENT, REPORTS))[0]
     if unsent > DIGEST_OVER:
-        rows = _claim(conn, None)
+        rows = _claim(conn, REPORTS, None)
         if rows:
             _post(conn, discord, rows, digest(rows))
         return
     for _ in range(unsent):
-        rows = _claim(conn, 1)
+        rows = _claim(conn, REPORTS, 1)
         if not rows or not _post(conn, discord, rows, message(rows[0]["text"], rows[0]["fix"])):
             return
 
@@ -82,13 +87,13 @@ def digest(rows: Sequence[db.Row]) -> str:
     return "\n".join([head, *lines, foot] if more else [head, *lines])
 
 
-def _claim(conn: db.Connection, limit: int | None) -> list[db.Row]:
-    """Mark the oldest `limit` unsent rows (all for None) sent and return them, oldest first."""
+def _claim(conn: db.Connection, which: sql.Composable, limit: int | None) -> list[db.Row]:
+    """Mark the oldest `limit` unsent rows of `which` (all for None) sent and return them, oldest first."""
     with db.transaction(conn):
         rows = conn.execute(
             sql.SQL("""UPDATE notification SET sent_at = %s WHERE id IN
-                (SELECT id FROM notification WHERE {} ORDER BY id LIMIT %s)
-            RETURNING id, text, fix""").format(UNSENT),
+                (SELECT id FROM notification WHERE {} AND {} ORDER BY id LIMIT %s)
+            RETURNING id, text, fix""").format(UNSENT, which),
             (db.now(conn), limit),
         ).fetchall()
     return sorted(rows, key=lambda r: r["id"])
@@ -104,12 +109,12 @@ def _post(conn: db.Connection, discord: discord_client.Discord, rows: Sequence[d
         discord.post(text)
     except Unreachable as e:
         _unclaim(conn, ids)
-        log.warning("discord: not sent, tried again by the next export run: %s", e)
+        log.warning("discord: not sent, tried again by the next send: %s", e)
         return False
     except http.HttpError as e:
         if e.status in HOOK_REFUSED or e.status >= HTTPStatus.INTERNAL_SERVER_ERROR:
             _unclaim(conn, ids)
-            log.warning("discord: not sent, tried again by the next export run: %s", e)
+            log.warning("discord: not sent, tried again by the next send: %s", e)
             return False
         with db.transaction(conn):
             conn.execute("UPDATE notification SET sent_at = NULL, failed = %s WHERE id = ANY(%s)", (str(e), ids))

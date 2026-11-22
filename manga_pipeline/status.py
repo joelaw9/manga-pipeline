@@ -206,7 +206,7 @@ def _discord(conn: db.Connection) -> list[str]:
         conn, sql.SQL("SELECT count(*) AS n, min(queued_at) AS oldest FROM notification WHERE {}").format(notify.UNSENT)
     )
     if queued["n"]:
-        lines.append(f"  {queued['n']} queued, the oldest since {queued['oldest']} (sent by export)")
+        lines.append(f"  {queued['n']} queued, the oldest since {queued['oldest']} (sent by export and watch)")
     refused = conn.execute("SELECT text, failed FROM notification WHERE failed IS NOT NULL ORDER BY id").fetchall()
     lines += [f"  refused: {r['text']}: {r['failed']}" for r in refused]
     return lines if queued["n"] or refused else [*lines, "  none"]

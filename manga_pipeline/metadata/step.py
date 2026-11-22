@@ -11,7 +11,7 @@ import logging
 from collections.abc import Sequence
 from datetime import timedelta
 
-from manga_pipeline import adoption, baseline, db, errors, identify, workflow
+from manga_pipeline import adoption, baseline, db, errors, identify, incidents, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.db import sql
@@ -39,7 +39,9 @@ def run(ctx: workflow.Context, clients: sources.Sources) -> None:
     """
     kavita_series = identify.KavitaSeries(ctx)
     try:
-        library.sync(ctx, kavita_series.rows())
+        listed = kavita_series.rows()
+        incidents.clear_key_refused(ctx.conn)  # Kavita answered: a key incident already sent is over
+        library.sync(ctx, listed)
         identify.sweep(ctx, ctx.suwayomi.library_manga(), kavita_series)
     except CHECK_FAILURES as e:
         log.warning("%s: metadata step skipped: %s", ctx.part, e)

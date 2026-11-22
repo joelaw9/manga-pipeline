@@ -14,7 +14,9 @@ It models what the pipeline must cope with (local library `kavita-scanning.md`):
   (new, or modified since) gets a later chapter lastModifiedUtc (measured 2026-11-15: local library
   kavita-scanning.md);
 - reading progress is written for the API key's user: save_progress, mark_read;
-- refresh_covers is recorded in writes (cover images are not modelled).
+- refresh_covers is recorded in writes (cover images are not modelled);
+- with `refuse_key` set, every call is refused as the real client refuses a 401 from authenticate (`refused` set), and
+  recorded in `refused_calls`.
 
 Simpler than Kavita: every file is its own chapter in 1 volume per series, and a file with no ComicInfo Series takes
 its folder's name (Kavita parses the file name first).
@@ -52,6 +54,8 @@ class FakeKavita(kavita.Kavita):
         self.pending = []  # scan requests Kavita has not run yet
         self.next_id = 1000  # the last series id handed out; the next series gets 1 more
         self._clock = 0  # Kavita's own clock: lastModifiedUtc values
+        self.refuse_key = False
+        self.refused_calls = []  # the calls refused while refuse_key was set
 
     # --- building state
 
@@ -69,19 +73,24 @@ class FakeKavita(kavita.Kavita):
     # --- the client's calls
 
     def libraries(self):
+        self._asked("libraries")
         return [{"id": i, "name": f"Library {i}", "folders": [f]} for i, f in self.library_folders.items()]
 
     def series_in_library(self, library_id):
+        self._asked("series_in_library")
         return copy.deepcopy([s for s in self.series_rows.values() if s["libraryId"] == library_id])
 
     def series(self, series_id):
+        self._asked("series")
         return copy.deepcopy(self.series_rows.get(series_id))
 
     def metadata(self, series_id):
+        self._asked("metadata")
         return copy.deepcopy(self.metadata_rows.setdefault(series_id, {"seriesId": series_id, "webLinks": ""}))
 
     def update_metadata(self, metadata):
         """As Kavita: the whole metadata replaced; a list entry's id 0 gets an id."""
+        self._asked("update_metadata")
         metadata = copy.deepcopy(metadata)
         for value in metadata.values():
             for entry in value if isinstance(value, list) else []:
@@ -91,18 +100,22 @@ class FakeKavita(kavita.Kavita):
         self.metadata_rows[metadata["seriesId"]] = metadata
 
     def update_series(self, series, **changes):
+        self._asked("update_series")
         self.writes.append(("series", series["id"], dict(changes)))
         self.series_rows[series["id"]].update(changes)
 
     def upload_cover(self, series_id, image):
+        self._asked("upload_cover")
         self.writes.append(("cover", series_id))
         self.series_rows[series_id]["coverImage"] = f"series{series_id}.png"
         self.covers[series_id] = image
 
     def has_uploaded_cover(self, series_id):
+        self._asked("has_uploaded_cover")
         return self.series_rows[series_id].get("coverImage", "").startswith(f"series{series_id}.")
 
     def volumes(self, series_id):
+        self._asked("volumes")
         files = {path: f for path, f in sorted(self.files.items()) if f["series"] == series_id}
         if not files:
             return []
@@ -121,22 +134,32 @@ class FakeKavita(kavita.Kavita):
         return [{"id": volume_id, "chapters": chapters}]
 
     def scan_library(self, library_id):
+        self._asked("scan_library")
         self.writes.append(("scan_library", library_id))
         self.pending.append(library_id)
 
     def save_progress(self, _series_id, _volume_id, chapter_id, page):
+        self._asked("save_progress")
         self.writes.append(("progress", chapter_id, page))
         file = next(f for f in self.files.values() if f["chapter"] == chapter_id)
         file["pagesRead"] = min(page, file["pages"])
 
     def mark_read(self, _series_id, chapter_ids):
+        self._asked("mark_read")
         self.writes.append(("read", tuple(chapter_ids)))
         for file in self.files.values():
             if file["chapter"] in chapter_ids:
                 file["pagesRead"] = file["pages"]
 
     def refresh_covers(self, library_id, series_id):
+        self._asked("refresh_covers")
         self.writes.append(("refresh_covers", library_id, series_id))
+
+    def _asked(self, call):
+        if self.refuse_key:
+            self.refused_calls.append(call)
+            msg = "HTTP 401 from authenticate: the API key was refused"
+            raise self._refused(msg)
 
     # --- the scan model
 

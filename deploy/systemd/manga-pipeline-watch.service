@@ -1,0 +1,12 @@
+[Unit]
+Description=manga-pipeline watch
+After=postgresql.service remote-fs.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/manga-pipeline
+ExecStart=/opt/manga-pipeline/.venv/bin/python -m manga_pipeline.cli watch
+EnvironmentFile=/etc/manga-pipeline/pipeline.env
+Environment=HOME=/root
+TimeoutStartSec=15min
