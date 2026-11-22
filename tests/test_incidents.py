@@ -129,6 +129,18 @@ def test_a_part_that_succeeds_again_and_stalls_again_is_reported_again(cfg, disc
     assert discord.posts == [stall("intake", first), stall("intake", second)], "a new stall is a new message"
 
 
+@budget(load="db", seconds=2)
+def test_a_part_s_own_run_record_is_what_watch_reads(world):
+    world.run(process)
+    owner = workflow.owner("process")
+    assert world.rows("SELECT key FROM meta WHERE key LIKE '%last_success'") == [(f"{owner}.last_success",)]
+    with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
+        stamp = ago(conn, 25)
+        conn.execute("UPDATE meta SET value = %s WHERE key = %s", (stamp, f"{owner}.last_success"))
+    watch(world.cfg)
+    assert world.discord.posts == [stall(owner, stamp)], "the stall is read from the record run_part writes"
+
+
 @budget(load="db")
 def test_a_part_within_24_hours_is_not_reported(cfg, discord):
     succeeded(cfg, "export", 23)
@@ -197,14 +209,18 @@ def test_a_refused_kavita_key_is_reported_once_while_it_lasts(world):
         world.run(part)
     assert world.rows("SELECT waiting_on FROM chapter") == [("kavita_scan",)], "export has Kavita work"
     world.kavita.refuse_key = True
-    world.run(intake)  # no new download: intake meets Kavita in its metadata step only
-    world.run(intake)
-    assert result(world, "intake") == "ok", "SPEC 'Metadata checks': a skipped metadata step leaves the run ok"
+    for _ in range(2):
+        world.run(intake)  # no new download: intake meets Kavita in its metadata step only
+        assert result(world, "intake") == "ok", "SPEC 'Metadata checks': a skipped metadata step leaves the run ok"
     assert key_rows(world.cfg) == [(False,)], "SPEC 'Needs human': 1 row while the refusal lasts"
+    watch(world.cfg)
+    assert world.discord.posts == [KEY_POST]
+    with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
+        conn.execute("DELETE FROM notification")  # so a row export queued would show
     world.run(export)
     assert world.kavita.refused_calls, "export asked Kavita and was refused"
     assert result(world, "export") == "unreachable: kavita"
-    assert key_rows(world.cfg) == [(True,)], "export queues no incident of its own; it sends intake's"
+    assert key_rows(world.cfg) == [], "export queues no incident of its own: intake reports the key"
     assert world.discord.posts == [KEY_POST], "1 message in all"
 
 

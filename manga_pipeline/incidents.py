@@ -27,8 +27,11 @@ KEY_FIX = (
 
 
 def watch(cfg: config.Config, conn: db.Connection) -> None:
-    """Queue the stalled parts and the folders of downloads not taken, then send what is queued (`watch`)."""
-    found = queue_stalls(conn) + queue_downloads(conn)
+    """Queue the stalled parts and the folders of downloads not taken, then send what is queued (`watch`).
+
+    Each open incident is logged, the key incident (queued by intake) included.
+    """
+    found = queue_stalls(conn) + queue_downloads(conn) + _key_open(conn)
     for text in found:
         log.warning("incident: %s", text)
     if not found:
@@ -67,6 +70,12 @@ def queue_downloads(conn: db.Connection) -> list[str]:
                 notify.queue(conn, "incident", 0, text, DOWNLOADS_FIX)
                 found.append(text)
     return found
+
+
+def _key_open(conn: db.Connection) -> list[str]:
+    """Return [KEY_REFUSED] while the key incident's row is open, else []."""
+    row = conn.execute("SELECT 1 FROM notification WHERE kind = 'incident' AND text = %s", (KEY_REFUSED,)).fetchone()
+    return [] if row is None else [KEY_REFUSED]
 
 
 def queue_key_refused(conn: db.Connection) -> None:
