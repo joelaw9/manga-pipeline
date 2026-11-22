@@ -32,3 +32,6 @@ __pycache__/
 
 # code-review-graph local settings
 .code-review-graphignore
+
+# per-machine image tools (config tools.*, relative = project root): binaries, never committed
+/tools/
