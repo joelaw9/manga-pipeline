@@ -12,7 +12,7 @@ from manga_pipeline import config, export, intake, process, workflow
 from manga_pipeline.stages import comicinfo
 
 from tests.timing import budget
-from tests.world import LIBRARY_ID, World, cbz
+from tests.world import LIBRARY_ID, SOURCE_FOLDER, World, cbz
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def scans(world):
 
 
 def files(world, folder):
-    return sorted(p.name for p in (world.library / folder).iterdir())
+    return sorted(p.name for p in (world.library / SOURCE_FOLDER / folder).iterdir())
 
 
 def kavita_id(world, series_id):
@@ -58,8 +58,11 @@ def kavita_id(world, series_id):
 @budget(load="db", seconds=20)
 def test_a_ready_new_series_lands_whole_under_1_scan_and_is_attached_by_its_folder(world):
     sid, _ = ready(world)
+    assert not (world.library / SOURCE_FOLDER).exists(), "set up: the library has no folder of its source yet"
     world.run(export)
-    assert files(world, "Brand New Thing") == ["Ch.1.cbz", "Ch.2.cbz", "Ch.3.cbz"], "all its chapters together"
+    assert files(world, "Brand New Thing") == ["Ch.1.cbz", "Ch.2.cbz", "Ch.3.cbz"], (
+        "all its chapters together, its source folder made at its first publish"
+    )
     assert scans(world) == [("scan_library", LIBRARY_ID)], "the run's 1 library scan"
     assert kavita_id(world, sid) is None, "Kavita has not scanned yet"
     world.kavita.run_scans()
@@ -95,7 +98,9 @@ def test_a_chapter_on_its_way_holds_the_series_and_a_waiting_one_does_not(world)
     _sid, _ = ready(world)
     world.rows("UPDATE chapter SET stage = 'convert' WHERE id = (SELECT min(id) FROM chapter) RETURNING id")
     world.run(export)
-    assert not (world.library / "Brand New Thing").exists(), "a chapter still at convert holds the whole series"
+    assert not (world.library / SOURCE_FOLDER / "Brand New Thing").exists(), (
+        "a chapter still at convert holds the whole series"
+    )
     world.rows(
         "UPDATE chapter SET status = 'waiting', waiting_on = 'junk_decision' WHERE stage = 'convert' RETURNING id"
     )
@@ -121,8 +126,8 @@ def test_a_chapter_finished_after_the_scan_request_publishes_once_the_id_is_foun
 @budget(load="db", seconds=20)
 def test_a_crash_leftover_folder_is_used_and_a_foreign_file_holds_the_series(world, tmp_path):
     sid, _ = ready(world)
-    folder = world.library / "Brand New Thing"
-    folder.mkdir()
+    folder = world.library / SOURCE_FOLDER / "Brand New Thing"
+    folder.mkdir(parents=True)
     (folder / "Thumbs.db").write_bytes(b"x")
     # export's comicinfo only (the files named), then a crash after 1 rename
     only_comicinfo = SimpleNamespace(
@@ -137,8 +142,8 @@ def test_a_crash_leftover_folder_is_used_and_a_foreign_file_holds_the_series(wor
 
     other = World(tmp_path / "other")
     osid, _ = ready(other)
-    (other.library / "Brand New Thing").mkdir()
-    (other.library / "Brand New Thing" / "Stray.cbz").write_bytes(cbz(seed="stray"))
+    (other.library / SOURCE_FOLDER / "Brand New Thing").mkdir(parents=True)
+    (other.library / SOURCE_FOLDER / "Brand New Thing" / "Stray.cbz").write_bytes(cbz(seed="stray"))
     other.run(export)
     ((status, reason),) = other.rows("SELECT status, status_reason FROM series WHERE id = %s", osid)
     assert status == "needs_human", "a file it did not publish"
@@ -166,10 +171,12 @@ def test_a_publish_killed_after_its_rename_attaches_at_the_next_intake_once_kavi
     )
     world.run(only_comicinfo)
     (staged, target), *_ = world.rows("SELECT staged_path, library_path FROM chapter ORDER BY id")
-    folder = world.library / "Brand New Thing"
-    folder.mkdir()
+    folder = world.library / SOURCE_FOLDER / "Brand New Thing"
+    folder.mkdir(parents=True)
     config.to_local(world.cfg, staged).replace(folder / target.rpartition("/")[2])  # renamed in, then killed
-    world.kavita.add_series("Brand New Thing", "Brand New Thing", LIBRARY_ID)  # Kavita's own scan found the file
+    world.kavita.add_series(
+        "Brand New Thing", f"{SOURCE_FOLDER}/Brand New Thing", LIBRARY_ID
+    )  # Kavita's own scan found the file
     world.run(intake)
     assert world.rows("SELECT id FROM series") == [(sid,)], "the listed series is the admitted one: no second row"
     assert kavita_id(world, sid) is not None, "attached with no published_file row yet"
@@ -184,7 +191,9 @@ def test_an_attached_new_series_kavita_recreates_keeps_its_row_through_its_comic
     old = kavita_id(world, sid)
     assert old is not None, "set up: attached"
     del world.kavita.series_rows[old]
-    new = world.kavita.add_series("Shiny Title", "Shiny Title", LIBRARY_ID)  # Kavita recreated it under a new id
+    new = world.kavita.add_series(
+        "Shiny Title", f"{SOURCE_FOLDER}/Shiny Title", LIBRARY_ID
+    )  # Kavita recreated it under a new id
     world.run(intake)
     assert world.rows("SELECT id, name, kavita_series_id FROM series") == [(sid, "Shiny Title", new)], (
         "matched by its ComicInfo name (not its row name, still the arrival name) and its folder: the row takes the "
@@ -246,3 +255,13 @@ def test_confirm_of_a_series_kavita_does_not_list_yet_waits_and_lists_the_librar
     world.run(export)  # end_waits' wait_over, then confirm: still not listed
     assert stages(world, sid) == [("confirm", "waiting")] * 3, "waits on kavita_scan"
     assert calls == [LIBRARY_ID, LIBRARY_ID], "1 listing per run, not 1 per chapter"
+
+
+@budget(load="db", seconds=20)
+def test_a_missing_library_root_ends_the_export_run_and_holds_no_series(world):
+    sid, _ = ready(world)
+    world.library.rmdir()  # the share's library folder is not there
+    world.run(export)
+    assert not world.library.exists(), "never made: a library missing is the share's problem"
+    assert world.rows("SELECT status FROM series WHERE id = %s", sid) == [("ok",)], "not the series' problem"
+    assert stages(world, sid) == [("publish", "ready")] * 3, "published by a run that finds the library"

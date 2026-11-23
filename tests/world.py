@@ -27,6 +27,7 @@ from tests.fakes.suwayomi import page as fake_page
 from tests.pages import PAGE_FIX
 
 LIBRARY_ID = 4  # tests/test_config.yaml kavita.library_id
+SOURCE_FOLDER = "Src (EN)"  # the folder of World's 1 Suwayomi source ("Src"): its downloads' and its new series'
 
 
 def credit_page(seed=""):

@@ -8,7 +8,7 @@ database ends the run.
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import timedelta
 
 from manga_pipeline import adoption, baseline, db, errors, identify, incidents, workflow
@@ -63,13 +63,20 @@ def run(ctx: workflow.Context, clients: sources.Sources) -> None:
                 raise  # the database or the share: the run's problem
             # A reply of an unexpected shape, a file this machine cannot write: this series' problem, not the run's
             log.exception("series %s: metadata check failed", series_id)
-    try:  # after the checks: a series whose check completed now is adopted now
-        baseline_pass(ctx, kavita_series.rows())
+    # after the checks: a series whose check completed now is adopted now
+    _tried(ctx, "baseline pass", lambda: baseline_pass(ctx, kavita_series.rows()))
+    # admission lists Suwayomi's sources: a service down leaves the series pending until the next run
+    _tried(ctx, "admission", lambda: admit.run(ctx, kavita_series.rows()))
+
+
+def _tried(ctx: workflow.Context, what: str, work: Callable[[], None]) -> None:
+    """Run work; a service failure is logged and tried again next run, a share failure raises (the run's problem)."""
+    try:
+        work()
     except CHECK_FAILURES as e:
         if isinstance(e, workflow.Unreachable) and e.service == workflow.SHARE:
             raise  # the share: the run's problem, as everywhere in intake
-        log.warning("%s: baseline pass not completed: %s", ctx.part, e)
-    admit.run(ctx, kavita_series.rows())
+        log.warning("%s: %s not completed: %s", ctx.part, what, e)
 
 
 def baseline_pass(ctx: workflow.Context, listed_series: Sequence[kavita_replies.Series]) -> None:
