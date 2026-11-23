@@ -97,7 +97,9 @@ def new_series(ctx: workflow.Context) -> None:
 
 
 def _folder_ready(ctx: workflow.Context, series: db.Row) -> bool:
-    """Create the series' folder, or check the one there holds only its own files.
+    """Create the series' folder (and its source folder), or check the one there holds only its own files.
+
+    A library root that is not there is the share's problem: Unreachable("share").
 
     Its own: those it published and those a crash left renamed in but unrecorded (a chapter at publish whose staged file
     is gone and whose file has its staged size); anything else, or a folder that cannot be made or read, makes the
@@ -106,7 +108,10 @@ def _folder_ready(ctx: workflow.Context, series: db.Row) -> bool:
     folder = config.to_local(ctx.cfg, series["folder"])
     try:
         if not errors.exists(folder):
-            folder.mkdir()
+            library = config.abs_path(ctx.cfg["paths"]["library"])
+            if not errors.exists(library):  # a share whose library is not there: never a series' problem
+                raise workflow.Unreachable(workflow.SHARE, f"library folder {library} missing")
+            folder.mkdir(parents=True)  # its source folder too, when the library has none yet
             return True
         names = [p.name for p in folder.iterdir()]
         own = _own_files(ctx, series, folder)

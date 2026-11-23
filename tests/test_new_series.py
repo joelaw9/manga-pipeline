@@ -19,7 +19,7 @@ from manga_pipeline.metadata import human, naming
 
 from tests.builders import one, present, scope_cfg, settle
 from tests.timing import budget
-from tests.world import World, cbz, comicinfo
+from tests.world import SOURCE_FOLDER, World, cbz, comicinfo
 
 
 @pytest.fixture
@@ -57,9 +57,9 @@ def test_a_new_series_is_admitted_under_its_anilist_english_title_and_taken_by_t
         "Brand New Thing",
         "ok",
         "The Brand New Thing",
-        "library/The Brand New Thing",
+        f"library/{SOURCE_FOLDER}/The Brand New Thing",
         True,
-    ), "admitted after its first check: AniList English title (its @COMIC mark dropped), folder under the library"
+    ), "admitted after its first check: AniList English title (its @COMIC mark dropped), folder in its source folder"
     assert world.rows("SELECT count(*) FROM chapter") == [(0,)], "discovery ran before the admission"
     world.run(intake)
     assert world.rows("SELECT stage, status FROM chapter") == [("junk", "ready")], "taken and validated next run"
@@ -81,7 +81,7 @@ def test_a_hand_placed_new_folder_is_named_by_its_files_comicinfo_series(world):
         place(world, "Local/raw dump", f"Chapter {n}", cbz(seed=str(n), comicinfo=comicinfo(Series="Clean Name")))
     world.run(intake)
     assert world.rows("SELECT name, alt_name, comicinfo_series, folder FROM series") == [
-        ("raw dump", "Clean Name", "Clean Name", "library/Clean Name")
+        ("raw dump", "Clean Name", "Clean Name", "library/Local/Clean Name")
     ], "no AniList title: the files' ComicInfo Series before the title folder"
 
 
@@ -98,7 +98,9 @@ def test_sources_down_at_the_first_check_leave_the_series_pending_until_a_run_re
         world.run(intake)
         assert series(world)[0][4] is False, "no completed check: not admitted"
     world.run(intake)
-    assert series(world)[0][2:] == ("Brand New Thing", "library/Brand New Thing", True), "admitted once reached"
+    assert series(world)[0][2:] == ("Brand New Thing", f"library/{SOURCE_FOLDER}/Brand New Thing", True), (
+        "admitted once reached"
+    )
 
 
 @budget(load="db", seconds=2)
@@ -120,7 +122,7 @@ def test_a_fuzzy_near_hit_is_held_and_series_new_admits_it(world):
 
 @budget(load="db", seconds=2)
 def test_a_name_clash_holds_the_series_and_series_new_name_admits_it(world):
-    (world.library / "Brand New Thing").mkdir(parents=True)  # a stray folder Kavita does not list
+    (world.library / SOURCE_FOLDER / "Brand New Thing").mkdir(parents=True)  # a stray folder Kavita does not list
     world.download(world.manga("Brand New Thing"), "Chapter 1")
     world.run(intake)
     ((sid, status, reason),) = world.rows("SELECT id, status, status_reason FROM series")
@@ -132,7 +134,12 @@ def test_a_name_clash_holds_the_series_and_series_new_name_admits_it(world):
     with closing(db.connect(world.cfg)) as conn:
         human.new_series(conn, sid, "Brand New Thing (2024)")
     world.run(intake)
-    assert series(world)[0][1:] == ("ok", "Brand New Thing (2024)", "library/Brand New Thing (2024)", True)
+    assert series(world)[0][1:] == (
+        "ok",
+        "Brand New Thing (2024)",
+        f"library/{SOURCE_FOLDER}/Brand New Thing (2024)",
+        True,
+    )
 
 
 @budget(load="db")
@@ -341,7 +348,7 @@ def test_series_new_admits_a_series_held_for_a_shared_id_and_its_name_is_still_c
     world.run(intake)
     ((sid, status, _, _),) = new_one(world)
     assert status == "needs_human", "set up: held for the shared id"
-    (world.library / "Brand New Thing").mkdir(parents=True)  # a stray folder Kavita does not list
+    (world.library / SOURCE_FOLDER / "Brand New Thing").mkdir(parents=True)  # a stray folder Kavita does not list
     with closing(db.connect(world.cfg)) as conn:
         human.new_series(conn, sid)
     world.run(intake)
@@ -385,3 +392,93 @@ def test_of_2_pending_series_sharing_an_id_the_second_is_held_once_the_first_is_
     assert first[1:] == ("ok", None, True), "the first is admitted"
     assert second[1] == "needs_human", "an admitted new series' id is a double hit for the second, in the same run"
     assert f"series {first[0]} (Brand New Thing) holds its anilist id 7" in second[2], "the hold names the first"
+
+
+@budget(load="db", seconds=2)
+def test_a_new_series_is_admitted_into_the_library_folder_of_its_manga_source(world):
+    manga = world.suwayomi.add_manga("Brand New Thing", world.suwayomi.add_source("MangaK"))
+    world.download(manga, "Chapter 1")
+    world.run(intake)
+    assert series(world)[0][3:] == ("library/MangaK (EN)/Brand New Thing", True), (
+        "its source's download folder name is its library source folder"
+    )
+
+
+@budget(load="db", seconds=2)
+def test_a_same_named_folder_in_another_source_folder_is_no_clash(world):
+    (world.library / "Other (EN)" / "Brand New Thing").mkdir(parents=True)
+    (world.library / "Brand New Thing").mkdir()
+    world.download(world.manga("Brand New Thing"), "Chapter 1")
+    world.run(intake)
+    assert series(world)[0][1:] == ("ok", "Brand New Thing", f"library/{SOURCE_FOLDER}/Brand New Thing", True), (
+        "only the folders in its own source folder clash"
+    )
+
+
+def held_reason(world):
+    ((status, reason, admitted),) = world.rows(
+        "SELECT status, status_reason, admitted_at IS NOT NULL FROM series WHERE origin = 'new'"
+    )
+    assert (status, admitted) == ("needs_human", False), "held at admission"
+    return reason
+
+
+@budget(load="db", seconds=2)
+def test_a_series_with_links_to_several_source_folders_takes_its_lowest_id_manga_s(world):
+    world.download(world.manga("Brand New Thing"), "Chapter 1")
+    with closing(db.connect(world.cfg)) as conn:
+        discovery.scan(world.context(conn, "intake"))  # pending: its row and first link, no check yet
+    ((sid,),) = world.rows("SELECT id FROM series WHERE origin = 'new'")
+    world.rows("INSERT INTO download_folder (folder, series_id) VALUES ('Local/Brand New Thing', %s) RETURNING 1", sid)
+    other = world.suwayomi.add_source("MangaK")
+    world.rows(  # linked after the first, with a lower manga id than any the fake gives
+        "INSERT INTO suwayomi_manga (manga_id, source_id, title, series_id) VALUES (1, %s, 'x', %s) RETURNING 1",
+        other,
+        sid,
+    )
+    world.run(intake)
+    assert series(world)[0][3:] == ("library/MangaK (EN)/Brand New Thing", True), (
+        "its manga with the lowest id decides, before a later manga and a hand-placed folder"
+    )
+
+
+@budget(load="db", seconds=2)
+def test_a_series_whose_manga_source_is_not_installed_is_held_with_the_fix(world, monkeypatch):
+    world.download(world.manga("Brand New Thing"), "Chapter 1")
+    monkeypatch.setattr(world.suwayomi, "sources", list)  # Suwayomi lists no source: the manga's is uninstalled
+    world.run(intake)
+    reason = held_reason(world)
+    ((sid,),) = world.rows("SELECT id FROM series WHERE origin = 'new'")
+    assert f"the source {world.source} of its manga" in reason, "the hold names the source"
+    assert "is not installed" in reason, "the hold names why"
+    assert f"install the source; then series new {sid}" in reason, "the hold names the fix"
+
+
+@budget(load="db", seconds=2)
+def test_a_missing_library_root_at_admission_ends_the_run_and_holds_no_series(world, caplog):
+    world.download(world.manga("Brand New Thing"), "Chapter 1")
+    world.library.rmdir()  # the share's library folder is not there
+    world.run(intake)
+    assert series(world)[0][1:] == ("ok", None, None, False), "pending, not held: the share's problem"
+    assert f"library folder {world.library} missing" in caplog.text, "admission ends the run: Unreachable(share)"
+
+
+@budget(load="db", seconds=3)
+def test_suwayomi_down_at_admission_leaves_the_series_pending_and_intake_works_its_chapters(world, monkeypatch):
+    world.kavita_series("Solo Leveling")
+    world.download(world.manga("Solo Leveling"), "Chapter 2")
+    world.download(world.manga("Brand New Thing"), "Chapter 1")
+
+    def down():
+        msg = "suwayomi"
+        raise workflow.Unreachable(msg, "down")
+
+    with monkeypatch.context() as m:
+        m.setattr(world.suwayomi, "sources", down)
+        world.run(intake)
+        assert series(world)[0][1:] == ("ok", None, None, False), "not admitted: pending until a run lists the sources"
+        assert world.rows("SELECT stage, status FROM chapter") == [("junk", "ready")], (
+            "the library series' chapter is taken and validated all the same"
+        )
+    world.run(intake)
+    assert series(world)[0][4] is True, "admitted once Suwayomi answers"
