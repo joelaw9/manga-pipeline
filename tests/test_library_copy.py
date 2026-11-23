@@ -29,7 +29,7 @@ from manga_pipeline import (
     retention,
     workflow,
 )
-from manga_pipeline.junk import review
+from manga_pipeline.junk import ocr, review
 from manga_pipeline.stages import junk
 
 from tests import pages as fx
@@ -175,7 +175,8 @@ def test_a_lost_claim_puts_no_duplicate_aside(world, monkeypatch):
     [
         ({"width": 15}, "wider"),  # 16 >= 1.05 x 15
         ({"bpp": 0.001}, "more bits per pixel"),
-        ({"junk": 1}, "less junk"),  # 1 page dropped from the published file's download, none from this one
+        # 1 of 4 pages dropped from the published file's download, none from this one: 3 pages after junk on both
+        ({"pages_in": 4, "junk": 1}, "less junk"),
     ],
 )
 def test_a_better_copy_takes_its_file_and_goes_on(world, published, why):
@@ -669,11 +670,11 @@ def test_2_open_copies_told_apart_by_their_volumes_are_both_published(by_filenam
     )
 
 
-def better_copy_held_at_junk(world, earlier_name, later_name):
-    """Bring 2 copies of chapter 1 to junk; return (earlier path, later path).
+def later_copy_at_junk(world, earlier_name, later_name):
+    """Bring 2 copies of chapter 1 in; return (earlier path, later path).
 
-    The earlier copy is a bad download, held at validate; the later, rated above the bulk Ch.1.cbz, takes that file at
-    junk and waits there on its credit page's junk decision; then the earlier's replacement arrives.
+    The earlier copy is a bad download, held at validate; the later, rated above the bulk Ch.1.cbz, waits at junk on its
+    credit page's junk decision, naming no file: a copy is judged once its junk is decided.
     """
     _, earlier = world.download(other_manga(world), earlier_name, "Alpha", data=b"PK\x03\x04 truncated download")
     # 3 pages, as the bulk file's
@@ -683,52 +684,58 @@ def better_copy_held_at_junk(world, earlier_name, later_name):
     assert arrival(world) == [earlier.name, later.name], "set up: the earlier copy is discovered first"
     world.run(process)
     assert state(world, later)[:3] == ("junk", "waiting", "junk_decision"), "set up: its credit page is a candidate"
-    assert world.rows("SELECT count(*) FROM chapter WHERE published_file_id = 1") == [(1,)], "set up: it took Ch.1"
-    world.suwayomi.finish_downloads(cbz(seed="alpha 1 again"))
-    world.run(intake)
-    assert state(world, earlier)[:2] == ("junk", "ready"), "set up: the replacement passed validate"
+    assert world.rows("SELECT count(*) FROM chapter WHERE published_file_id IS NOT NULL") == [(0,)], (
+        "no copy takes its file before its junk is decided"
+    )
     return earlier, later
 
 
+def replacement_arrives(world, earlier):
+    """Deliver the earlier copy's re-download and take it through intake: it passes validate."""
+    world.suwayomi.finish_downloads(cbz(seed="alpha 1 again"))
+    world.run(intake)
+    assert state(world, earlier)[:2] == ("junk", "ready"), "set up: the replacement passed validate"
+
+
 @budget(load="db", seconds=20)
-def test_a_copy_that_took_its_file_is_not_held_by_an_earlier_copy_reaching_junk(world):
-    """The later [R18] copy took Ch.1 at junk before the earlier got there: it publishes, the earlier is a duplicate."""
-    earlier, later = better_copy_held_at_junk(world, "Chapter 1", "Chapter 1 [R18]")
+def test_an_earlier_copy_is_not_held_by_a_later_copy_waiting_on_its_junk_decision(world):
+    """The later [R18] copy waits on its junk decision; the earlier, discovered first, is judged meanwhile.
+
+    Once decided, the later copy takes Ch.1 and publishes; the earlier, no better than the bulk file, is a duplicate.
+    """
+    earlier, later = later_copy_at_junk(world, "Chapter 1", "Chapter 1 [R18]")
+    replacement_arrives(world, earlier)
     world.run(process)
-    assert state(world, later)[:3] == ("junk", "waiting", "junk_decision"), "a copy naming its file is not made to wait"
-    assert state(world, earlier)[:3] == ("junk", "waiting", "open_copy"), (
-        "a copy naming no file waits on one at junk that took its file"
-    )
+    assert state(world, later)[:3] == ("junk", "waiting", "junk_decision"), "set up: still waiting on its decision"
+    stage, status, _, error = state(world, earlier)
+    assert (stage, status) == ("junk", "done"), "a later copy at junk naming no file is not ahead of the earlier"
+    assert error.startswith("dropped: a duplicate of the published"), "the earlier copy, no better, is a duplicate"
     decide_junk(world.cfg)
     world.run(process)
-    assert state(world, later)[:3] == ("comicinfo", "ready", None), (
-        "decided, the copy that took its file goes on: an earlier copy waiting at junk is not ahead of it"
-    )
+    assert state(world, later)[:3] == ("comicinfo", "ready", None), "decided, the better copy takes its file"
     for part in (export, process):
         world.run(part)
     assert state(world, later)[:2] == ("publish", "done"), "the better copy is published into Ch.1.cbz"
-    stage, status, _, error = state(world, earlier)
-    assert (stage, status) == ("junk", "done"), "the earlier copy, no better, is a duplicate"
-    assert error.startswith("dropped: a duplicate of the published"), "the earlier copy, no better, is a duplicate"
     assert library_files(world) == ["Ch.1.cbz"], "1 file of chapter 1"
     assert published_from(world, "Ch.1.cbz") == later.stem, "the file holds the later copy's pages"
 
 
 @budget(load="db", seconds=30)
 def test_an_earlier_copy_better_than_a_busy_file_is_held_then_takes_it_on_retry(tmp_path):
-    """As above, the earlier [R18] copy above the file: held "busy" while the later's rewrite is pending, then takes it.
+    """The earlier [R18] copy above the file: held "busy" while the later's rewrite is pending, then takes it.
 
     The bulk Ch.1 censored, the later copy untagged: a retry after the rewrite finishes lets the earlier take the file.
     """
     world = CopyWorld(tmp_path, sources={"ranking": [BEST, "Src (EN)"], "download_timeout_hours": 24})
     world.kavita_series("Solo Leveling", bulk=(("Ch.1.cbz", "Grp_Chapter 1 [R15]", "1"),))
     world.manga_id = world.manga("Solo Leveling")
-    earlier, later = better_copy_held_at_junk(world, "Chapter 1 [R18]", "Chapter 1")
-    world.run(process)
+    earlier, later = later_copy_at_junk(world, "Chapter 1 [R18]", "Chapter 1")
     decide_junk(world.cfg)
-    for part in (process, export, process):
+    for part in (process, export):
         world.run(part)
     assert state(world, later)[:2] == ("publish", "done"), "set up: the later copy is published into Ch.1.cbz"
+    replacement_arrives(world, earlier)
+    world.run(process)
     stage, status, _, error = state(world, earlier)
     assert (stage, status) == ("junk", "needs_human"), "a better copy of a busy file is held"
     assert "busy" in error, "a better copy of a busy file is held"
@@ -747,49 +754,57 @@ def test_an_earlier_copy_better_than_a_busy_file_is_held_then_takes_it_on_retry(
 # --- the rule alone (library_copy.decide): what a source review's sample is judged by
 
 
-def our_copy(
-    width: int = 940, bpp: float = 1.0, junk: float | None = None, rating: int = 1
-) -> library_copy.Copy[float]:
-    """Return our copy: 10 pages, strip length 20000, with these measures (its bits per pixel always measured)."""
+def our_copy(width: int = 940, bpp: float = 1.0, junk: float = 0, rating: int = 1) -> library_copy.Copy[float]:
+    """Return our copy, its junk decided: 10 pages, strip length 20000, with these measures (bpp always measured)."""
     return library_copy.Copy(library_copy.Measures(10, width, 20000, bpp), rating, junk)
 
 
 def their_copy(
-    width: int = 940, bpp: float | None = 1.0, junk: float | None = None, rating: int = 1
-) -> library_copy.Copy[float | None]:
-    """Return a published file's original: 10 pages, strip length 20000, with these measures."""
-    return library_copy.Copy(library_copy.Measures(10, width, 20000, bpp), rating, junk)
+    width: int = 940, bpp: float | None = 1.0, junk: float | None = 0, *, length: float = 10, junk_out: bool = True
+) -> library_copy.PublishedCopy:
+    """Return a published copy, untagged: an original of 10 pages, strip length 20000; length, junk_out as compared."""
+    return library_copy.PublishedCopy(library_copy.Measures(10, width, 20000, bpp), 1, junk, length, junk_out)
 
 
-def longer(pages: int, length: int) -> library_copy.Copy[float]:
+def longer(pages: int, length: int, junk: float = 0) -> library_copy.Copy[float]:
     """Return our copy of the default measures with another page count and strip length."""
-    return library_copy.Copy(library_copy.Measures(pages, 940, length, 1.0), 1, None)
+    return library_copy.Copy(library_copy.Measures(pages, 940, length, 1.0), 1, junk)
 
 
 @budget(load="pure")
 @pytest.mark.parametrize(
     ("ours", "theirs", "want"),
     [
-        (longer(13, 20000), their_copy(), library_copy.NotSameChapter("pages_in 13 against 10")),
+        (longer(13, 20000), their_copy(), library_copy.NotSameChapter("pages_in after junk 13 against 10")),
+        (longer(13, 20000), their_copy(junk_out=False), library_copy.NotSameChapter("pages_in 13 against 10")),
+        (
+            longer(13, 20000, junk=3),
+            their_copy(),
+            library_copy.Duplicate("more junk removed: 3 against 0"),
+        ),
         (our_copy(rating=2, width=400), their_copy(), library_copy.Better()),
         (our_copy(rating=0, width=2000), their_copy(), library_copy.Duplicate("a lower edition rating")),
         (our_copy(width=800), their_copy(), library_copy.Duplicate("median page width 800 against 940")),
         (our_copy(bpp=0.5), their_copy(), library_copy.Duplicate("bits per pixel 0.50 against 1.00")),
-        (our_copy(width=1000), their_copy(), None),
-        (our_copy(width=1000, junk=0), their_copy(junk=0), library_copy.Better()),
-        (our_copy(bpp=1.2, junk=0), their_copy(junk=0), library_copy.Better()),
-        (our_copy(junk=0), their_copy(junk=1), library_copy.Better()),
-        (our_copy(junk=0), their_copy(junk=0), library_copy.Duplicate("no better in width, bits per pixel or junk")),
-        (our_copy(width=1000, junk=2), their_copy(junk=1), library_copy.Duplicate("more junk removed: 2 against 1")),
-        (our_copy(bpp=0.1, width=1000, junk=0), their_copy(bpp=None, junk=None), library_copy.Better()),
+        (our_copy(width=1000), their_copy(), library_copy.Better()),
+        (our_copy(bpp=1.2), their_copy(), library_copy.Better()),
+        (our_copy(junk=0), their_copy(junk=1, length=9), library_copy.Better()),
+        (our_copy(junk=0), their_copy(), library_copy.Duplicate("no better in width, bits per pixel or junk")),
+        (
+            our_copy(width=1000, junk=2),
+            their_copy(junk=1, length=9),
+            library_copy.Duplicate("more junk removed: 2 against 1"),
+        ),
+        (our_copy(bpp=0.1, width=1000), their_copy(bpp=None, junk=None), library_copy.Better()),
     ],
     ids=[
         "not-the-same-chapter",
+        "not-the-same-chapter-junk-in",
+        "the-same-chapter-after-junk",
         "higher-rating",
         "lower-rating",
         "narrower",
         "recompressed",
-        "junk-not-known-yet",
         "wider",
         "denser",
         "less-junk",
@@ -803,13 +818,25 @@ def test_the_better_copy_rule_on_2_copies(ours, theirs, want):
 
 
 @budget(load="pure")
+def test_the_better_copy_rule_needs_our_junk():
+    with pytest.raises(ValueError, match="junk is not decided"):
+        library_copy.decide(
+            library_copy.Copy(library_copy.Measures(10, 940, 20000, 1.0), 1, None), their_copy(), "pages"
+        )
+
+
+@budget(load="pure")
 def test_strip_junk_differs_only_beyond_500_rows():
-    assert library_copy.decide(our_copy(width=1000, junk=600), their_copy(junk=200), "strip") == library_copy.Better()
-    assert library_copy.decide(our_copy(width=1000, junk=800), their_copy(junk=200), "strip") == library_copy.Duplicate(
-        "more junk removed: 800 against 200"
+    strip = 20000  # the published copy's strip length
+    assert (
+        library_copy.decide(our_copy(width=1000, junk=600), their_copy(junk=200, length=strip), "strip")
+        == library_copy.Better()
     )
-    assert library_copy.decide(longer(10, 26000), their_copy(), "strip") == library_copy.NotSameChapter(
-        "strip_length 26000 against 20000"
+    assert library_copy.decide(
+        our_copy(width=1000, junk=800), their_copy(junk=200, length=strip), "strip"
+    ) == library_copy.Duplicate("more junk removed: 800 against 200")
+    assert library_copy.decide(longer(10, 26000), their_copy(length=strip), "strip") == library_copy.NotSameChapter(
+        "strip_length after junk 26000 against 20000"
     )
 
 
@@ -865,4 +892,249 @@ def test_original_gives_an_adopted_files_bits_per_pixel(world):
     width, height = present(images.dimensions(page))
     assert got.bpp == pytest.approx(8 * len(page) / (width * height)), (
         f"source review reads {path.name}'s bits per pixel through original: bytes over pixels"
+    )
+
+
+# ---------------------------------------------------------------- the same chapter after junk (D3)
+
+
+def chapter_5_file(world):
+    """Return (ctx, the published row of Ch.5.cbz) on a new connection; the caller closes ctx.conn."""
+    ctx = workflow.context(world.cfg, db.connect(world.cfg), "test")
+    row = ctx.conn.execute("SELECT * FROM published_file WHERE library_path LIKE %s", ("%Ch.5.cbz",)).fetchone()
+    return ctx, present(row)
+
+
+@budget(load="db")
+def test_copies_are_the_same_chapter_after_junk_though_not_before(world):
+    """Chapter 134: the official copy, no junk, strip 22,576; the converted file's original 26,952, junk included."""
+    world.run(intake)  # the series' row
+    published_copy(world, pages_in=40, width=800, strip=26952, junk=4376)  # a converted adopted file: junk stored
+    ours = library_copy.Copy(library_copy.Measures(36, 800, 22576, 1.0), 1, 0.0)
+    ctx, row = chapter_5_file(world)
+    try:
+        theirs = library_copy.published_copy(ctx, row, "strip")
+    finally:
+        ctx.conn.close()
+    assert abs(22576 - 26952) > library_copy.SAME_CHAPTER * 26952, "set up: with junk in, another chapter"
+    assert library_copy.decide(ours, theirs, "strip") == library_copy.Better(), (
+        "22,576 against 26,952 less its 4,376 of junk: the same chapter, and less junk removed"
+    )
+
+
+def judged_after_junk(world, name, copy):
+    """Take a download of `name` with a credit page (4 pages) to junk, add the published copy, decide the page junk.
+
+    copy: published_copy keywords, or None for the bulk file. Returns outcome once the chapter is judged.
+    """
+    world.download(world.manga_id, name, data=cbz(seed=f"new {name}", credit=True))
+    world.run(intake)
+    if copy is not None:
+        published_copy(world, **copy)
+    world.run(process)
+    assert outcome(world)[:2] == ("junk", "waiting"), "set up: its credit page waits on a junk decision"
+    decide_junk(world.cfg, "junk")
+    world.run(process)
+    return outcome(world)
+
+
+@budget(load="db", seconds=5)
+def test_a_bulk_file_is_compared_as_it_is_against_ours_after_junk(world):
+    stage, status, error = judged_after_junk(world, "Chapter 1", None)  # the bulk Ch.1.cbz: 3 pages, measured
+    assert (stage, status) == ("junk", "done"), "3 pages after junk against the bulk file's 3 (4 before: not the same)"
+    assert error.startswith("dropped: a duplicate of the published"), "the same chapter, no better: a duplicate"
+
+
+@budget(load="db", seconds=5)
+def test_a_pipeline_file_without_stored_junk_is_compared_with_junk_in_on_both_sides(world):
+    stage, status, error = judged_after_junk(world, "Chapter 5", {"pages_in": 4, "width": 17, "junk": None})
+    assert (stage, status) == ("junk", "done"), "4 pages against its stored 4, junk in on both (3 after junk: not)"
+    assert "median page width 16 against 17" in error, "the same chapter, then narrower: a duplicate"
+
+
+@budget(load="db", seconds=5)
+def test_an_unconverted_adopted_file_is_compared_with_junk_in_on_both_sides(world):
+    wide = zipped({f"{n:03}.jpg": fx.jpeg(fx.manga_page(size=(300, 420), seed=n)) for n in range(1, 5)})
+    adopted = {"data": wide, "origin": "library", **UNMEASURED}  # 4 pages, credit page included
+    stage, status, error = judged_after_junk(world, "Chapter 5", adopted)
+    assert (stage, status) == ("junk", "done"), "4 pages against its 4, junk in on both (3 after junk: not)"
+    assert "median page width 16 against 300" in error, "the same chapter, then narrower: a duplicate"
+
+
+SAME = zipped({f"{n:03}.png": fake_page(n, "same") for n in (1, 2, 3)})
+
+
+@budget(load="db")
+@pytest.mark.parametrize(
+    ("published", "verdict"),
+    [
+        ({"width": 17}, None),  # narrower than 0.95 x: a duplicate, but only once its junk is decided
+        ({"data": SAME, "origin": "library", **UNMEASURED}, "the same pages"),
+    ],
+    ids=["narrower", "same-pages"],
+)
+def test_no_verdict_but_same_pages_before_junk(world, monkeypatch, published, verdict):
+    world.download(world.manga_id, "Chapter 5", data=SAME)
+    world.run(intake)
+    published_copy(world, **published)
+
+    def killed(*_args):
+        raise KeyboardInterrupt
+
+    with monkeypatch.context() as m:
+        m.setattr(junk, "decide", killed)  # process killed once the scan is stored
+        try:
+            world.run(process)
+        except KeyboardInterrupt:
+            assert verdict is None, "a copy dropped at once reaches no junk decision"
+    scans = world.rows("SELECT count(*) FROM junk_scan")
+    if verdict is None:
+        assert scans == [(1,)], "no verdict before junk: it is scanned first"
+        assert world.rows("SELECT count(*) FROM handled_chapter WHERE outcome = 'duplicate'") == [(0,)], (
+            "no verdict before junk"
+        )
+    else:
+        assert verdict in outcome(world)[2], "the published file's own pages: a duplicate at once"
+        assert scans == [(0,)], "dropped before any scan"
+
+
+COVERED = zipped({"000_cover.png": fake_page(9, "cover"), **{f"{n:03}.png": fake_page(n, "x") for n in (1, 2, 3)}})
+
+
+def png(width, height, shade):
+    """Return a plain PNG page of this size."""
+    out = io.BytesIO()
+    Image.new("RGB", (width, height), (shade, 90, 200 - shade)).save(out, "PNG")
+    return out.getvalue()
+
+
+# a wide 000_cover page before pages 16, 16 and 30 px wide: every page's median width 23, the content pages' 16
+WIDE_COVER = zipped(
+    {
+        "000_cover.png": png(40, 60, 10),
+        "001.png": png(16, 24, 40),
+        "002.png": png(16, 24, 70),
+        "003.png": png(30, 45, 100),
+    }
+)
+
+
+@budget(load="db")
+@pytest.mark.parametrize(
+    ("download", "published"),
+    [
+        (COVERED, {"junk": 0}),  # ours a 000_cover page and 3 pages, against a stored original of 3
+        (cbz(seed="new Chapter 5"), {"data": COVERED, **UNMEASURED}),  # ours 3, against a file of a 000_cover and 3
+    ],
+    ids=["ours", "theirs"],
+)
+def test_a_000_cover_page_is_not_counted_on_either_side(world, download, published):
+    world.download(world.manga_id, "Chapter 5", data=download)
+    world.run(intake)
+    published_copy(world, **published)
+    world.run(process)
+    stage, status, error = outcome(world)
+    assert (stage, status) == ("junk", "done"), f"3 pages against 3, the cover page left out: {error}"
+    assert error.startswith("dropped: a duplicate of the published"), "3 pages against 3, the cover page left out"
+
+
+def published_values(world, data, tmp_path):
+    """Publish a download of chapter 5 holding data; return (its pages' measure_pages, its published row's values)."""
+    world.download(world.manga_id, "Chapter 5", data=data)
+    world.run(intake)
+    world.run(process)
+    decide_junk(world.cfg, "keep")  # a page offered as a candidate, if any
+    for part in (process, export):
+        world.run(part)
+    path = tmp_path / "download.cbz"
+    path.write_bytes(data)
+    ((stored,),) = world.rows(
+        "SELECT jsonb_build_object('pages_in', pages_in, 'median_page_width', median_page_width, 'strip_length',"
+        " strip_length, 'page_phashes', page_phashes, 'bpp', bpp) FROM published_file WHERE origin = 'pipeline'"
+    )
+    return images.measure_pages(path), stored
+
+
+@budget(load="db", seconds=5)
+def test_a_000_cover_page_of_a_download_is_not_in_its_stored_lengths(world, tmp_path):
+    pages, stored = published_values(world, WIDE_COVER, tmp_path)
+    content = measures.summary([p for p in pages if not p["name"].startswith("000_cover")])
+    assert (stored["pages_in"], stored["strip_length"]) == (3, content["strip_length"]), (
+        "the stored original's lengths leave the 000_cover page out"
+    )
+    assert stored["median_page_width"] == measures.summary(pages)["median_page_width"] == 23, "width over every page"
+
+
+@budget(load="db", seconds=5)
+def test_a_download_without_a_cover_page_stores_todays_values(world, tmp_path):
+    pages, stored = published_values(world, cbz(seed="new Chapter 5"), tmp_path)
+    m = measures.summary(pages)
+    assert stored == {
+        "pages_in": m["pages_in"],
+        "median_page_width": m["median_page_width"],
+        "strip_length": m["strip_length"],
+        "page_phashes": json.dumps(m["page_phashes"]),
+        "bpp": pytest.approx(measures.bits_per_pixel(pages)),
+    }, "every page counted, as before"
+
+
+@budget(load="db", seconds=10)
+def test_a_download_never_waits_on_a_chapter_at_junk_that_names_its_file(world):
+    """A chapter at junk naming its file (an adopted file's conversion) is never ahead, and never waits."""
+    _, first = world.download(other_manga(world), "Chapter 5", "Alpha", data=cbz(seed="alpha 5"))
+    _, second = world.download(world.manga_id, "Chapter 5", "Beta", data=cbz(seed="beta 5"))
+    world.run(intake)
+    assert arrival(world) == [first.name, second.name], "set up: the chapter naming its file is discovered first"
+    published_copy(world)
+    ids = {download: chapter_id(world, download) for download in (first, second)}
+    world.rows("UPDATE chapter SET published_file_id = 2 WHERE id = %s RETURNING id", ids[first])
+
+    def ahead(download):
+        """Return whether earlier_copy finds a copy ahead of the chapter of `download`."""
+        with closing(db.connect(world.cfg)) as conn:
+            found = conn.execute("SELECT * FROM chapter WHERE id = %s", (ids[download],)).fetchone()
+            return library_copy.earlier_copy(conn, present(found))
+
+    assert not ahead(second), "an earlier chapter at junk naming its file is not ahead"
+    world.rows("UPDATE chapter SET stage = 'convert' WHERE id = %s RETURNING id", ids[second])
+    assert not ahead(first), "a chapter naming its file waits on no copy, even one past junk"
+
+
+@budget(load="db", seconds=5)
+def test_our_width_is_measured_over_every_page_as_publish_stores_it(world):
+    world.download(world.manga_id, "Chapter 5", data=WIDE_COVER)
+    world.run(intake)
+    published_copy(world, width=23, junk=0)  # stored as publish stores WIDE_COVER: 3 pages, strip 4500, width 23
+    world.run(process)
+    decide_junk(world.cfg, "keep")  # the wide cover page, when it is offered
+    world.run(process)
+    stage, status, error = outcome(world)
+    assert (stage, status) == ("junk", "done"), error
+    assert error.endswith("no better in width, bits per pixel or junk"), (
+        "our width over every page, 23, as the stored one's (over the content pages it would be 16: narrower)"
+    )
+
+
+@budget(load="db", seconds=5)
+def test_a_pipeline_file_without_a_stored_original_is_compared_as_measured_against_ours_after_junk(world):
+    stage, status, error = judged_after_junk(world, "Chapter 5", {"origin": "pipeline", **UNMEASURED})
+    assert (stage, status) == ("junk", "done"), "3 pages after junk against its file's 3 (4 before: not the same)"
+    assert error.startswith("dropped: a duplicate of the published"), "the same chapter, no better: a duplicate"
+
+
+@budget(load="db", seconds=10)
+def test_a_strip_copy_is_the_same_chapter_after_junk_and_takes_its_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")  # the real engine reads noise for seconds per block
+    world = CopyWorld(tmp_path, sources={"ranking": [BEST, "Src (EN)"], "download_timeout_hours": 24})
+    world.kavita_series("Solo Leveling", layout="strip")
+    world.manga_id = world.manga("Solo Leveling")
+    world.download(world.manga_id, "Chapter 5", data=cbz(seed="new Chapter 5"))  # 3 pages 16 x 24: strip 4500
+    world.run(intake)
+    published_copy(world, strip=5850, junk=1350)  # its original 30 % longer, the excess junk its download lost
+    world.run(process)
+    decide_junk(world.cfg, "keep")
+    world.run(process)
+    ((stage, status, file_id),) = world.rows("SELECT stage, status, published_file_id FROM chapter")
+    assert (stage, status, file_id) == ("comicinfo", "ready", 2), (
+        "4500 against 5850 less 1350: the same chapter after junk (not before), and less junk removed: better"
     )

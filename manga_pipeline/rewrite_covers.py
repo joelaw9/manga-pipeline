@@ -108,6 +108,11 @@ def is_cover(name: str) -> bool:
     return PurePosixPath(name).stem.lower() == archive.COVER_STEM
 
 
+def content_pages(pages: list[images.MeasuredPage]) -> list[images.MeasuredPage]:
+    """Return a download's measured pages but a cover page (is_cover): those a length counts (SPEC "Library copies")."""
+    return [p for p in pages if not is_cover(p["name"])]
+
+
 # --- what a published file holds
 
 

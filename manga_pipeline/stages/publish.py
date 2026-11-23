@@ -46,10 +46,11 @@ def row_values(conn: db.Connection, chapter: db.Row) -> FileValues:
 
     A better copy's are applied to its file's row (SPEC "Retroactive updates"). The values: its identity, source, names
     and the original measurements a later copy of the chapter is judged against (SPEC "Library copies": none for a
-    chapter with no page rows).
+    chapter with no page rows; its lengths, page count and strip length, leave a 000_cover page out).
     """
     pages = list(page_store.load(conn, chapter["id"]).values())
     m = measures.summary(pages)
+    lengths = measures.summary(rewrite_covers.content_pages(pages))
     cover = convert.read_result(chapter["convert_result"])["cover"]
     edit = conn.execute("SELECT edit FROM chapter_edit WHERE chapter_id = %s", (chapter["id"],)).fetchone()
     layout = conn.execute(
@@ -64,9 +65,9 @@ def row_values(conn: db.Connection, chapter: db.Row) -> FileValues:
         "source": chapter["source"],
         "size": chapter["staged_size"],
         "median_page_width": m["median_page_width"],
-        "strip_length": m["strip_length"],
+        "strip_length": lengths["strip_length"],
         "page_phashes": None if m["page_phashes"] is None else json.dumps(m["page_phashes"]),
-        "pages_in": m["pages_in"],
+        "pages_in": lengths["pages_in"],
         "bpp": measures.bits_per_pixel(pages) if pages else None,
         "junk": junk,
         "pages_out": None,
