@@ -1,7 +1,8 @@
 """Stage junk (SPEC "Chapter stages", "State", "Bad downloads", "Junk decisions"): checks, then scan or decide.
 
 First the put-aside check (the series' baseline, taken at validate, recorded what was handled), then the open-copy wait
-and the library-copy check (SPEC "Library copies"), then a numbered notice title's judgement (notices.py), then junk.
+and the library-copy check's part that no junk changes (SPEC "Library copies"), then a numbered notice title's
+judgement (notices.py), then junk; the rest of the library-copy check runs once the junk is decided (_finished).
 
 A chapter with no current scan is scanned (pages extracted to its scratch folder, measured, its units keyed, OCR on
 the strip units no decision covers, every content page's logo measured) and stays ready (Ready), so every ready junk
@@ -269,8 +270,9 @@ def _finished(
 ) -> workflow.OUTCOMES:
     """Return the outcome of a chapter that offers no candidate.
 
-    The library copy check's (a duplicate dropped, or a better copy of a busy file held: no edit kept), else Done with
-    its chapter edit.
+    The library copy check's (library_copy.after_junk: a duplicate dropped, or held needs_human for 2 published files,
+    a volume that cannot be read, another chapter or a better copy of a busy file: no edit kept), else Done with its
+    chapter edit.
     """
     copy = library_copy.after_junk(ctx, chapter, edit)
     if copy is not None:

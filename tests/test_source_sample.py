@@ -15,7 +15,7 @@ from manga_pipeline import config, intake, process, source_sample, validation
 from tests.builders import settle
 from tests.source_world import FILES, candidate, link, main, make_world, pages, zipped
 from tests.timing import budget
-from tests.world import credit_page
+from tests.world import credit_page, decide_junk
 
 
 @pytest.fixture(autouse=True)
@@ -153,7 +153,7 @@ def test_a_copy_with_2_extra_credit_pages_gets_the_outcome_a_download_of_it_gets
     manga, chapters = offered(world, lambda _n: padded)
     ran = sample(world, capsys, manga, "--chapters", "1")
     assert ran.code == 0, ran
-    assert ": not the same chapter: a person decides (pages_in 5 against 3)" in ran.lines[1], ran.lines
+    assert ": not the same chapter: a person decides (pages_in after junk 5 against 3)" in ran.lines[1], ran.lines
     link(world, manga)
     world.suwayomi.manga_rows[manga]["inLibrary"] = True
     downloaded = world.suwayomi.path(chapters[5])  # the same chapter, downloaded
@@ -163,10 +163,30 @@ def test_a_copy_with_2_extra_credit_pages_gets_the_outcome_a_download_of_it_gets
     world.suwayomi.chapter_rows[chapters[5]]["isDownloaded"] = True
     for part in (intake, intake, process):
         world.run(part)
+    decide_junk(world.cfg, "keep")  # the sample's junk is what stored decisions remove: none here
+    world.run(process)
     ((status, reason),) = world.rows("SELECT status, last_error FROM chapter WHERE kind = 'download'")
     assert status == "needs_human"
     assert "not the same chapter" in reason
-    assert reason.endswith("pages_in 5 against 3"), "the same rule, the same measures"
+    assert reason.endswith("pages_in after junk 5 against 3"), "the same rule, the same measures"
+
+
+@budget(load="db", seconds=4)
+def test_source_sample_compares_a_bulk_file_as_measured_and_a_pipeline_file_after_its_junk(world, capsys):
+    world.rows(  # file 5 as the pipeline publishes one: an original of 5 pages, 2 of them junk its download lost
+        "UPDATE published_file SET origin = 'pipeline', pages_in = 5, median_page_width = 16, strip_length = 7500,"
+        " junk = 2 WHERE id = 5 RETURNING id"
+    )
+    padded = [*pages(16, seed="4"), credit_page("a"), credit_page("b")]
+    manga, _ = offered(world, lambda n: padded if n == 4 else pages(16, seed=str(n)))
+    ran = sample(world, capsys, manga, "--chapters", "2")
+    assert ran.code == 0, ran
+    assert file_line(ran.lines, 4).endswith(
+        "not the same chapter: a person decides (pages_in after junk 5 against 3)"
+    ), "the bulk file's 3 pages as measured, against the sample's 5 after its junk (none known)"
+    assert file_line(ran.lines, 5).endswith(": better: would replace"), (
+        "3 pages against the original's 5 less its 2 of junk: the same chapter, and less junk removed"
+    )
 
 
 # ---------------------------------------------------------------- a Windows share root (SPEC "Source review")

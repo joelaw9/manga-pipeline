@@ -137,10 +137,8 @@ def judge(s: Sampling, row: db.Row) -> list[str]:
         library_copy.rating(suwayomi.chapter_file(hit["scanlator"], hit["name"]).removesuffix(".cbz")),
         measures.junk(applied.edit, s.layout, measures.summary(verdict.pages)["median_page_width"] or 0),
     )
-    published = source_review.measure_file(s.ctx, row, s.layout)
-    outcome = library_copy.decide(
-        candidate, library_copy.Copy(published.measures, published.rating, published.junk), s.layout
-    )
+    published = library_copy.published_copy(s.ctx, row, s.layout)
+    outcome = library_copy.decide(candidate, published, s.layout)
     out = [
         f"{head}: {_outcome(outcome)}",
         f"  candidate: {_copy_text(candidate.measures, candidate.junk, candidate.rating)}",
@@ -194,7 +192,7 @@ def _junk(s: Sampling, paths: list[Path], pages: list[images.MeasuredPage]) -> c
     return chapter_scan.apply(sc, decide_unit, [r["key"] for r in known])
 
 
-def _outcome(verdict: library_copy.Better | library_copy.Duplicate | library_copy.NotSameChapter | None) -> str:
+def _outcome(verdict: library_copy.Better | library_copy.Duplicate | library_copy.NotSameChapter) -> str:
     match verdict:
         case library_copy.Better():
             return "better: would replace"
@@ -202,8 +200,6 @@ def _outcome(verdict: library_copy.Better | library_copy.Duplicate | library_cop
             return f"duplicate: would be dropped ({reason})"
         case library_copy.NotSameChapter(reason):
             return f"not the same chapter: a person decides ({reason})"
-        case None:
-            return "not decided: its junk is not known"
 
 
 def _copy_text[B: float | None](m: library_copy.Measures[B], junk: float | None, rating: int) -> str:
