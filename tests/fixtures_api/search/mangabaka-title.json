@@ -1,0 +1,897 @@
+{
+ "recorded": "2026-11-25",
+ "rule": "K31: MangaDex searched with MangaBaka's titles",
+ "names": [
+  "Vengeance of the Fallen Crown"
+ ],
+ "mangabaka": {
+  "id": 514322,
+  "tags": [
+   "Royalty",
+   "Time Travel",
+   "Full Color",
+   "Heterosexual",
+   "Second Chance"
+  ],
+  "type": "manga",
+  "year": 2025,
+  "anime": null,
+  "cover": {
+   "raw": {
+    "url": "https://images.mangabaka.dev/8/3/6/2/d/d/2/a/4b07/40fd/a302/dd045c2c42a2",
+    "size": 1315868,
+    "width": 960,
+    "format": "jpeg",
+    "height": 1440,
+    "blurhash": "|SNc{4?E.8IpW?tQWCt7oy.KImxrIUV[jbo2jba$5Mo}NGnnRkt6s.ofWB%F%MRVnls:kBbGRjn+S6VuaKt7xtR$R*WBof?XxbD%x[W:RkoMbFozW=R*X4t5s,WBWCjsWA$$jwRnobs:Rkj]j@WBR+aij;s,W.jZt7oyob",
+    "thumbhash": "rBgKHQTddUxKB2moamjXiXuvqxMH"
+   },
+   "x150": {
+    "x1": "https://cdn.mangabaka.dev/imgproxy/plain/x150@1/aHR0cHM6Ly9pbWFnZXMubWFuZ2FiYWthLmRldi84LzMvNi8yL2QvZC8yL2EvNGIwNy80MGZkL2EzMDIvZGQwNDVjMmM0MmEy",
+    "x2": "https://cdn.mangabaka.dev/imgproxy/plain/x150@2/aHR0cHM6Ly9pbWFnZXMubWFuZ2FiYWthLmRldi84LzMvNi8yL2QvZC8yL2EvNGIwNy80MGZkL2EzMDIvZGQwNDVjMmM0MmEy",
+    "x3": "https://cdn.mangabaka.dev/imgproxy/plain/x150@3/aHR0cHM6Ly9pbWFnZXMubWFuZ2FiYWthLmRldi84LzMvNi8yL2QvZC8yL2EvNGIwNy80MGZkL2EzMDIvZGQwNDVjMmM0MmEy"
+   },
+   "x250": {
+    "x1": "https://cdn.mangabaka.dev/imgproxy/plain/x250@1/aHR0cHM6Ly9pbWFnZXMubWFuZ2FiYWthLmRldi84LzMvNi8yL2QvZC8yL2EvNGIwNy80MGZkL2EzMDIvZGQwNDVjMmM0MmEy",
+    "x2": "https://cdn.mangabaka.dev/imgproxy/plain/x250@2/aHR0cHM6Ly9pbWFnZXMubWFuZ2FiYWthLmRldi84LzMvNi8yL2QvZC8yL2EvNGIwNy80MGZkL2EzMDIvZGQwNDVjMmM0MmEy",
+    "x3": "https://cdn.mangabaka.dev/imgproxy/plain/x250@3/aHR0cHM6Ly9pbWFnZXMubWFuZ2FiYWthLmRldi84LzMvNi8yL2QvZC8yL2EvNGIwNy80MGZkL2EzMDIvZGQwNDVjMmM0MmEy"
+   },
+   "x350": {
+    "x1": "https://cdn.mangabaka.dev/imgproxy/plain/x350@1/aHR0cHM6Ly9pbWFnZXMubWFuZ2FiYWthLmRldi84LzMvNi8yL2QvZC8yL2EvNGIwNy80MGZkL2EzMDIvZGQwNDVjMmM0MmEy",
+    "x2": "https://cdn.mangabaka.dev/imgproxy/plain/x350@2/aHR0cHM6Ly9pbWFnZXMubWFuZ2FiYWthLmRldi84LzMvNi8yL2QvZC8yL2EvNGIwNy80MGZkL2EzMDIvZGQwNDVjMmM0MmEy",
+    "x3": "https://cdn.mangabaka.dev/imgproxy/plain/x350@3/aHR0cHM6Ly9pbWFnZXMubWFuZ2FiYWthLmRldi84LzMvNi8yL2QvZC8yL2EvNGIwNy80MGZkL2EzMDIvZGQwNDVjMmM0MmEy"
+   }
+  },
+  "links": [
+   "https://comic-walker.com/detail/KC_006836_S",
+   "https://jp.piccoma.com/web/product/184692",
+   "https://manta.net/en/series/vengeance-of-the-fallen-crown?seriesId=4111",
+   "https://page.kakao.com/content/69635098/",
+   "https://tapas.io/series/vengeance-of-the-fallen-crown/info",
+   "https://webtoon.kakao.com/content/버려진-왕녀-대공의-총애를-독차지하다/4927",
+   "https://www.kadokawa.co.jp/product/322501000579/",
+   "https://www.tappytoon.com/en/book/1335?",
+   "https://www.webcomicsapp.com/comic/Vengeance-of-the-Fallen-Crown/69041b9762661d3b3d1e3f72",
+   "https://mangabaka.org/514322"
+  ],
+  "state": "active",
+  "title": "Vengeance of the Fallen Crown",
+  "genres": [
+   "fantasy",
+   "romance",
+   "shoujo"
+  ],
+  "rating": 64.15,
+  "source": {
+   "kitsu": {
+    "id": null,
+    "rating": null,
+    "rating_normalized": null
+   },
+   "anilist": {
+    "id": 203883,
+    "rating": 6.7,
+    "rating_normalized": 67
+   },
+   "shikimori": {
+    "id": null,
+    "rating": null,
+    "rating_normalized": null
+   },
+   "anime_planet": {
+    "id": "hazure-oujo-desu-ga-konse-wa-taikou-denka-ni-aisareteimasu",
+    "rating": null,
+    "rating_normalized": null
+   },
+   "manga_updates": {
+    "id": "4qso5zi",
+    "rating": 6.13,
+    "rating_normalized": 61
+   },
+   "my_anime_list": {
+    "id": null,
+    "rating": null,
+    "rating_normalized": null
+   },
+   "anime_news_network": {
+    "id": 37481,
+    "rating": null,
+    "rating_normalized": null
+   }
+  },
+  "status": "hiatus",
+  "titles": [
+   {
+    "note": null,
+    "title": "버려진 왕녀, 대공의 총애를 독차지하다",
+    "traits": [],
+    "language": "ko",
+    "is_primary": true
+   },
+   {
+    "note": null,
+    "title": "Although She Is a Failed Princess, She Is Loved by the Grand Duke in This Life",
+    "traits": [],
+    "language": "en",
+    "is_primary": false
+   },
+   {
+    "note": null,
+    "title": "Although She Is a Loser Princess, She Is Loved by His Imperial Highness the Grand Duke in This Life",
+    "traits": [],
+    "language": "en",
+    "is_primary": false
+   },
+   {
+    "note": null,
+    "title": "Amour",
+    "traits": [],
+    "language": "fr",
+    "is_primary": true
+   },
+   {
+    "note": null,
+    "title": "A vingança da princesa herdeira",
+    "traits": [],
+    "language": "pt-br",
+    "is_primary": true
+   },
+   {
+    "note": null,
+    "title": "Balas Dendam Sang Putri Mahkota",
+    "traits": [],
+    "language": "id",
+    "is_primary": true
+   },
+   {
+    "note": null,
+    "title": "Hazura Oujo desu ga, Konse wa Taikou Denka ni Aisareteimasu",
+    "traits": [
+     "native"
+    ],
+    "language": "ja-Latn",
+    "is_primary": true
+   },
+   {
+    "note": null,
+    "title": "Hazure Ōjo Desu ga, Konse wa Taikō Denka ni Aisareteimasu",
+    "traits": [],
+    "language": "ja-Latn",
+    "is_primary": false
+   },
+   {
+    "note": null,
+    "title": "Hazure Oujo desu ga, Imayo wa Taikou Denka ni Aisarete Imasu",
+    "traits": [],
+    "language": "ja-Latn",
+    "is_primary": false
+   },
+   {
+    "note": null,
+    "title": "Hazure Oujo desu ga, Konse wa Taikou Denka ni Aisareteimasu",
+    "traits": [],
+    "language": "ja-Latn",
+    "is_primary": false
+   },
+   {
+    "note": null,
+    "title": "La revanche de la princesse héritière",
+    "traits": [],
+    "language": "fr",
+    "is_primary": false
+   },
+   {
+    "note": null,
+    "title": "La venganza de la princesa heredera",
+    "traits": [],
+    "language": "es",
+    "is_primary": true
+   },
+   {
+    "note": null,
+    "title": "The Abandoned Princess Monopolizes the Grand Duke's Favor",
+    "traits": [],
+    "language": "en",
+    "is_primary": false
+   },
+   {
+    "note": null,
+    "title": "The Cast-off Princess Finds Love With the Grand Duke in This Life",
+    "traits": [],
+    "language": "en",
+    "is_primary": false
+   },
+   {
+    "note": null,
+    "title": "The Forsaken Princess, Cherished by the Grand Duke",
+    "traits": [],
+    "language": "en",
+    "is_primary": false
+   },
+   {
+    "note": null,
+    "title": "Vengeance of the Fallen Crown",
+    "traits": [
+     "official"
+    ],
+    "language": "en",
+    "is_primary": true
+   },
+   {
+    "note": null,
+    "title": "ハズレ王女ですが、今世は大公殿下に愛されています",
+    "traits": [
+     "native"
+    ],
+    "language": "ja",
+    "is_primary": true
+   },
+   {
+    "note": null,
+    "title": "断弦重奏的旋律",
+    "traits": [],
+    "language": "zh",
+    "is_primary": true
+   }
+  ],
+  "artists": [
+   "Sika"
+  ],
+  "authors": [
+   "Tsuzumi"
+  ],
+  "tags_v2": [
+   {
+    "id": 40,
+    "name": "Shoujo",
+    "level": 3,
+    "weight": "defining",
+    "is_genre": false,
+    "name_path": "Audience Demographics > Female Oriented > Shoujo",
+    "parent_id": 912,
+    "is_spoiler": false,
+    "description": "",
+    "is_explicit": true,
+    "series_count": 37511,
+    "content_rating": "safe",
+    "implied_by_tag_ids": []
+   },
+   {
+    "id": 249,
+    "name": "Time Travel",
+    "level": 4,
+    "weight": "unweighted",
+    "is_genre": false,
+    "name_path": "Narrative Tropes > Plot Structure > Time Manipulation > Time Travel",
+    "parent_id": 311,
+    "is_spoiler": false,
+    "description": "",
+    "is_explicit": true,
+    "series_count": 2823,
+    "content_rating": "safe",
+    "implied_by_tag_ids": []
+   },
+   {
+    "id": 108,
+    "name": "Heterosexual",
+    "level": 3,
+    "weight": "unweighted",
+    "is_genre": false,
+    "name_path": "Relationship > Orientation > Heterosexual",
+    "parent_id": 2763,
+    "is_spoiler": false,
+    "description": null,
+    "is_explicit": true,
+    "series_count": 15898,
+    "content_rating": "safe",
+    "implied_by_tag_ids": []
+   },
+   {
+    "id": 36,
+    "name": "Fantasy",
+    "level": 2,
+    "weight": "defining",
+    "is_genre": true,
+    "name_path": "Settings > Fantasy",
+    "parent_id": 539,
+    "is_spoiler": false,
+    "description": null,
+    "is_explicit": true,
+    "series_count": 61233,
+    "content_rating": "safe",
+    "implied_by_tag_ids": []
+   },
+   {
+    "id": 1,
+    "name": "Sci-Fi",
+    "level": 2,
+    "weight": "unweighted",
+    "is_genre": true,
+    "name_path": "Settings > Sci-Fi",
+    "parent_id": 539,
+    "is_spoiler": false,
+    "description": null,
+    "is_explicit": false,
+    "series_count": 15301,
+    "content_rating": "safe",
+    "implied_by_tag_ids": [
+     249
+    ]
+   },
+   {
+    "id": 9,
+    "name": "Romance",
+    "level": 2,
+    "weight": "defining",
+    "is_genre": true,
+    "name_path": "Themes > Romance",
+    "parent_id": 542,
+    "is_spoiler": false,
+    "description": null,
+    "is_explicit": true,
+    "series_count": 111835,
+    "content_rating": "safe",
+    "implied_by_tag_ids": []
+   },
+   {
+    "id": 990,
+    "name": "Second Chance",
+    "level": 2,
+    "weight": "unweighted",
+    "is_genre": false,
+    "name_path": "Themes > Second Chance",
+    "parent_id": 542,
+    "is_spoiler": false,
+    "description": "",
+    "is_explicit": true,
+    "series_count": 1369,
+    "content_rating": "safe",
+    "implied_by_tag_ids": []
+   },
+   {
+    "id": 128,
+    "name": "Royalty",
+    "level": 4,
+    "weight": "incidental",
+    "is_genre": false,
+    "name_path": "Themes > Social Issues > Nobility > Royalty",
+    "parent_id": 127,
+    "is_spoiler": false,
+    "description": "",
+    "is_explicit": true,
+    "series_count": 5954,
+    "content_rating": "safe",
+    "implied_by_tag_ids": []
+   },
+   {
+    "id": 57,
+    "name": "Full Color",
+    "level": 3,
+    "weight": "unweighted",
+    "is_genre": false,
+    "name_path": "Work Info > Publication Medium > Full Color",
+    "parent_id": 426,
+    "is_spoiler": false,
+    "description": null,
+    "is_explicit": true,
+    "series_count": 28222,
+    "content_rating": "safe",
+    "implied_by_tag_ids": []
+   }
+  ],
+  "links_v2": [
+   {
+    "id": "019dbbe1-961f-709c-806e-fc6ea3ad8d1d",
+    "url": "https://comic-walker.com/detail/KC_006836_S",
+    "name": "comic-walker.com",
+    "type": "webplatform",
+    "language": "ja",
+    "name_display": "KadoComi"
+   },
+   {
+    "id": "019dbbe1-961f-70bd-a9f7-cb8c8a4127a2",
+    "url": "https://jp.piccoma.com/web/product/184692",
+    "name": "jp.piccoma.com",
+    "type": "webplatform",
+    "language": "ja",
+    "name_display": "Piccoma"
+   },
+   {
+    "id": "019dbbe1-961f-70d9-92f7-78d757937f53",
+    "url": "https://manta.net/en/series/vengeance-of-the-fallen-crown?seriesId=4111",
+    "name": "manta.net",
+    "type": "webplatform",
+    "language": "en",
+    "name_display": "Manta"
+   },
+   {
+    "id": "019dbbe1-961f-70f4-808e-d1f635a86ab4",
+    "url": "https://www.kadokawa.co.jp/product/322501000579/",
+    "name": "www.kadokawa.co.jp",
+    "type": "publisher",
+    "language": "ja",
+    "name_display": "KADOKAWA"
+   },
+   {
+    "id": "019dbbe1-961f-7111-a8b9-0e5010efeb74",
+    "url": "https://www.tappytoon.com/en/book/1335",
+    "name": "www.tappytoon.com",
+    "type": "webplatform",
+    "language": "en",
+    "name_display": "tappytoon"
+   },
+   {
+    "id": "019dbbe1-961f-712c-a707-105c3a465b67",
+    "url": "https://www.webcomicsapp.com/comic/Vengeance-of-the-Fallen-Crown/69041b9762661d3b3d1e3f72",
+    "name": "www.webcomicsapp.com",
+    "type": "webplatform",
+    "language": "en",
+    "name_display": "WEBCOMICS"
+   },
+   {
+    "id": "019fe80d-7dde-75a3-84c7-40105fc50f5b",
+    "url": "https://page.kakao.com/content/69635098/",
+    "name": "page.kakao.com",
+    "type": "webplatform",
+    "language": "ko",
+    "name_display": "KakaoPage"
+   },
+   {
+    "id": "019fe80d-7de2-7c5b-8523-007de46197a4",
+    "url": "https://webtoon.kakao.com/content/%EB%B2%84%EB%A0%A4%EC%A7%84-%EC%99%95%EB%85%80-%EB%8C%80%EA%B3%B5%EC%9D%98-%EC%B4%9D%EC%95%A0%EB%A5%BC-%EB%8F%85%EC%B0%A8%EC%A7%80%ED%95%98%EB%8B%A4/4927",
+    "name": "webtoon.kakao.com",
+    "type": "webplatform",
+    "language": "ko",
+    "name_display": "Kakao Webtoon"
+   },
+   {
+    "id": "01a058d0-9aa9-753b-88f7-b3608ef0c882",
+    "url": "https://www.webnovel.com/comic/35065082300772101",
+    "name": "www.webnovel.com",
+    "type": "webplatform",
+    "language": "en",
+    "name_display": "WebNovel"
+   },
+   {
+    "id": "01a06d6c-cfad-75c5-aafc-afebce9ac1d4",
+    "url": "https://tapas.io/series/vengeance-of-the-fallen-crown/info",
+    "name": "tapas.io",
+    "type": "webplatform",
+    "language": "en",
+    "name_display": "Tapas"
+   }
+  ],
+  "genres_v2": null,
+  "has_anime": false,
+  "published": {
+   "end_date": null,
+   "start_date": "2025-08-08",
+   "end_date_is_estimated": null,
+   "start_date_is_estimated": false
+  },
+  "popularity": {
+   "type": {
+    "current": 13185,
+    "history": {
+     "1d": 13178,
+     "1w": 13574,
+     "1y": 97424,
+     "1mo": 14619,
+     "3mo": 17045,
+     "6mo": 48157
+    }
+   },
+   "global": {
+    "current": 19727,
+    "history": {
+     "1d": 19711,
+     "1w": 20261,
+     "1y": 141982,
+     "1mo": 21676,
+     "3mo": 24729,
+     "6mo": 67288
+    }
+   }
+  },
+  "publishers": [
+   {
+    "id": 38,
+    "name": "KADOKAWA",
+    "note": null,
+    "type": "Original",
+    "language": "ja",
+    "canonical_url": "https://mangabaka.org/publisher/38/KADOKAWA"
+   },
+   {
+    "id": 2880,
+    "name": "Manta",
+    "note": null,
+    "type": "English",
+    "language": "en",
+    "canonical_url": "https://mangabaka.org/publisher/2880/Manta"
+   },
+   {
+    "id": 5256,
+    "name": "Tapas",
+    "note": null,
+    "type": "English",
+    "language": "en",
+    "canonical_url": "https://mangabaka.org/publisher/5256/Tapas"
+   },
+   {
+    "id": 3520,
+    "name": "Tappytoon",
+    "note": null,
+    "type": "English",
+    "language": "en",
+    "canonical_url": "https://mangabaka.org/publisher/3520/Tappytoon"
+   },
+   {
+    "id": 2187,
+    "name": "WebComics",
+    "note": null,
+    "type": "English",
+    "language": "en",
+    "canonical_url": "https://mangabaka.org/publisher/2187/WebComics"
+   },
+   {
+    "id": 4846,
+    "name": "WebNovel",
+    "note": null,
+    "type": "English",
+    "language": "en",
+    "canonical_url": "https://mangabaka.org/publisher/4846/WebNovel"
+   }
+  ],
+  "description": "Poisoned and tortured by her husband, then betrayed by her own family, Saphielle died realizing that no one had ever truly loved her. But death wasn't the end. Saphielle has now been taken back to the day everything started. This time, she won't be playing a fair game. While pretending to be the same naive girl, she will always be ten steps ahead. While exposing her backstabbing enemies and dodging her past husband Felix's lies, she discovers that the dangerous Grand Duke Leander might be her only salvation—and perhaps something more.\n\n(Source: Tappytoon)",
+  "is_licensed": true,
+  "merged_with": null,
+  "final_volume": "2",
+  "native_title": "ハズレ王女ですが、今世は大公殿下に愛されています",
+  "canonical_url": "https://mangabaka.org/manga/514322/Vengeance-of-the-Fallen-Crown",
+  "relationships": null,
+  "content_rating": "safe",
+  "total_chapters": "50",
+  "last_updated_at": "2026-11-19T04:39:47.261Z",
+  "romanized_title": "Hazura Oujo desu ga, Konse wa Taikou Denka ni Aisareteimasu",
+  "relationships_v2": [],
+  "secondary_titles": {
+   "unknown": [
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "버려진 왕녀, 대공의 총애를 독차지하다"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "Although She Is a Failed Princess, She Is Loved by the Grand Duke in This Life"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "Although She Is a Loser Princess, She Is Loved by His Imperial Highness the Grand Duke in This Life"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "Amour"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "A vingança da princesa herdeira"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "Balas Dendam Sang Putri Mahkota"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "Hazure Oujo desu ga, Imayo wa Taikou Denka ni Aisarete Imasu"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "Hazure Oujo desu ga, Konse wa Taikou Denka ni Aisareteimasu"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "La revanche de la princesse héritière"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "La venganza de la princesa heredera"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "The Abandoned Princess Monopolizes the Grand Duke's Favor"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "The Cast-off Princess Finds Love With the Grand Duke in This Life"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "The Forsaken Princess, Cherished by the Grand Duke"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "Vengeance of the Fallen Crown"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "ハズレ王女ですが、今世は大公殿下に愛されています"
+    },
+    {
+     "note": null,
+     "type": "unknown",
+     "title": "断弦重奏的旋律"
+    }
+   ]
+  },
+  "original_language": "ja"
+ },
+ "agreed": {
+  "mangaupdates": "10327406670"
+ },
+ "mangadex_search": {
+  "Vengeance of the Fallen Crown": [
+   {
+    "id": "b55c294d-ae0e-4f56-a1d4-3aa889712064",
+    "type": "manga",
+    "attributes": {
+     "title": {
+      "en": "Kanpeki Sugiru ga Kosando mo Konyaku Hakisareta Reijou wa Ringoku no Outaishi to Musubareru?!"
+     },
+     "altTitles": [
+      {
+       "ja": "完璧すぎるが故三度も婚約破棄された令嬢は隣国の王太子と結ばれる！？"
+      },
+      {
+       "en": "The Perfect Lady With Three Failed Engagements Ends up with the Crown Prince of a Neighboring Nation?!"
+      }
+     ],
+     "description": {
+      "en": "In the prestigious Academy of Magic and Arcana, Sophia stands out as an honor student. Her younger sister, Mia, consumed by jealousy over Sophia's success, has sabotaged three of her marriage proposals. After her latest engagement is ruined, Sophia grows weary of Mia's wrath. Just then, Luke, the crown prince of a neighboring country, reaches out to her. The two quickly bond over their shared love of magic, becoming a hot topic at the academy. Determined to prevent Sophia from finding happiness, Mia prepares to make her move...",
+      "ja": "魔法学校でトップの成績を誇る優等生・ソフィア。彼女はその優秀さから妹・ミアに激しく嫉妬され、なんと三度も婚約者を略奪されてしまう。度重なるミアの嫌がらせに、酷く心を痛めるソフィア。そんな彼女に声をかけてきたのは、留学生である隣国の王太子ルーク。魔法の話題で意気投合した二人は、徐々に距離を縮めていく。しかし、そんなルークにもミアの魔の手が迫ろうとしていた…。"
+     },
+     "isLocked": false,
+     "links": {
+      "ap": "the-perfect-lady-with-three-failed-engagements-ends-up-with-the-crown-prince-of-a-neighboring-nation",
+      "bl": "1672443",
+      "bw": "series/487558",
+      "mu": "oiq33v8",
+      "amz": "https://www.amazon.co.jp/dp/B0DMP7LHNS",
+      "ebj": "https://ebookjapan.yahoo.co.jp/books/855105",
+      "engtl": "https://mangaplaza.com/title/0303010134/"
+     },
+     "officialLinks": null,
+     "originalLanguage": "ja",
+     "lastVolume": "",
+     "lastChapter": "",
+     "publicationDemographic": "josei",
+     "status": "ongoing",
+     "year": 2024,
+     "contentRating": "safe",
+     "tags": [
+      {
+       "id": "423e2eae-a7a2-4a8b-ac03-a8351462d71d",
+       "type": "tag",
+       "attributes": {
+        "name": {
+         "en": "Romance"
+        },
+        "description": {},
+        "group": "genre",
+        "version": 1
+       },
+       "relationships": []
+      },
+      {
+       "id": "cdc58593-87dd-415e-bbc0-2ec27bf404cc",
+       "type": "tag",
+       "attributes": {
+        "name": {
+         "en": "Fantasy"
+        },
+        "description": {},
+        "group": "genre",
+        "version": 1
+       },
+       "relationships": []
+      },
+      {
+       "id": "f4122d1c-3b44-44d0-9936-ff7502c39ad3",
+       "type": "tag",
+       "attributes": {
+        "name": {
+         "en": "Adaptation"
+        },
+        "description": {},
+        "group": "format",
+        "version": 1
+       },
+       "relationships": []
+      }
+     ],
+     "state": "published",
+     "chapterNumbersResetOnNewVolume": false,
+     "createdAt": "2025-01-18T14:27:45+00:00",
+     "updatedAt": "2026-09-11T10:28:14+00:00",
+     "version": 4,
+     "availableTranslatedLanguages": [],
+     "latestUploadedChapter": null
+    },
+    "relationships": [
+     {
+      "id": "a41092fb-2910-4094-b81e-a5338a67b3d0",
+      "type": "author"
+     },
+     {
+      "id": "f408171b-f8f8-48dd-84d2-8523c9e16dd9",
+      "type": "author"
+     },
+     {
+      "id": "a41092fb-2910-4094-b81e-a5338a67b3d0",
+      "type": "artist"
+     },
+     {
+      "id": "f408171b-f8f8-48dd-84d2-8523c9e16dd9",
+      "type": "artist"
+     },
+     {
+      "id": "7f0e9552-3122-434d-adcf-3ae5942a3fe1",
+      "type": "cover_art",
+      "attributes": {
+       "description": "",
+       "volume": "6",
+       "fileName": "0099a935-55b2-4029-8bee-fc1db6ef5338.jpg",
+       "locale": "ja",
+       "createdAt": "2026-09-11T10:29:23+00:00",
+       "updatedAt": "2026-09-11T10:29:23+00:00",
+       "version": 1
+      }
+     },
+     {
+      "id": "27bde0e8-71b0-4bf2-8e25-2902a7b2dd4b",
+      "type": "creator"
+     }
+    ]
+   }
+  ],
+  "Hazura Oujo desu ga, Konse wa Taikou Denka ni Aisareteimasu": [],
+  "ハズレ王女ですが、今世は大公殿下に愛されています": [
+   {
+    "id": "7c9d6ef4-7a17-46b3-b2e7-870b474f2ab2",
+    "type": "manga",
+    "attributes": {
+     "title": {
+      "en": "Hazure Oujo desu ga, Imayo wa Taikou Denka ni Aisarete Imasu"
+     },
+     "altTitles": [
+      {
+       "ja": "ハズレ王女ですが、今世は大公殿下に愛されています"
+      },
+      {
+       "en": "Although She Is a Failed Princess, She Is Loved by the Grand Duke in This Life"
+      },
+      {
+       "en": "Although She Is a Loser Princess, She Is Loved by His Imperial Highness the Grand Duke in This Life"
+      },
+      {
+       "en": "The Cast-off Princess Finds Love With the Grand Duke in This Life"
+      },
+      {
+       "en": "The Forsaken Princess, Cherished by the Grand Duke"
+      }
+     ],
+     "description": {
+      "en": "Princess Saphir of the Kingdom of Emeraten was chosen as the fiancée of the Valoreia Empire’s crown prince. But from the very start, the political marriage was nothing but a cruel trap. Branded a murderer for a crime she did not commit, Saphir was imprisoned and subjected to endless torment. Longing only for release through death, she found it at the blade of the empire’s third prince, Leander. Yet her soul drifted for decades—until at last it returned to the very moment when all the tragedy first began. This time, she vows to seize her fate and uncover the true meaning behind the “freedom” Leander once granted her. As schemes and conspiracies rise anew within the perilous imperial court, can Saphir uncover the truth and break free from the cycle of despair? And what destiny awaits her and Leander? The reborn princess’s new song is about to begin.\n\n---\n**Original Web Serialization:**  \n• Manga: [ComicWalker](https://comic-walker.com/detail/KC_006836_S), [Kadokawa](https://www.kadokawa.co.jp/product/322501000579/), [NicoVideo](https://manga.nicovideo.jp/comic/73567)  \n• Webtoon: [MechaComic](https://mechacomic.jp/books/235123), [Piccoma](https://jp.piccoma.com/web/product/184692)",
+      "ja": "廃妃の娘・サフィール王女は、国王の命により、敵国の皇太子・フィリックスと婚約することに。偽りの婚約だと知りつつも従うサフィール。実は彼女にとってこれは二度目の人生だった。前世では、恨みを持つフィリックスに徹底的に虐げられ、ようやく死をもって、その地獄から逃れたはずなのに…。前世の経験を活かし、同じ結末にならないように行動するサフィール。そのせいか、フィリックスの異母弟・レアンダー大公に気にかけられ、前世でも生き地獄から解放してくれたレアンダーに「ここから逃げたい」と本音を打ち明けてしまう――。助けを求めるのなら、大公殿下しかいない…?!"
+     },
+     "isLocked": false,
+     "links": {
+      "ap": "hazure-oujo-desu-ga-konse-wa-taikou-denka-ni-aisareteimasu",
+      "bw": "series/540856",
+      "mu": "4qso5zi",
+      "amz": "https://www.amazon.co.jp/dp/B0FLCM1Q39",
+      "raw": "https://comic-walker.com/detail/KC_006836_S"
+     },
+     "officialLinks": null,
+     "originalLanguage": "ja",
+     "lastVolume": "",
+     "lastChapter": "",
+     "publicationDemographic": "shoujo",
+     "status": "ongoing",
+     "year": 2025,
+     "contentRating": "safe",
+     "tags": [
+      {
+       "id": "423e2eae-a7a2-4a8b-ac03-a8351462d71d",
+       "type": "tag",
+       "attributes": {
+        "name": {
+         "en": "Romance"
+        },
+        "description": {},
+        "group": "genre",
+        "version": 1
+       },
+       "relationships": []
+      },
+      {
+       "id": "cdc58593-87dd-415e-bbc0-2ec27bf404cc",
+       "type": "tag",
+       "attributes": {
+        "name": {
+         "en": "Fantasy"
+        },
+        "description": {},
+        "group": "genre",
+        "version": 1
+       },
+       "relationships": []
+      },
+      {
+       "id": "f5ba408b-0e7a-484d-8d49-4e9125ac96de",
+       "type": "tag",
+       "attributes": {
+        "name": {
+         "en": "Full Color"
+        },
+        "description": {},
+        "group": "format",
+        "version": 1
+       },
+       "relationships": []
+      }
+     ],
+     "state": "published",
+     "chapterNumbersResetOnNewVolume": false,
+     "createdAt": "2025-10-24T19:56:33+00:00",
+     "updatedAt": "2025-10-24T19:56:41+00:00",
+     "version": 2,
+     "availableTranslatedLanguages": [],
+     "latestUploadedChapter": null
+    },
+    "relationships": [
+     {
+      "id": "135afec5-d1fe-465b-a2a0-2a3cdcde827b",
+      "type": "author"
+     },
+     {
+      "id": "2d6bf5b0-fccb-4177-83c8-4fca136735ae",
+      "type": "artist"
+     },
+     {
+      "id": "0d3b7c42-d64e-4092-8760-9ce67e84cf60",
+      "type": "cover_art",
+      "attributes": {
+       "description": "",
+       "volume": "2",
+       "fileName": "4a3d1083-489b-49eb-a54e-a69b32416cb9.jpg",
+       "locale": "ja",
+       "createdAt": "2025-10-24T19:56:36+00:00",
+       "updatedAt": "2025-10-24T19:56:36+00:00",
+       "version": 1
+      }
+     },
+     {
+      "id": "60d89dcf-1df2-4f5d-9ab8-08958e5c9b74",
+      "type": "creator"
+     }
+    ]
+   }
+  ]
+ }
+}
