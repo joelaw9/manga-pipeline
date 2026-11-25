@@ -1,5 +1,10 @@
 """scripts/set_config.py: config.yaml keys set from the command line, comments and formatting kept (SPEC "Config")."""
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from manga_pipeline import config
@@ -120,12 +125,142 @@ def test_line_endings_stay_lf(cfg_file):
 
 @pytest.mark.parametrize(
     "item",
-    [f"kavita.api_key={SHOWN}", f"export.rewrites_open={SHOWN}", f"export.nope={SHOWN}"],
+    [f"kavita.api_key={SHOWN}", f"export.rewrites_open={SHOWN}", f"export.nope={SHOWN}", SHOWN],
 )
 @budget(load="fs")
-def test_no_value_is_printed(cfg_file, item, capsys):
+def test_no_value_or_argument_is_printed(cfg_file, item, capsys):
     run(cfg_file, item)
     run(cfg_file, f"kavita.api_key={SHOWN}")  # the old value, now SHOWN, overwritten
     run(cfg_file, "kavita.api_key=other")
     out, err = capsys.readouterr()
-    assert SHOWN not in out + err, "a value, old or new, is never printed"
+    assert SHOWN not in out + err, "a value, old or new, or an argument lacking its = is never printed"
+
+
+def refused_by_the_edit_check(cfg_file, text, item, capsys):
+    """Assert the item is refused with exit 1 by the edit check on a file holding the text, left untouched."""
+    cfg_file.write_bytes(text.encode())
+    assert run(cfg_file, item) == 1, "the edit check fails"
+    assert cfg_file.read_bytes() == text.encode(), "the file is untouched"
+    assert "does not load as the original" in capsys.readouterr().err, "the edit check names its failure"
+
+
+@budget(load="fs")
+def test_a_duplicate_key_is_refused_by_the_edit_check(cfg_file, capsys):
+    text = cfg_file.read_text(encoding="utf-8")
+    old = next(line for line in text.split("\n") if line.startswith(REWRITES))
+    text = replace_line(text, REWRITES, f"{old}\n  rewrites_open: 50")
+    refused_by_the_edit_check(cfg_file, text, "export.rewrites_open=0", capsys)
+
+
+@budget(load="fs")
+def test_a_repeated_section_is_refused_by_the_edit_check(cfg_file, capsys):
+    text = cfg_file.read_text(encoding="utf-8") + "export:\n  retention_days: 7\n  rewrites_open: 50\n"
+    refused_by_the_edit_check(cfg_file, text, "export.rewrites_open=0", capsys)
+
+
+@budget(load="fs")
+def test_an_add_through_an_alias_is_refused_by_the_edit_check(cfg_file, capsys):
+    text = replace_line(cfg_file.read_text(encoding="utf-8"), "notify:", "notify: &n")
+    for start in ("export:", "  retention_days:", REWRITES):
+        text = replace_line(text, start, None)
+    refused_by_the_edit_check(cfg_file, text + "export: *n\n", "export.retention_days=7", capsys)
+
+
+@budget(load="fs")
+def test_an_edit_through_an_alias_is_refused_by_the_edit_check(cfg_file, capsys):
+    text = replace_line(cfg_file.read_text(encoding="utf-8"), "  retention_days:", "  retention_days: &d 7")
+    text = replace_line(text, REWRITES, "  rewrites_open: *d")
+    refused_by_the_edit_check(cfg_file, text, "export.rewrites_open=0", capsys)
+
+
+@budget(load="fs")
+def test_a_value_breaking_its_flow_mapping_is_refused_by_the_edit_check(cfg_file, capsys):
+    text = replace_line(cfg_file.read_text(encoding="utf-8"), "  retention_days:", None)
+    text = replace_line(text, REWRITES, None)
+    text = replace_line(text, "export:", "export: {retention_days: 7, rewrites_open: 50}")
+    refused_by_the_edit_check(cfg_file, text, "export.rewrites_open=1, 2", capsys)
+
+
+@pytest.mark.parametrize("empty", ["  rewrites_open:", "  rewrites_open:   # c"])
+@budget(load="fs")
+def test_an_empty_value_is_set(cfg_file, empty, capsys):
+    text = replace_line(cfg_file.read_text(encoding="utf-8"), REWRITES, empty)
+    cfg_file.write_bytes(text.encode())
+    assert run(cfg_file, "export.rewrites_open=5") == 0
+    expected = replace_line(text, empty, empty.replace("rewrites_open:", "rewrites_open: 5"))
+    assert cfg_file.read_bytes() == expected.encode(), "the value written after the colon, the comment kept"
+    assert capsys.readouterr().out == "set export.rewrites_open\n"
+
+
+@budget(load="fs")
+def test_an_added_line_in_a_crlf_file_ends_crlf(cfg_file):
+    full = cfg_file.read_text(encoding="utf-8")
+    cfg_file.write_bytes(replace_line(full, REWRITES, None).replace("\n", "\r\n").encode())
+    assert run(cfg_file, "export.rewrites_open=3") == 0
+    expected = replace_line(full, REWRITES, "  rewrites_open: 3").replace("\n", "\r\n")
+    assert cfg_file.read_bytes() == expected.encode(), "the file keeps CRLF, the added line too"
+
+
+@budget(load="fs")
+def test_a_key_is_added_after_a_block_scalar_ending_its_section(cfg_file):
+    text = replace_line(cfg_file.read_text(encoding="utf-8"), '  url: "http://localhost:5000"', None)
+    text = replace_line(text, "  rescan_after_minutes:", "  url: >-\n    http://localhost:5000")
+    cfg_file.write_bytes(text.encode())
+    assert run(cfg_file, "kavita.rescan_after_minutes=60") == 0
+    block = "  url: >-\n    http://localhost:5000\n"
+    expected = text.replace(block, f"{block}  rescan_after_minutes: 60\n")
+    assert cfg_file.read_bytes() == expected.encode(), "the new line right after the block's text, at the indent"
+
+
+@budget(load="fs")
+def test_a_block_scalar_value_is_refused(cfg_file, capsys):
+    text = replace_line(cfg_file.read_text(encoding="utf-8"), REWRITES, "  rewrites_open: |\n    50")
+    cfg_file.write_bytes(text.encode())
+    assert run(cfg_file, "export.rewrites_open=0") == 2, "a block scalar is edited by hand"
+    assert cfg_file.read_bytes() == text.encode(), "the file is untouched"
+    assert "block scalar" in capsys.readouterr().err, "the refusal says why"
+
+
+@budget(load="fs")
+def test_a_refusal_mid_pass_applies_no_key(cfg_file):
+    text = cfg_file.read_text(encoding="utf-8")
+    for start in ("notify:", "  discord_webhook:"):
+        text = replace_line(text, start, None)
+    cfg_file.write_bytes(text.encode())
+    assert run(cfg_file, "export.rewrites_open=0", "notify.discord_webhook=null") == 2, "the 2nd section is missing"
+    assert cfg_file.read_bytes() == text.encode(), "the 1st key is not applied either"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+@budget(load="fs")
+def test_the_files_mode_is_kept(cfg_file):
+    cfg_file.chmod(0o600)
+    assert run(cfg_file, "export.rewrites_open=0") == 0
+    assert cfg_file.stat().st_mode & 0o777 == 0o600, "a private file stays private"
+
+
+@budget(load="fs")
+def test_a_failed_replace_leaves_the_file_and_no_part(cfg_file, monkeypatch, capsys):
+    before = cfg_file.read_bytes()
+
+    def in_use(*_):
+        raise PermissionError(13, "in use")
+
+    monkeypatch.setattr(Path, "replace", in_use)
+    assert run(cfg_file, "export.rewrites_open=0") == 1, "a write failure exits 1"
+    assert cfg_file.read_bytes() == before, "the file is untouched"
+    assert not cfg_file.with_name("config.yaml.part").exists(), "no .part left behind"
+    assert "cannot write" in capsys.readouterr().err, "the failure says what failed"
+
+
+@budget(load="subprocess")
+def test_the_script_runs_as_a_module(cfg_file):
+    done = subprocess.run(
+        [sys.executable, "-m", "scripts.set_config", "--config", str(cfg_file), "export.rewrites_open=0"],
+        cwd=config.ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (done.returncode, done.stdout) == (0, "set export.rewrites_open\n"), done.stderr
+    assert config.load(cfg_file, env={})["export"]["rewrites_open"] == 0, "the file is written"
