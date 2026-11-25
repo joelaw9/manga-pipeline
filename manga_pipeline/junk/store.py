@@ -242,11 +242,15 @@ def _supersede(conn: db.Connection, old: db.Row, r: Decision) -> None:
     conn.execute("UPDATE junk_decision SET superseded_by = %s WHERE id = %s", (new, old["id"]))
 
 
-def _on_key(conn: db.Connection, r: Decision, where: sql.Composable) -> db.Row | None:
-    """Return the newest row on r's series key, kind and key that meets `where`."""
+def _newest(conn: db.Connection, series_key_: str, kind: str, key: str, where: sql.Composable) -> db.Row | None:
+    """Return the newest row on series key series_key_, kind and key that meets `where`."""
     query = sql.SQL("""SELECT * FROM junk_decision WHERE series_key = %s AND kind = %s AND md5(key) = md5(%s)
         AND {} ORDER BY id DESC LIMIT 1""").format(where)
-    return conn.execute(query, (r["series_key"], r["kind"], r["key"])).fetchone()
+    return conn.execute(query, (series_key_, kind, key)).fetchone()
+
+
+def _on_key(conn: db.Connection, r: Decision, where: sql.Composable) -> db.Row | None:
+    return _newest(conn, r["series_key"], r["kind"], r["key"], where)
 
 
 def _keeps(old: db.Row, r: Decision) -> bool:
@@ -329,3 +333,42 @@ def restore(conn: db.Connection, ids: Iterable[int], act: int) -> None:
     for i in ids:
         conn.execute("UPDATE junk_decision SET retired_by = NULL WHERE id = %s", (i,))
         _log(conn, act, [i], "restored")
+
+
+def get(conn: db.Connection, decision_id: int) -> db.Row | None:
+    """Return decision decision_id's row, any state, or None."""
+    return conn.execute("SELECT * FROM junk_decision WHERE id = %s", (decision_id,)).fetchone()
+
+
+def active_on(conn: db.Connection, series_key_: str, kind: str, key: str) -> db.Row | None:
+    """Return the active decision of series key series_key_ on kind and key, or None."""
+    return _newest(conn, series_key_, kind, key, ACTIVE)
+
+
+def act_rows(conn: db.Connection, act: int, change: str) -> list[int]:
+    """Return the decisions act changed by change (wrote, retired, restored), in id order."""
+    rows = conn.execute(
+        "SELECT decision FROM junk_act_row WHERE act = %s AND change = %s ORDER BY decision", (act, change)
+    )
+    return [r[0] for r in rows]
+
+
+def history(conn: db.Connection, series_key_: str | None) -> tuple[list[db.Row], dict[int, list[str]]]:
+    """Return decisions in id order, active and not: a series' and the global ones, or (None) every one.
+
+    With each decision's act log: "<change> <act>" entries, oldest act first.
+    """
+    if series_key_ is None:
+        rows = conn.execute("SELECT * FROM junk_decision ORDER BY id").fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM junk_decision WHERE series_key IN (%s, %s) ORDER BY id", (series_key_, GLOBAL)
+        ).fetchall()
+    acts: dict[int, list[str]] = {}
+    log = conn.execute(
+        "SELECT decision, act, change FROM junk_act_row WHERE decision = ANY(%s) ORDER BY act, change",
+        ([r["id"] for r in rows],),
+    )
+    for decision, act, change in log:
+        acts.setdefault(decision, []).append(f"{change} {act}")
+    return rows, acts

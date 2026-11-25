@@ -419,3 +419,17 @@ def write_images(
 def read_info(dest: Path) -> CandidateInfo:
     """Return a candidate folder's info.json (write_images'). Unchecked."""
     return json.loads((dest / "info.json").read_bytes())
+
+
+DECIDED = "decided"  # the folder in paths.candidates of the images decisions keep (never swept)
+
+
+def kept_images(cfg: config.Config, name: str | None) -> str:
+    """Return where a decision's kept images are: decided/<name>, else the candidate folder, else why there are none."""
+    if name is None:
+        return "no images kept"
+    root = config.abs_path(cfg["paths"]["candidates"])
+    for where_ in (root / DECIDED / name, root / name):
+        if where_.is_dir():
+            return f"{where_ / 'unit.png'}\t{where_ / 'context.png'}"
+    return f"images missing: {name}"

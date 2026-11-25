@@ -44,7 +44,7 @@ from manga_pipeline import (
 )
 from manga_pipeline.clients import kavita, suwayomi
 from manga_pipeline.db import sql
-from manga_pipeline.junk import candidates, groups, review, review_run
+from manga_pipeline.junk import candidates, groups, redecide, review, review_run, store, where
 from manga_pipeline.metadata import audit, human, importer, naming, sources
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
@@ -472,6 +472,91 @@ def junk_decide(cfg: config.Config, args: argparse.Namespace) -> None:
         log.info("junk candidate(s) %s kept as the rest by %s", [r["id"] for r in kept], decider)
 
 
+def _decision_line(row: db.Row, acts: dict[int, list[str]]) -> str:
+    """Return a decision as `junk rows` and `junk row` print it, its state and the acts that changed it."""
+    if row["superseded_by"] is not None:
+        state = f"superseded by {row['superseded_by']}"
+    elif row["retired_by"] is not None:
+        state = f"retired by act {row['retired_by']}"
+    else:
+        state = "active"
+    fields = [
+        str(row["id"]),
+        row["series_key"] or "global",
+        row["kind"],
+        row["verdict"],
+        row["decider"],
+        row["decided_at"],
+        row["source"] or "-",
+        state,
+        "acts: " + (", ".join(acts.get(row["id"], [])) or "-"),
+        "images" if row["images"] else "no images",
+    ]
+    return "\t".join(fields)
+
+
+def junk_rows(cfg: config.Config, args: argparse.Namespace) -> None:
+    """Print the decisions of a series and the global ones, or every decision, active and not (`junk rows`)."""
+    with _junk_db(cfg) as conn:
+        rows, acts = store.history(conn, args.series)
+        for row in rows:
+            print(_decision_line(row, acts))
+
+
+def junk_row(cfg: config.Config, args: argparse.Namespace) -> None:
+    """Print decisions with their kept images, or (--where) the sighted units each decides now (`junk row`)."""
+    if args.series and not args.where:
+        msg = "--series goes with --where"
+        raise workflow.Refused(msg)
+    with _junk_db(cfg) as conn:
+        rows: list[db.Row] = []
+        for i in args.ids:
+            row = store.get(conn, i)
+            if row is None:
+                msg = f"no junk decision {i}"
+                raise workflow.Refused(msg)
+            rows.append(row)
+        _, acts = store.history(conn, None)
+        for row in rows:
+            print(_decision_line(row, acts))
+            if args.where:
+                units = where.decided_by(conn, row, args.series)
+                print("\n".join(f"  {u.series_key}\t{u.identity}\t{u.kind}" for u in units) or "  no sighted unit")
+            else:
+                print(f"  {candidates.kept_images(cfg, row['images'])}")
+
+
+def junk_redecide(cfg: config.Config, args: argparse.Namespace) -> None:
+    """Re-decide decisions in 1 act (`junk redecide`): default, --series S… or --retire."""
+    if args.series and args.retire:
+        msg = "--series and --retire go apart: name series to opt out, or retire the global decision"
+        raise workflow.Refused(msg)
+    with _junk_db(cfg) as conn:
+        at = workflow.now(conn)
+        try:
+            if args.series:
+                act = redecide.redecide_in(conn, args.ids, args.verdict, args.series, at)
+            elif args.retire:
+                act = redecide.retire_global(conn, args.ids, args.verdict, at)
+            else:
+                act = redecide.redecide(conn, args.ids, args.verdict, at)
+        except review.Refused as e:
+            raise workflow.Refused(str(e)) from None
+    print(f"junk act {act}: undo it with junk undo {act}")
+    log.info("junk act %s: decision(s) %s re-decided %s", act, args.ids, args.verdict)
+
+
+def junk_undo(cfg: config.Config, args: argparse.Namespace) -> None:
+    """Reverse a junk act exactly, in a new act (`junk undo`)."""
+    with _junk_db(cfg) as conn:
+        try:
+            act = redecide.undo(conn, args.act, workflow.now(conn))
+        except review.Refused as e:
+            raise workflow.Refused(str(e)) from None
+    print(f"junk act {act} undid act {args.act}")
+    log.info("junk act %s undid act %s", act, args.act)
+
+
 def locked_connection(conn: db.Connection | None) -> db.Connection:
     """Return a locked command's connection; RuntimeError when it has none (its row in COMMANDS takes no lock)."""
     if conn is None:
@@ -532,6 +617,10 @@ COMMANDS = {
     "junk list": Command((), None, None, (), _unlocked(junk_list)),
     "junk show": Command((), None, None, (), _unlocked(junk_show)),
     "junk decide": Command((), None, None, (), _unlocked(junk_decide)),
+    "junk rows": Command((), None, None, (), _unlocked(junk_rows)),
+    "junk row": Command((), None, None, (), _unlocked(junk_row)),
+    "junk redecide": Command((), None, None, (), _unlocked(junk_redecide)),
+    "junk undo": Command((), None, None, (), _unlocked(junk_undo)),
     "junk review": Command(
         ("junk-review",),
         S,
@@ -684,6 +773,27 @@ def _junk_commands(command: argparse.ArgumentParser) -> None:
         "--keep-rest", action="store_true", help="with junk, inside a review: keep the rest of the series it listed"
     )
     decide.set_defaults(command="junk decide")
+    rows = junk.add_parser(
+        "rows", help="the decisions of a series and the global ones, or every decision, with history"
+    )
+    rows.add_argument("series", nargs="?", help="a series key (its rules key); none: every decision")
+    rows.set_defaults(command="junk rows")
+    row = junk.add_parser("row", help="decisions with their kept images, or (--where) what each decides now")
+    row.add_argument("ids", type=int, nargs="+", metavar="ROW", help="decision ids")
+    row.add_argument("--where", action="store_true", help="the sighted chapter units each decides now")
+    row.add_argument("--series", nargs="+", default=[], help="with --where, for a global decision: only these series")
+    row.set_defaults(command="junk row")
+    redecide_ = junk.add_parser("redecide", help="re-decide decisions in 1 act, which junk undo reverses")
+    redecide_.add_argument("ids", type=int, nargs="+", metavar="ROW", help="decision ids, re-decided together or not")
+    redecide_.add_argument("verdict", choices=redecide.VERDICTS, help="the new verdict")
+    redecide_.add_argument(
+        "--series", nargs="+", default=[], help="a global decision: decide it so in these series only"
+    )
+    redecide_.add_argument("--retire", action="store_true", help="a global decision: retire it, write nothing")
+    redecide_.set_defaults(command="junk redecide")
+    undo = junk.add_parser("undo", help="reverse a junk act exactly")
+    undo.add_argument("act", type=int, help="the act's id, as junk redecide printed it")
+    undo.set_defaults(command="junk undo")
     junk.add_parser("review", help="let Claude decide the open candidates (claude -p)").set_defaults(
         command="junk review"
     )

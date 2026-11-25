@@ -93,7 +93,7 @@ def get_open(conn: db.Connection, candidate_id: int, review_id: str | None) -> d
     if not candidates.is_open(conn, row):
         covering = candidates.covering(store.by_series(conn), row)
         why = (
-            f"decision {covering['id']} ({covering['verdict']}) covers it"
+            f"decision {covering['id']} ({covering['verdict']}) covers it (junk redecide {covering['id']})"
             if covering is not None
             else "no chapter waits on it"
         )

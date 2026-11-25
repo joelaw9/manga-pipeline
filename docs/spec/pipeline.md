@@ -39,7 +39,7 @@ When Suwayomi, Kavita, a metadata source or the share cannot be reached, the cha
 
 ## State
 
-One PostgreSQL 17 database on a server (on the LXC), reached with the settings of SPEC "Config", from every machine that runs the pipeline. The run locks are locks of the database (SPEC "Run lock"), so they hold across machines. Any machine may run the commands without a lock (`status`, `retry`, `chapter use`, `chapter drop`, `series link`, `junk list`, `junk show`, `junk decide`) against the same database. It holds 3 kinds of data:
+One PostgreSQL 17 database on a server (on the LXC), reached with the settings of SPEC "Config", from every machine that runs the pipeline. The run locks are locks of the database (SPEC "Run lock"), so they hold across machines. Any machine may run the commands without a lock (`status`, `retry`, `chapter use`, `chapter drop`, `series link`, `junk list`, `junk show`, `junk decide`, `junk rows`, `junk row`, `junk redecide`, `junk undo`) against the same database. It holds 3 kinds of data:
 
 | Kind | What |
 |---|---|
