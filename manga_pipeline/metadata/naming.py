@@ -197,7 +197,7 @@ def resolve[K: Hashable](  # noqa: PLR0913  # 7 inputs the resolver itself uses
     if basis == OVERRIDE and overrides is None:
         msg = "the series' volume basis is its override file, and it has none"
         raise VolumeError(msg)
-    override = (overrides or {}).get("volumes") or {}
+    override = overrides or {}
     main = sorted(
         (i for i, r in enumerate(rows) if r.kind == names.MAIN), key=lambda i: (rows[i].number, rows[i].order)
     )
@@ -283,7 +283,7 @@ def choose[K: Hashable](  # noqa: PLR0911  # 1 priority chain
     stored platform list's season ranges) come after season markers. MangaDex is the basis only when it volumes half or
     more of the main chapters.
     """
-    override = (overrides or {}).get("volumes") or {}
+    override = overrides or {}
     main = [i for i, r in enumerate(rows) if r.kind == names.MAIN]
     if any(names.to_volume(rows[i].src_volume) is not None for i in main):
         return FILENAME
@@ -389,8 +389,8 @@ def _open_main_volumes[K: Hashable](
 ) -> dict[int, VolumeNamed]:
     """Return {row index: (volume, volume source)} of the open main rows.
 
-    The override range's volume (whatever the basis; only for a chapter that carries no season: a season's numbers
-    restart), else the basis's volume, else a gap fill, else none.
+    The override file's volume, by range or start (whatever the basis; only for a chapter that carries no season: a
+    season's numbers restart), else the basis's volume, else a gap fill, else none.
     """
     free = [i for i in main if not rows[i].settled]
     ranged = _seasonless(rows, {i: sources.override[i] for i in free if i in sources.override})
@@ -412,12 +412,12 @@ def _open_main_volumes[K: Hashable](
 
 
 def override_volumes[K: Hashable](
-    override: Mapping[int | str, str | int | float], rows: Sequence[Row[K]], ids: Iterable[int]
+    override: volumes.Overrides, rows: Sequence[Row[K]], ids: Iterable[int]
 ) -> dict[int, float]:
-    """Return {row index: volume} of the rows among ids whose number lies in an override range.
+    """Return {row index: volume} of the rows among ids whose number the override file volumes.
 
-    Only rows that carry no season, and whose number lies in a range of the override file's `volumes` mapping (the 1
-    reader of ranges: volumes.override_volume).
+    Only rows that carry no season, and whose number the override file volumes (its `volumes` ranges or its
+    `volume_starts`; the 1 reader: volumes.override_volume).
     """
     return _seasonless(rows, _override_volumes(override, rows, ids))
 
@@ -425,7 +425,7 @@ def override_volumes[K: Hashable](
 def _seasonless[K: Hashable](rows: Sequence[Row[K]], vols: Mapping[int, float]) -> dict[int, float]:
     """Return the volumes of vols whose row carries no season.
 
-    An override range never reaches a season's chapters (their numbers restart).
+    An override range or start never reaches a season's chapters (their numbers restart).
     """
     return {i: v for i, v in vols.items() if rows[i].season is None}
 
@@ -438,7 +438,7 @@ def _mangadex_volumes[K: Hashable](
 
 
 def _override_volumes[K: Hashable](
-    override: Mapping[int | str, str | int | float], rows: Sequence[Row[K]], ids: Iterable[int]
+    override: volumes.Overrides, rows: Sequence[Row[K]], ids: Iterable[int]
 ) -> dict[int, float]:
     vols = {i: volumes.override_volume(override, rows[i].number) for i in ids}
     return {i: v for i, v in vols.items() if v is not None}
@@ -583,7 +583,7 @@ def _opens_covered[K: Hashable](rows: Sequence[Row[K]], firsts: Mapping[float, i
 def covered_volumes[K: Hashable](
     basis: str | None,
     rows: Sequence[Row[K]],
-    override: Mapping[int | str, str | int | float],
+    override: volumes.Overrides,
     mangadex: Mapping[str, str | None],
 ) -> set[float]:
     """Return the covered volumes (SPEC "Volume covers") of rows as they stand.

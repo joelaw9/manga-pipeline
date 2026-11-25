@@ -232,7 +232,7 @@ def _plan(ctx: workflow.Context, series: db.Row) -> tuple[dict[int, Change], set
         }
         shas = {v: r["sha256"] for v, r in images.items()}
         now = rewrite_plan.moved_rows(rows, moved)
-        covered = naming.covered_volumes(basis, now, (overrides or {}).get("volumes") or {}, mangadex)
+        covered = naming.covered_volumes(basis, now, overrides or {}, mangadex)
         for fid, act in rewrite_plan.cover_changes(now, covered, states=states, taken=taken, images=shas).items():
             if fid in adopted:
                 continue

@@ -29,8 +29,89 @@ def world_overrides(world):
 )
 def test_override_ranges_as_the_bulk_converter_reads_them(tmp_path, number, want):
     write_override(tmp_path, "Solo Leveling", 'layout: strip\nvolumes: {0: "-3", 3: "4", 1: "6-65", 2: "66-"}\n')
-    ranges = present(present(volumes.override_file(tmp_path, "Solo Leveling")).get("volumes"))
-    assert volumes.override_volume(ranges, float(number)) == want
+    overrides = present(volumes.override_file(tmp_path, "Solo Leveling"))
+    assert volumes.override_volume(overrides, float(number)) == want
+
+
+SILENT_WITCH = "volume_starts: {1: 0, 2: 5, 3: 9, 4: 14, 5: 18, 6: 22, 7: 27, 8: 33}\n"
+
+
+@budget(load="fs")
+@pytest.mark.parametrize(
+    ("number", "want"),
+    [("0", 1), ("4.1", 1), ("4.5", 1), ("5", 2), ("8.5", 2), ("13.5", 3), ("33", 8), ("140", 8)],
+    ids=["first-start", "split-part", "half", "a-start", "half-before-a-start", "half-later", "last-start", "open-end"],
+)
+def test_volume_starts_put_a_chapter_in_the_volume_whose_start_it_has_reached(tmp_path, number, want):
+    write_override(tmp_path, "Silent Witch", SILENT_WITCH)
+    overrides = present(volumes.override_file(tmp_path, "Silent Witch"))
+    assert volumes.override_volume(overrides, float(number)) == want, (
+        "a volume runs from its start up to the next volume's start, decimal parts included; the last has no end"
+    )
+
+
+@budget(load="fs")
+@pytest.mark.parametrize(
+    ("text", "number", "want", "rule"),
+    [
+        ("volume_starts: {1: 3, 2: 10}\n", "2.5", None, "no volume below the lowest start"),
+        ("volume_starts: {0: 0, 1: 4}\n", "3", 0, "volume 0 is a volume"),
+        ('volume_starts: null\nvolumes: {1: "1-5"}\n', "5", 1, "volume_starts: null is the key absent"),
+    ],
+    ids=["below-the-first-start", "volume-0", "null-is-absent"],
+)
+def test_volume_starts_edges(tmp_path, text, number, want, rule):
+    write_override(tmp_path, "Silent Witch", text)
+    overrides = present(volumes.override_file(tmp_path, "Silent Witch"))
+    assert volumes.override_volume(overrides, float(number)) == want, rule
+
+
+@budget(load="fs")
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        ('volumes: {1: "1-4"}\nvolume_starts: {1: 0}\n', "both"),
+        ("volume_starts: {}\n", "mapping"),
+        ("volume_starts: [0, 5]\n", "mapping"),
+        ('volume_starts: {"1": 0, 2: 5}\n', "key '1'"),
+        ("volume_starts: {true: 0}\n", "key True"),
+        ("volume_starts: {1: 0, 2: 5, 4: 9}\n", r"skips volume\(s\) 3:"),
+        ("volume_starts: {1: 0, 2: 5, 5: 9, 6: 12}\n", r"skips volume\(s\) 3-4:"),
+        ("volume_starts: {2: 0, 3: 5}\n", r"skips volume\(s\) 1:"),
+        ("volume_starts: {2: 0, 4: 5}\n", r"skips volume\(s\) 1, 3:"),
+        ("volume_starts: {1: 0, 100000000: 5}\n", r"skips volume\(s\) 2-99999999:"),
+        ("volume_starts: {1: 0, 2: 0}\n", "does not come after"),
+        ("volume_starts: {1: 5, 2: 3}\n", "does not come after"),
+        ("volume_starts: {1: true}\n", "start True"),
+        ('volume_starts: {1: "5"}\n', "start '5'"),
+        ("volume_starts: {1: .nan}\n", "start nan"),
+        ("volume_starts: {1: .inf}\n", "start inf"),
+        ("volume_starts: {1: -1}\n", "start -1"),
+    ],
+    ids=[
+        "both-keys",
+        "empty",
+        "a-list",
+        "quoted-key",
+        "bool-key",
+        "skipped-volume",
+        "skipped-volumes",
+        "lowest-not-0-or-1",
+        "lowest-and-later-gap",
+        "huge-gap-as-a-span",
+        "equal-starts",
+        "falling-starts",
+        "bool-start",
+        "quoted-start",
+        "nan-start",
+        "inf-start",
+        "negative-start",
+    ],
+)
+def test_a_malformed_volume_starts_is_an_override_error_naming_the_problem(tmp_path, text, reason):
+    write_override(tmp_path, "Silent Witch", text)
+    with pytest.raises(volumes.OverrideError, match=reason):
+        volumes.override_file(tmp_path, "Silent Witch")
 
 
 @budget(load="fs")

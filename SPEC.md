@@ -81,7 +81,7 @@ How often a series is checked depends on the time since its last published updat
 
 ## Retroactive updates
 
-A check can change what is already published: series-level fields go through the Kavita API; a file is rewritten (and renamed) only when its volume is filled, its override range gives another, its cover should change or a hand edit (`series edit`) changes its title or volume, with the reader's progress carried, and pages are never re-encoded. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#retroactive-updates)
+A check can change what is already published: series-level fields go through the Kavita API; a file is rewritten (and renamed) only when its volume is filled, its override file's range or volume start gives another, its cover should change or a hand edit (`series edit`) changes its title or volume, with the reader's progress carried, and pages are never re-encoded. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#retroactive-updates)
 
 ## Publishing
 

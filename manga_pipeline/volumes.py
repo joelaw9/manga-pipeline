@@ -1,10 +1,12 @@
-"""A series' naming override file (SPEC "Publishing"): read and checked, and the volume a range gives a chapter.
+"""A series' naming override file (SPEC "Publishing"): checked, and the volume its ranges or starts give a chapter.
 
 The file is `<paths.naming_overrides>/<series rules key>.yaml`, read and checked as the bulk converter accepts it
-(`volumes` ranges, `series_group`, `layout`).
+(`volumes` ranges, `series_group`, `layout`), plus the pipeline's own `volume_starts` (each volume's first chapter,
+unpadded: YAML reads `010` as octal 8).
 The volume bases' names. Volumes themselves are resolved by metadata/naming.py.
 """
 
+import itertools
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TypedDict
@@ -32,11 +34,12 @@ class Overrides(TypedDict, total=False):
 
     A key the bulk converter reads that the pipeline does not is kept, unchecked and untyped. volumes {volume: chapter
     range}, or null: a volume a whole number (an int, or a text of digits), a range a text or a number YAML read
-    ("1-53", "54", "94-", "-53", 54); series_group a name or a non-empty list of names; layout "strip" or "pages" in
-    any case and spacing, or null.
+    ("1-53", "54", "94-", "-53", 54); volume_starts {volume: first chapter}, or null (check_starts; not with volumes);
+    series_group a name or a non-empty list of names; layout "strip" or "pages" in any case and spacing, or null.
     """
 
     volumes: dict[int | str, str | int | float] | None
+    volume_starts: dict[int, int | float] | None
     series_group: str | list[str]
     layout: str | None
 
@@ -94,6 +97,8 @@ def override_file(overrides: Path, folder_name: str) -> Overrides | None:
             return {}
         _mapping(data)
         check_volumes(data.get("volumes"))
+        check_starts(data.get("volume_starts"))
+        _one_volume_format(data)
         if "series_group" in data:
             _group_names(data["series_group"])
         layout(data)
@@ -101,6 +106,13 @@ def override_file(overrides: Path, folder_name: str) -> Overrides | None:
         msg = f"{path}: {e}"
         raise OverrideError(msg) from None
     return data
+
+
+def _one_volume_format(data: Mapping[str, Yaml]) -> None:
+    """Raise ValueError when the file gives its volumes both as ranges and as starts."""
+    if data.get("volumes") is not None and data.get("volume_starts") is not None:
+        msg = "volumes and volume_starts cannot both be given: write the volumes one way"
+        raise ValueError(msg)
 
 
 def _group_names(value: Yaml) -> list[str]:
@@ -153,13 +165,61 @@ def check_volumes(volumes: Yaml) -> None:
             raise ValueError(msg)
 
 
-def override_volume(volumes: Mapping[int | str, str | int | float], num: float) -> int | float | None:
-    """Return the volume whose range holds chapter number num, or None.
+def check_starts(starts: Yaml) -> None:
+    """Check `volume_starts: {volume: first chapter}` (SPEC "Publishing"). Raises ValueError otherwise.
 
-    The last such volume, as the bulk converter's loop leaves it.
+    Each volume a plain YAML integer from 0, the lowest 0 or 1, none skipped; each start a plain number from 0 (no
+    bool, text, nan or inf), rising with the volume. Plain integer keys only, so 1 and "1" never both appear.
     """
+    if starts is None:
+        return
+    if not isinstance(starts, dict) or not starts:
+        msg = f"volume_starts must be a mapping of volume: first chapter, not {starts!r}"
+        raise ValueError(msg)
+    checked: dict[int, float] = {}
+    for vol, start in starts.items():
+        if isinstance(vol, bool) or not isinstance(vol, int) or vol < 0:
+            msg = f"volume_starts key {vol!r} is not a volume number (a whole number from 0, unquoted)"
+            raise ValueError(msg)
+        if isinstance(start, bool) or not isinstance(start, int | float) or not 0 <= start < float("inf"):
+            msg = f"volume_starts {vol}: start {start!r} is not a chapter number (a number from 0, unquoted)"
+            raise ValueError(msg)
+        checked[vol] = start
+    _check_start_order(checked)
+
+
+def _check_start_order(starts: dict[int, float]) -> None:
+    """Raise ValueError unless the volumes begin at 0 or 1, skip none, and their starts rise with them."""
+    vols = sorted(starts)
+    # Each gap as a span (first, last): a typo'd huge volume names 1 span, never every number in it
+    gaps = [
+        (lower + 1, upper - 1) for lower, upper in itertools.pairwise([min(vols[0], 1) - 1, *vols]) if upper > lower + 1
+    ]
+    if gaps:
+        msg = f"volume_starts skips volume(s) {', '.join(_span(*g) for g in gaps)}: give each volume's first chapter"
+        raise ValueError(msg)
+    for lower, upper in itertools.pairwise(vols):
+        if not starts[lower] < starts[upper]:
+            msg = f"volume_starts {upper}: start {starts[upper]} does not come after volume {lower}'s {starts[lower]}"
+            raise ValueError(msg)
+
+
+def _span(first: int, last: int) -> str:
+    return str(first) if first == last else f"{first}-{last}"
+
+
+def override_volume(overrides: Overrides, num: float) -> int | float | None:
+    """Return the volume the override file gives chapter number num, or None.
+
+    volume_starts: the volume with the highest start at or below num. volumes: the volume whose range holds num, the
+    last such one, as the bulk converter's loop leaves it.
+    """
+    starts = overrides.get("volume_starts")
+    if starts is not None:
+        held = [vol for vol, start in starts.items() if start <= num]
+        return max(held) if held else None
     found = None
-    for vol, rng in volumes.items():
+    for vol, rng in (overrides.get("volumes") or {}).items():
         lo, hi = _range(rng)
         if lo <= num <= hi:
             found = names.to_volume(vol)
