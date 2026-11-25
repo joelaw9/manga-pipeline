@@ -175,7 +175,19 @@ def test_a_review_removes_every_sheets_folder(world, tmp_path):
     code, cfg = review_cmd(tmp_path, world.cfg, exe)
     assert code == 0
     left = list(config.abs_path(cfg["paths"]["candidates"]).glob(f"{groups.FOLDER_PREFIX}*"))
-    assert left == [], "a killed review's sheets and this review's go"
+    assert left == [], "a killed review's sheets go"
+
+
+@budget(load="subprocess", seconds=20)
+def test_a_run_cut_short_records_the_contexts_it_reached(world, tmp_path):
+    exe = fake_claude(tmp_path / "claude", world.cfg, ["list", "call:500", "call:700", "crash"], exit_code=3)
+    code, cfg = review_cmd(tmp_path, world.cfg, exe)
+    assert code == 1
+    with closing(db.connect(cfg)) as conn:
+        meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
+    assert meta["junk-review.last_result"] == "error: claude exited 3; start 500, peak 700", (
+        "a run with no result still records the first call's context and the largest"
+    )
 
 
 @budget(load="subprocess", seconds=20)

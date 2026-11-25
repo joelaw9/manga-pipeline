@@ -238,12 +238,13 @@ def _claude(cfg: config.Config, prefix: str, review_id: str) -> str:
                 check=False,  # the exit is judged below
             )
     except subprocess.TimeoutExpired:
-        return f"error: claude was killed after {TIMEOUT_S} s"
+        return f"error: claude was killed after {TIMEOUT_S} s; {contexts(_reply(out))}"
     lines = _reply(out)
     results = [line for line in lines if line.get("type") == "result"]
     reply = results[-1] if results else None
     if reply is None:
-        return f"error: claude exited {done.returncode}" if done.returncode else "error: claude printed no JSON result"
+        why = f"claude exited {done.returncode}" if done.returncode else "claude printed no JSON result"
+        return f"error: {why}; {contexts(lines)}"
     if denials := reply.get("permission_denials"):
         log.warning("junk review %s: claude was refused %s", review_id, denials)
     used = usage(lines, reply)
@@ -259,8 +260,8 @@ def context(u: Usage) -> int:
     return u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("cache_read_input_tokens", 0)
 
 
-def usage(lines: list[ClaudeReply], reply: ClaudeReply) -> str:
-    """Return a run's usage as the review result names it: seconds, tokens, its first call's context and the peak.
+def contexts(lines: list[ClaudeReply]) -> str:
+    """Return a run's first call's context and its largest, from its assistant lines (a run cut short has them too).
 
     Each assistant message counts once (its content blocks arrive as lines sharing its id and usage).
     """
@@ -269,12 +270,17 @@ def usage(lines: list[ClaudeReply], reply: ClaudeReply) -> str:
         message = line.get("message")
         if line.get("type") == "assistant" and message is not None and "id" in message:
             calls.setdefault(message["id"], context(message.get("usage", {})))
-    contexts = list(calls.values())
+    sizes = list(calls.values())
+    start, peak = (sizes[0], max(sizes)) if sizes else (0, 0)
+    return f"start {start}, peak {peak}"
+
+
+def usage(lines: list[ClaudeReply], reply: ClaudeReply) -> str:
+    """Return a run's usage as the review result names it: seconds, tokens, its first call's context and the peak."""
     total = reply.get("usage", {})
     tokens = context(total) + total.get("output_tokens", 0)
     window = max((m.get("contextWindow", 0) for m in reply.get("modelUsage", {}).values()), default=0)
-    start, peak = (contexts[0], max(contexts)) if contexts else (0, 0)
-    return f"{reply.get('duration_ms', 0) // 1000} s, {tokens} tokens, start {start}, peak {peak} of {window}"
+    return f"{reply.get('duration_ms', 0) // 1000} s, {tokens} tokens, {contexts(lines)} of {window}"
 
 
 def _reply(path: Path) -> list[ClaudeReply]:
