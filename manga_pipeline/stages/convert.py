@@ -15,7 +15,7 @@ import functools
 import json
 import logging
 import shutil
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple, TypedDict
@@ -85,7 +85,7 @@ def loaded_scorer(kind: type[vship.Scorer], path: Path) -> vship.Scorer:
 
 
 @contextlib.contextmanager
-def encoder(cfg: config.Config) -> Iterator[image.Encoder]:
+def encoder(cfg: config.Config) -> Generator[image.Encoder]:
     """Provide the image.Encoder of 1 chapter's (or 1 cover's) encodes.
 
     It holds the configured image tools, the process's loaded scorer and fresh page workers, stopped on leaving.

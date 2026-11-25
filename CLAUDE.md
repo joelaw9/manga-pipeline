@@ -46,7 +46,7 @@ python -m ruff check .
 python -m ruff format .
 ```
 
-Types (basedpyright, `[tool.basedpyright]` in `pyproject.toml`: basic mode, and for the program, `manga_pipeline/`, the strict reports `reportMissingTypeArgument`, `reportUnknownParameterType`, `reportUnknownArgumentType`, `reportUnknownVariableType`, `reportUnknownMemberType`, `reportUnknownLambdaType` and `reportExplicitAny` at error: no parameter, argument, variable or member of the program is Unknown, and no `Any` is written in it; tests and scripts stay basic; must pass on both platforms before a change is done; a `# pyright: ignore[...]` needs the user's approval first):
+Types (basedpyright, `[tool.basedpyright]` in `pyproject.toml`: basic mode for the tests; the program, `manga_pipeline/`, and `scripts/` are held to every setting strict mode turns on but `reportUnnecessaryIsInstance` and `reportMissingTypeStubs` (listed there, each exclusion with its reason and what reopens it), and to `reportExplicitAny`: no parameter, argument, variable or member of the program or a script is Unknown, and no `Any` is written in them; must pass on both platforms before a change is done; a `# pyright: ignore[...]` or another excluded setting needs the user's approval first):
 
 ```bash
 python -m basedpyright --warnings

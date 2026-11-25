@@ -399,4 +399,7 @@ def shift_pages(entries: list[dict[str, str]], result: RewriteResult) -> list[di
             front = {"Image": str(at), "Type": "FrontCover", "ImageSize": str(cover["bytes"])}
             front |= {"ImageWidth": str(cover["width"]), "ImageHeight": str(cover["height"])}
             out.insert(next((i for i, e in enumerate(out) if int(e["Image"]) > at), len(out)), front)
+        case _:  # a stored result the program did not write
+            msg = f"a convert result that is neither shape of RewriteResult: {result!r}"
+            raise ValueError(msg)
     return out

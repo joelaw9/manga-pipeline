@@ -8,7 +8,7 @@ lock: parts and junk review hold it shared, the state commands exclusive. AUTOMA
 run (cli --scheduled), which reads the automation's pause only once it holds it (SPEC "Run lock").
 """
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 
 from manga_pipeline import config, db
@@ -27,7 +27,7 @@ class LockHeld(RuntimeError):  # noqa: N818  # a signal, not an error (PEP 8: th
 @contextmanager
 def held(
     conn: db.Connection, cfg: config.Config, names: Iterable[str], idle: str | None = None, *, automation: bool = False
-) -> Iterator[None]:
+) -> Generator[None]:
     """Hold the named locks, IDLE in mode idle (SHARED, EXCLUSIVE or None), and AUTOMATION shared when automation.
 
     For the block, when lock.enabled.
