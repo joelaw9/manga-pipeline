@@ -297,7 +297,14 @@ def test_a_keep_decision_removes_nothing_and_leaves_nothing_undecided():
     """A keep on the cover block: nothing removed, and the decided block is no undecided unit."""
     cover = sig_of(Image.open(BANNER).convert("RGB"))
     got = su.decide(su.scan(strip_of([BANNER])), store(("block", cover, "keep", 2)))
-    assert got == {"removed": [], "undecided": [], "kept_problem": None, "watermarks": [], "misses": []}, got
+    assert {k: v for k, v in got.items() if k != "seeds"} == {
+        "removed": [],
+        "undecided": [],
+        "kept_problem": None,
+        "watermarks": [],
+        "misses": [],
+    }, got
+    assert [s["kind"] for s in got["seeds"]] == ["strip", "strip"], "no pool: the seeds it would take are still listed"
 
 
 # ---------------------------------------------------------------- the real strip head (fixtures_pages/junk)

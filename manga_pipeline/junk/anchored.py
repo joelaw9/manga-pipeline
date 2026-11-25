@@ -7,8 +7,8 @@ and `_reached` (:660-727), `card_holes` (:766-780) and `signable` (:90-95); the 
 `unit_entries` (:434-464); `tiles_match` from optimizer/junk.py (`tile_distance` :121-127, `Library.tiles_match`
 :379-384); `span_sigs` from plan_scan's `span_sig` (:385-388), rendered at decide instead of cached with the scan.
 
-Not ported: `skip` segments and `none` exemptions (junk.chains refuses both until the junk cut commands exist) and
-global rows (none are made). Pure but for `render`, which returns an image of strip rows [a, b).
+Not ported: `skip` segments and `none` exemptions (skip and none are refused (no command makes them): junk.chains)
+and global rows (none are made). Pure but for `render`, which returns an image of strip rows [a, b).
 Constants are the bulk converter's, frozen: the stored chains were learned with them.
 """
 
@@ -151,13 +151,17 @@ class Miss(TypedDict):
 
 
 class Anchored(TypedDict):
-    """What the matcher adds: ranges (sorted), the span of every match, the matches, the card holes, the misses."""
+    """What the matcher adds: ranges (sorted), the span of every match, the matches, the card holes, the misses.
+
+    seeds: every seed it tried, in the order taken, once each (junk cut anchors a proposal at them).
+    """
 
     added: list[Added]
     matched: list[strip.Rows]
     matches: list[Match]
     holes: list[Hole]
     misses: list[Miss]
+    seeds: list[Seed]
 
 
 # ---------------------------------------------------------------- rows
@@ -539,6 +543,7 @@ def anchored_ranges(view: View, removed: Iterable[Ranged], start: Iterable[Seed]
     holes: list[Hole] = []
     misses: list[Miss] = []
     matches: list[Match] = []
+    tried: list[Seed] = []
     done: set[tuple[Side, int]] = set()
     queue: list[Seed] = list(start)
     while queue:
@@ -549,6 +554,7 @@ def anchored_ranges(view: View, removed: Iterable[Ranged], start: Iterable[Seed]
             if (sd["side"], sd["pos"]) in done:
                 continue
             done.add((sd["side"], sd["pos"]))
+            tried.append(sd)
             got = _at_seed(view, sd, pool, taken, misses)
             if got is None:
                 continue
@@ -599,6 +605,7 @@ def anchored_ranges(view: View, removed: Iterable[Ranged], start: Iterable[Seed]
         "matches": matches,
         "holes": holes,
         "misses": misses,
+        "seeds": tried,
     }
 
 
