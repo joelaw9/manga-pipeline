@@ -163,12 +163,16 @@ def _cover_page(ctx: workflow.Context, published: db.Row) -> bytes | None:
     try:
         with zipfile.ZipFile(path) as z:
             page = next((n for n in archive.archive_pages(z.namelist()) if is_cover(n)), None)
-            data = None if page is None else z.read(page)
+            if page is None:
+                return None
+            data = z.read(page)
     except archive.UNREADABLE as e:
         log.warning("%s: its cover page cannot be read, its replacement goes without: %s", path, e)
         return None
-    if data is not None and images.detect(data) == images.UNKNOWN:
-        log.warning("%s: its cover page is no image, its replacement goes without", path)
+    try:
+        images.open_image(data)  # decoded whole, as validation decodes: a sound header on a broken body fails too
+    except Exception as e:  # Pillow raises many types on a page it cannot decode
+        log.warning("%s: its cover page cannot be decoded, its replacement goes without: %s", path, e)
         return None
     return data
 

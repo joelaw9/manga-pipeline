@@ -502,11 +502,16 @@ def test_a_conversion_replaces_its_file_end_to_end_with_origin_pipeline_and_its_
 
 
 @budget(load="db", seconds=10)
-@pytest.mark.parametrize("broken", ["005.png", "000_cover.png"], ids=["content-page", "cover-page"])
-def test_a_bad_adopted_file_is_downloaded_again_and_stays_conversion_work(world, broken):
+@pytest.mark.parametrize(
+    ("broken", "truncated"),
+    [("005.png", False), ("000_cover.png", False), ("000_cover.png", True)],
+    ids=["empty-content-page", "empty-cover-page", "truncated-cover-page"],
+)
+def test_a_bad_adopted_file_is_downloaded_again_and_stays_conversion_work(world, broken, truncated):
     layout_override(world)
     pages = {f"{i:03}.png": png((40 * i, 90, 120)) for i in range(1, 5)}
-    adopt(world, {"Ch.1.cbz": cbz(seed="a1", pages=4), "Ch.2.cbz": archive_of({**pages, broken: b""})})
+    bad = png((9, 9, 9))[:60] if truncated else b""  # a sound header on a cut body, or nothing
+    adopt(world, {"Ch.1.cbz": cbz(seed="a1", pages=4), "Ch.2.cbz": archive_of({**pages, broken: bad})})
     manga = world.manga(SERIES)
     world.download(manga, "Chapter 9")  # links the manga to the series
     other = world.suwayomi.add_manga(SERIES, world.suwayomi.add_source("Other"), in_library=False)
@@ -526,6 +531,9 @@ def test_a_bad_adopted_file_is_downloaded_again_and_stays_conversion_work(world,
     ((stage_, path),) = world.rows("SELECT stage, download_path FROM chapter WHERE id = %s", chapter_id)
     assert stage_ == "junk", "the new download takes its place, an unreadable cover page giving no cover"
     assert not path.startswith("staging/"), "its download is the new one"
+    assert world.rows("SELECT count(*) FROM volume_cover WHERE chapter_id = %s", chapter_id) == [(0,)], (
+        "its file's broken cover page is never taken"
+    )
     adopted = workflow.REPLACES_ADOPTED.format(c=db.sql.Identifier("c"))
     with closing(db.connect(world.cfg)) as conn:
         query = db.sql.SQL("SELECT id FROM chapter c WHERE {}").format(adopted)

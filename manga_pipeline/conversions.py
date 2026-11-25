@@ -59,17 +59,16 @@ def queue(cfg: config.Config, conn: db.Connection, series: Sequence[int] | None 
         params,
     ).fetchall()
     done = Queued()
-    opened = 0
     for i, file in enumerate(files):
         with db.transaction(conn):
-            opened = db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(OPEN))[0]
-            full = opened >= cap
+            full = db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(OPEN))[0] >= cap
             if not full:
                 done.queued[file["series_id"]] += _insert(cfg, conn, file["id"], params)
         if full:
             done.left.update(f["series_id"] for f in files[i:])
             break
     if done.queued or done.left:
+        opened = db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(OPEN))[0]
         log.info(
             "conversions: %d queued; %d adopted file(s) left: %d chapters replacing adopted files are open, the cap "
             "is %d (export.rewrites_open)",
