@@ -280,9 +280,9 @@ def _refill(conn: db.Connection, chapter: db.Row, key: str, waited_on: int) -> N
     that scan keeps it.
     """
     conn.execute(
-        """UPDATE chapter SET junk_decided_at = %s, junk_candidates = %s,
-            junk_new_series = NOT EXISTS (SELECT 1 FROM junk_decision WHERE series_key = %s)
-        WHERE id = %s AND junk_candidates IS NULL""",
+        sql.SQL("""UPDATE chapter SET junk_decided_at = %s, junk_candidates = %s,
+            junk_new_series = NOT EXISTS (SELECT 1 FROM junk_decision WHERE series_key = %s AND {active})
+        WHERE id = %s AND junk_candidates IS NULL""").format(active=store.ACTIVE),
         (workflow.now(conn), waited_on, key, chapter["id"]),
     )
 

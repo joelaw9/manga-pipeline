@@ -10,8 +10,8 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import config, db
-from manga_pipeline.junk import candidates
+from manga_pipeline import config, db, state
+from manga_pipeline.junk import candidates, store
 
 from tests.builders import add_chapter, add_series, adopted, one
 from tests.timing import budget
@@ -124,3 +124,94 @@ def test_joining_a_candidate_cleaned_up_meanwhile_fails_and_writes_nothing(site)
     with db.transaction(conn), pytest.raises(candidates.Gone, match="cleaned up meanwhile"):
         candidates.join(conn, "S", [pick], "2026-01-01T00:00:00+00:00")
     assert one(conn, "SELECT count(*) FROM junk_candidate") == 0
+
+
+# ---------------------------------------------------------------- a decision's images (kept in decided/)
+
+
+def decision_naming(conn, name, key="123456789abcdef0|0.7"):
+    """Write a decision made from the candidate whose folder is name (it keeps the images); return its id."""
+    with db.transaction(conn):
+        store.upsert(
+            conn,
+            [
+                {
+                    "series_key": "S",
+                    "kind": "page",
+                    "key": key,
+                    "verdict": "junk",
+                    "decider": "claude",
+                    "decided_at": "2026-01-01T00:00:00+00:00",
+                    "source": "candidate 1",
+                    "images": name,
+                }
+            ],
+        )
+    return one(conn, "SELECT max(id) FROM junk_decision")
+
+
+def decided(cfg, name):
+    return config.abs_path(cfg["paths"]["candidates"]) / candidates.DECIDED / name
+
+
+@budget(load="db")
+def test_cleanup_moves_decision_named_folders_into_decided(site):
+    cfg, conn = site
+    candidate(conn, cfg, "a-1-1", closed_at=HOUR_AGO_2)
+    decision_naming(conn, "a-1-1")
+    assert candidates.cleanup(cfg, conn) == 1
+    assert not folder(cfg, "a-1-1").exists(), "the deleted candidate's folder left the top level"
+    assert (decided(cfg, "a-1-1") / "unit.png").exists(), "its decision keeps the images, in decided/"
+
+
+@budget(load="db")
+def test_a_folder_a_candidate_still_names_stays_where_it_is(site):
+    cfg, conn = site
+    candidate(conn, cfg, "a-1-1")  # closed 0 min ago: its row stays an hour, and an act may reopen it
+    decision_naming(conn, "a-1-1")
+    candidates.cleanup(cfg, conn)
+    assert folder(cfg, "a-1-1").exists(), "a candidate row still names it: not moved"
+
+
+@budget(load="db")
+def test_a_folder_left_by_a_killed_cleanup_is_moved_next_time(site):
+    cfg, conn = site
+    folder(cfg, "a-1-1").mkdir(parents=True)  # its candidate row deleted, the move never made
+    decision_naming(conn, "a-1-1")
+    candidates.cleanup(cfg, conn)
+    assert decided(cfg, "a-1-1").exists(), "the next cleanup moves it"
+
+
+@budget(load="db")
+def test_a_top_level_copy_beside_its_decided_copy_is_removed(site):
+    cfg, conn = site
+    folder(cfg, "a-1-1").mkdir(parents=True)
+    decided(cfg, "a-1-1").mkdir(parents=True)
+    decision_naming(conn, "a-1-1")
+    candidates.keep_decided(cfg, conn)
+    assert not folder(cfg, "a-1-1").exists(), "the copy in decided/ is kept, the top-level one removed"
+    assert decided(cfg, "a-1-1").exists(), "the copy in decided/ is kept"
+
+
+@budget(load="db")
+def test_the_orphan_sweep_never_touches_decided(site):
+    cfg, conn = site
+    old_image = decided(cfg, "b-1-1")
+    old_image.mkdir(parents=True)
+    root = config.abs_path(cfg["paths"]["candidates"]) / candidates.DECIDED
+    day_ago = time.time() - 2 * 86400
+    os.utime(root, (day_ago, day_ago))
+    candidates.cleanup(cfg, conn)
+    assert old_image.exists(), "decided/ is never swept, however old"
+
+
+@budget(load="db")
+def test_state_reset_keeps_a_just_decided_candidates_images(site):
+    cfg, conn = site
+    candidate(conn, cfg, "a-1-1")  # decided a minute ago: cleanup has not moved it yet
+    decision_naming(conn, "a-1-1")
+    state.reset(cfg, conn)
+    assert (decided(cfg, "a-1-1") / "unit.png").exists(), "state reset moves a decision's images before emptying"
+    assert list(config.abs_path(cfg["paths"]["candidates"]).iterdir()) == [decided(cfg, "a-1-1").parent], (
+        "everything else in the candidates folder goes"
+    )

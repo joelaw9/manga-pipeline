@@ -11,8 +11,8 @@ An unsignable key (a signature whose every tile is a uniform image's) would matc
 with one matches no decision, and no decision is written on one.
 """
 
-from collections.abc import Callable, Iterable
-from typing import TypedDict, TypeIs
+from collections.abc import Callable, Iterable, Sequence
+from typing import NotRequired, TypedDict, TypeIs
 
 import numpy as np
 
@@ -35,6 +35,14 @@ DECIDING: dict[str, tuple[str, ...]] = {
 SIGNATURE_KINDS = ("block", "probe", "piece", "page", "band")  # keyed by an image signature
 NEAR_KINDS = ("block", "band", "probe")  # the approved decisions the near rule compares against
 DECIDERS = ("import", "claude", "human")
+# An active decision decides units; a superseded or retired one is history (SPEC "Junk decisions", decisions).
+ACTIVE = sql.SQL("superseded_by IS NULL AND retired_by IS NULL")
+
+
+def is_active(row: db.Row) -> bool:
+    """Return whether a decision row is active (ACTIVE, for a row read already)."""
+    return row["superseded_by"] is None and row["retired_by"] is None
+
 
 type ParsedKey = images.Signature | frames.Frame | marks.Template  # a key's text parsed for its kind (parse_key)
 type DecideUnit = Callable[[str, str], db.Row | None]  # (kind, key text) -> the deciding junk_decision row, or None
@@ -50,6 +58,7 @@ class Decision(TypedDict):
     decider: str
     decided_at: str
     source: str | None
+    images: NotRequired[str | None]  # the candidate folder of a decision made from a candidate
 
 
 def series_key(series: db.Row) -> str:
@@ -126,7 +135,8 @@ def decisions_of(conn: db.Connection, keys: Iterable[str]) -> Callable[[str], "D
     """Return a lookup of series key -> its Decisions for these keys, read in 1 query (the global rows parsed once)."""
     wanted = sorted(set(keys))
     rows = conn.execute(
-        "SELECT * FROM junk_decision WHERE series_key = ANY(%s) ORDER BY id DESC", ([*wanted, GLOBAL],)
+        sql.SQL("SELECT * FROM junk_decision WHERE series_key = ANY(%s) AND {} ORDER BY id DESC").format(ACTIVE),
+        ([*wanted, GLOBAL],),
     ).fetchall()
     parsed = [(row, parse_key(row["kind"], row["key"])) for row in rows]
     cache = {k: Decisions.of_rows(k, [p for p in parsed if p[0]["series_key"] in (k, GLOBAL)]) for k in wanted}
@@ -141,9 +151,10 @@ class Decisions:
     """The decisions that apply to 1 series (its own and the global ones), in lookup order (in_lookup_order)."""
 
     def __init__(self, conn: db.Connection, key: str) -> None:
-        """Read the decisions of series key `key` and the global ones, each key parsed, in lookup order."""
+        """Read the active decisions of series key `key` and the global ones, each key parsed, in lookup order."""
         rows = conn.execute(
-            "SELECT * FROM junk_decision WHERE series_key IN (%s, %s) ORDER BY id DESC", (key, GLOBAL)
+            sql.SQL("SELECT * FROM junk_decision WHERE series_key IN (%s, %s) AND {} ORDER BY id DESC").format(ACTIVE),
+            (key, GLOBAL),
         ).fetchall()
         self._set(key, [(row, parse_key(row["kind"], row["key"])) for row in rows])
 
@@ -189,8 +200,10 @@ def near(
         return None
     best: tuple[db.Row, int, float] | None = None
     rows = conn.execute(
-        sql.SQL("""SELECT * FROM junk_decision WHERE verdict = 'junk' AND kind IN ({kinds})
-        ORDER BY decided_at, id""").format(kinds=sql.SQL(", ").join([sql.Placeholder()] * len(NEAR_KINDS))),
+        sql.SQL("""SELECT * FROM junk_decision WHERE verdict = 'junk' AND kind IN ({kinds}) AND {active}
+        ORDER BY decided_at, id""").format(
+            kinds=sql.SQL(", ").join([sql.Placeholder()] * len(NEAR_KINDS)), active=ACTIVE
+        ),
         NEAR_KINDS,
     )
     for row in rows:
@@ -208,44 +221,170 @@ def near(
     return best
 
 
-def upsert(conn: db.Connection, rows: Iterable[Decision]) -> dict[str, int]:
-    """Write decisions (dicts: series_key, kind, key, verdict, decider, decided_at, source) in the caller's transaction.
+def _check(r: Decision) -> None:
+    if r["kind"] not in KINDS or r["verdict"] not in ("junk", "keep") or r["decider"] not in DECIDERS:
+        msg = f"not a junk decision: {r}"
+        raise ValueError(msg)
+    if unsignable(r["kind"], r["key"]):
+        msg = f"a decision on an unsignable key (it would match any blank or flat rows): {r}"
+        raise ValueError(msg)
 
-    A new key is inserted. An existing row is replaced only when its decider is 'import' and the new one is a pipeline
-    decision or at least as new; a pipeline-made row ('claude', 'human') is never touched. ValueError for a row that is
-    no junk decision, or on an unsignable key. Returns {"inserted", "updated", "unchanged"} counts.
+
+def _insert(conn: db.Connection, r: Decision, act: int | None = None) -> int:
+    """Insert decision r as active, written by act (None: not by an act); return its id."""
+    return db.one_row(
+        conn,
+        """INSERT INTO junk_decision (series_key, kind, key, verdict, decider, decided_at, source, images, written_by)
+        VALUES (%(series_key)s, %(kind)s, %(key)s, %(verdict)s, %(decider)s, %(decided_at)s, %(source)s, %(images)s,
+            %(act)s) RETURNING id""",
+        {"images": None, **r, "act": act},
+    )[0]
+
+
+def _supersede(conn: db.Connection, old: db.Row, r: Decision) -> None:
+    """Write r in place of the active row old, which is kept as history superseded by it."""
+    conn.execute("UPDATE junk_decision SET superseded_by = id WHERE id = %s", (old["id"],))  # inactive first
+    new = _insert(conn, r)
+    conn.execute("UPDATE junk_decision SET superseded_by = %s WHERE id = %s", (new, old["id"]))
+
+
+def _newest(conn: db.Connection, series_key_: str, kind: str, key: str, where: sql.Composable) -> db.Row | None:
+    """Return the newest row on series key series_key_, kind and key that meets `where`."""
+    query = sql.SQL("""SELECT * FROM junk_decision WHERE series_key = %s AND kind = %s AND md5(key) = md5(%s)
+        AND {} ORDER BY id DESC LIMIT 1""").format(where)
+    return conn.execute(query, (series_key_, kind, key)).fetchone()
+
+
+def _on_key(conn: db.Connection, r: Decision, where: sql.Composable) -> db.Row | None:
+    return _newest(conn, r["series_key"], r["kind"], r["key"], where)
+
+
+def _keeps(old: db.Row, r: Decision) -> bool:
+    """Whether the row old on r's key stays as it is (SPEC "Junk decisions", import)."""
+    if old["superseded_by"] is not None:
+        return True  # an import's history row: the newest on the key is the import that superseded it
+    if r["decider"] != "import":
+        return old["decider"] != "import"  # a pipeline decision supersedes only an import
+    if old["decider"] != "import" or old["written_by"] is not None or old["retired_by"] is not None:
+        return True  # the pipeline's own, or a key an act wrote or retired
+    same = all(old[c] == r[c] for c in ("verdict", "decider", "decided_at", "source"))
+    return same or r["decided_at"] < old["decided_at"]
+
+
+def upsert(conn: db.Connection, rows: Iterable[Decision]) -> dict[str, int]:
+    """Write decisions (series key, kind, key, verdict, decider, time, source, images) in the caller's transaction.
+
+    By the new row's decider (SPEC "Junk decisions", import). An import: inserted on a key with no row; on a key whose
+    newest row is the pipeline's or an act's (written or retired by 1), unchanged; over an active import it is at least
+    as new as and not equal to, the old one superseded by it; else unchanged. A pipeline decision (claude, human):
+    inserted on a key with no active row (one an undone act left inactive included); over an active import, the import
+    superseded by it; over an active pipeline row, unchanged. ValueError for a row that is no junk decision, or on an
+    unsignable key. Returns {"inserted", "updated", "unchanged"} counts (updated: an older row superseded).
     """
     if not db.in_transaction(conn):
         msg = "upsert runs inside the caller's transaction"
         raise RuntimeError(msg)
     counts = {"inserted": 0, "updated": 0, "unchanged": 0}
     for r in rows:
-        if r["kind"] not in KINDS or r["verdict"] not in ("junk", "keep") or r["decider"] not in DECIDERS:
-            msg = f"not a junk decision: {r}"
-            raise ValueError(msg)
-        if unsignable(r["kind"], r["key"]):
-            msg = f"a decision on an unsignable key (it would match any blank or flat rows): {r}"
-            raise ValueError(msg)
-        old = conn.execute(
-            "SELECT * FROM junk_decision WHERE series_key = %s AND kind = %s AND key = %s",
-            (r["series_key"], r["kind"], r["key"]),
-        ).fetchone()
+        _check(r)
+        old = _on_key(conn, r, sql.SQL("TRUE") if r["decider"] == "import" else ACTIVE)
         if old is None:
-            conn.execute(
-                """INSERT INTO junk_decision (series_key, kind, key, verdict, decider, decided_at, source)
-                VALUES (%(series_key)s, %(kind)s, %(key)s, %(verdict)s, %(decider)s, %(decided_at)s, %(source)s)""",
-                r,
-            )
+            _insert(conn, r)
             counts["inserted"] += 1
-        elif old["decider"] == "import" and (r["decider"] != "import" or r["decided_at"] >= old["decided_at"]):
-            same = all(old[c] == r[c] for c in ("verdict", "decider", "decided_at", "source"))
-            if not same:
-                conn.execute(
-                    """UPDATE junk_decision SET verdict = %(verdict)s, decider = %(decider)s,
-                        decided_at = %(decided_at)s, source = %(source)s WHERE id = %(id)s""",
-                    {**r, "id": old["id"]},
-                )
-            counts["unchanged" if same else "updated"] += 1
-        else:
+        elif _keeps(old, r):
             counts["unchanged"] += 1
+        else:
+            _supersede(conn, old, r)
+            counts["updated"] += 1
     return counts
+
+
+def _log(conn: db.Connection, act: int, ids: Iterable[int], change: str) -> None:
+    db.executemany(
+        conn, "INSERT INTO junk_act_row (act, decision, change) VALUES (%s, %s, %s)", [(act, i, change) for i in ids]
+    )
+
+
+def new_act(conn: db.Connection, command: str, at: str, undoes: int | None = None) -> int:
+    """Record an act of junk redecide or junk undo in the caller's transaction; return its id."""
+    return db.one_row(
+        conn, "INSERT INTO junk_act (command, at, undoes) VALUES (%s, %s, %s) RETURNING id", (command, at, undoes)
+    )[0]
+
+
+def retire(conn: db.Connection, ids: Iterable[int], act: int) -> None:
+    """Retire active decisions by act, logged; ValueError for one that is not active."""
+    for i in ids:
+        done = conn.execute(
+            sql.SQL("UPDATE junk_decision SET retired_by = %s WHERE id = %s AND {}").format(ACTIVE), (act, i)
+        ).rowcount
+        if done != 1:
+            msg = f"decision {i} is not active: it cannot be retired"
+            raise ValueError(msg)
+        _log(conn, act, [i], "retired")
+
+
+def write(conn: db.Connection, rows: Iterable[Decision], act: int) -> list[int]:
+    """Insert decisions written by act, logged; return their ids. The caller has retired what they replace."""
+    ids: list[int] = []
+    for r in rows:
+        _check(r)
+        ids.append(_insert(conn, r, act))
+    _log(conn, act, ids, "wrote")
+    return ids
+
+
+def restore(conn: db.Connection, ids: Iterable[int], act: int) -> None:
+    """Make decisions an act retired active again, logged (the partial unique index refuses a key now taken)."""
+    for i in ids:
+        conn.execute("UPDATE junk_decision SET retired_by = NULL WHERE id = %s", (i,))
+        _log(conn, act, [i], "restored")
+
+
+def unknown_series(conn: db.Connection, keys: Sequence[str]) -> list[str]:
+    """Return the keys of keys that no series has as its rules key, sorted."""
+    known = {r[0] for r in conn.execute("SELECT rules_key FROM series WHERE rules_key = ANY(%s)", (list(keys),))}
+    return sorted(set(keys) - known)
+
+
+def get(conn: db.Connection, decision_id: int) -> db.Row | None:
+    """Return decision decision_id's row, any state, or None."""
+    return conn.execute("SELECT * FROM junk_decision WHERE id = %s", (decision_id,)).fetchone()
+
+
+def active_on(conn: db.Connection, series_key_: str, kind: str, key: str) -> db.Row | None:
+    """Return the active decision of series key series_key_ on kind and key, or None."""
+    return _newest(conn, series_key_, kind, key, ACTIVE)
+
+
+def act_rows(conn: db.Connection, act: int, change: str) -> list[int]:
+    """Return the decisions act changed by change (wrote, retired, restored), in id order."""
+    rows = conn.execute(
+        "SELECT decision FROM junk_act_row WHERE act = %s AND change = %s ORDER BY decision", (act, change)
+    )
+    return [r[0] for r in rows]
+
+
+def history(conn: db.Connection, series_key_: str | None) -> tuple[list[db.Row], dict[int, list[str]]]:
+    """Return decisions in id order, active and not: a series' and the global ones, or (None) every one.
+
+    With each decision's act log: "<change> <act>" entries, oldest act first.
+    """
+    if series_key_ is None:
+        rows = conn.execute("SELECT * FROM junk_decision ORDER BY id").fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM junk_decision WHERE series_key IN (%s, %s) ORDER BY id", (series_key_, GLOBAL)
+        ).fetchall()
+    return rows, acts_of(conn, [r["id"] for r in rows])
+
+
+def acts_of(conn: db.Connection, ids: Sequence[int]) -> dict[int, list[str]]:
+    """Return the act log of decisions ids: "<change> <act>" entries, oldest act first."""
+    acts: dict[int, list[str]] = {}
+    log = conn.execute(
+        "SELECT decision, act, change FROM junk_act_row WHERE decision = ANY(%s) ORDER BY act, change", (list(ids),)
+    )
+    for decision, act, change in log:
+        acts.setdefault(decision, []).append(f"{change} {act}")
+    return acts
