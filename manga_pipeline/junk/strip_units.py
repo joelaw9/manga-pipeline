@@ -431,11 +431,11 @@ def match_blocks[R](
 ) -> tuple[list[Matched[R]], list[LeftBlock]]:
     """Apply the stored decisions to the edge blocks; return (removed, left).
 
-    removed [{"start", "end", "where", "decision", "why": "match"}]; left: the edge blocks no junk decision removed,
-    each with its non-uniform pieces as "probes". approve(kind, sig text) -> the deciding junk row or None. A block
-    matching whole is removed; else its hard-join pieces are tried from the chapter edge inward and the first match is
-    removed, then its remainder (removed when it matches, else left as a block without probes, marked "rest": 1 cut per
-    block); else the block is left.
+    removed [{"start", "end", "where", "decision", "why": "match", "sig"}]; left: the edge blocks no junk decision
+    removed, each with its non-uniform pieces as "probes". approve(kind, sig text) -> the deciding junk row or None.
+    A block matching whole is removed; else its hard-join pieces are tried from the chapter edge inward and the
+    first match is removed, then its remainder (removed when it matches, else left as a block without probes, marked
+    "rest": 1 cut per block); else the block is left.
     """
     removed: list[Matched[R]]
     left: list[LeftBlock]

@@ -46,11 +46,11 @@ def _checked(conn: db.Connection, ids: Sequence[int], verdict: str, *, global_on
         raise Refused(msg)
     rows = _rows(conn, ids)
     for row in rows:
-        if row["verdict"] == verdict:
-            msg = f"junk decision {row['id']} is {verdict} already"
-            raise Refused(msg)
         if row["kind"] == "cut":
             msg = f"junk decision {row['id']} is a cut decision: it changes only by junk undo of the act that wrote it"
+            raise Refused(msg)
+        if row["verdict"] == verdict:
+            msg = f"junk decision {row['id']} is {verdict} already"
             raise Refused(msg)
         if global_only and row["series_key"] != store.GLOBAL:
             msg = f"junk decision {row['id']} is series {row['series_key']!r}'s: --series and --retire are for global"

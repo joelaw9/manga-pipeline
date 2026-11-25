@@ -8,6 +8,7 @@ Inputs: the download's measured pages (images.measure_pages), the extracted page
 """
 
 import json
+import math
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -298,8 +299,8 @@ class RoutedPlan(ChapterPlan):
 def check_edit(text: str) -> ChapterEdit:
     """Return the chapter_edit row's edit (JSON text) as a dict, checked.
 
-    Checked: exactly EDIT_KEYS with their types, indexes ints, no page dropped twice, ranges ({start, end, why}, 0 <=
-    start < end) and boxes of ints. Raises EditError naming what is wrong.
+    Checked: exactly EDIT_KEYS with their types, indexes ints, no page dropped twice, ranges ({start, end, why,
+    decision?, hash?}, 0 <= start < end) and boxes of ints. Raises EditError naming what is wrong.
     """
     try:
         edit = json.loads(text)
@@ -359,13 +360,21 @@ def _check_drops(drops: list[Json]) -> None:
 
 
 def _signature(x: Json) -> bool:
-    """Return whether x is a signature's text as images.sig_to_str writes it."""
+    """Return whether x is a unit's signature text: as images.sig_to_str writes it, a finite aspect > 0, signable."""
     if not isinstance(x, str):
         return False
     try:
-        return images.sig_to_str(images.sig_from_str(x)) == x
+        sig = images.sig_from_str(x)
     except ValueError:
         return False
+    tiles, aspect = sig
+    return (
+        images.sig_to_str(sig) == x
+        and all(0 <= t < 1 << 64 for t in tiles)
+        and math.isfinite(aspect)
+        and aspect > 0
+        and not images.unsignable(sig)
+    )
 
 
 def _check_strip_removed(ranges: list[Json]) -> None:

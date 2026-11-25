@@ -364,8 +364,8 @@ def test_a_chained_block_redecided_keep_has_no_chain_and_undo_brings_it_back(sit
 
 
 @budget(load="db")
-def test_redecide_refuses_a_cut_decision(site):
-    _cfg, conn = site
+def test_redecide_refuses_a_cut_decision(site, tmp_path, capsys):
+    cfg, conn = site
     cut: store.Decision = {
         "series_key": "S",
         "kind": "cut",
@@ -379,5 +379,8 @@ def test_redecide_refuses_a_cut_decision(site):
     }
     with db.transaction(conn):
         row = store.write(conn, [cut], store.new_act(conn, "test", AT))[0]
+    args = ["--config", str(config_file(tmp_path, cfg)), "junk", "redecide", str(row), "keep"]
+    assert cli.main(args) == 2, "a cut decision is refused"
+    assert "is a cut decision" in capsys.readouterr().err, "the refusal says why"
     with pytest.raises(review.Refused, match="is a cut decision"):
-        redecide.redecide(conn, [row], "keep", AT)
+        redecide.redecide(conn, [row], "junk", AT)  # named before "junk already"

@@ -109,7 +109,9 @@ def test_approved_junk_block_removed_unapproved_kept(tmp_path):
     tail = sc["blocks"][-1]  # strip < 2 x 6,000 px: every block is an edge block
     assert tail["where"] == "tail", tail
     assert (tail["start"], tail["end"]) in [(u["start"], u["end"]) for u in before["undecided"]], "offered undecided"
-    after = su.decide(sc, store(("block", tail["sig"], "junk", 9)))
+    tiles, aspect = images.sig_from_str(tail["sig"])
+    near = images.sig_to_str(((tiles[0] ^ 1, *tiles[1:]), aspect))  # the decision's key: 1 bit off the unit's sig
+    after = su.decide(sc, store(("block", near, "junk", 9)))
     assert [r["why"] for r in after["removed"]] == ["join", "match", "join"], after["removed"]
     assert after["removed"][-1]["end"] == im.height, "the blank run to the strip end goes"
     match = after["removed"][1]
@@ -465,6 +467,9 @@ def classes(bands, pieces, middle=()):
     tail pieces; pieces before the credit start are absent.
     """
     got = su.decide(*tail_chapter(bands, pieces, middle))
+    for r in got["removed"]:
+        named = ("decision" in r, "hash" in r)
+        assert named == ((True, True) if r["why"] in ("match", "piece") else (False, False)), r
     why = {(r["start"], r["end"]): r["why"] for r in got["removed"]}
     review = {(u["start"], u["end"]) for u in got["undecided"] if u["kind"] == "piece"}
     out = {}

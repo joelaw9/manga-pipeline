@@ -170,6 +170,20 @@ def jpeg_with_exif(im, exif):
             "strip_removed entries",
         ),
         ({**NO_EDIT, "strip_removed": [{"start": 1, "end": 2, "why": "match", "key": SIG}]}, "strip_removed entries"),
+        *[
+            (
+                {**NO_EDIT, "strip_removed": [{"start": 1, "end": 2, "why": "match", "decision": 9, "hash": h}]},
+                "entries",
+            )
+            for h in (
+                "-0f0f0f0f0f0f0f0|0.5",
+                "0f0f0f0f0f0f0f0f|0.0",
+                "0f0f0f0f0f0f0f0f|nan",
+                "0f0f0f0f0f0f0f0f|inf",
+                "0f0f0f0f0f0f0f0f|-0.5",
+                "0000000000000000|1.0",
+            )
+        ],
         ({**NO_EDIT, "strip_removed": [{"start": 5, "end": 5, "why": "match"}]}, "0 <= start < end"),
         ({**NO_EDIT, "strip_removed": [{"start": -1, "end": 5, "why": "match"}]}, "0 <= start < end"),
         ({**NO_EDIT, "blank": [{"page": 0, "box": [0, 0, 1, 1]}]}, "blank entries"),

@@ -244,6 +244,9 @@ def _check_chain(r: Decision) -> None:
     or none, no credit. Any other decision: neither (no global rows carry one: none are made).
     """
     chain, credit, scoped = r.get("chain"), r.get("credit", False), r["series_key"] != GLOBAL
+    if type(credit) is not bool:
+        msg = f"credit {credit!r}: not a bool: {r}"
+        raise ValueError(msg)
     if r["kind"] == "cut":
         if r["verdict"] != "junk" or not scoped or chain is None:
             msg = f"a cut decision is series-scoped, junk, and carries a chain: {r}"

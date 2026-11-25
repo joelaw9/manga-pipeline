@@ -57,6 +57,12 @@ def test_a_canonical_chain_parses_and_prints_back_the_same(stored):
         ({"above": [version(seg()), version(seg())]}, "repeats a version"),
         ({"left": [version(seg())]}, "keys are not 1 or 2 of"),
         ({}, "keys are not 1 or 2 of"),
+        ({"above": [version(seg(extra=1))]}, "not {kind: cut|keep"),
+        ({"above": [version(seg(exact=False), seg("keep"))]}, "exact is true or absent"),
+        ({"above": []}, "not a non-empty list of versions"),
+        ({"above": "x"}, "not a non-empty list of versions"),
+        ({"above": [version(seg(), src={"sha256": "ab" * 32})]}, "sha256: 64 lowercase hex"),
+        ({"above": [version(seg(), ref=[["S", "c"]])]}, "anchor start >= 0"),
     ],
 )
 def test_a_chain_breaking_the_format_is_refused(value, match):
@@ -70,6 +76,12 @@ def test_a_chain_not_in_canonical_text_or_not_json_is_refused():
         chains.parse(EDGE_CARD.replace(":", ": ", 1))
     with pytest.raises(ValueError, match="not JSON"):
         chains.parse("{")
+
+
+@budget(load="pure")
+def test_a_chain_that_is_no_object_is_refused():
+    with pytest.raises(ValueError, match="not an object"):
+        chains.parse("[]")
 
 
 @budget(load="pure")
@@ -113,6 +125,7 @@ def written(conn, row):
 def test_a_chained_block_and_a_cut_decision_are_stored_with_chain_and_credit(conn):
     block = written(conn, decision(chain=EDGE_CARD))
     cut = written(conn, decision(kind="cut", key=CUT_KEY, chain=CUT, credit=True))
+    written(conn, decision(kind="probe", chain=EDGE_CARD))  # a probe decision may carry a card too
     assert one(conn, "SELECT chain FROM junk_decision WHERE id = %s", (block,)) == EDGE_CARD
     assert one(conn, "SELECT credit FROM junk_decision WHERE id = %s", (cut,)) is True
     assert one(conn, "SELECT credit FROM junk_decision WHERE id = %s", (block,)) is False, "credit defaults to false"
@@ -142,6 +155,7 @@ def test_a_chained_block_and_a_cut_decision_are_stored_with_chain_and_credit(con
             "of 2 sides",
         ),
         (decision(credit=True), "credit on a block"),
+        (decision(kind="cut", key=CUT_KEY, chain=CUT, credit=1), "not a bool"),
         (decision(chain=EDGE_CARD, verdict="keep"), "no series block or probe junk"),
         (decision(chain=EDGE_CARD, series_key=store.GLOBAL), "no series block or probe junk"),
         (decision(chain=EDGE_CARD, kind="piece"), "no series block or probe junk"),
@@ -152,3 +166,28 @@ def test_a_decision_breaking_the_row_shapes_is_refused_and_nothing_is_written(co
     with pytest.raises(ValueError, match=match):
         written(conn, row)
     assert one(conn, "SELECT count(*) FROM junk_decision") == 0, "the act's transaction wrote nothing"
+
+
+@budget(load="db")
+def test_an_import_with_another_chain_or_credit_supersedes_the_same_import(conn):
+    """An import on a key: the same row is unchanged; a chain or credit that differs supersedes it (store._keeps)."""
+    other = chains.text({"below": [version(seg(), src=SRC), version(seg(), seg("keep", 0.3, OTHER), src=SRC)]})
+
+    def row(chain: str, *, credit: bool) -> store.Decision:
+        return {
+            "series_key": "S",
+            "kind": "cut",
+            "key": CUT_KEY,
+            "verdict": "junk",
+            "decider": "import",
+            "decided_at": AT,
+            "source": None,
+            "chain": chain,
+            "credit": credit,
+        }
+
+    with db.transaction(conn):
+        store.upsert(conn, [row(CUT, credit=False)])
+        assert store.upsert(conn, [row(CUT, credit=False)]) == {"inserted": 0, "updated": 0, "unchanged": 1}
+        assert store.upsert(conn, [row(CUT, credit=True)])["updated"] == 1, "credit differs"
+        assert store.upsert(conn, [row(other, credit=True)])["updated"] == 1, "chain differs"

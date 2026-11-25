@@ -223,10 +223,7 @@ def versions(chain: Chain) -> list[tuple[Literal["above", "below"], Version]]:
 def key_span(chain: Chain) -> str:
     """Return a cut decision's key: its first side's first version's first cut segment, as signature text tiles|h."""
     first = versions(chain)[0][1]
-    seg = next((s for s in first["segments"] if s["kind"] == "cut"), None)
-    if seg is None:
-        msg = "a cut chain whose first version holds no cut segment (no key span)"
-        raise ValueError(msg)
+    seg = next(s for s in first["segments"] if s["kind"] == "cut")  # check_cut: a cut chain's versions hold a cut
     return images.sig_to_str(images.sig_from_str(f"{seg['tiles']}|{seg['h']!r}"))
 
 
@@ -252,7 +249,8 @@ def check_cut(key: str, stored: str) -> Chain:
     if any(s["kind"] == "edge" for v in found for s in v["segments"]):
         msg = "an edge segment in a cut chain (a unit's chain only)"
         raise ValueError(msg)
-    if key != key_span(chain):
-        msg = f"cut key {key!r} is not the chain's key span {key_span(chain)!r}"
+    span = key_span(chain)
+    if key != span:
+        msg = f"cut key {key!r} is not the chain's key span {span!r}"
         raise ValueError(msg)
     return chain
