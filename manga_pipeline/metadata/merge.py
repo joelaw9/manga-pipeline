@@ -54,7 +54,8 @@ class SeriesFields:
     writers: tuple[str, ...]
     pencillers: tuple[str, ...]
     links: tuple[str, ...]  # series page URLs, 1 per source
-    kavita_ids: dict[str, int | None]  # {"aniListId", "malId", "mangaBakaId"}: ints, None when unknown
+    # {"aniListId", "malId", "mangaBakaId"}: ints, None when unknown; aniListId 0 when the AniList id has no record
+    kavita_ids: dict[str, int | None]
 
 
 def fields(records: SeriesRecords, agreed: Mapping[str, str], rules: tags.Rules) -> SeriesFields:

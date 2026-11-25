@@ -187,3 +187,21 @@ def test_mangaupdates_without_a_type_suffix_takes_every_comic_type():
     mu = clients.mangaupdates
     mu.results["Solo"] = [{"record": {"series_id": 2, "title": "Solo", "type": "Manhwa"}, "hit_title": "Solo"}]
     assert search.mangaupdates(mu, ["Solo"]) == "2", "no suffix: no type limit"
+
+
+@budget()
+def test_a_webtoon_suffix_beside_another_type_suffix_allows_both():
+    clients = fake_sources()
+    mu = clients.mangaupdates
+    mu.results["Foo (Webtoon)"] = [{"record": {"series_id": 1, "title": "Foo", "type": "Manga"}, "hit_title": "Foo"}]
+    names = search.variants(["Foo (Webtoon)", "Foo (Manga)"])
+    assert search.mangaupdates(mu, names) == "1", "Manga kept beside Manhwa and Manhua"
+
+
+@budget()
+def test_a_type_suffix_also_limits_mangabakas_title_search():
+    clients = fake_sources()
+    mb = clients.mangabaka
+    mb.results["Bastard"] = [{"id": 1, "title": "Bastard!!", "type": "manga"}]
+    assert search.mangabaka(mb, search.variants(["Bastard (Manhwa)"]), {}) is None, "the manga is not the manhwa"
+    assert search.mangabaka(mb, ["Bastard"], {}) == "1", "without a suffix: taken"

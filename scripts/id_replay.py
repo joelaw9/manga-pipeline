@@ -111,7 +111,11 @@ def replay_one(ctx: workflow.Context, series_id: int) -> Entry | None:
     if gathered is None:
         return None
     known = set(gathered.known)
-    described = {pair for m in gathered.manga_rows for pair in ids.description_ids(m["description"])}
+    given: dict[str, set[str]] = {}
+    for m in gathered.manga_rows:
+        for s, v in ids.description_ids(m["description"]):
+            given.setdefault(s, set()).add(v)
+    described = {(s, next(iter(vs))) for s, vs in given.items() if len(vs) == 1}  # only these are used
     found = [
         Found(source=s, id=v, route="description" if (s, v) in described else "title search")
         for s, o, v in sorted(known - stored)
@@ -135,13 +139,32 @@ def replay_one(ctx: workflow.Context, series_id: int) -> Entry | None:
         found=found,
         disagreement=gathered.disagreement,
         drift=drift,
-        missed_past_cap=sorted(s for s, cap in CAPS.items() if s not in agreed and len(lists[s]) > cap),
+        missed_past_cap=[] if gathered.disagreement else _missed_past_cap(agreed, lists),
         names=lists,
     )
 
 
-def links(ctx: workflow.Context, rules: tags.Rules) -> list[LinkChange]:
-    """Return part (b): per in-scope Kavita series with a completed check, the links and id the next write changes."""
+def _missed_past_cap(agreed: dict[str, str], lists: dict[str, list[str]]) -> list[str]:
+    """Return the sources still without an id whose title search ran over a list longer than its cap.
+
+    MangaDex searches only with a MangaUpdates id; MangaBaka's title search runs only without an AniList or
+    MangaUpdates id (counted when neither is agreed at the end: an id learnt after MangaBaka's turn hides a search
+    that ran, so this undercounts).
+    """
+    ran = {
+        "mangabaka": "anilist" not in agreed and "mangaupdates" not in agreed,
+        "mangaupdates": True,
+        "mangadex": "mangaupdates" in agreed,
+        "anilist": True,
+    }
+    return sorted(s for s, cap in CAPS.items() if s not in agreed and ran[s] and len(lists[s]) > cap)
+
+
+def links(ctx: workflow.Context, rules: tags.Rules, failed: Counter[str]) -> list[LinkChange]:
+    """Return part (b): per in-scope Kavita series with a completed check, the links and id the next write changes.
+
+    A series whose Kavita reply fails is counted in failed.
+    """
     conn = ctx.conn
     listed = {s["id"]: s for s in ctx.kavita.series_in_library(ctx.cfg["kavita"]["library_id"])}
     rows = conn.execute(
@@ -155,7 +178,11 @@ def links(ctx: workflow.Context, rules: tags.Rules) -> list[LinkChange]:
         if done % PROGRESS_EVERY == 0:
             sys.stderr.write(f"id replay (b): {done}/{len(rows)} series\n")
         fields = merge.stored(conn, row["id"], rules)
-        meta = ctx.kavita.metadata(row["kavita_series_id"])
+        try:
+            meta = ctx.kavita.metadata(row["kavita_series_id"])
+        except FAILURES as e:  # this series' Kavita reply: counted, the replay goes on
+            failed[f"(b) {type(e).__name__}"] += 1
+            continue
         held = [u.strip() for u in (meta.get("webLinks") or "").split(",") if u.strip()]
         removed = kavita_write.wrong_links(held, fields)
         cleared = fields.kavita_ids["aniListId"] == 0 and bool(listed[row["kavita_series_id"]].get("aniListId"))
@@ -173,7 +200,7 @@ def summary(entries: list[Entry], failed: Counter[str], changed: list[LinkChange
         "(a) series newly disagreeing": sum(e["disagreement"] is not None for e in entries),
         "(a) series with drift": sum(bool(e["drift"]) for e in entries),
         "(a) sources missed past a cap": dict(Counter(s for e in entries for s in e["missed_past_cap"])),
-        "(a) series not replayed (a service failed)": dict(failed),
+        "series not replayed (a service failed)": dict(failed),
         "(b) series whose links change": len(changed),
         "(b) links removed": sum(len(c["removed"]) for c in changed),
         "(b) aniListId set to 0": sum(c["anilist_id_0"] for c in changed),
@@ -195,7 +222,7 @@ def replay(ctx: workflow.Context) -> Report:
             continue
         if entry is not None:
             entries.append(entry)
-    changed = links(ctx, tags.load())
+    changed = links(ctx, tags.load(), failed)
     return Report(summary=summary(entries, failed, changed), series=entries, links=changed)
 
 

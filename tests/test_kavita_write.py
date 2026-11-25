@@ -520,3 +520,15 @@ def test_a_mangaupdates_link_to_another_id_than_the_persons_is_removed(world):
     links = meta(world, kavita_id)["webLinks"]
     assert "mangaupdates.com/series/4gtb07" in links, "the person's page added"
     assert "04gtb06" not in links, f"the link to {wrong} removed"
+
+
+@budget(load="db")
+def test_a_written_series_gaining_a_wrong_link_gets_only_the_removal(world):
+    kavita_id = checked(world)
+    world.run(export)
+    world.kavita.metadata_rows[kavita_id]["webLinks"] += ",https://mangabaka.org/99"
+    execute(world, "UPDATE series_check SET data_version = data_version + 1")  # due again
+    before = len(field_writes(world))
+    world.run(export)
+    assert field_writes(world)[before:] == [("metadata", kavita_id)], "1 metadata write, nothing else"
+    assert "mangabaka.org/99" not in meta(world, kavita_id)["webLinks"], "the link to another MangaBaka id removed"

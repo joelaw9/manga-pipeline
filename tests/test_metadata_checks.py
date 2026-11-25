@@ -717,6 +717,8 @@ def test_descriptions_giving_2_ids_of_a_source_give_none(world):
     kavita_id = world.kavita_series("Solo Leveling")
     described(world, "Solo Leveling", "https://anilist.co/manga/1")
     world.suwayomi.manga_rows[world.manga("Solo Leveling")]["description"] = "https://anilist.co/manga/2"
+    for al_id in ("1", "2"):  # both comics: only the 2-id rule keeps them out
+        world.sources.anilist.records[("media", al_id)] = {"id": int(al_id), "format": "MANGA"}
     world.run(intake)
     sid = series_id(world, kavita_id)
     assert world.rows("SELECT count(*) FROM suwayomi_manga WHERE series_id = %s", sid) == [(2,)], "both linked"
@@ -786,3 +788,16 @@ def test_gather_writes_nothing(world):
     assert gathered is not None
     assert gathered.records["mangabaka"] is not None, "the records are fetched"
     assert (world.rows(tables), world.suwayomi.writes) == (before, writes), "no database row and no Suwayomi write"
+
+
+@budget(load="db")
+def test_ids_that_already_disagree_stop_the_check_before_a_description_id_is_fetched(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.kavita.metadata_rows[kavita_id] = {"webLinks": "https://anilist.co/manga/1"}
+    manga = described(world, "Solo Leveling", f"https://mangadex.org/title/{MD}")
+    world.suwayomi.add_tracker(manga, 2, 2)
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    assert world.rows("SELECT status FROM series WHERE id = %s", sid) == [("needs_human",)]
+    assert world.sources.calls == [], "no source is asked, the description's either"
+    assert not [r for r in ids_of(world, sid) if r[0] == "mangadex"], "no description id stored"

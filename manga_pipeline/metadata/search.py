@@ -90,9 +90,12 @@ def lookup_names(series_names: Sequence[str], records: SeriesRecords) -> list[st
 
 
 def _type_hint(series_names: Iterable[str]) -> set[str]:
-    """Return the MangaUpdates types a name's `(Manhwa)`-style suffix allows; empty when no name has one."""
+    """Return the types (MangaUpdates' and MangaBaka's, case-folded) a name's `(Manhwa)`-style suffix allows.
+
+    Empty when no name has one; Webtoon allows Manhwa and Manhua.
+    """
     hints = {m[1].casefold() for n in series_names if (m := TYPE_SUFFIX.search(n))}
-    return {"manhwa", "manhua"} if "webtoon" in hints else hints
+    return hints - {"webtoon"} | ({"manhwa", "manhua"} if "webtoon" in hints else set())
 
 
 def _exactly_one[R](
@@ -150,12 +153,16 @@ def _mangabaka_by_ids(client: sources.MangaBaka, agreed: Mapping[str, str]) -> t
 def _mangabaka_by_title(client: sources.MangaBaka, series_names: Sequence[str]) -> str | None:
     """Return the 1 result whose title is a name, searched name by name.
 
-    Else the first name's top result when it is close and no other result is.
+    Else the first name's top result when it is close and no other result is. A name's `(Manhwa)`-style suffix keeps
+    only results of that type, as for MangaUpdates.
     """
     wanted = _wanted(series_names)
+    types = _type_hint(series_names)
     first: list[MangaBakaSeries] | None = None
     for name in series_names[:NAMES_TRIED]:
-        results = [r for r in client.search(name) if not _novel(r)]
+        results = [
+            r for r in client.search(name) if not _novel(r) and (not types or (r.get("type") or "").casefold() in types)
+        ]
         if first is None:
             first = results
         hit = _exactly_one(results, wanted, mangabaka_titles, lambda r: r["id"])

@@ -225,6 +225,7 @@ def gather(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> G
     known = stored + _origin_ids(manga_rows, kavita_ids)
     records = _empty_records()
     try:
+        _agreed(known)  # ids that already disagree stop the check before any source is asked
         _described(clients, series, known, manga_rows)
         _fetch(clients, records, series_names(series), known)
     except Disagree as e:
@@ -401,10 +402,10 @@ def _a_comic(clients: sources.Sources, source: str, value: str) -> bool:
     """Return whether the source holds a record of that id and it is not a novel's (MangaDex holds only comics)."""
     if source == "anilist":
         media = clients.anilist.media(value)
-        return media is not None and (media.get("format") or "").lower() != "novel"
+        return media is not None and not _novel(media, "format")
     if source == "mangaupdates":
         record = clients.mangaupdates.series(value)
-        return record is not None and (record.get("type") or "").lower() != "novel"
+        return record is not None and not _novel(record, "type")
     return clients.mangadex.manga(value) is not None
 
 
@@ -443,13 +444,13 @@ def _fetch(clients: sources.Sources, records: Records, names: list[str], known: 
 
 
 def _mangabaka(clients: sources.Sources, records: Records, known: list[ids.Known], mb_id: str) -> None:
-    if (mb := _comic(clients.mangabaka.series(mb_id), "type", "novel", mb_id)) is not None:
+    if (mb := _comic(clients.mangabaka.series(mb_id), "type", mb_id)) is not None:
         records["mangabaka"] = mb
         _learn(known, "mangabaka", ids.mangabaka_ids(mb))
 
 
 def _mangaupdates(clients: sources.Sources, records: Records, _known: list[ids.Known], mu_id: str) -> None:
-    records["mangaupdates"] = _comic(clients.mangaupdates.series(mu_id), "type", "novel", mu_id)
+    records["mangaupdates"] = _comic(clients.mangaupdates.series(mu_id), "type", mu_id)
 
 
 def _mangadex(clients: sources.Sources, records: Records, known: list[ids.Known], md_id: str) -> None:
@@ -461,7 +462,7 @@ def _mangadex(clients: sources.Sources, records: Records, known: list[ids.Known]
 
 
 def _anilist(clients: sources.Sources, records: Records, known: list[ids.Known], al_id: str) -> None:
-    if (al := _comic(clients.anilist.media(al_id), "format", "novel", al_id)) is not None:
+    if (al := _comic(clients.anilist.media(al_id), "format", al_id)) is not None:
         records["anilist"] = al
         _learn(known, "anilist", ids.anilist_ids(al))
 
@@ -493,14 +494,20 @@ def _learn(known: list[ids.Known], source: str, pairs: Iterable[ids.Pair]) -> No
     known.extend((s, source, v) for s, v in pairs if s != source)
 
 
+def _novel(record: MangaBakaSeries | MangaUpdatesSeries | AniListMedia, field: str) -> bool:
+    """Return whether a source's record is a novel's: its kind field (`type`, AniList's `format`) says novel."""
+    kind = record.get(field)
+    return isinstance(kind, str) and kind.lower() == "novel"
+
+
 def _comic[R: (MangaBakaSeries, MangaUpdatesSeries, AniListMedia)](
-    record: R | None, field: str, novel: str, source_id: str
+    record: R | None, field: str, source_id: str
 ) -> R | None:
     """Return the record, or None when it is a novel's (an id that led to a manga's light novel).
 
     The library is comics. A dropped record is logged; a person fixes the id with `series set-id`.
     """
-    if record is not None and (record.get(field) or "").lower() == novel:
+    if record is not None and _novel(record, field):
         log.warning("record %s is a novel's: not used (fix the series' id with `series set-id`)", source_id)
         return None
     return record
