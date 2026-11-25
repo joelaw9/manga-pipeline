@@ -23,6 +23,8 @@ from tests.convert_pages import NO_EDIT, Chapter, colour, gray, jpeg, png, webp
 from tests.fakes import convert as fake
 from tests.timing import budget
 
+SIG = "0f0f0f0f0f0f0f0f|0.5"  # a unit's signature text (a strip_removed hash)
+
 
 def calls(tool):
     return [args for name, args in fake.CALLS if name == tool]
@@ -154,6 +156,20 @@ def jpeg_with_exif(im, exif):
         ({**NO_EDIT, "strip_removed": [{"start": 1}]}, "strip_removed entries"),
         ({**NO_EDIT, "strip_removed": [{"start": 1, "end": 2}]}, "strip_removed entries"),
         ({**NO_EDIT, "strip_removed": [{"start": 1, "end": 2, "why": 3}]}, "strip_removed entries"),
+        (
+            {**NO_EDIT, "strip_removed": [{"start": 1, "end": 2, "why": "match", "decision": "9"}]},
+            "strip_removed entries",
+        ),
+        (
+            {**NO_EDIT, "strip_removed": [{"start": 1, "end": 2, "why": "match", "decision": True}]},
+            "strip_removed entries",
+        ),
+        ({**NO_EDIT, "strip_removed": [{"start": 1, "end": 2, "why": "match", "hash": SIG}]}, "strip_removed entries"),
+        (
+            {**NO_EDIT, "strip_removed": [{"start": 1, "end": 2, "why": "match", "decision": 9, "hash": "x"}]},
+            "strip_removed entries",
+        ),
+        ({**NO_EDIT, "strip_removed": [{"start": 1, "end": 2, "why": "match", "key": SIG}]}, "strip_removed entries"),
         ({**NO_EDIT, "strip_removed": [{"start": 5, "end": 5, "why": "match"}]}, "0 <= start < end"),
         ({**NO_EDIT, "strip_removed": [{"start": -1, "end": 5, "why": "match"}]}, "0 <= start < end"),
         ({**NO_EDIT, "blank": [{"page": 0, "box": [0, 0, 1, 1]}]}, "blank entries"),
@@ -432,7 +448,8 @@ def test_strip_chapter_restitches_and_keeps_a_cover_page_first(tmp_path):
 @budget(load="pool")
 def test_strip_removed_rows_are_cut_out(tmp_path):
     ch = Chapter(tmp_path, [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=i))) for i in range(1, 4)])
-    p = ch.plan({**NO_EDIT, "strip_removed": [{"start": 3900, "end": 4200, "why": "credits"}]}, layout="strip")
+    removed = [{"start": 3900, "end": 4200, "why": "match", "decision": 9, "hash": SIG}]  # a decision's range
+    p = ch.plan({**NO_EDIT, "strip_removed": removed}, layout="strip")
     assert present(p.edits["strip"])["kept"] == [(0, 3900)]
     assert present(p.edits["strip"])["cuts"][-1] == 3900
 

@@ -112,6 +112,9 @@ def test_approved_junk_block_removed_unapproved_kept(tmp_path):
     after = su.decide(sc, store(("block", tail["sig"], "junk", 9)))
     assert [r["why"] for r in after["removed"]] == ["join", "match", "join"], after["removed"]
     assert after["removed"][-1]["end"] == im.height, "the blank run to the strip end goes"
+    match = after["removed"][1]
+    assert (match.get("decision"), match.get("hash")) == (9, tail["sig"]), "a decision's range names it and the unit"
+    assert all("decision" not in r and "hash" not in r for r in after["removed"] if r["why"] == "join"), "rule ranges"
     assert (tail["start"], tail["end"]) not in [(u["start"], u["end"]) for u in after["undecided"]]
 
 
@@ -123,7 +126,7 @@ def test_approved_banner_cut_off_its_edge_block():
     """
     banner = sig_of(Image.open(BANNER).convert("RGB").crop((0, 0, 360, 166)))
     got = su.decide(su.scan(strip_of([BANNER])), store(("probe", banner, "junk", 3)))
-    assert got["removed"] == [{"start": 0, "end": 166, "why": "match"}], got["removed"]
+    assert got["removed"] == [{"start": 0, "end": 166, "why": "match", "decision": 3, "hash": banner}], got["removed"]
     assert [(u["kind"], u["start"], u["end"], u.get("probes")) for u in got["undecided"]] == [
         ("block", 166, 300, [])
     ], "the cover stays"
@@ -248,7 +251,8 @@ def test_match_blocks_cuts_at_the_first_join_whose_edge_piece_is_approved(where,
     """
     approve = approver(approved)
     removed, blocks = su.match_blocks([glued_block(where)], approve)
-    assert removed == [{"start": cut[0], "end": cut[1], "where": where, "decision": 7, "why": "match"}], removed
+    want = {"start": cut[0], "end": cut[1], "where": where, "decision": 7, "why": "match", "sig": approved}
+    assert removed == [want], removed
     assert [(b["start"], b["end"], b["where"], b["probes"], b.get("rest")) for b in blocks] == [
         (*left, where, [], True)
     ]
@@ -280,7 +284,7 @@ def test_match_blocks_without_an_approved_piece_cuts_nothing():
 def test_a_block_matching_whole_is_removed_why_match():
     blocks: list[su.EdgeBlock] = [{"start": 0, "end": 100, "where": "head", "sig": "a", "joins": []}]
     removed, left = su.match_blocks(blocks, lambda _kind, _sig: 4)
-    assert removed == [{"start": 0, "end": 100, "where": "head", "decision": 4, "why": "match"}]
+    assert removed == [{"start": 0, "end": 100, "where": "head", "decision": 4, "why": "match", "sig": "a"}]
     assert left == []
 
 
@@ -314,7 +318,7 @@ def test_a_block_decision_removes_the_magus_band_of_a_real_end_card(tmp_path):
     (band,) = [b for b in sc["blocks"] if b["start"] == start]
     assert (band["end"], band["where"]) == (st.height, "tail"), band
     got = su.decide(sc, store(("block", band["sig"], "junk", 298)))
-    assert {"start": start, "end": st.height, "why": "match"} in got["removed"], got["removed"]
+    assert {"start": start, "end": st.height, "why": "match", "decision": 298, "hash": band["sig"]} in got["removed"]
     assert [r["why"] for r in got["removed"]] == ["join", "match"], "the blank run above the band joins the strip end"
     assert got["undecided"], got["undecided"]
     assert all(u["end"] <= got["removed"][0]["start"] for u in got["undecided"]), got["undecided"]
@@ -333,7 +337,8 @@ def tsig(n):
 
 
 def removed_band(decision, where="tail") -> su.Removed:
-    return {"start": 0, "end": 0, "where": where, "decision": decision, "why": "match", "key": tsig(decision)}
+    key = tsig(decision)
+    return {"start": 0, "end": 0, "where": where, "decision": decision, "why": "match", "key": key, "sig": key}
 
 
 @budget(load="pure")
@@ -573,7 +578,8 @@ def test_a_piece_decision_removes_a_tail_piece():
         )
 
     junk = su.decide(sc, with_piece("junk"))
-    assert {"start": 1300, "end": 1500, "why": "piece"} in junk["removed"]
+    sig = sc["measured"]["1300:1500"]["sig"]
+    assert {"start": 1300, "end": 1500, "why": "piece", "decision": 8, "hash": sig} in junk["removed"], "named"
     assert junk["undecided"] == []
     keep = su.decide(sc, with_piece("keep"))
     assert all(r["why"] != "piece" for r in keep["removed"])
@@ -645,7 +651,7 @@ def scan_of(height, spans, gaps, width) -> su.StripScan:
 
 
 def band(start, end, decision: int | None = 1, where="tail", why="match") -> su.Drop:
-    return {"start": start, "end": end, "where": where, "decision": decision, "why": why}
+    return {"start": start, "end": end, "where": where, "decision": decision, "why": why, "sig": None}
 
 
 @budget(load="pure")
@@ -790,7 +796,7 @@ def test_kept_tail_pieces_keep_one_gutter_between_them_after_w1_drops_the_gap():
     g = su.gutter(1000)
 
     def drop(s, e) -> su.Drop:
-        return {"start": s, "end": e, "where": "tail", "decision": None, "why": "blank"}
+        return {"start": s, "end": e, "where": "tail", "decision": None, "why": "blank", "sig": None}
 
     removed = [band(18000, 18100), drop(18100, 18200), drop(18300, 18400), drop(18500, 19000), band(19000, 20000)]
     final = su.settle(lay, removed, g)
@@ -862,7 +868,15 @@ def test_a_key_the_series_knows_as_a_watermark_is_one_here_too():
 @budget(load="pure")
 def test_an_unsignable_middle_block_makes_no_watermark():
     flat, near_flat = images.sig_to_str(((0,), 1.0)), images.sig_to_str(((7,), 1.0))
-    band: su.Removed = {"start": 0, "end": 0, "where": "tail", "decision": 9, "why": "match", "key": near_flat}
+    band: su.Removed = {
+        "start": 0,
+        "end": 0,
+        "where": "tail",
+        "decision": 9,
+        "why": "match",
+        "key": near_flat,
+        "sig": near_flat,
+    }
     assert su.watermarks([band], [flat]) == set(), "a flat middle block matches nothing"
 
 

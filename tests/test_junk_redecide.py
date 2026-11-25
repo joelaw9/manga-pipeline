@@ -331,3 +331,53 @@ def test_row_says_when_no_images_are_kept_or_they_are_missing(site, tmp_path, ca
         conn.execute("UPDATE junk_decision SET images = 'gone-1' WHERE id = %s", (row,))
     assert cli.main(["--config", path, "junk", "row", str(row)]) == 0
     assert "images missing: gone-1" in capsys.readouterr().out, "a folder gone from the share is named"
+
+
+CARD = '{"above":[{"ref":[["S","c",0]],"segments":[{"kind":"edge"}],"src":null}]}'  # a held block row's card
+
+
+@budget(load="db")
+def test_a_chained_block_redecided_keep_has_no_chain_and_undo_brings_it_back(site):
+    _cfg, conn = site
+    with db.transaction(conn):
+        act = store.new_act(conn, "test", AT)
+        row = store.write(
+            conn,
+            [
+                {
+                    "series_key": "S",
+                    "kind": "block",
+                    "key": key(FAR[0]),
+                    "verdict": "junk",
+                    "decider": "import",
+                    "decided_at": AT,
+                    "source": None,
+                    "chain": CARD,
+                }
+            ],
+            act,
+        )[0]
+    keep = redecide.redecide(conn, [row], "keep", AT)
+    assert one(conn, "SELECT chain FROM junk_decision WHERE written_by = %s", (keep,)) is None, "a keep has no chain"
+    redecide.undo(conn, keep, AT)
+    assert one(conn, "SELECT chain FROM junk_decision WHERE id = %s AND retired_by IS NULL", (row,)) == CARD
+
+
+@budget(load="db")
+def test_redecide_refuses_a_cut_decision(site):
+    _cfg, conn = site
+    cut: store.Decision = {
+        "series_key": "S",
+        "kind": "cut",
+        "key": "c1d84387cf25a7a5|0.5",
+        "verdict": "junk",
+        "decider": "import",
+        "decided_at": AT,
+        "source": None,
+        "chain": '{"below":[{"ref":[["S","c",0]],"segments":[{"h":0.5,"kind":"cut","tiles":"c1d84387cf25a7a5"}],'
+        '"src":{"file":"a.cbz","sha256":"' + "ab" * 32 + '"}}]}',
+    }
+    with db.transaction(conn):
+        row = store.write(conn, [cut], store.new_act(conn, "test", AT))[0]
+    with pytest.raises(review.Refused, match="is a cut decision"):
+        redecide.redecide(conn, [row], "keep", AT)
