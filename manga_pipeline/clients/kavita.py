@@ -13,12 +13,15 @@ import urllib.parse
 from collections.abc import Iterable, Mapping
 from http import HTTPStatus
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 from manga_pipeline import config
 from manga_pipeline.clients import http
 from manga_pipeline.errors import Unreachable
-from manga_pipeline.replies.kavita import Library, Series, SeriesMetadata, Volume
+from manga_pipeline.replies.kavita import Collection, Library, Series, SeriesMetadata, Volume
+
+if TYPE_CHECKING:
+    from manga_pipeline.replies import Json
 
 log = logging.getLogger(__name__)
 PLUGIN = "manga-pipeline"
@@ -124,6 +127,22 @@ class Kavita:
             batch = self._call("POST", f"/api/Series/all-v2?PageNumber={page}&PageSize={PAGE_SIZE}", body).parse(
                 _series_page
             )
+            out += batch
+            if len(batch) < PAGE_SIZE:
+                return out
+            page += 1
+
+    def collections(self) -> list[Collection]:
+        """GET /api/Collection: the API key's user's collections, each with its id and title."""
+        return self._call("GET", "/api/Collection").parse(_collections)
+
+    def collection_series(self, collection_id: int) -> list[Series]:
+        """Return every series DTO of 1 collection (GET /api/Series/series-by-collection), page by page."""
+        out: list[Series] = []
+        page = 1
+        while True:
+            path = f"/api/Series/series-by-collection?collectionId={int(collection_id)}&PageNumber={page}"
+            batch = self._call("GET", f"{path}&PageSize={PAGE_SIZE}").parse(_series_page)
             out += batch
             if len(batch) < PAGE_SIZE:
                 return out
@@ -357,8 +376,25 @@ def _libraries(body: bytes) -> list[Library]:
 
 
 def _series_page(body: bytes) -> list[Series]:
-    """Read a page of POST /api/Series/all-v2's reply; unchecked."""
+    """Read a page of POST /api/Series/all-v2's or GET /api/Series/series-by-collection's reply; unchecked."""
     return jsonlib.loads(body)
+
+
+def _collections(body: bytes) -> list[Collection]:
+    """Read GET /api/Collection's reply: each item checked for an int id and a str title (ReplyError)."""
+    items: Json = jsonlib.loads(body)
+    if not isinstance(items, list):
+        msg = "GET /api/Collection: the reply is not a list"
+        raise ReplyError(msg)
+    out: list[Collection] = []
+    for item in items:
+        ident = item.get("id") if isinstance(item, Mapping) else None
+        title = item.get("title") if isinstance(item, Mapping) else None
+        if type(ident) is not int or not isinstance(title, str):  # bool is an int subclass: never an id
+            msg = f"GET /api/Collection: an item lacks an int id or a str title: {item!r}"
+            raise ReplyError(msg)
+        out.append({"id": ident, "title": title})
+    return out
 
 
 def _series(body: bytes) -> Series:

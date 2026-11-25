@@ -33,7 +33,6 @@ from manga_pipeline import (
 )
 from manga_pipeline.convert import record_reader
 from manga_pipeline.db import sql
-from manga_pipeline.metadata import covers
 
 SAME_CHAPTER = 0.15  # page count or strip length within this share: the same chapter (old duplicate_page_tolerance)
 NOT_WORSE = 0.95  # page width and bits per pixel at least this many times the published copy's: not worse
@@ -396,17 +395,10 @@ def original(ctx: workflow.Context, published: db.Row) -> Measures[float | None]
 def _take(ctx: workflow.Context, chapter: db.Row, published: db.Row) -> workflow.NeedsHuman | None:
     """Make the better copy name its file (its 1 open chapter) and take the file's volume cover.
 
-    The cover, when the file holds its own volume's: the series' stored image of that volume, else the old file's own
-    cover page; another volume's cover gives none. Returns None (the copy goes on), or NeedsHuman for a busy file.
+    The cover is the one the file holds (rewrite_covers.held_cover). Returns None (the copy goes on), or NeedsHuman for
+    a busy file.
     """
-    volume = rewrite_covers.cover_volume(published["cover_state"])  # an old image too: the copy takes the new one
-    if volume is not None and names.to_volume(volume) != names.to_volume(published["comicinfo_volume"]):
-        volume = None
-    if published["cover_state"] is None:  # not read yet (export reads it): the file's own cover page says
-        with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
-            if any(rewrite_covers.is_cover(n) for n in archive.archive_pages(z.namelist())):
-                volume = published["comicinfo_volume"] or ""
-    cover = None if volume is None else _cover(ctx, chapter["series_id"], published, volume)
+    cover = rewrite_covers.held_cover(ctx, published)
     with db.transaction(ctx.conn):
         workflow.holds_claim(ctx, chapter)
         free = ctx.conn.execute(
@@ -425,28 +417,6 @@ def _take(ctx: workflow.Context, chapter: db.Row, published: db.Row) -> workflow
         if cover is not None:
             ctx.conn.execute(
                 "INSERT INTO volume_cover (chapter_id, path, sha256, volume) VALUES (%s, %s, %s, %s)",
-                (chapter["id"], *cover, volume),
+                (chapter["id"], *cover),
             )
     return None
-
-
-def _cover(ctx: workflow.Context, series_id: int, published: db.Row, volume: str) -> tuple[str, str] | None:
-    """Return (path below paths.covers, sha256) of the cover the copy takes in place of its file's.
-
-    The series' stored image of that volume, else the file's own 000_cover page, stored content-addressed beside the
-    fetched ones.
-    """
-    v = names.to_volume(volume)
-    row = None
-    if v is not None and v == int(v):  # stored images are of whole volumes
-        row = ctx.conn.execute(
-            "SELECT path, sha256 FROM series_volume_cover WHERE series_id = %s AND volume = %s", (series_id, int(v))
-        ).fetchone()
-    if row is not None:
-        return row["path"], row["sha256"]
-    with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
-        page = next((n for n in archive.archive_pages(z.namelist()) if rewrite_covers.is_cover(n)), None)
-        if page is None:  # the record said it holds one; the file does not: the copy goes without
-            return None
-        data = z.read(page)
-    return covers.store_volume_image(ctx.cfg, data)

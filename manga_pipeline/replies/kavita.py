@@ -108,3 +108,10 @@ class Volume(TypedDict):
 
     id: int
     chapters: list[Chapter]
+
+
+class Collection(TypedDict):
+    """A collection of the API key's user (GET /api/Collection): its id and title."""
+
+    id: int
+    title: str

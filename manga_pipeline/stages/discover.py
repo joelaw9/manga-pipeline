@@ -5,17 +5,26 @@ drops an unnumbered notice or hiatus page (a numbered one is judged at junk: not
 chapter already had, and makes a chapter with no number, or a number with 2 readings (names.two_readings),
 needs_human. An archive it cannot read gets no digest and goes on to validate, which judges it. Finding the downloads
 is discovery.py's.
+
+An adopted file's conversion (it names its published file: SPEC "State") first gets its download, the link to its
+file (conversions.link), and is never put aside as a handled chapter: its pages are already published.
 """
 
-from manga_pipeline import archive, comicinfo, config, db, errors, handled, names, notices, workflow
+from manga_pipeline import archive, comicinfo, config, conversions, db, errors, handled, names, notices, workflow
 
 
 def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     """Settle the chapter's identity and digest from its download, or drop it or make it needs_human.
 
     Dropped: a gone download, an unnumbered notice, a download a handled chapter already had. Needs_human: no number,
-    or a number with 2 readings.
+    a number with 2 readings, or a conversion whose file is missing or cannot be linked.
     """
+    if chapter["published_file_id"] is not None and (why := conversions.link(ctx, chapter)):
+        return workflow.NeedsHuman(why)
+    return _settle(ctx, chapter)
+
+
+def _settle(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     download = config.to_local(ctx.cfg, chapter["download_path"])
     if not errors.exists(download):
         # Moved away after discovery listed it, or put aside by a run that crashed before its outcome.
@@ -29,7 +38,7 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     if item.number is None:
         return workflow.NeedsHuman(f"{download.name}: no chapter number in its name or its ComicInfo Number")
     chapter_number = float(item.number)
-    why = digest and handled.put_aside(ctx, chapter, digest)
+    why = digest and chapter["published_file_id"] is None and handled.put_aside(ctx, chapter, digest)
     if why:
         return workflow.Dropped(why)
     unclear = names.two_readings(item.number)

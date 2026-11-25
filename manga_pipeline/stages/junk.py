@@ -2,7 +2,9 @@
 
 First the put-aside check (the series' baseline, taken at validate, recorded what was handled), then the open-copy wait
 and the library-copy check's part that no junk changes (SPEC "Library copies"), then a numbered notice title's
-judgement (notices.py), then junk; the rest of the library-copy check runs once the junk is decided (_finished).
+judgement (notices.py), then junk; the rest of the library-copy check runs once the junk is decided (_finished). A
+chapter that names its published file (an adopted file's conversion, a better copy that took its file) skips the
+put-aside check and the notice judgement: its file's pages are already published.
 
 A chapter with no current scan is scanned (pages extracted to its scratch folder, measured, its units keyed, OCR on
 the strip units no decision covers, every content page's logo measured) and stays ready (Ready), so every ready junk
@@ -66,12 +68,13 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
 
         return workflow.Dropped(why, record=forget_scan)
     series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
-    why = handled.put_aside(ctx, chapter, chapter["content_digest"])
+    names_file = chapter["published_file_id"] is not None
+    why = not names_file and handled.put_aside(ctx, chapter, chapter["content_digest"])
     if why:
         return workflow.Dropped(why)
     if library_copy.earlier_copy(ctx.conn, chapter):
         return workflow.Waiting("open_copy")
-    outcome = library_copy.judge(ctx, chapter) or notices.judge(ctx, chapter)
+    outcome = library_copy.judge(ctx, chapter) or (None if names_file else notices.judge(ctx, chapter))
     if outcome:
         return outcome
     key = store.series_key(series)

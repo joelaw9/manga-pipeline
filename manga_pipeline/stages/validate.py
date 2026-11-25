@@ -27,6 +27,7 @@ from manga_pipeline import (
     names,
     page_store,
     redownload,
+    rewrite_covers,
     validation,
     volumes,
     workflow,
@@ -317,10 +318,14 @@ def _volume_cover(ctx: workflow.Context, chapter: db.Row, download: str) -> tupl
     """Return (path, sha256, volume) of the cover the chapter takes, else None.
 
     It takes one when it opens a covered volume and MangaDex has that volume's cover. A chapter that already has its
-    cover keeps it.
+    cover keeps it. A chapter that names its published file (an adopted file's conversion) takes the cover its file
+    holds (rewrite_covers.held_cover), and none is resolved.
     """
     if ctx.conn.execute("SELECT 1 FROM volume_cover WHERE chapter_id = %s", (chapter["id"],)).fetchone():
         return None
+    if chapter["published_file_id"] is not None:
+        file = db.one_row(ctx.conn, "SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],))
+        return rewrite_covers.held_cover(ctx, file)
     named = chapter_names.resolve(ctx, _series(ctx, chapter), {chapter["id"]: download}).get(chapter["id"])
     if named is None or (covered := named.covered_volume) is None:
         return None

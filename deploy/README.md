@@ -38,3 +38,37 @@ A command by hand runs from the checkout (the program is not packaged) with the 
 4. `state resume`. Timers and tasks stopped on purpose before the deploy (junk review, say) stay as they were.
 5. Each machine's next `process` checks the version (exit 4 before any work if it differs).
 6. Run `watch` by hand: it must exit 0 (a config or schema every command refuses is reported by nothing else); `status` shows no pause.
+
+## Front-load adopted files' conversions (backfill only)
+
+The drop-in `deploy/systemd/manga-pipeline-intake.service.d/queue-first.conf` runs `scripts/queue_first.py` before each `intake` run: it queues the conversions of the "Reading" collection's series, then of the series with an open download (SPEC "State"). Its failure is in the journal and never stops `intake` (`ExecStartPre=-`). `systemctl link` takes unit files only, so the drop-in is linked by hand.
+
+Install, at the backfill's start:
+
+```bash
+mkdir -p /etc/systemd/system/manga-pipeline-intake.service.d
+```
+
+```bash
+ln -s /opt/manga-pipeline/deploy/systemd/manga-pipeline-intake.service.d/queue-first.conf /etc/systemd/system/manga-pipeline-intake.service.d/queue-first.conf
+```
+
+```bash
+systemctl daemon-reload
+```
+
+Remove, once every file of those series is queued, or when the backfill ends:
+
+```bash
+rm /etc/systemd/system/manga-pipeline-intake.service.d/queue-first.conf
+```
+
+```bash
+systemctl daemon-reload
+```
+
+Run it once by hand (as a command by hand above):
+
+```bash
+( cd /opt/manga-pipeline && set -a && . /etc/manga-pipeline/pipeline.env && set +a && .venv/bin/python -m scripts.queue_first )
+```

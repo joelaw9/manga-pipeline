@@ -15,6 +15,7 @@ It models what the pipeline must cope with (local library `kavita-scanning.md`):
   kavita-scanning.md);
 - reading progress is written for the API key's user: save_progress, mark_read;
 - refresh_covers is recorded in writes (cover images are not modelled);
+- the API key's user's collections are collection_rows ({id: {"title", "series": [series ids]}});
 - with `refuse_key` set, every call is refused as the real client refuses a 401 from authenticate (`refused` set), and
   recorded in `refused_calls`.
 
@@ -56,6 +57,7 @@ class FakeKavita(kavita.Kavita):
         self._clock = 0  # Kavita's own clock: lastModifiedUtc values
         self.refuse_key = False
         self.refused_calls = []  # the calls refused while refuse_key was set
+        self.collection_rows = {}  # collection id: {"title": its title, "series": [its series ids]}
 
     # --- building state
 
@@ -79,6 +81,14 @@ class FakeKavita(kavita.Kavita):
     def series_in_library(self, library_id):
         self._asked("series_in_library")
         return copy.deepcopy([s for s in self.series_rows.values() if s["libraryId"] == library_id])
+
+    def collections(self):
+        self._asked("collections")
+        return [{"id": i, "title": c["title"]} for i, c in self.collection_rows.items()]
+
+    def collection_series(self, collection_id):
+        self._asked("collection_series")
+        return copy.deepcopy([self.series_rows[i] for i in self.collection_rows[collection_id]["series"]])
 
     def series(self, series_id):
         self._asked("series")

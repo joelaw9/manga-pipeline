@@ -23,6 +23,7 @@ from typing import NotRequired, TypedDict
 from PIL import Image
 
 from manga_pipeline import config, db, images, names, workflow
+from manga_pipeline.db import sql
 from manga_pipeline.junk import logo_units, ocr, page_units, store, strip_units
 
 log = logging.getLogger(__name__)
@@ -311,9 +312,18 @@ def is_open(conn: db.Connection, row: db.Row, decisions: Callable[[str], store.D
 
 
 def open_rows(conn: db.Connection) -> list[db.Row]:
-    """Return the open candidate rows, fewest reviews first."""
+    """Return the open candidate rows, fewest reviews first.
+
+    Among those, the candidates a waiting chapter that does not replace an adopted file shows first (SPEC "State"),
+    then the oldest.
+    """
     decisions = store.by_series(conn)
-    rows = conn.execute("SELECT * FROM junk_candidate ORDER BY reviews, id").fetchall()
+    rows = conn.execute(
+        sql.SQL("""SELECT k.* FROM junk_candidate k ORDER BY k.reviews, NOT EXISTS (
+            SELECT 1 FROM junk_scan js JOIN chapter c ON c.id = js.chapter_id
+            WHERE c.stage = 'junk' AND c.status != 'done' AND js.candidates::jsonb @> to_jsonb(k.id)
+                AND NOT {adopted}), k.id""").format(adopted=workflow.REPLACES_ADOPTED.format(c=sql.Identifier("c")))
+    ).fetchall()
     return [r for r in rows if is_open(conn, r, decisions)]
 
 

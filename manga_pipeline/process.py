@@ -1,8 +1,11 @@
 """Part process (SPEC "Parts"): junk, then convert, picking by priority after every chapter.
 
 A series' ready junk stage chapters are all scanned before any is decided, and all run before any of it converts
-(workflow.claim). First it removes what a killed run of it left: chapter scratch folders on this machine, and staged
-files no chapter names (SPEC "Conversion"). junk review cleans up the junk candidates (SPEC "Junk decisions").
+(workflow.claim), with 1 exception: a download does not wait for its series' adopted files' conversions to be scanned
+or decided, while those conversions wait for every ready junk-stage chapter of the series (SPEC "State"), and are
+picked after every other chapter. First it removes what a killed run of it left: chapter scratch folders on this
+machine, and staged files no chapter names (SPEC "Conversion"). junk review cleans up the junk candidates (SPEC "Junk
+decisions").
 """
 
 import logging

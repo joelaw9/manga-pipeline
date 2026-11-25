@@ -16,6 +16,7 @@ from typing import TypedDict
 
 from manga_pipeline import archive, config, db, images, names, workflow
 from manga_pipeline.convert import covers, plan, record_reader
+from manga_pipeline.metadata import covers as cover_images
 from manga_pipeline.stages import convert
 
 log = logging.getLogger(__name__)
@@ -114,6 +115,49 @@ def content_pages(pages: list[images.MeasuredPage]) -> list[images.MeasuredPage]
 
 
 # --- what a published file holds
+
+
+def held_cover(ctx: workflow.Context, published: db.Row) -> tuple[str, str, str] | None:
+    """Return (path below paths.covers, sha256, volume) of the volume cover a published file holds, else None.
+
+    What a chapter replacing the file takes in place of its cover (a better copy, an adopted file's conversion): the
+    file holds its own volume's cover (its cover_state, or with none read yet its own 000_cover page); the cover is the
+    series' stored image of that volume, else the file's own cover page. Another volume's cover gives none.
+    """
+    volume = cover_volume(published["cover_state"])  # an old image too: the replacement takes the new one
+    if volume is not None and names.to_volume(volume) != names.to_volume(published["comicinfo_volume"]):
+        volume = None
+    if published["cover_state"] is None:  # not read yet (export reads it): the file's own cover page says
+        with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
+            if any(is_cover(n) for n in archive.archive_pages(z.namelist())):
+                volume = published["comicinfo_volume"] or ""
+    if volume is None:
+        return None
+    cover = _held_image(ctx, published, volume)
+    return None if cover is None else (*cover, volume)
+
+
+def _held_image(ctx: workflow.Context, published: db.Row, volume: str) -> tuple[str, str] | None:
+    """Return (path below paths.covers, sha256) of the cover held_cover gives for a file holding volume's cover.
+
+    The series' stored image of that volume, else the file's own 000_cover page, stored content-addressed beside the
+    fetched ones.
+    """
+    v = names.to_volume(volume)
+    row = None
+    if v is not None and v == int(v):  # stored images are of whole volumes
+        row = ctx.conn.execute(
+            "SELECT path, sha256 FROM series_volume_cover WHERE series_id = %s AND volume = %s",
+            (published["series_id"], int(v)),
+        ).fetchone()
+    if row is not None:
+        return row["path"], row["sha256"]
+    with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
+        page = next((n for n in archive.archive_pages(z.namelist()) if is_cover(n)), None)
+        if page is None:  # the record said it holds one; the file does not: the replacement goes without
+            return None
+        data = z.read(page)
+    return cover_images.store_volume_image(ctx.cfg, data)
 
 
 def member_state(members: list[str], volume: str | None) -> str:
