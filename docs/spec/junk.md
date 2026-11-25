@@ -60,6 +60,8 @@ The bulk converter's decisions and sightings were imported once and stay in the 
 
 `junk undo ACT` reverses an act in 1 new act: the decisions it wrote are retired and the decisions it retired are active again, as they were; every change an act makes stays in its history, which `junk rows` shows. It refuses an unknown act, an act already undone, an undo, an act a decision of which a later act has since changed (naming it: undo that first), and an act whose retired decision's key now has another active decision.
 
+`junk backup DIR` writes the junk knowledge (the decisions, history included, the acts and their log, the sightings and the watermarks), each table with its column list, from 1 snapshot, into a new folder `junk-<UTC time>` in DIR. `junk restore DIR` writes a backup back, ids kept, into a database whose junk tables are all empty and have those columns, building the database when none is; it runs under the "nothing else is running" lock exclusive, before any part has run on a new database (a part's baseline would fill the decisions).
+
 ### The chapter edit
 
 A decided chapter's edit is 1 JSON object, read by convert. It always holds all 6 keys; a key that does not apply to the chapter's layout holds its empty value. Page indexes are integers: the download's pages in archive order (`archive.archive_pages`); a cover-named page is never in any of them.

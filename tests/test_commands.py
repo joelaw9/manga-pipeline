@@ -16,6 +16,7 @@ from psycopg import sql
 from manga_pipeline import cli, config, db, intake, preflight, process, status
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
+from manga_pipeline.junk import backup
 from manga_pipeline.metadata import sources
 
 from tests import pg
@@ -292,7 +293,7 @@ def test_a_command_with_locks_on_an_empty_database_exits_4_and_builds_nothing(tm
     cfg = site_cfg(tmp_path, built=False)
     assert main(tmp_path, cfg, *argv) == 4
     assert f"no database {cfg['database']['name']}" in capsys.readouterr().err, "an empty database is no database"
-    assert not db.built(cfg), "only state adopt builds a database"
+    assert not db.built(cfg), "only state adopt and junk restore build a database"
 
 
 @budget(load="db", seconds=3)  # a build from no schema
@@ -320,12 +321,28 @@ def test_junk_review_on_a_missing_database_exits_4_and_creates_none(tmp_path, mi
         ["junk", "row", "1"],
         ["junk", "redecide", "1", "keep"],
         ["junk", "undo", "1"],
+        ["junk", "backup", "backups"],
     ],
 )
 def test_junk_commands_on_a_missing_database_are_refused_and_create_none(tmp_path, missing, capsys, argv):
     assert main(tmp_path, missing, *argv) == 2
     assert "built yet" in capsys.readouterr().err
     assert not created(missing), "the junk commands build no database"
+
+
+@budget(load="db", seconds=5)  # a build from no database
+def test_junk_restore_creates_and_builds_a_database_that_is_not_there(tmp_path, missing):
+    folder = backup.backup(site_cfg(tmp_path / "a"), tmp_path / "backups")
+    assert main(tmp_path, missing, "junk", "restore", str(folder)) == 0
+    assert db.built(missing), "restore creates and builds the database it restores into"
+
+
+@budget(load="db")
+def test_junk_restore_while_a_part_runs_exits_3(tmp_path):
+    cfg = site_cfg(tmp_path)
+    folder = backup.backup(cfg, tmp_path / "backups")
+    with running(cfg, "process"):
+        assert main(tmp_path, cfg, "junk", "restore", str(folder)) == 3, "restore holds the idle lock exclusive"
 
 
 @budget(load="db")
