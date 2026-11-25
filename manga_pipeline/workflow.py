@@ -10,6 +10,7 @@ another, guarded so a row a person changed meanwhile keeps their change.
 import json
 import logging
 import os
+import re
 import socket
 from collections import Counter
 from collections.abc import Callable, Collection, Generator, Iterable, Mapping
@@ -63,6 +64,14 @@ RETRY_PAUSE = timedelta(minutes=5)
 NOT_PAUSED = sql.SQL("({c}.retry_after IS NULL OR {c}.retry_after <= %(now)s)")
 # A stored path holding a name Windows cannot use over the share (SPEC "Parts"): a Windows machine skips it.
 WINDOWS_UNUSABLE = r"""([<>:"|?*]|[. ](/|$))"""
+
+
+def unusable_here(stored: str) -> bool:
+    """Return whether this machine cannot open a stored path: on Windows, one WINDOWS_UNUSABLE matches.
+
+    The claim query tests the same in SQL (its `unusable` parameter).
+    """
+    return os.name == "nt" and re.search(WINDOWS_UNUSABLE, stored) is not None
 
 
 def owner(part: str) -> str:

@@ -6,13 +6,14 @@ export.retention_days is 0; `purge` deletes what is older than the period. Both 
 """
 
 import errno
+import glob
 import logging
 import os
 import time
 from pathlib import Path
 from typing import NoReturn
 
-from manga_pipeline import config, errors
+from manga_pipeline import archive, config, errors
 
 log = logging.getLogger(__name__)
 DAY = 86400
@@ -30,7 +31,7 @@ def put(cfg: config.Config, download: Path) -> None:
         download.unlink()
         log.info("retention: deleted %s", download)
         return
-    folder = config.abs_path(cfg["paths"]["retention"]) / download.parent.parent.name / download.parent.name
+    folder = _folder(cfg, download)
     folder.mkdir(parents=True, exist_ok=True)
     target, n = folder / download.name, 1
     while errors.exists(target):  # an earlier download of the same name is kept: this one is "<stem> (2)<suffix>", ...
@@ -39,6 +40,24 @@ def put(cfg: config.Config, download: Path) -> None:
     os.utime(download)  # the period runs from the move, not from the download; touched first, so a crash keeps it
     download.replace(target)
     log.info("retention: moved %s to %s", download, target)
+
+
+def find(cfg: config.Config, download: Path, content_digest: str) -> Path | None:
+    """Return the file put kept a download as: its name or a taken "<stem> (<n>)<suffix>" with this content digest.
+
+    None when no such file is kept (gone, purged, or an archive that cannot be read).
+    """
+    folder = _folder(cfg, download)
+    if not errors.exists(folder):
+        return None
+    taken = sorted(folder.glob(f"{glob.escape(download.stem)} (*){glob.escape(download.suffix)}"))
+    kept = (p for p in [folder / download.name, *taken] if errors.exists(p))
+    return next((p for p in kept if archive.digest_or_none(p) == content_digest), None)
+
+
+def _folder(cfg: config.Config, download: Path) -> Path:
+    """Return where put keeps a download: <paths.retention>/<source>/<title>/."""
+    return config.abs_path(cfg["paths"]["retention"]) / download.parent.parent.name / download.parent.name
 
 
 def put_library(cfg: config.Config, file: Path) -> None:

@@ -604,7 +604,7 @@ def junk_cut(cfg: config.Config, args: argparse.Namespace, conn: db.Connection |
         msg = f"junk cut takes 1 of --spans, --edge or ranges, got {', '.join(forms) or 'none'}"
         raise workflow.Refused(msg)
     if args.spans:
-        if args.record or args.credit or args.inside:
+        if args.record is not None or args.credit or args.inside:
             msg = "--spans draws sheets only: no --record, --credit or --inside"
             raise workflow.Refused(msg)
         _lines(cut.spans(cfg, args.spans, review_id))

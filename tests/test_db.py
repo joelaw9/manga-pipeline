@@ -753,3 +753,9 @@ def test_step_0061_refuses_a_download_past_discover_whose_identity_has_no_number
     cfg = built_to_0060(tmp_path, monkeypatch, [('["", null, "", null, "notice"]', "validate")])
     with pytest.raises(db.SchemaError, match="step 0061_chapter_number: 1 download"):
         db.connect(cfg).close()
+
+
+@budget(load="pure")
+def test_row_reads_as_a_query_row():
+    row = db.row(id=4, key="k")
+    assert (row["id"], row["KEY"], row[1], row.keys()) == (4, "k", "k", ["id", "key"]), "by name, any case, or position"

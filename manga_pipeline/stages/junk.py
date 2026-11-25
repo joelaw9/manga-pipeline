@@ -17,10 +17,8 @@ a candidate Claude was unsure of or past the review limit).
 
 import dataclasses
 import json
-import os
-import re
 import shutil
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 
 from PIL import Image
@@ -120,7 +118,11 @@ class Pages:
     def files(self) -> tuple[list[Path], list[str], list[strip.Size]]:
         """Return the extracted pages' (paths, names, sizes), in archive order, extracting them the first time."""
         if self._files is None:
-            paths, names, sizes, _ = extract(self._ctx, self._chapter, _scratch(self._ctx, self._chapter))
+            paths, names, sizes, _ = extract(
+                config.to_local(self._ctx.cfg, self._chapter["download_path"]),
+                page_store.load(self._ctx.conn, self._chapter["id"]),
+                _scratch(self._ctx, self._chapter),
+            )
             self._files = (paths, names, sizes)
         return self._files
 
@@ -132,11 +134,13 @@ class Pages:
 
 
 def extract(
-    ctx: workflow.Context, chapter: db.Row, work: Path
+    cbz: Path, known: Mapping[int, images.KnownPage], work: Path
 ) -> tuple[list[Path], list[str], list[strip.Size], list[images.MeasuredPage]]:
-    """Write the download's pages to `work` in archive order; return (paths, names, sizes, measurements)."""
-    cbz = config.to_local(ctx.cfg, chapter["download_path"])
-    measured = images.measure_pages(cbz, page_store.load(ctx.conn, chapter["id"]))
+    """Write a CBZ's pages to `work` in archive order; return (paths, names, sizes, measurements).
+
+    known: its page rows (page_store.load), so a page is measured only for what they lack.
+    """
+    measured = images.measure_pages(cbz, known)
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True)
@@ -201,7 +205,7 @@ def _sample(ctx: workflow.Context, chapter: db.Row, series: db.Row) -> list[list
         r
         for r in rows
         if r["download_path"]
-        and not (os.name == "nt" and re.search(workflow.WINDOWS_UNUSABLE, r["download_path"]))
+        and not workflow.unusable_here(r["download_path"])
         and (r["id"] == chapter["id"] or errors.exists(config.to_local(ctx.cfg, r["download_path"])))
     ]
     n, last = len(usable), strip.SAMPLE_CHAPTERS - 1
@@ -249,7 +253,8 @@ def scan(ctx: workflow.Context, chapter: db.Row, series: db.Row, key: str) -> wo
     """
     work = _scratch(ctx, chapter)
     try:
-        paths, names, sizes, measured = extract(ctx, chapter, work)
+        cbz = config.to_local(ctx.cfg, chapter["download_path"])
+        paths, names, sizes, measured = extract(cbz, page_store.load(ctx.conn, chapter["id"]), work)
         content = strip.content_indexes(names)
         try:
             layout = _layout(ctx, chapter, series, [paths[i] for i in content])

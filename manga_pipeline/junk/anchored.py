@@ -121,7 +121,10 @@ class Added(TypedDict):
 
 
 class Match(TypedDict):
-    """1 match: its decision, matched span (anchor to far edge), the ranges it added, side, anchor and unit."""
+    """1 match: its decision, matched span (anchor to far edge), the ranges it added, side, anchor, unit and region.
+
+    region: its seed's edge region, which the chained seed at its far edge takes.
+    """
 
     decision: int
     span: strip.Rows
@@ -129,6 +132,7 @@ class Match(TypedDict):
     side: Side
     anchor: int
     unit: strip.Rows | None
+    region: Region
 
 
 class Hole(TypedDict):
@@ -151,17 +155,13 @@ class Miss(TypedDict):
 
 
 class Anchored(TypedDict):
-    """What the matcher adds: ranges (sorted), the span of every match, the matches, the card holes, the misses.
-
-    seeds: every seed it tried, in the order taken, once each (junk cut anchors a proposal at them).
-    """
+    """What the matcher adds: ranges (sorted), the span of every match, the matches, the card holes, the misses."""
 
     added: list[Added]
     matched: list[strip.Rows]
     matches: list[Match]
     holes: list[Hole]
     misses: list[Miss]
-    seeds: list[Seed]
 
 
 # ---------------------------------------------------------------- rows
@@ -543,7 +543,6 @@ def anchored_ranges(view: View, removed: Iterable[Ranged], start: Iterable[Seed]
     holes: list[Hole] = []
     misses: list[Miss] = []
     matches: list[Match] = []
-    tried: list[Seed] = []
     done: set[tuple[Side, int]] = set()
     queue: list[Seed] = list(start)
     while queue:
@@ -554,7 +553,6 @@ def anchored_ranges(view: View, removed: Iterable[Ranged], start: Iterable[Seed]
             if (sd["side"], sd["pos"]) in done:
                 continue
             done.add((sd["side"], sd["pos"]))
-            tried.append(sd)
             got = _at_seed(view, sd, pool, taken, misses)
             if got is None:
                 continue
@@ -588,6 +586,7 @@ def anchored_ranges(view: View, removed: Iterable[Ranged], start: Iterable[Seed]
                     "side": sd["side"],
                     "anchor": sd["pos"],
                     "unit": e["unit"],
+                    "region": sd["region"],
                 }
             )
             if any(p.kind == "keep" for p in parts):
@@ -605,7 +604,6 @@ def anchored_ranges(view: View, removed: Iterable[Ranged], start: Iterable[Seed]
         "matches": matches,
         "holes": holes,
         "misses": misses,
-        "seeds": tried,
     }
 
 

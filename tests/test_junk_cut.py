@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import cli, config, db, process
+from manga_pipeline import cli, config, db, process, retention
 from manga_pipeline.junk import anchored, chains, cut, groups, ocr, review
 
 from tests.builders import config_file, present, run_part
@@ -198,6 +198,67 @@ def test_a_record_after_a_decision_or_a_watermark_is_stale(site, run, what):
     assert cuts(site) == [], "a stale record writes nothing"
 
 
+@budget(load="db", seconds=90)
+@pytest.mark.parametrize("what", ["rescanned", "new-scan", "download"])
+def test_a_record_after_a_scan_or_a_named_download_changes_is_stale(site, run, what):
+    chapter = real_head(site, 2)
+    other = real_head(site, 3)
+    _, out, _ = run("junk", "cut", *oracle(chapter))
+    if what == "new-scan":
+        real_head(site, 4)
+    else:
+        with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+            if what == "rescanned":
+                later = "2099-01-01T00:00:00+00:00"
+                conn.execute("UPDATE junk_scan SET scanned_at = %s WHERE chapter_id = %s", (later, other))
+            else:
+                conn.execute("UPDATE chapter SET content_digest = %s WHERE id = %s", ("b" * 64, chapter))
+    code, _, err = run("junk", "cut", *oracle(chapter), "--record", digest_of(out))
+    assert (code, "stale" in err) == (2, True), err
+    assert cuts(site) == []
+
+
+@budget(load="db", seconds=90)
+def test_the_checked_chapters_are_capped_and_each_not_checked_is_counted(site, run, monkeypatch):
+    named, _, newest, unscanned = (real_head(site, n) for n in (2, 3, 4, 5))
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (unscanned,))
+    ((stored,),) = site.rows("SELECT download_path FROM chapter WHERE id = %s", newest)
+    config.to_local(site.cfg, stored).unlink()
+    monkeypatch.setattr(cut, "CHECKED_RECENT", 1)
+    code, out, err = run("junk", "cut", *oracle(named))
+    assert code == 0, err
+    assert "3 not checked: 1 without a current scan, 1 without a usable download, 1 beyond the 1 most recent" in out
+    assert [ln for ln in out.splitlines() if ln.startswith("chapter ")] == [f"chapter {named}: taken"], out
+
+
+@budget(load="db", seconds=60)
+def test_a_checked_chapters_also_removed_rows_get_a_sheet(site, run):
+    named = real_head(site, 2)
+    other = real_head(site, 3)
+    code, out, err = run("junk", "cut", *oracle(named))
+    assert code == 0, err
+    assert f"also removes: chapter {other} rows" in out, out
+    also = [p for p in sheets_of(out) if p.name.startswith(f"also-{other}-")]
+    assert also, "every checked chapter's also removed rows are drawn"
+    assert all(p.is_file() for p in also)
+
+
+@budget(load="db", seconds=60)
+def test_inside_a_review_claude_decides_and_the_sheets_go_to_its_cut_folder(site, run, monkeypatch):
+    chapter = real_head(site)
+    monkeypatch.setenv(review.REVIEW_ID_VARIABLE, "r1")
+    code, out, err = run("junk", "cut", *oracle(chapter))
+    assert code == 0, err
+    assert all(p.parent == groups.folder(site.cfg, "r1-cut") for p in sheets_of(out)), out
+    assert run("junk", "cut", *oracle(chapter), "--record", digest_of(out))[0] == 0
+    assert site.rows("SELECT decider FROM junk_decision WHERE kind = 'cut'") == [("claude",)]
+    ((cid,),) = site.rows("SELECT id FROM junk_candidate")
+    for argv in (["--spans", str(cid)], ["--edge", str(cid), "below"]):
+        code, _, err = run("junk", "cut", *argv)
+        assert (code, "not listed by this review" in err) == (2, True), err
+
+
 @budget(load="db", seconds=60)
 def test_2_named_chapters_are_2_versions_of_1_cut(site, run):
     first = real_head(site, 2)
@@ -282,18 +343,18 @@ def test_a_named_chapter_without_pages_is_refused_and_with_its_retention_origina
     chapter = real_head(site)
     ((stored,),) = site.rows("SELECT download_path FROM chapter")
     download = config.to_local(site.cfg, stored)
-    kept = download.read_bytes()
-    download.unlink()
+    retention.put(site.cfg, download)  # kept the retention way, as export does after publishing
     with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
         conn.execute("DELETE FROM junk_scan")  # past junk: no current scan
-    code, _, err = run("junk", "cut", *oracle(chapter))
-    assert (code, f"no pages for chapter {chapter}" in err) == (2, True), err
-    retained = config.abs_path(site.cfg["paths"]["retention"]) / download.parent.parent.name / download.parent.name
-    retained.mkdir(parents=True)
-    (retained / download.name).write_bytes(kept)
     code, out, err = run("junk", "cut", *oracle(chapter))
     assert code == 0, err
     assert f"chapter {chapter}: taken" in out, "scanned again from its retention original (D8)"
+    assert run("junk", "cut", *oracle(chapter), "--record", digest_of(out))[0] == 0, "and recorded"
+    assert len(cuts(site)) == 1
+    for kept in config.abs_path(site.cfg["paths"]["retention"]).rglob("*.cbz"):
+        kept.unlink()
+    code, _, err = run("junk", "cut", f"{chapter}:{111612 - CROP}:{111630 - CROP}")
+    assert (code, f"no pages for chapter {chapter}" in err) == (2, True), err
 
 
 @budget(load="db", seconds=60)
@@ -311,6 +372,95 @@ def test_a_cut_anchors_at_the_far_edge_of_a_match_ending_in_a_keep(site, run):
 
 
 # ---------------------------------------------------------------- --inside and the interior anchor
+
+
+@budget(load="db", seconds=60)
+def test_a_lower_end_at_a_removed_seed_beats_an_upper_end_at_a_gap_seed(site, run):
+    # a recorded cut removes 232:250: its start is a removed seed above, where the line 157:178 (its upper end at a
+    # gap seed) ends its walk up; the removed seed (rank 0) beats the gap seed (rank 3)
+    chapter = real_head(site)
+    first = [f"{chapter}:232:250", f"{chapter}:258:277:keep"]
+    _, out, _ = run("junk", "cut", *first)
+    assert run("junk", "cut", *first, "--record", digest_of(out))[0] == 0
+    code, out, err = run("junk", "cut", f"{chapter}:157:178")
+    assert code == 0, err
+    assert "side above" in out, "the lower end's removed seed ranks before the upper end's gap seed"
+    assert "from the removed seed at row 232" in out, out
+
+
+@budget(load="db", seconds=60)
+def test_a_chained_seed_beats_a_gap_seed_for_the_same_range(site, run):
+    # a recorded cut [cut 232:250][keep 258:277] from the gap below 232 ends in a keep at 277; 285:304 starts 8 rows
+    # below it (no gap) and ends at a gap seed: the chained seed (rank 2) beats the gap seed (rank 3)
+    chapter = real_head(site)
+    first = [f"{chapter}:232:250", f"{chapter}:258:277:keep"]
+    _, out, _ = run("junk", "cut", *first)
+    assert run("junk", "cut", *first, "--record", digest_of(out))[0] == 0
+    code, out, err = run("junk", "cut", f"{chapter}:285:304")
+    assert code == 0, err
+    assert "side below" in out, out
+    assert "from the chained seed at row 277" in out, out
+
+
+@budget(load="db", seconds=60)
+def test_named_ends_that_snap_are_checked_as_snapped(site, run):
+    chapter = real_head(site)
+    keeps = [
+        f"{chapter}:{111830 - CROP - 3}:{111847 - CROP + 4}:keep",
+        f"{chapter}:{111751 - CROP}:{111787 - CROP}:keep",
+    ]
+    code, out, err = run("junk", "cut", *keeps, f"{chapter}:{111612 - CROP + 5}:{111684 - CROP - 6}")
+    assert code == 0, err
+    assert f"cut {111612 - CROP}:{111630 - CROP}" in out, "each end snapped to its span boundary"
+    assert f"chapter {chapter}: taken" in out, out
+
+
+@budget(load="db", seconds=60)
+def test_credit_is_the_rows_and_warns(site, run):
+    chapter = real_head(site)
+    code, out, err = run("junk", "cut", *oracle(chapter), "--credit")
+    assert code == 0, err
+    assert ", credit" in out, out
+    assert "warning: the cut acts in a tail region (or carries credit)" in out, out
+    run("junk", "cut", *oracle(chapter), "--credit", "--record", digest_of(out))
+    assert site.rows("SELECT credit FROM junk_decision WHERE kind = 'cut'") == [(True,)]
+
+
+@budget(load="db", seconds=60)
+def test_a_cut_naming_only_kept_ranges_or_a_chapter_without_readable_pages_is_refused(site, run):
+    chapter = real_head(site)
+    code, _, err = run("junk", "cut", f"{chapter}:100:200:keep")
+    assert (code, "at least 1 cut range" in err) == (2, True), err
+    ((stored, digest),) = site.rows("SELECT download_path, content_digest FROM chapter")
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE chapter SET content_digest = NULL")
+    code, _, err = run("junk", "cut", *oracle(chapter))
+    assert (code, "has no content digest" in err) == (2, True), err
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE chapter SET content_digest = %s", (digest,))
+    config.to_local(site.cfg, stored).write_bytes(b"not a zip")
+    code, _, err = run("junk", "cut", *oracle(chapter))
+    assert (code, "its pages cannot be read" in err) == (2, True), err
+
+
+@budget(load="db", seconds=30)
+@pytest.mark.parametrize(
+    ("argv", "why"),
+    [
+        ([], "takes 1 of --spans, --edge or ranges"),
+        (["1:0:10", "--spans", "1"], "takes 1 of --spans, --edge or ranges"),
+        (["--spans", "1", "--record", "abc"], "draws sheets only"),
+        (["--edge", "1", "below", "--credit"], "go with ranges"),
+        (["--edge", "x", "below"], "not ID above|below"),
+        (["--spans", "1", "middle"], "not ID or CHAPTER head|tail"),
+        (["1:10:5"], "START must be below END"),
+        (["1:a:5"], "not CHAPTER:START:END"),
+    ],
+    ids=["none", "2-forms", "spans-record", "edge-credit", "edge-id", "spans-region", "start-end", "not-a-range"],
+)
+def test_a_command_line_of_no_form_is_refused(run, argv, why):
+    code, _, err = run("junk", "cut", *argv)
+    assert (code, why in err) == (2, True), err
 
 
 @budget(load="db", seconds=60)
@@ -370,6 +520,9 @@ def test_an_unrelated_held_chapters_miss_does_not_block_a_cut(site, run):
         },
     )
     assert first, "panel a"
+    run_part(site.cfg, process)
+    ((reason,),) = site.rows("SELECT last_error FROM chapter WHERE id = %s", held)
+    assert "does not match" in reason, "precondition: the held chapter misses without the cut"
     code, out, err = run("junk", "cut", *oracle(chapter))
     assert code == 0, err
     assert f"chapter {held}: no cut" in out, "its card misses with and without the cut: no miss of this proposal"
@@ -477,6 +630,12 @@ def test_an_edge_side_writes_the_candidates_junk_decision_with_its_side_and_its_
     assert (kind, key, source, images, written) == ("block", e["sig"], f"candidate {cid}", folder, act), (
         "1 junk decision on the candidate, with its images, by the act"
     )
+    assert run("junk", "undo", str(act))[0] == 0
+    assert site.rows("SELECT retired_by IS NOT NULL FROM junk_decision WHERE id = %s", did) == [(True,)], (
+        "junk undo of the act retires the side's decision"
+    )
+    assert run("junk", "cut", "--edge", str(cid), "below", "--record", digest_of(out))[0] == 0
+    ((did, chain),) = site.rows("SELECT id, chain FROM junk_decision WHERE retired_by IS NULL")
     assert chains.parse(chain) == {
         "below": [{"segments": [{"kind": "edge"}], "ref": [("Long", str(chapter), 2900)], "src": None}]
     }
@@ -557,6 +716,10 @@ def test_spans_of_a_candidate_pick_a_waiting_chapter_and_its_sheets_stay_within_
     assert paths, out
     assert all(p.is_file() for p in paths)
     assert_within_bounds(paths)
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE junk_candidate SET key = 'ffffffffffffffff|0.5' WHERE id = %s", (cid,))
+    code, _, err = run("junk", "cut", "--spans", str(cid))
+    assert (code, "no unit of chapter" in err) == (2, True), err
     code, out, err = run("junk", "cut", "--spans", str(chapter), "tail")
     assert code == 0, err
     assert f"chapter {chapter}: tail rows" in out, out

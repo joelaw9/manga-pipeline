@@ -1,9 +1,11 @@
 """retention: removed downloads go through the retention folder and leave it after the period (SPEC "Publishing")."""
 
+import io
 import os
 import time
+import zipfile
 
-from manga_pipeline import config, retention
+from manga_pipeline import archive, config, retention
 
 from tests.builders import site_cfg
 from tests.timing import budget
@@ -71,3 +73,25 @@ def test_purge_deletes_only_files_past_the_period_and_their_emptied_folders(tmp_
     assert not (root / "Src (EN)" / "Old").exists(), "an emptied folder goes too"
     assert (root / "Src (EN)" / "New" / "ch1.cbz").exists(), "a file inside its period stays"
     assert root.exists(), "the retention folder itself stays"
+
+
+def page_cbz(page):
+    """Return a 1-page CBZ holding page (bytes)."""
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        z.writestr("001.png", page)
+    return data.getvalue()
+
+
+@budget(load="fs")
+def test_find_returns_the_kept_file_of_a_download_by_its_content_digest(tmp_path):
+    cfg = with_days(site_cfg(tmp_path), 7)
+    for page in (b"first", b"second"):
+        download = a_download(cfg)
+        download.write_bytes(page_cbz(page))
+        retention.put(cfg, download)
+    second = archive.pages_digest(config.abs_path(cfg["paths"]["retention"]) / "Src (EN)" / "Title" / "ch1 (2).cbz")
+    kept = retention.find(cfg, download, second)
+    assert kept is not None, "a download kept under a taken name is found by its pages"
+    assert kept.name == "ch1 (2).cbz", "a download kept under a taken name is found by its pages"
+    assert retention.find(cfg, download, "c" * 64) is None, "no kept file has those pages"

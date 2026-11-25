@@ -223,8 +223,8 @@ class StripDecision(TypedDict):
 
     The final removed ranges (after the join rule), the undecided units, why the removal is refused (None: it is not),
     the keys of the decisions that removed a watermark, the texts of the chains that should have matched and did
-    not (each holds the chapter for a person), and the seeds steps 2-3 and step 5 tried, in that order (junk cut
-    anchors a proposal at them).
+    not (each holds the chapter for a person), and the strip's seeds as it leaves it (seeds_left: where junk cut
+    anchors a proposal).
     """
 
     removed: list[plan.RemovedRange]
@@ -761,9 +761,8 @@ def _drop(a: an.Added) -> Drop:
     }
 
 
-def _no_match(seeds: list[an.Seed]) -> an.Anchored:
-    """Return what the matcher adds with nothing to try: nothing, the seeds it would have taken still listed."""
-    return {"added": [], "matched": [], "matches": [], "holes": [], "misses": [], "seeds": seeds}
+def _no_match() -> an.Anchored:
+    return {"added": [], "matched": [], "matches": [], "holes": [], "misses": []}
 
 
 def _anchor(
@@ -775,14 +774,13 @@ def _anchor(
     chain or cut decision to try with no render is an error.
     """
     pool = [*cuts, *an.unit_pool(removed)]
-    start = an.seeds(layout, removed, EDGE_PX)
     if not pool:
-        return None, _no_match(start)
+        return None, _no_match()
     if render is None:
         msg = "a chained or cut junk decision is tried, but decide was given no render of the strip"
         raise ValueError(msg)
     view = an.View(layout, an.span_sigs(render), an.extender(layout, render), EDGE_PX)
-    return view, an.anchored_ranges(view, removed, start, pool)
+    return view, an.anchored_ranges(view, removed, an.seeds(layout, removed, EDGE_PX), pool)
 
 
 def _tail_bands(
@@ -803,19 +801,26 @@ def _tail_bands(
 
 
 def _late_cuts(
-    layout: an.Layout,
-    view: an.View | None,
-    taken: Sequence[an.Ranged],
-    drops: Sequence[Drop],
-    cuts: Sequence[an.Entry],
+    view: an.View | None, taken: Sequence[an.Ranged], drops: Sequence[Drop], cuts: Sequence[an.Entry]
 ) -> an.Anchored:
     """Step 5: the cut decisions again, seeded only by the tail pass's drops (their edges in an edge region)."""
-    if not drops:
-        return _no_match([])
-    start = [s for s in an.seeds(layout, drops, EDGE_PX) if s["kind"] == "removed"]
-    if view is None or not cuts:
-        return _no_match(start)
+    if view is None or not drops or not cuts:
+        return _no_match()
+    start = [s for s in an.seeds(view.layout, drops, EDGE_PX) if s["kind"] == "removed"]
     return an.anchored_ranges(view, taken, start, cuts)
+
+
+def seeds_left(layout: an.Layout, ranges: Iterable[Range], matches: Iterable[an.Match]) -> list[an.Seed]:
+    """Return the seeds a decide leaves (the bulk converter's junk_cut._seed_list).
+
+    an.seeds over the removed ranges before the join rule (steps 1-5), then each match's far edge as a chained seed
+    (its side and its seed's region); a position seeded twice is listed twice.
+    """
+    out = an.seeds(layout, ranges, EDGE_PX)
+    for m in matches:
+        far = m["span"][1] if m["side"] == "below" else m["span"][0]
+        out.append({"side": m["side"], "pos": far, "region": m["region"], "kind": "chained", "units": []})
+    return out
 
 
 def miss_text(m: an.Miss) -> str:
@@ -870,7 +875,7 @@ def decide(
     measure = render if view is not None else None
     pieces = _measured_pieces(layout, taken + holes, bands[0][0], sc["measured"], measure) if bands else []
     tail = _tail_pass(pieces, bands, [r for r in taken if r not in bands] + holes, decide_unit)
-    late = _late_cuts(layout, view, [*ranged, *tail.drops], tail.drops, cut_entries)  # 5
+    late = _late_cuts(view, [*ranged, *tail.drops], tail.drops, cut_entries)  # 5
     late_ranges = [_drop(a) for a in late["added"]]
     late_rows = [(r["start"], r["end"]) for r in late_ranges]
     review = [p for p in tail.review if an.uncovered(p["start"], p["end"], late_rows)]  # wholly cut: withdrawn
@@ -889,5 +894,5 @@ def decide(
         "kept_problem": kept_problem(layout, final) if final else None,
         "watermarks": sorted({r["key"] for r in removed if r["decision"] in marks}),
         "misses": sorted({miss_text(m) for m in got["misses"] + late["misses"]}),
-        "seeds": got["seeds"] + late["seeds"],
+        "seeds": seeds_left(layout, everything, got["matches"] + late["matches"]),
     }

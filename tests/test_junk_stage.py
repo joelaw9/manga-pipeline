@@ -1018,9 +1018,9 @@ def counted_extracts(monkeypatch):
     calls = []
     real = junk_stage.extract
 
-    def counting(ctx, chapter, work):
-        calls.append(chapter["id"])
-        return real(ctx, chapter, work)
+    def counting(cbz, known, work):
+        calls.append(cbz)
+        return real(cbz, known, work)
 
     monkeypatch.setattr(junk_stage, "extract", counting)
     return calls

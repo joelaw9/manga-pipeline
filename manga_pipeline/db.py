@@ -123,6 +123,11 @@ def _row_class(keys: tuple[str, ...]) -> type[Row]:
     return type("Row", (Row,), {"__slots__": (), "_keys": keys})
 
 
+def row(**columns: object) -> Row:
+    """Return a Row of these columns and values, as a query returns one: a stored row's stand-in."""
+    return _row_class(tuple(columns))(columns.values())
+
+
 def _rows(cursor: psycopg.Cursor[Row]) -> RowMaker[Row]:
     return _row_class(tuple(c.name for c in cursor.description or ()))
 
