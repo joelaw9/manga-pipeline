@@ -24,6 +24,7 @@ dev = [
     "coverage>=7.10",  # [tool.coverage.run] patch = ["subprocess"]
     # Exact pins: select = ["ALL"] takes in every rule a new ruff release adds; upgrading is a deliberate change.
     "ruff==0.17.3",
+    # A bump compares [tool.basedpyright]'s second environment with the new version's strict set (its list mirrors 1.40.2's).
     "basedpyright==1.40.2",
     # Exact pins, as ruff's: a new release can add findings.
     "import-linter==2.16",
@@ -65,21 +66,66 @@ pythonVersion = "3.13"
 pythonPlatform = "Windows"  # CI's platform; CI and the merge hook also run --pythonplatform Linux (the LXC)
 include = ["manga_pipeline", "tests", "scripts"]
 
-# The program is held to the strict reports below (CLAUDE.md, Types); tests and scripts stay basic. The first root that
-# holds a file decides its rules; each environment needs extraPaths to import the package.
+# The program and scripts/ are held to strict mode's settings but 2 (CLAUDE.md, Types); tests stay basic. The first
+# root that holds a file decides its rules, so tests comes first and "." takes the rest; each environment needs
+# extraPaths to import the package. An environment cannot set typeCheckingMode, and a `strict` path cannot relax a
+# rule, so the second environment lists every setting basedpyright 1.40.2's strict mode changes from basic, less:
+# - reportUnnecessaryIsInstance (10 hits): 4 are the only type check of a config value config.load does not check
+#   (database.password and notify.discord_webhook, whose example is null; the items of series.only and
+#   paths.kavita_path_map, whose example is empty). Reopened by the next change to config._check, the Config types,
+#   metadata/importer.py's 2 readers or the stage-outcome guard in workflow.work.
+# - reportMissingTypeStubs (2 hits): onnxruntime ships no stubs. Reopened by the next change of the onnxruntime or
+#   basedpyright pin.
+# reportExplicitAny is basedpyright's own, not part of strict.
 [[tool.basedpyright.executionEnvironments]]
 root = "tests"
 extraPaths = ["."]
 
 [[tool.basedpyright.executionEnvironments]]
-root = "manga_pipeline"
+root = "."
 extraPaths = ["."]
+strictListInference = true
+strictSetInference = true
+strictDictionaryInference = true
+reportAssertAlwaysTrue = "error"
+reportConstantRedefinition = "error"
+reportDeprecated = "error"
+reportDuplicateImport = "error"
+reportFunctionMemberAccess = "error"
+reportIncompatibleMethodOverride = "error"
+reportIncompatibleVariableOverride = "error"
+reportIncompleteStub = "error"
+reportInconsistentConstructor = "error"
+reportInvalidStringEscapeSequence = "error"
+reportInvalidStubStatement = "error"
+reportInvalidTypeVarUse = "error"
+reportMatchNotExhaustive = "error"
+reportMissingParameterType = "error"
 reportMissingTypeArgument = "error"
-reportUnknownParameterType = "error"
+reportOverlappingOverload = "error"
+reportPossiblyUnboundVariable = "error"
+reportPrivateUsage = "error"
+reportSelfClsParameterName = "error"
+reportTypeCommentUsage = "error"
 reportUnknownArgumentType = "error"
-reportUnknownVariableType = "error"
-reportUnknownMemberType = "error"
 reportUnknownLambdaType = "error"
+reportUnknownMemberType = "error"
+reportUnknownParameterType = "error"
+reportUnknownVariableType = "error"
+reportUnnecessaryCast = "error"
+reportUnnecessaryComparison = "error"
+reportUnnecessaryContains = "error"
+reportUnsupportedDunderAll = "error"
+reportUntypedBaseClass = "error"
+reportUntypedClassDecorator = "error"
+reportUntypedFunctionDecorator = "error"
+reportUntypedNamedTuple = "error"
+reportUnusedClass = "error"
+reportUnusedExpression = "error"
+reportUnusedFunction = "error"
+reportUnusedImport = "error"
+reportUnusedVariable = "error"
+reportWildcardImportFromLibrary = "error"
 reportExplicitAny = "error"
 
 # Import rules (lint-imports --no-cache): each contract encodes a rule CLAUDE.md or SPEC states. A new contract or

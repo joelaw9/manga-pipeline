@@ -513,10 +513,12 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
     if copy:
         values = publish.row_values(conn, chapter)
         cover, shift = values["cover_state"], copy_shift(read, old_pages, new_pages)
+        pending_copy = json.dumps({"values": values, "digest": chapter["content_digest"]})
         workflow.holds_claim(ctx, chapter)
         retention.put(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]))
     else:
         cover, shift = converted["cover_state"] if converted else None, new_pages - old_pages
+        pending_copy = None
 
     def record(c: db.Connection) -> None:
         now = cover and rewrite_covers.current_state(c, chapter["id"], chapter["series_id"], cover)
@@ -540,7 +542,7 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
                 shift,
                 seen[0]["modified"],
                 copy or (bool(converted) and converted["cover_state"] != file["cover_state"]),  # a copy's page 1 is new
-                json.dumps({"values": values, "digest": chapter["content_digest"]}) if copy else None,
+                pending_copy,
                 chapter["comicinfo_title"],
                 _json(file["unedited"] if copy else chapter["naming_unedited"]),  # a copy keeps the file's edits
                 file["id"],

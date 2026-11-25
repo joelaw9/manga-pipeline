@@ -149,6 +149,7 @@ class Service:
             data = jsonlib.dumps(json).encode()
             headers["Content-Type"] = "application/json"
         failed: tuple[int, bytes] | None = None  # bound here: the checker cannot see the loop runs
+        problem = ""  # bound here for the same reason
         retries = len(waits)
         for attempt in range(retries + 1):
             self._wait_for_gap(self.min_gap if min_gap is None else min_gap)

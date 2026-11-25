@@ -579,31 +579,28 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("status", help="what is waiting, on what, and what needs a human")
     commands.add_parser("smoke", help="check Suwayomi and Kavita with reads only")
     commands.add_parser("watch", help="report stalled parts and downloads not taken, and send the queued reports")
-    _retry_command(commands)
-    _series_commands(commands)
-    _naming_commands(commands)
-    _rewrite_commands(commands)
-    _metadata_commands(commands)
-    _junk_commands(commands)
-    _chapter_commands(commands)
-    _source_commands(commands)
-    _state_commands(commands)
+    _retry_command(commands.add_parser("retry", help="make a needs_human chapter or series ready again"))
+    _series_commands(commands.add_parser("series", help="series identification"))
+    _naming_commands(commands.add_parser("naming", help="chapter naming"))
+    _rewrite_commands(commands.add_parser("rewrite", help="retroactive rewrites of published files"))
+    _metadata_commands(commands.add_parser("metadata", help="series metadata"))
+    _junk_commands(commands.add_parser("junk", help="junk decisions"))
+    _chapter_commands(commands.add_parser("chapter", help="settle a needs_human chapter"))
+    _source_commands(commands.add_parser("source", help="review a series' source, step by step"))
+    _state_commands(commands.add_parser("state", help="workflow state and share ownership"))
     return p
 
 
-def _retry_command(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
-    """Add the retry command to the subparsers."""
-    retry = commands.add_parser("retry", help="make a needs_human chapter or series ready again")
+def _retry_command(retry: argparse.ArgumentParser) -> None:
+    """Fill the retry command's parser."""
     target = retry.add_mutually_exclusive_group(required=True)
     target.add_argument("chapter", nargs="?", type=int, help="chapter id")
     target.add_argument("--series", type=int, metavar="ID", help="a series and its chapters")
 
 
-def _series_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
-    """Add the series commands to the subparsers."""
-    series = commands.add_parser("series", help="series identification").add_subparsers(
-        dest="series_command", required=True, metavar="ACTION"
-    )
+def _series_commands(command: argparse.ArgumentParser) -> None:
+    """Add the series command's actions to its parser."""
+    series = command.add_subparsers(dest="series_command", required=True, metavar="ACTION")
     set_id = series.add_parser("set-id", help="set a series' id for a metadata source by hand (wins over the rest)")
     set_id.add_argument("series_id", type=int, help="series id (as status shows it)")
     set_id.add_argument("source", help="anilist, mangaupdates, mangadex, mangabaka or myanimelist")
@@ -634,21 +631,17 @@ def _series_commands(commands: "argparse._SubParsersAction[argparse.ArgumentPars
     link.set_defaults(command="series link")
 
 
-def _naming_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
-    """Add the naming commands to the subparsers."""
-    naming = commands.add_parser("naming", help="chapter naming").add_subparsers(
-        dest="naming_command", required=True, metavar="ACTION"
-    )
+def _naming_commands(command: argparse.ArgumentParser) -> None:
+    """Add the naming command's actions to its parser."""
+    naming = command.add_subparsers(dest="naming_command", required=True, metavar="ACTION")
     diff = naming.add_parser("diff", help="list what retroactive updates would rewrite, and what they never apply")
     diff.add_argument("series_id", nargs="?", type=int, help="series id (default: every series in scope)")
     diff.set_defaults(command="naming diff")
 
 
-def _rewrite_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
-    """Add the rewrite commands to the subparsers."""
-    rewrites = commands.add_parser("rewrite", help="retroactive rewrites of published files").add_subparsers(
-        dest="rewrite_command", required=True, metavar="ACTION"
-    )
+def _rewrite_commands(command: argparse.ArgumentParser) -> None:
+    """Add the rewrite command's actions to its parser."""
+    rewrites = command.add_subparsers(dest="rewrite_command", required=True, metavar="ACTION")
     drop_rewrite = rewrites.add_parser("drop", help="give up a stuck rewrite before its rename (as status names it)")
     drop_rewrite.add_argument("file_id", type=int, help="published file id")
     drop_rewrite.set_defaults(command="rewrite drop")
@@ -657,11 +650,9 @@ def _rewrite_commands(commands: "argparse._SubParsersAction[argparse.ArgumentPar
     retry_rewrite.set_defaults(command="rewrite retry")
 
 
-def _metadata_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
-    """Add the metadata commands to the subparsers."""
-    metadata = commands.add_parser("metadata", help="series metadata").add_subparsers(
-        dest="metadata_command", required=True, metavar="ACTION"
-    )
+def _metadata_commands(command: argparse.ArgumentParser) -> None:
+    """Add the metadata command's actions to its parser."""
+    metadata = command.add_subparsers(dest="metadata_command", required=True, metavar="ACTION")
     import_metadata = metadata.add_parser("import", help="import the old metadata tool's ids, covers and overrides")
     import_metadata.add_argument("state_file", help="its .sync_state.json (only read)")
     import_metadata.add_argument("config_file", help="its config.yaml (only read)")
@@ -671,11 +662,9 @@ def _metadata_commands(commands: "argparse._SubParsersAction[argparse.ArgumentPa
     audit_.set_defaults(command="metadata audit")
 
 
-def _junk_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
-    """Add the junk commands to the subparsers."""
-    junk = commands.add_parser("junk", help="junk decisions").add_subparsers(
-        dest="junk_command", required=True, metavar="ACTION"
-    )
+def _junk_commands(command: argparse.ArgumentParser) -> None:
+    """Add the junk command's actions to its parser."""
+    junk = command.add_subparsers(dest="junk_command", required=True, metavar="ACTION")
     import_ = junk.add_parser("import", help="import decisions from a bulk-converter junk store or a pipeline database")
     source = import_.add_mutually_exclusive_group(required=True)
     source.add_argument("path", nargs="?", help="the bulk converter's junk.sqlite3 (only read)")
@@ -696,11 +685,9 @@ def _junk_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser
     )
 
 
-def _chapter_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
-    """Add the chapter commands to the subparsers."""
-    chapter = commands.add_parser("chapter", help="settle a needs_human chapter").add_subparsers(
-        dest="chapter_command", required=True, metavar="ACTION"
-    )
+def _chapter_commands(command: argparse.ArgumentParser) -> None:
+    """Add the chapter command's actions to its parser."""
+    chapter = command.add_subparsers(dest="chapter_command", required=True, metavar="ACTION")
     use = chapter.add_parser("use", help="re-download a needs_human chapter at validate from this Suwayomi chapter")
     use.add_argument("chapter", type=int, help="chapter id")
     use.add_argument("suwayomi_chapter", type=int, help="Suwayomi chapter id of the replacement")
@@ -710,11 +697,9 @@ def _chapter_commands(commands: "argparse._SubParsersAction[argparse.ArgumentPar
     drop.set_defaults(command="chapter drop")
 
 
-def _source_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
-    """Add the source review commands to the subparsers."""
-    source = commands.add_parser("source", help="review a series' source, step by step").add_subparsers(
-        dest="source_command", required=True, metavar="ACTION"
-    )
+def _source_commands(command: argparse.ArgumentParser) -> None:
+    """Add the source command's actions to its parser."""
+    source = command.add_subparsers(dest="source_command", required=True, metavar="ACTION")
     source.add_parser("survey", help="every series in scope by the triggers it crosses (reaches no service)")
     measure = source.add_parser("measure", help="a series' published files' measures and its linked manga")
     search = source.add_parser("search", help="search the ranked sources (or the named ones) for a series")
@@ -737,11 +722,9 @@ def _source_commands(commands: "argparse._SubParsersAction[argparse.ArgumentPars
         sub.set_defaults(command=f"source {name}")
 
 
-def _state_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None:
-    """Add the state commands to the subparsers."""
-    state = commands.add_parser("state", help="workflow state and share ownership").add_subparsers(
-        dest="state_command", required=True, metavar="ACTION"
-    )
+def _state_commands(command: argparse.ArgumentParser) -> None:
+    """Add the state command's actions to its parser."""
+    state = command.add_subparsers(dest="state_command", required=True, metavar="ACTION")
     reset = state.add_parser("reset", help="clear the workflow state and the staging and scratch folders")
     adopt_ = state.add_parser("adopt", help="make this database the owner of the share")
     version = state.add_parser("version", help="make this machine's program, settings, packages and tools the fleet's")
