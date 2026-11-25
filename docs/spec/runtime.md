@@ -19,6 +19,7 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `logging.keep_days` | rotated daily files kept |
 | `lock.enabled` | take the command's lock (default true); false lets runs overlap (shared: every machine the same) |
 | `preflight.min_free_mb` | free space (MiB) on `logging.dir`'s drive below which preflight warns; 0 skips the check |
+| `preflight.min_share_free_mb` | free space (MiB) on `paths.library`'s drive below which preflight warns; 0 skips the check |
 | `database.host` | the PostgreSQL server: a host name or address, or the folder of its local socket (a path starting with `/`, such as `/var/run/postgresql`) |
 | `database.port` | the server's port, 1 to 65535 |
 | `database.name` | the pipeline's database on that server |
@@ -82,6 +83,7 @@ After config, the run lock and logging, and before the work, the run checks its 
 | Check | Kind | Runs | Problem when |
 |---|---|---|---|
 | free disk space | soft | parts, reset, adopt, review, version, `source sample`, `source switch`, `replace`, `retire` | less than `preflight.min_free_mb` MiB free on `logging.dir`'s drive (0 skips the check; a negative value is itself the problem) |
+| share free space | soft | parts, `source switch`, `replace`, `retire` | less than `preflight.min_share_free_mb` MiB free on the drive of `paths.library` (measured at its nearest existing folder; 0 skips the check; a negative value is itself the problem) |
 | runtime version | hard | parts, reset, adopt, review, version, `source sample`, `source switch`, `replace`, `retire`, `watch` | Python older than 3.13 |
 | share ownership | hard | parts, reset, review, `source switch`, `replace`, `retire` | the owner file in `paths.staging` is missing, or holds another database's id (SPEC "State"), or the database's id cannot be read (the server cannot be reached) |
 | staging folder | hard | adopt | `paths.staging` is not an existing folder |

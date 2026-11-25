@@ -102,9 +102,9 @@ class CannedService(http.Service):
         self.options = []  # (timeout, retry_timeout) per request
 
     def request(  # noqa: PLR0913  # mirrors the real Service.request signature
-        self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True, retries=None, min_gap=None
+        self, method, url, *, headers=None, json=None, timeout=60, retry_timeout=True, waits=None, min_gap=None
     ):
-        del retries, min_gap  # the real request's parameters, passed by keyword; the fake does not retry or wait
+        del waits, min_gap  # the real request's parameters, passed by keyword; the fake does not retry or wait
         if self._down is not None:
             raise Unreachable(self.name, self._down)
         parts = urllib.parse.urlsplit(url)

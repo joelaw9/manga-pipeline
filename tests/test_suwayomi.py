@@ -19,13 +19,13 @@ from manga_pipeline.clients import http, suwayomi
 from manga_pipeline.errors import Unreachable
 
 from tests.builders import present
-from tests.fakes.http import CannedService, Clock, Each, Reply, Urlopen
+from tests.fakes.http import CannedService, Clock, Each, Reply, Urlopen, http_error
 from tests.timing import budget
 
 FIXTURES = Path(__file__).with_name("fixtures_api")
 GRAPHQL = "/api/graphql"
 PATH_ERROR = {"errors": [{"message": "No route to host", "path": ["fetchSourceManga"]}], "data": None}
-PING = {"data": {"__typename": "Query"}}
+PING = {"data": {"mangas": {"totalCount": 758}}}  # the ping reads the library size
 MANGA = {"id": 9, "title": "T", "status": "ONGOING", "url": "/t", "inLibrary": False, "sourceId": "7", "source": None}
 CHAPTER = {"id": 90, "mangaId": 9, "name": "Ch.1", "scanlator": None, "chapterNumber": 1.0, "sourceOrder": 1}
 
@@ -38,6 +38,13 @@ def client(*answers):
     """Return a client answered by `answers`, 1 per request in order."""
     service = CannedService("suwayomi", {GRAPHQL: Each(answers)})
     return suwayomi.Suwayomi("http://suwayomi.invalid/", service), service
+
+
+def scripted_500s(monkeypatch, count):
+    """Answer the next `count` requests with HTTP 500; return the Urlopen."""
+    urlopen = Urlopen(*[http_error(500) for _ in range(count)])
+    monkeypatch.setattr(http.urllib.request, "urlopen", urlopen)
+    return urlopen
 
 
 def sent_query(service, index=-1):
@@ -74,7 +81,7 @@ def test_a_timed_out_query_is_sent_again(monkeypatch):
     monkeypatch.setattr(http.urllib.request, "urlopen", urlopen)
     assert suwayomi.Suwayomi("http://suwayomi.invalid").library_size() == 758, "SPEC 'Services': a timeout is retried"
     assert len(urlopen.requests) == 2
-    assert clock.sleeps == [2]
+    assert clock.sleeps == [10], "SPEC 'Services': Suwayomi's own calls wait 10, 20, 60, 180, 300 s"
     assert urlopen.requests[0].full_url == "http://suwayomi.invalid/api/graphql"
 
 
@@ -320,7 +327,7 @@ def test_a_page_that_times_out_while_suwayomi_answers_means_the_source_is_unavai
     service = CannedService("suwayomi", {"/api/v1/": timeout, GRAPHQL: PING})
     with pytest.raises(suwayomi.SourceUnavailableError, match="timed out"):
         suwayomi.Suwayomi("http://suwayomi.invalid", service).page("/api/v1/manga/9/chapter/3/page/0")
-    assert sent_query(service)[0] == "{ __typename }", "SPEC 'Services': Suwayomi is asked a trivial query"
+    assert "totalCount" in sent_query(service)[0], "SPEC 'Services': Suwayomi is asked a query reading its database"
 
 
 @budget(load="pure")
@@ -354,7 +361,7 @@ def test_a_source_call_that_times_out_while_suwayomi_answers_means_the_source_is
     s, service = client(http.HttpTimeoutError("POST http://suwayomi.invalid/api/graphql timed out after 120 s"), PING)
     with pytest.raises(suwayomi.SourceUnavailableError, match="timed out"):
         s.search_source("7", "T")
-    assert sent_query(service)[0] == "{ __typename }", "SPEC 'Services': Suwayomi is asked a trivial query"
+    assert "totalCount" in sent_query(service)[0], "SPEC 'Services': Suwayomi is asked a query reading its database"
     assert service.options[-1] == (60, True), "the ping is retried like any request"
 
 
@@ -364,6 +371,55 @@ def test_a_source_call_that_times_out_while_suwayomi_does_not_answer_is_unreacha
     with pytest.raises(Unreachable) as e:
         s.fetch_manga_and_chapters(9)
     assert e.value.service == "suwayomi"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    "ping",
+    [
+        {"errors": [{"message": "Connection is not available, request timed out after 45000ms", "path": ["mangas"]}]},
+        http.HttpError(500, "http://suwayomi.invalid/api/graphql", b"Internal Server Error"),
+    ],
+)
+def test_a_source_call_that_times_out_while_the_ping_fails_is_unreachable(ping):
+    s, service = client(http.HttpTimeoutError("timed out"), ping)
+    with pytest.raises(Unreachable) as e:
+        s.chapter_pages(90)
+    assert e.value.service == "suwayomi", "SPEC 'Services': a ping answered with an error is Suwayomi unreachable"
+    with pytest.raises(Unreachable):
+        s.library_size()
+    assert len(service.sent) == 2, "Suwayomi found unreachable is asked nothing more in the run"
+
+
+@budget(load="pure")
+def test_suwayomi_waits_through_a_starved_pool_then_is_unreachable(monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(http, "time", clock)
+    monkeypatch.setattr(http.urllib.request, "urlopen", Urlopen(*[TimeoutError("timed out")] * 6))
+    with pytest.raises(Unreachable):
+        suwayomi.Suwayomi("http://suwayomi.invalid").library_size()
+    assert clock.sleeps == [10, 20, 60, 180, 300], "SPEC 'Services': Suwayomi's own calls wait 9.5 minutes"
+
+
+@budget(load="pure")
+def test_a_source_call_keeps_the_ordinary_waits(monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(http, "time", clock)
+    urlopen = scripted_500s(monkeypatch, 5)
+    with pytest.raises(suwayomi.SourceUnavailableError):
+        suwayomi.Suwayomi("http://suwayomi.invalid").page("/api/v1/manga/9/chapter/3/page/0")
+    assert len(urlopen.requests) == 5
+    assert clock.sleeps == list(http.WAITS), "SPEC 'Services': a call reaching a source keeps the 4 waits"
+
+
+@budget(load="pure")
+def test_a_thumbnail_is_sent_once(monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(http, "time", clock)
+    urlopen = scripted_500s(monkeypatch, 1)
+    assert suwayomi.Suwayomi("http://suwayomi.invalid").thumbnail(9) is None, "a 500 thumbnail is none"
+    assert len(urlopen.requests) == 1, "a thumbnail is sent once"
+    assert clock.sleeps == []
 
 
 @budget(load="pure")

@@ -63,9 +63,13 @@ class Adopted(TypedDict):
 def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     """Validate the chapter's download, or step its re-download state machine (chapter.redownload) on.
 
-    The series' prerequisites wait first. A sound download is done; another defect is needs_human; a bad one is
+    A download renamed away is dropped first (handled.renamed); then the series' prerequisites wait. A sound download
+    is done; another defect is needs_human; a bad one is
     rejected, removed and the next download queued, and a re-download's candidate is judged when it arrives.
     """
+    why = handled.renamed(ctx.cfg, ctx.conn, chapter)
+    if why:
+        return workflow.Dropped(why)
     waits = _prerequisites(ctx, chapter)
     if waits is not None:
         return waits

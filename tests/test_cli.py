@@ -44,7 +44,7 @@ ARGV = {
 }
 PARTS = ("intake", "process", "export", "junk-review")
 LOCKED = ["runtime version", "free disk space", "folder layout", "share folders"]
-PART_CHECKS = [*LOCKED, "workflow settings", "share ownership", "fleet version"]
+PART_CHECKS = [*LOCKED, "share free space", "workflow settings", "share ownership", "fleet version"]
 # SPEC "Run lock", "Logging", "Preflight": (locks held, log file, checks run) per command. "idle": the idle lock held
 # (shared or exclusive); "idle exclusive": held exclusive.
 SPEC = {

@@ -9,7 +9,7 @@ from manga_pipeline.clients import http
 
 SHOWN_URL = "discord webhook"
 TIMEOUT = 10  # seconds; a send holds export's lock, so a silent Discord costs at most 2 of these
-RETRIES = 1
+WAITS = (2,)  # 1 retry, after 2 seconds
 MIN_GAP = 1.0  # seconds between posts: under Discord's per-webhook limit
 USER_AGENT = "manga_pipeline"
 NO_MENTIONS: dict[str, list[str]] = {"parse": []}  # a name holding @everyone pings no one
@@ -36,7 +36,7 @@ class Discord:
             self.url,
             json={"content": text, "allowed_mentions": NO_MENTIONS, "flags": SUPPRESS_EMBEDS},
             timeout=TIMEOUT,
-            retries=RETRIES,
+            waits=WAITS,
         )
 
 

@@ -3,12 +3,14 @@
 import errno
 from pathlib import Path
 
-# A share path failing with these is the share being unreachable, not the chapter failing.
-SHARE_ERRNOS = {errno.EIO, errno.ESTALE, errno.ETIMEDOUT}
+# A share path failing with these is the share being unreachable, not the chapter failing; a full disk (ENOSPC) is
+# classed with them: no chapter can be worked until space is freed, whichever disk it is.
+SHARE_ERRNOS = {errno.EIO, errno.ESTALE, errno.ETIMEDOUT, errno.ENOSPC}
 # On Windows an SMB share's failures carry their cause in winerror: the network path or name is gone or no longer
 # answers (53 bad net path, 59 unexpected network error, 64 net name deleted, 67 bad net name, 121 semaphore timeout,
-# 1231 network unreachable).
-SHARE_WINERRORS = {53, 59, 64, 67, 121, 1231}
+# 1231 network unreachable); 39 is a full disk (ERROR_HANDLE_DISK_FULL, whose errno is EINVAL, not ENOSPC; 112,
+# ERROR_DISK_FULL, has errno ENOSPC).
+SHARE_WINERRORS = {39, 53, 59, 64, 67, 121, 1231}
 
 
 class Unreachable(Exception):  # noqa: N818  # a signal, not an error (PEP 8: the Error suffix is for errors)
@@ -28,7 +30,8 @@ class Unreachable(Exception):  # noqa: N818  # a signal, not an error (PEP 8: th
 def dropped_share(error: BaseException) -> bool:
     """Return whether a FileNotFoundError is a dropped SMB share, not a missing file.
 
-    Windows reports both as ENOENT.
+    Windows reports both as ENOENT; a SHARE_WINERRORS winerror tells them apart (39, a full disk, never comes with
+    ENOENT).
     """
     return getattr(error, "winerror", None) in SHARE_WINERRORS
 

@@ -401,10 +401,10 @@ def series_with_ready(ctx: Context, stages: Iterable[str]) -> list[int]:
 def work(ctx: Context, chapter: db.Row, stage: Stage) -> OUTCOMES | ClaimLost | Unreachable:
     """Run stage(ctx, chapter) on a claimed chapter, record its outcome and log it.
 
-    Any exception from the stage is Failed, except Unreachable (and an OSError with a SHARE_ERRNOS errno, which is
-    Unreachable("share")): that leaves the chapter ready with its attempts unchanged, and the chapter's stage is not
-    claimed again in this run. Returns the outcome (the Unreachable for that case). An outcome dropped because a person
-    changed the row meanwhile is neither logged as an outcome nor counted.
+    Any exception from the stage is Failed, except Unreachable (and a share error, a full disk included, which is
+    Unreachable("share"): share_errors): that leaves the chapter ready with its attempts unchanged, and the chapter's
+    stage is not claimed again in this run. Returns the outcome (the Unreachable for that case). An outcome dropped
+    because a person changed the row meanwhile is neither logged as an outcome nor counted.
     """
     if db.in_transaction(ctx.conn):
         msg = "a stage must run with no transaction open"
@@ -1026,16 +1026,17 @@ SHARE = "share"  # the service an Unreachable of the share names
 
 @contextmanager
 def share_errors() -> Iterator[None]:
-    """Turn a share error into Unreachable("share"); other errors pass unchanged.
+    """Turn a share error into Unreachable("share", the error's text); other errors pass unchanged.
 
-    A share error is an OSError with a SHARE_ERRNOS errno, or on Windows a SHARE_WINERRORS winerror.
+    A share error is an OSError with a SHARE_ERRNOS errno, or on Windows a SHARE_WINERRORS winerror (a full disk is
+    one).
     """
     try:
         yield
     except OSError as e:
         if e.errno not in SHARE_ERRNOS and getattr(e, "winerror", None) not in SHARE_WINERRORS:
             raise
-        raise Unreachable(SHARE) from e
+        raise Unreachable(SHARE, str(e)) from e
 
 
 def _params(ctx: Context, **extra: object) -> dict[str, object]:

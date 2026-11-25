@@ -10,6 +10,7 @@ lock:
 
 preflight:
   min_free_mb: 500   # warn when logging.dir's drive has less free space (MiB); 0 skips the check
+  min_share_free_mb: 47684   # warn when paths.library's drive has less free space (MiB; 47684 = 50e9 bytes); 0 skips the check
 
 database:
   host: "/var/run/postgresql"   # PostgreSQL server: host name or address, or its local socket folder (a path from /)

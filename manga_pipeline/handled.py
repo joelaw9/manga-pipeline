@@ -5,11 +5,47 @@ download whose pages a handled chapter of its series already had is put aside, n
 discover stage and by the junk stage once the series' baseline exists.
 """
 
+import os
+import re
+from pathlib import PurePosixPath
 from typing import Literal
 
-from manga_pipeline import config, db, retention, workflow
+from manga_pipeline import config, db, errors, retention, validation, workflow
 
 type Outcome = Literal["published", "rejected", "duplicate", "dropped"]
+
+
+def renamed(cfg: config.Config, conn: db.Connection, chapter: db.Row) -> str | None:
+    """Return why a download chapter's download was renamed away (SPEC "Bad downloads"), else None.
+
+    Renamed away: its download is gone, and another chapter of its series that is not done has the same chapter key,
+    the same content digest and its download in place (Suwayomi renamed the file; that chapter is the new one). A
+    chapter being re-downloaded, naming a published file, or with no digest is never renamed away.
+    """
+    if (
+        chapter["kind"] != "download"
+        or chapter["published_file_id"] is not None
+        or chapter["redownload"] is not None
+        or not chapter["content_digest"]
+        or errors.exists(config.to_local(cfg, chapter["download_path"]))
+    ):
+        return None
+    key = validation.chapter_key(chapter["identity"])
+    for twin in conn.execute(
+        """SELECT id, identity, download_path FROM chapter
+        WHERE series_id = %s AND id <> %s AND status <> 'done' AND kind = 'download' AND content_digest = %s
+            AND download_path IS NOT NULL
+        ORDER BY id""",
+        (chapter["series_id"], chapter["id"], chapter["content_digest"]),
+    ):
+        if validation.chapter_key(twin["identity"]) != key:
+            continue
+        if os.name == "nt" and re.search(workflow.WINDOWS_UNUSABLE, twin["download_path"]):
+            continue  # a path Windows cannot open: not checked here (stages/junk.py does the same)
+        if errors.exists(config.to_local(cfg, twin["download_path"])):
+            name = PurePosixPath(twin["download_path"]).name
+            return f"download renamed: chapter {twin['id']} has its pages at {name}"
+    return None
 
 
 def put_aside(ctx: workflow.Context, chapter: db.Row, digest: str) -> str | None:
