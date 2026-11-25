@@ -163,12 +163,12 @@ def test_unsure_makes_the_chapter_needs_human_until_decided_and_retried(site):
     site.parts()
     (cand,) = open_candidates(site)
     with closing(db.connect(site.cfg)) as conn:
-        review.decide(conn, cand["id"], "unsure", None, workflow.now(conn))
+        review.decide(conn, [cand["id"]], "unsure", None, workflow.now(conn))
         assert review.listing(conn, site.cfg) == [], "an unsure candidate is never listed to Claude again"
     run_part(site.cfg, process)
     assert site.chapters() == [("junk", "needs_human", None)], "unsure: a person decides"
     with closing(db.connect(site.cfg)) as conn:
-        review.decide(conn, cand["id"], "keep", None, workflow.now(conn))
+        review.decide(conn, [cand["id"]], "keep", None, workflow.now(conn))
         workflow.retry_chapter(conn, site.rows("SELECT id FROM chapter")[0][0])
     run_part(site.cfg, process)
     assert site.chapters()[0][0] != "junk", "decided and retried, the chapter goes on"
@@ -449,7 +449,7 @@ def decide_kinds(cfg, verdicts):
     with closing(db.connect(cfg)) as conn:
         rows = review.listing(conn, cfg, everything=True)
         for r in rows:
-            review.decide(conn, r["id"], verdicts[r["kind"]], None, workflow.now(conn))
+            review.decide(conn, [r["id"]], verdicts[r["kind"]], None, workflow.now(conn))
     return sorted(r["kind"] for r in rows)
 
 
@@ -634,7 +634,7 @@ def test_an_edge_page_decided_junk_frees_its_chapter_though_its_band_is_unsure(s
     with closing(db.connect(site.cfg)) as conn:
         for c in got:
             verdict = "unsure" if c["kind"] == "band" else "junk"
-            review.decide(conn, c["id"], verdict, None, workflow.now(conn))
+            review.decide(conn, [c["id"]], verdict, None, workflow.now(conn))
     run_part(site.cfg, process)
     assert site.chapters()[0][0] != "junk", "the page is dropped, so its band holds nothing: no person is asked"
     (edit,) = edits(site)
@@ -860,7 +860,7 @@ def test_a_layout_change_keeps_a_needs_human_chapters_candidate_open_until_decid
     site.parts()
     (cand,) = open_candidates(site)
     with closing(db.connect(site.cfg)) as conn:
-        review.decide(conn, cand["id"], "unsure", None, workflow.now(conn))
+        review.decide(conn, [cand["id"]], "unsure", None, workflow.now(conn))
     run_part(site.cfg, process)
     assert site.chapters() == [("junk", "needs_human", None)], "unsure: a person decides"
     set_override_layout(site, "Alpha", "strip")
@@ -869,7 +869,7 @@ def test_a_layout_change_keeps_a_needs_human_chapters_candidate_open_until_decid
     assert site.chapters()[0] == ("junk", "needs_human", None), "a needs_human chapter is not reset"
     with closing(db.connect(site.cfg)) as conn:
         assert cand["id"] in [r["id"] for r in candidates.open_rows(conn)], "its candidate stays open"
-        review.decide(conn, cand["id"], "keep", None, workflow.now(conn))
+        review.decide(conn, [cand["id"]], "keep", None, workflow.now(conn))
         workflow.retry_chapter(conn, 1)
     seen = decided_from(monkeypatch)
     run_part(site.cfg, process)

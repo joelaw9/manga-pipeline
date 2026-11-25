@@ -44,7 +44,7 @@ from manga_pipeline import (
 )
 from manga_pipeline.clients import kavita, suwayomi
 from manga_pipeline.db import sql
-from manga_pipeline.junk import candidates, review, review_run
+from manga_pipeline.junk import candidates, groups, review, review_run
 from manga_pipeline.metadata import audit, human, importer, naming, sources
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
@@ -403,46 +403,73 @@ def _folder(cfg: config.Config, row: db.Row) -> Path:
 
 
 def junk_list(cfg: config.Config, args: argparse.Namespace) -> None:
-    """Print the open junk candidates to decide, 1 line each with its image paths (`junk list`; --all: every one)."""
+    """Print the open junk candidates to decide, 1 line each with its image paths (`junk list`; --all: every one).
+
+    Inside a review, then 1 line per group of near candidates: its ids and its sheets.
+    """
+    review_id = os.environ.get(review.REVIEW_ID_VARIABLE)
     with _junk_db(cfg) as conn:
         try:
-            rows = review.listing(conn, cfg, os.environ.get(review.REVIEW_ID_VARIABLE), everything=args.all)
+            rows = review.listing(conn, cfg, review_id, everything=args.all)
         except review.Refused as e:
             raise workflow.Refused(str(e)) from None
+        near = groups.near_groups(rows) if review_id else []
+        group_of = {r["id"]: n for n, members in enumerate(near, 1) for r in members}
         for r in rows:
             folder = _folder(cfg, r)
             fields: list[str] = [str(r["id"]), r["series_key"], r["kind"], f"chapters {review.chapters(conn, r['id'])}"]
             if args.all:
                 fields += [f"reviews {r['reviews']}", f"verdict {r['verdict'] or '-'}"]
+            if r["id"] in group_of:
+                fields.append(f"group {group_of[r['id']]}")
             print("	".join([*fields, str(folder / "unit.png"), str(folder / "context.png")]))
+    if review_id:
+        for n, (members, sheets) in enumerate(groups.write_sheets(cfg, review_id, near), 1):
+            ids = ",".join(str(r["id"]) for r in members)
+            print("	".join([f"group {n}", f"ids {ids}", *(str(s) for s in sheets)]))
 
 
 def junk_show(cfg: config.Config, args: argparse.Namespace) -> None:
-    """Print an open junk candidate's reason, chapters, OCR text and image paths (`junk show`)."""
-    with _junk_db(cfg) as conn:
-        try:
-            row = review.get_open(conn, args.id, os.environ.get(review.REVIEW_ID_VARIABLE))
-        except review.Refused as e:
-            raise workflow.Refused(str(e)) from None
-        folder = _folder(cfg, row)
-        info = candidates.read_info(folder)
-        print(f"candidate {row['id']}: {row['kind']} of series {row['series_key']}")
-        print(f"why: {row['reason']}")
-        print(f"chapters: {review.chapters(conn, row['id'])}")
-        print(f"text: {info['text'] or '-'}")
-        print(f"unit: {folder / 'unit.png'}")
-        print(f"context: {folder / 'context.png'}")
-
-
-def junk_decide(cfg: config.Config, args: argparse.Namespace) -> None:
-    """Record a verdict on a junk candidate, by claude under a review run, else by a human (`junk decide`)."""
+    """Print open junk candidates' reason, chapters, OCR text and image paths (`junk show`), all or none."""
     review_id = os.environ.get(review.REVIEW_ID_VARIABLE)
     with _junk_db(cfg) as conn:
         try:
-            review.decide(conn, args.id, args.verdict, review_id, workflow.now(conn))
+            rows = [review.get_open(conn, i, review_id) for i in args.ids]
         except review.Refused as e:
             raise workflow.Refused(str(e)) from None
-    log.info("junk candidate %s decided %s by %s", args.id, args.verdict, "claude" if review_id else "human")
+        for row in rows:
+            folder = _folder(cfg, row)
+            info = candidates.read_info(folder)
+            print(f"candidate {row['id']}: {row['kind']} of series {row['series_key']}")
+            print(f"why: {row['reason']}")
+            print(f"chapters: {review.chapters(conn, row['id'])}")
+            print(f"text: {info['text'] or '-'}")
+            print(f"unit: {folder / 'unit.png'}")
+            print(f"context: {folder / 'context.png'}")
+
+
+def junk_decide(cfg: config.Config, args: argparse.Namespace) -> None:
+    """Record a verdict on junk candidates, by claude under a review run, else by a human (`junk decide`), all or none.
+
+    --keep-rest (junk, inside a review): the rest of that series the review listed is kept.
+    """
+    review_id = os.environ.get(review.REVIEW_ID_VARIABLE)
+    decider = "claude" if review_id else "human"
+    if args.keep_rest and args.verdict != "junk":
+        msg = f"--keep-rest goes with junk, not {args.verdict}"
+        raise workflow.Refused(msg)
+    with _junk_db(cfg) as conn:
+        try:
+            if args.keep_rest:
+                kept = review.decide_junk_keeping_rest(conn, args.ids, review_id, workflow.now(conn))
+            else:
+                review.decide(conn, args.ids, args.verdict, review_id, workflow.now(conn))
+                kept = []
+        except review.Refused as e:
+            raise workflow.Refused(str(e)) from None
+    log.info("junk candidate(s) %s decided %s by %s", args.ids, args.verdict, decider)
+    if kept:
+        log.info("junk candidate(s) %s kept as the rest by %s", [r["id"] for r in kept], decider)
 
 
 def locked_connection(conn: db.Connection | None) -> db.Connection:
@@ -647,12 +674,15 @@ def _junk_commands(command: argparse.ArgumentParser) -> None:
     list_ = junk.add_parser("list", help="the open junk candidates to decide")
     list_.add_argument("--all", action="store_true", help="every open candidate, stuck and unsure ones included")
     list_.set_defaults(command="junk list")
-    show = junk.add_parser("show", help="a candidate's images, OCR text and reason")
-    show.add_argument("id", type=int, help="candidate id")
+    show = junk.add_parser("show", help="candidates' images, OCR text and reason")
+    show.add_argument("ids", type=int, nargs="+", metavar="ID", help="candidate ids")
     show.set_defaults(command="junk show")
-    decide = junk.add_parser("decide", help="record a verdict on a candidate")
-    decide.add_argument("id", type=int, help="candidate id")
+    decide = junk.add_parser("decide", help="record a verdict on candidates")
+    decide.add_argument("ids", type=int, nargs="+", metavar="ID", help="candidate ids, decided together or not at all")
     decide.add_argument("verdict", choices=review.VERDICTS, help="junk, keep or unsure")
+    decide.add_argument(
+        "--keep-rest", action="store_true", help="with junk, inside a review: keep the rest of the series it listed"
+    )
     decide.set_defaults(command="junk decide")
     junk.add_parser("review", help="let Claude decide the open candidates (claude -p)").set_defaults(
         command="junk review"

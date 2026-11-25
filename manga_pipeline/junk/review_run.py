@@ -26,7 +26,7 @@ from typing import Literal, TypedDict
 import yaml
 
 from manga_pipeline import config, db, workflow
-from manga_pipeline.junk import candidates, review
+from manga_pipeline.junk import candidates, groups, review
 
 log = logging.getLogger(__name__)
 
@@ -152,6 +152,7 @@ def run(cfg: config.Config, conn: db.Connection) -> None:
         log.info("junk review: %d closed candidate(s) cleaned up", gone)
     folder = config.abs_path(cfg["paths"]["scratch"]) / "junk-review"
     shutil.rmtree(folder, ignore_errors=True)
+    groups.remove_all(cfg)
     if not review.listable(conn, cfg):
         log.info("junk review: no candidate to review")
         end = workflow.now(conn)
@@ -176,6 +177,7 @@ def run(cfg: config.Config, conn: db.Connection) -> None:
                 (review_id,),
             ).rowcount
         shutil.rmtree(folder, ignore_errors=True)
+        groups.remove_all(cfg)
         end = workflow.now(conn)
         ok = result.startswith("ok")
         _meta(conn, [("last_end", end), ("last_result", result)] + ([("last_success", end)] if ok else []))
