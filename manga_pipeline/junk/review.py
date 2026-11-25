@@ -46,8 +46,9 @@ def listing(
 ) -> list[db.Row]:
     """Return the candidates `junk list` prints: listable ones, or (everything) every open candidate.
 
-    With a review id, each listed candidate records it (counted once when that review ends). `everything` is refused
-    under a review id.
+    With a review id, each listed candidate records it (counted once when that review ends), and a review lists once:
+    a later list under its id returns what it listed that is still open and not unsure, and marks nothing new, so what
+    --keep-rest keeps is what the review was shown. `everything` is refused under a review id.
     """
     if everything and review_id:
         msg = "junk list --all is for a person; it is refused inside a review"
@@ -55,6 +56,14 @@ def listing(
     if not review_id:
         return candidates.open_rows(conn) if everything else listable(conn, cfg)
     with db.transaction(conn):  # read and mark together: cleanup cannot delete a candidate in between
+        shown = {
+            r[0]
+            for r in conn.execute(
+                "SELECT id FROM junk_candidate WHERE review_id = %s AND review_open = 1", (review_id,)
+            )
+        }
+        if shown:
+            return [r for r in candidates.open_rows(conn) if r["id"] in shown and r["verdict"] is None]
         rows = listable(conn, cfg)
         db.executemany(
             conn,
@@ -82,8 +91,7 @@ def get_open(conn: db.Connection, candidate_id: int, review_id: str | None) -> d
         msg = f"junk candidate {candidate_id} is not open: no such candidate"
         raise Refused(msg)
     if not candidates.is_open(conn, row):
-        key = store.parse_key(row["kind"], row["key"])
-        covering = store.Decisions(conn, row["series_key"]).decide(row["kind"], key)
+        covering = candidates.covering(store.by_series(conn), row)
         why = (
             f"decision {covering['id']} ({covering['verdict']}) covers it"
             if covering is not None

@@ -84,22 +84,43 @@ def test_status_reports_claude_decisions_per_day_and_junk_needs_human(site):
 @budget(load="db")
 def test_step_0075_backfills_the_chapters_with_a_stored_scan(site):
     _cfg, conn = site
-    a = add_series(conn, "A")
-    waiting = add_chapter(conn, a, "c1", "junk", number=1)
-    scanned = add_chapter(conn, a, "c2", "junk", number=2)
+    scanned_at = "2026-01-02T00:00:00+00:00"
+    chapters = []
+    for name, decided_at in (("A", None), ("B", "2026-01-01T00:00:00+00:00"), ("C", "2026-01-03T00:00:00+00:00")):
+        series = add_series(conn, name)
+        chapters.append(add_chapter(conn, series, "c1", "junk", number=1))
+        with db.transaction(conn):
+            conn.execute("UPDATE series SET folder = %s WHERE id = %s", (f"/lib/{name}", series))  # rules key: name
+            conn.execute(
+                """INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at, candidates)
+                VALUES (%s, %s, 'd', '{}', %s, '[5, 6]')""",
+                (chapters[-1], series, scanned_at),
+            )
+            if decided_at:
+                conn.execute(
+                    """INSERT INTO junk_decision (series_key, kind, key, verdict, decider, decided_at)
+                    VALUES (%s, 'page', 'k', 'keep', 'claude', %s)""",
+                    (name, decided_at),
+                )
+    undecided = add_chapter(conn, add_series(conn, "D"), "c1", "junk", number=1)
     with db.transaction(conn):
         conn.execute(
             """INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at, candidates)
-            VALUES (%s, %s, 'd', '{}', '2026-01-02T00:00:00+00:00', '[5, 6]'),
-                   (%s, %s, 'd', '{}', '2026-01-02T00:00:00+00:00', '[]')""",
-            (waiting, a, scanned, a),
+            SELECT id, series_id, 'd', '{}', %s, '[]' FROM chapter WHERE id = %s""",
+            (scanned_at, undecided),
         )
         conn.execute("ALTER TABLE chapter DROP COLUMN junk_decided_at, DROP COLUMN junk_candidates")
         conn.execute("ALTER TABLE chapter DROP COLUMN junk_new_series")
         conn.execute(STEP.read_text(encoding="utf-8"))
-    got = conn.execute("SELECT junk_candidates, junk_new_series FROM chapter ORDER BY id").fetchall()
-    assert [tuple(r) for r in got] == [(2, True), (None, None)], (
-        "a chapter waiting on candidates is recorded from its scan; one scanned, not yet decided, is left to its decide"
+    got = conn.execute("SELECT junk_decided_at, junk_candidates, junk_new_series FROM chapter ORDER BY id").fetchall()
+    assert [tuple(r) for r in got] == [
+        (scanned_at, 2, True),
+        (scanned_at, 2, False),
+        (scanned_at, 2, True),
+        (None, None, None),
+    ], (
+        "a waiting chapter is recorded from its scan, new unless its series decided before the scan;"
+        " one scanned and not yet decided is left to its decide"
     )
 
 

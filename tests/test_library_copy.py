@@ -384,6 +384,7 @@ def test_a_duplicate_dropped_at_junk_is_no_chapter_status_lists(world):
     world.run(process)
     assert outcome(world)[2].startswith("dropped: a duplicate"), outcome(world)
     assert world.rows("SELECT notes FROM chapter") == [(None,)], "a dropped chapter carries no notes"
+    assert world.rows("SELECT junk_candidates FROM chapter") == [(0,)], "its decide counts in the junk refill: 0"
 
 
 @budget(load="db")

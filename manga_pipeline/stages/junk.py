@@ -308,6 +308,7 @@ def _finished(
 
         def closed(conn: db.Connection) -> None:
             _remember(conn, watermarks)
+            _refill(conn, chapter, key, 0)  # no candidate: the copy check decides it
             if isinstance(copy, workflow.Dropped):  # a held copy keeps its scan for its retry
                 conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
             if copy.record:

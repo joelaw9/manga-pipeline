@@ -301,9 +301,13 @@ WAITING_SCANS = sql.SQL(
 )
 
 
+def covering(decisions: Callable[[str], store.Decisions], row: db.Row) -> db.Row | None:
+    """Return the decision that covers a candidate row, or None (is_open's second half)."""
+    return decisions(row["series_key"]).decide(row["kind"], store.parse_key(row["kind"], row["key"]))
+
+
 def _undecided(decisions: Callable[[str], store.Decisions], row: db.Row) -> bool:
-    """Return whether no decision covers a candidate row (is_open's second half)."""
-    return decisions(row["series_key"]).decide(row["kind"], store.parse_key(row["kind"], row["key"])) is None
+    return covering(decisions, row) is None
 
 
 def is_open(conn: db.Connection, row: db.Row, decisions: Callable[[str], store.Decisions] | None = None) -> bool:

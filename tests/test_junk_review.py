@@ -17,7 +17,7 @@ import yaml
 from manga_pipeline import cli, config, db, fleet, intake, preflight, process
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
-from manga_pipeline.junk import review, review_run
+from manga_pipeline.junk import groups, review, review_run
 from manga_pipeline.metadata import sources
 
 from tests.builders import config_file, problem_text, run_part
@@ -163,7 +163,19 @@ def test_an_error_result_exits_1_and_records_no_success(world, tmp_path):
     with closing(db.connect(cfg)) as conn:
         meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
     assert meta["junk-review.last_result"].startswith("error")
+    assert "peak" in meta["junk-review.last_result"], "an error result names the usage reached too"
     assert "junk-review.last_success" not in meta
+
+
+@budget(load="subprocess", seconds=20)
+def test_a_review_removes_every_sheets_folder(world, tmp_path):
+    stale = config.abs_path(world.cfg["paths"]["candidates"]) / f"{groups.FOLDER_PREFIX}old"
+    stale.mkdir(parents=True)
+    exe = fake_claude(tmp_path / "claude", world.cfg, ["list"])
+    code, cfg = review_cmd(tmp_path, world.cfg, exe)
+    assert code == 0
+    left = list(config.abs_path(cfg["paths"]["candidates"]).glob(f"{groups.FOLDER_PREFIX}*"))
+    assert left == [], "a killed review's sheets and this review's go"
 
 
 @budget(load="subprocess", seconds=20)

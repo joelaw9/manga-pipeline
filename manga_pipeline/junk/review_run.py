@@ -223,30 +223,35 @@ def _claude(cfg: config.Config, prefix: str, review_id: str) -> str:
     env = child_env(cfg["junk"]["claude_token"], review_id)
     cwd = config.abs_path(cfg["paths"]["candidates"])
     cwd.mkdir(parents=True, exist_ok=True)
+    # stdout to a file in the review's scratch: stream-json repeats every image read, too much to hold in memory
+    out = config.abs_path(cfg["paths"]["scratch"]) / "junk-review" / f"{review_id}.jsonl"
     try:
-        done = subprocess.run(
-            command(cfg, prefix),
-            input=prompt.encode("utf-8"),
-            capture_output=True,
-            env=env,
-            cwd=cwd,
-            timeout=TIMEOUT_S,
-            check=False,  # the exit is judged below
-        )
+        with out.open("wb") as stdout:
+            done = subprocess.run(
+                command(cfg, prefix),
+                input=prompt.encode("utf-8"),
+                stdout=stdout,
+                stderr=subprocess.DEVNULL,
+                env=env,
+                cwd=cwd,
+                timeout=TIMEOUT_S,
+                check=False,  # the exit is judged below
+            )
     except subprocess.TimeoutExpired:
         return f"error: claude was killed after {TIMEOUT_S} s"
-    lines = _reply(done.stdout)
+    lines = _reply(out)
     results = [line for line in lines if line.get("type") == "result"]
     reply = results[-1] if results else None
-    if reply is not None and (denials := reply.get("permission_denials")):
-        log.warning("junk review %s: claude was refused %s", review_id, denials)
-    if done.returncode != 0:
-        return f"error: claude exited {done.returncode}"
     if reply is None:
-        return "error: claude printed no JSON result"
+        return f"error: claude exited {done.returncode}" if done.returncode else "error: claude printed no JSON result"
+    if denials := reply.get("permission_denials"):
+        log.warning("junk review %s: claude was refused %s", review_id, denials)
+    used = usage(lines, reply)
+    if done.returncode != 0:
+        return f"error: claude exited {done.returncode}; {used}"
     if reply.get("is_error"):
-        return f"error: claude reported an error ({reply.get('subtype')})"
-    return f"ok: {reply.get('num_turns')} turn(s), {usage(lines, reply)}"
+        return f"error: claude reported an error ({reply.get('subtype')}); {used}"
+    return f"ok: {reply.get('num_turns')} turn(s), {used}"
 
 
 def context(u: Usage) -> int:
@@ -262,8 +267,8 @@ def usage(lines: list[ClaudeReply], reply: ClaudeReply) -> str:
     calls: dict[str, int] = {}
     for line in lines:
         message = line.get("message")
-        if line.get("type") == "assistant" and message is not None:
-            calls.setdefault(message.get("id", str(len(calls))), context(message.get("usage", {})))
+        if line.get("type") == "assistant" and message is not None and "id" in message:
+            calls.setdefault(message["id"], context(message.get("usage", {})))
     contexts = list(calls.values())
     total = reply.get("usage", {})
     tokens = context(total) + total.get("output_tokens", 0)
@@ -272,21 +277,19 @@ def usage(lines: list[ClaudeReply], reply: ClaudeReply) -> str:
     return f"{reply.get('duration_ms', 0) // 1000} s, {tokens} tokens, start {start}, peak {peak} of {window}"
 
 
-def _reply(stdout: bytes) -> list[ClaudeReply]:
-    """Return the JSON objects Claude printed, 1 a line (stream-json); a line that is no JSON object is skipped.
+def _reply(path: Path) -> list[ClaudeReply]:
+    """Return the assistant and result lines Claude printed to `path` (stream-json), read 1 line at a time.
 
-    Unchecked: an object is not checked to be an assistant or a result line.
+    A line that is no JSON object, or another type (a tool result, with its image), is skipped. Unchecked: an object
+    is not checked to be an assistant or a result line beyond its type.
     """
-    try:
-        text = stdout.decode("utf-8")
-    except UnicodeDecodeError:
-        return []
     out: list[ClaudeReply] = []
-    for raw in text.splitlines():
-        try:
-            line: ClaudeReply | list[object] | str | float | bool | None = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(line, dict):
-            out.append(line)
+    with path.open("rb") as lines:
+        for raw in lines:
+            try:
+                line: ClaudeReply | list[object] | str | float | bool | None = json.loads(raw)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if isinstance(line, dict) and line.get("type") in ("assistant", "result"):
+                out.append(line)
     return out

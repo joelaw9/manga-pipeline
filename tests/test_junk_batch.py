@@ -8,7 +8,7 @@ from contextlib import closing
 import pytest
 from PIL import Image
 
-from manga_pipeline import cli, config, db
+from manga_pipeline import cli, db
 from manga_pipeline.junk import candidates, groups, review
 
 from tests.builders import add_chapter, add_series, adopted, config_file, db_row, one
@@ -99,9 +99,8 @@ def test_listing_takes_whole_series_until_the_batch(site):
     a, b, c = Series(cfg, conn, "A"), Series(cfg, conn, "B"), Series(cfg, conn, "C")
     ids_a = [a.candidate(0x1000 + i) for i in range(2)]
     ids_b = [b.candidate(0x2000 + i) for i in range(3)]
-    ids_c = [c.candidate(0x3000 + i) for i in range(2)]
-    assert listed(with_batch(cfg, 5), conn) == ids_a + ids_b, "whole series, in order, until the batch is full"
-    assert ids_c, "C waits for a later review"
+    [c.candidate(0x3000 + i) for i in range(2)]
+    assert listed(with_batch(cfg, 5), conn) == ids_a + ids_b, "whole series, in order, until the batch is full; C waits"
 
 
 @budget(load="db")
@@ -189,14 +188,14 @@ def test_keep_rest_keeps_every_other_listed_open_candidate_of_the_series_but_uns
     junk = a.candidate(FAR[0])
     rest = a.candidate(FAR[1])
     unsure = a.candidate(FAR[2])
-    other = b.candidate(FAR[3])
+    b.candidate(FAR[3])
     listed(cfg, conn)
     review.decide(conn, [unsure], "unsure", "r1", AT)
     kept = review.decide_junk_keeping_rest(conn, [junk], "r1", AT)
     assert [r["id"] for r in kept] == [rest], "the rest of A it listed, but the unsure one; B untouched"
     got = {(r["key"], r["verdict"]) for r in decisions(conn)}
     assert got == {(key(FAR[0]), "junk"), (key(FAR[1]), "keep")}, "junk on the named, keep on the rest"
-    assert other, "B's candidate is not kept"
+    assert {r["series_key"] for r in decisions(conn)} == {"A"}, "B's candidate is not kept"
 
 
 @budget(load="db")
@@ -209,7 +208,8 @@ def test_keep_rest_skips_a_probe_candidate_the_new_block_junk_covers(site):
     kept = review.decide_junk_keeping_rest(conn, [block], "r1", AT)
     assert kept == [], "the probe the new junk covers is not kept"
     assert [r["verdict"] for r in decisions(conn)] == ["junk"], "only the junk row"
-    assert probe, "the probe is decided by the block's junk"
+    row = conn.execute("SELECT * FROM junk_candidate WHERE id = %s", (probe,)).fetchone()
+    assert not candidates.is_open(conn, row), "the probe is decided by the block's junk"
 
 
 @budget(load="db")
@@ -244,17 +244,19 @@ def test_near_candidates_of_1_kind_form_a_group_with_sheets_within_the_bounds(si
     cfg, conn = site
     a = Series(cfg, conn, "A")
     tall = [a.candidate(FAR[0] ^ (1 << i), size=(800, 4000)) for i in range(6)]  # each 1 bit from FAR[0]: 2 bits apart
-    wide = a.candidate(FAR[4], size=(1000, 200))
+    wide = [a.candidate(FAR[4] ^ (1 << i), size=(1000, 200)) for i in range(5)]
+    alone = a.candidate(FAR[2])
     rows = review.listing(conn, cfg, "r1")
     near = groups.near_groups(rows)
-    assert [[r["id"] for r in g] for g in near] == [tall], "the near blocks form 1 group; the far one none"
-    ((members, sheets),) = groups.write_sheets(cfg, "r1", near)
-    assert len(members) == 6, "every member is on the sheets"
-    for sheet in sheets:
-        with Image.open(sheet) as im:
-            assert max(im.size) <= groups.SHEET_LONG_EDGE, "no sheet passes the long-edge bound"
-            assert im.width * im.height <= groups.SHEET_PIXELS, "no sheet passes the pixel bound"
-    assert wide, "the far candidate is ungrouped"
+    assert [[r["id"] for r in g] for g in near] == [tall, wide], "2 groups of near blocks; the far one in none"
+    written = groups.write_sheets(cfg, "r1", near)
+    assert [len(members) for members, _ in written] == [6, 5], "every member is on its group's sheets"
+    for _, sheets in written:
+        for sheet in sheets:
+            with Image.open(sheet) as im:
+                assert max(im.size) <= groups.SHEET_LONG_EDGE, "no sheet passes the long-edge bound"
+                assert im.width * im.height <= groups.SHEET_PIXELS, "no sheet passes the pixel bound"
+    assert alone not in {r["id"] for g in near for r in g}, "the far candidate is ungrouped"
 
 
 @budget(load="pure")
@@ -276,12 +278,19 @@ def test_candidates_of_2_series_or_2_kinds_are_never_grouped(site):
 
 
 @budget(load="db")
-def test_review_folders_go_at_the_reviews_start_and_end(site):
-    cfg, _conn = site
-    stale = config.abs_path(cfg["paths"]["candidates"]) / f"{groups.FOLDER_PREFIX}old"
-    stale.mkdir()
-    groups.remove_all(cfg)
-    assert not stale.exists(), "a killed review's sheets go"
+def test_a_review_lists_once_and_keep_rest_keeps_only_what_it_was_shown(site):
+    cfg, conn = site
+    x = Series(cfg, conn, "X")
+    ids = [x.candidate(f) for f in FAR]  # 5 candidates
+    small = with_batch(cfg, 3)
+    first = [r["id"] for r in review.listing(conn, small, "r1")]
+    assert first == ids[:3], "a series over the batch is cut to it"
+    review.decide(conn, [first[0]], "keep", "r1", AT)
+    again = [r["id"] for r in review.listing(conn, small, "r1")]
+    assert again == first[1:], "a second list returns what the review listed and is still open, and nothing new"
+    kept = review.decide_junk_keeping_rest(conn, [first[1]], "r1", AT)
+    assert [r["id"] for r in kept] == [first[2]], "--keep-rest keeps only what the review was shown"
+    assert one(conn, "SELECT count(*) FROM junk_candidate WHERE review_id = 'r1'") == 3, "nothing new is marked"
 
 
 @budget(load="db")
