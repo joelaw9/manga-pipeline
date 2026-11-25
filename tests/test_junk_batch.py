@@ -307,3 +307,31 @@ def test_list_inside_a_review_prints_the_groups_and_their_sheets(site, tmp_path,
     assert lines[-1].startswith(f"group 1\tids {ids[0]},{ids[1]}\t"), "a line per group names its ids and sheets"
     assert lines[-1].endswith(".png"), "the group line ends with its sheets"
     assert all("\tgroup 1\t" in line for line in lines[:2]), "each member's line names its group"
+
+
+def queries_of_open_rows(conn, monkeypatch):
+    """Return how many statements candidates.open_rows runs on conn."""
+    calls = []
+    execute = conn.execute
+
+    def counted(*args, **kwargs):
+        calls.append(args[0])
+        return execute(*args, **kwargs)
+
+    with monkeypatch.context() as patch:  # undo only this patch, not the fixture's others
+        patch.setattr(conn, "execute", counted)
+        candidates.open_rows(conn)
+    return len(calls)
+
+
+@budget(load="db", seconds=5)
+def test_open_rows_issues_the_same_number_of_queries_for_3_and_30_candidates_in_3_and_30_series(tmp_path, monkeypatch):
+    counts = []
+    for n in (3, 30):
+        cfg = adopted(tmp_path / str(n))
+        with closing(db.connect(cfg)) as conn:
+            for i in range(n):
+                Series(cfg, conn, f"S{i}").candidate(FAR[i % len(FAR)])
+            assert len(candidates.open_rows(conn)) == n, "every candidate is open"
+            counts.append(queries_of_open_rows(conn, monkeypatch))
+    assert counts[0] == counts[1], f"open_rows runs a fixed number of queries: {counts}"

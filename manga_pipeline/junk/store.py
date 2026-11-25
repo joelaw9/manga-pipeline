@@ -122,18 +122,42 @@ def by_series(conn: db.Connection) -> Callable[[str], "Decisions"]:
     return get
 
 
+def decisions_of(conn: db.Connection, keys: Iterable[str]) -> Callable[[str], "Decisions"]:
+    """Return a lookup of series key -> its Decisions for these keys, read in 1 query (the global rows parsed once)."""
+    wanted = sorted(set(keys))
+    rows = conn.execute(
+        "SELECT * FROM junk_decision WHERE series_key = ANY(%s) ORDER BY id DESC", ([*wanted, GLOBAL],)
+    ).fetchall()
+    parsed = [(row, parse_key(row["kind"], row["key"])) for row in rows]
+    cache = {k: Decisions.of_rows(k, [p for p in parsed if p[0]["series_key"] in (k, GLOBAL)]) for k in wanted}
+
+    def get(key: str) -> Decisions:
+        return cache[key]
+
+    return get
+
+
 class Decisions:
     """The decisions that apply to 1 series (its own and the global ones), in lookup order (in_lookup_order)."""
 
     def __init__(self, conn: db.Connection, key: str) -> None:
         """Read the decisions of series key `key` and the global ones, each key parsed, in lookup order."""
-        rows = in_lookup_order(
-            conn.execute(
-                "SELECT * FROM junk_decision WHERE series_key IN (%s, %s) ORDER BY id DESC", (key, GLOBAL)
-            ).fetchall()
-        )
+        rows = conn.execute(
+            "SELECT * FROM junk_decision WHERE series_key IN (%s, %s) ORDER BY id DESC", (key, GLOBAL)
+        ).fetchall()
+        self._set(key, [(row, parse_key(row["kind"], row["key"])) for row in rows])
+
+    @classmethod
+    def of_rows(cls, key: str, parsed: list[tuple[db.Row, ParsedKey]]) -> "Decisions":
+        """Return the Decisions of series key `key` from rows read and parsed already (newest id first)."""
+        self = cls.__new__(cls)
+        self._set(key, parsed)
+        return self
+
+    def _set(self, key: str, parsed: list[tuple[db.Row, ParsedKey]]) -> None:
+        keys = {row["id"]: k for row, k in parsed}
         self.series_key = key
-        self._rows = [(row, parse_key(row["kind"], row["key"])) for row in rows]
+        self._rows = [(row, keys[row["id"]]) for row in in_lookup_order(row for row, _ in parsed)]
 
     def decide(self, kind: str, key: ParsedKey) -> db.Row | None:
         """Return the deciding row for a unit of `kind` with parsed key `key`, or None (undecided)."""
