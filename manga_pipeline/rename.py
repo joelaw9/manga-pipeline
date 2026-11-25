@@ -1,23 +1,25 @@
 """`series names` and `series rename` (SPEC "Retroactive updates", Series names).
 
-`read_db` reads the run's series from the database (in the caller's snapshot); `check` then reads Kavita and every file
-and decides each series' plan, writing nothing. `apply` renames each planned series in turn: Kavita's name first (the
-files' old name kept as its localized name, so both match 1 series), the files, the folder, Kavita's localized name,
-then 1 transaction. `wait_for_kavita` requests 1 library scan and waits until Kavita follows each moved folder.
+`read_db` reads the run's series from the database (in the caller's snapshot); `check` then reads Kavita, the override
+files and every file and decides each series' plan, writing nothing. `apply` renames each planned series in turn:
+Kavita's name first (the files' old name kept as its localized name, so both match 1 series), the files, the folder,
+Kavita's localized name, then 1 transaction. `wait_for_kavita` requests 1 library scan and waits until Kavita follows
+each moved folder. `waiting` is status' list, from the stored names.
 """
 
 import logging
 import time
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 
 from manga_pipeline import archive, comicinfo, config, db, errors, names, retention, rewrite, volumes, workflow
-from manga_pipeline.clients.kavita import FolderError
-from manga_pipeline.clients.kavita_match import normalize
+from manga_pipeline.clients import http
+from manga_pipeline.clients.kavita import FolderError, Kavita, ReplyError
+from manga_pipeline.clients.kavita_match import normalize, series_names
 from manga_pipeline.db import sql
-from manga_pipeline.metadata import admit, merge, series_name
+from manga_pipeline.metadata import merge, series_name
 from manga_pipeline.metadata.records import SeriesRecords
 from manga_pipeline.replies.kavita import Series
 
@@ -28,10 +30,13 @@ POLL_SECONDS = 30
 ELIGIBLE = sql.SQL("""(s.status = 'ok' AND s.kavita_series_id IS NOT NULL AND s.folder IS NOT NULL
     AND (s.baseline_at IS NOT NULL OR s.origin = 'new')
     AND EXISTS (SELECT 1 FROM series_check k WHERE k.series_id = s.id AND k.data_version > 0))""")
-
-
-NO_CHOICE = series_name.Chosen("", "", "")  # a series not checked yet
+# What a Kavita write can raise for 1 series: the series is listed and the run goes on.
+KAVITA_ERRORS = (http.HttpError, ReplyError, workflow.Unreachable)
+NO_CHOICE = series_name.Chosen("", "", "")  # a series not decided yet
 NOTHING_DUE = series_name.Due(files=False, kavita_name=False, localized=False, folder=False)
+
+# {normalised name: [(holder id, who holds it)]}: the names other series hold, built once per run
+type Holders = dict[str, list[tuple[int, str]]]
 
 
 class RenameError(Exception):
@@ -40,10 +45,10 @@ class RenameError(Exception):
 
 @dataclass(frozen=True)
 class File:
-    """A published file of a series: its stored path and its row's size (None: not recorded)."""
+    """A published file of a series: its stored path and whether its row records a size."""
 
     path: str
-    size: int | None
+    sized: bool
 
 
 @dataclass(frozen=True)
@@ -82,7 +87,7 @@ class Planned:
         """Return the series' plan as printed."""
         head = f"series {self.series['id']} ({self.series['comicinfo_series'] or self.series['name']})"
         if self.problem:
-            return f"{head}: {'needs_human' if self.clash else 'left'}: {self.problem}"
+            return f"{head}: {'name taken' if self.clash else 'left'}: {self.problem}"
         acts: list[str] = []
         if self.due.files:
             acts.append(f"name -> {self.chosen.name!r} ({self.chosen.source}), {len(self.rewrite)} files rewritten")
@@ -97,60 +102,103 @@ class Planned:
 
 @dataclass(frozen=True)
 class Run:
-    """The run's series as read from the database, and the names other series hold.
+    """The run's series as read from the database, and the names other series hold there.
 
-    new_holders: the names of the new series Kavita does not hold yet; stored_names: every series' stored names,
-    {normalised name: (series id, who holds it)} (status' clash test).
+    new_holders: the names of the new series Kavita does not hold yet; stored: every in-scope series' stored names
+    (status' clash test; `check` uses Kavita's listing instead).
     """
 
     planned: list[Planned]
-    new_holders: dict[str, str]
-    stored_names: dict[str, tuple[int, str]]
+    new_holders: Holders
+    stored: Holders
 
 
-def read_db(cfg: config.Config, conn: db.Connection, series_ids: Sequence[int] | None) -> Run:
-    """Read the run's series (series_ids; None: every eligible series in scope): rows, records, files.
+@dataclass
+class Outcome:
+    """What `apply` did so far: the series renamed, those whose folder moved (waited for), the lines of the rest."""
+
+    renamed: list[Planned] = field(default_factory=list[Planned])
+    moved: list[Planned] = field(default_factory=list[Planned])
+    left: list[str] = field(default_factory=list[str])
+
+
+def _index(holders: Iterable[tuple[int, Iterable[str | None], str]]) -> Holders:
+    """Return {normalised name: [(id, who)]} of (id, names, who) holders."""
+    out: Holders = {}
+    for holder, held, who in holders:
+        for n in {normalize(n) for n in held if n} - {""}:
+            out.setdefault(n, []).append((holder, who))
+    return out
+
+
+def _others(index: Holders, own: int) -> dict[str, str]:
+    """Return {normalised name: who} of the index's names held by any holder but own."""
+    return {k: next(who for i, who in v if i != own) for k, v in index.items() if any(i != own for i, _ in v)}
+
+
+def read_db(cfg: config.Config, conn: db.Connection, series_ids: Sequence[int] | None, *, files: bool = True) -> Run:
+    """Read the run's series (series_ids; None: every eligible series in scope): rows, records, files (when asked).
 
     workflow.Refused for an id of no series in scope; an asked-for series that may not be renamed gets its problem.
     """
     where = sql.SQL("TRUE") if series_ids is None else sql.SQL("s.id = ANY(%(ids)s)")
+    params = {**workflow.scope_params(cfg), "ids": list(series_ids or [])}
     rows = conn.execute(
         sql.SQL("""SELECT s.*, {eligible} AS eligible, {busy} AS busy FROM series s
         WHERE {where} AND {scope} ORDER BY s.id""").format(
             eligible=ELIGIBLE, busy=rewrite.RENAME_BUSY.format(s=sql.Identifier("s")), where=where, scope=workflow.SCOPE
         ),
-        {**workflow.scope_params(cfg), "ids": list(series_ids or [])},
+        params,
     ).fetchall()
     missing = sorted(set(series_ids or []) - {r["id"] for r in rows})
     if missing:
         msg = f"no such series in scope: {', '.join(map(str, missing))}"
         raise workflow.Refused(msg)
+    by_series: dict[int, list[File]] = {}
+    if files:
+        for f in conn.execute(
+            sql.SQL("""SELECT p.series_id, p.library_path, p.size IS NOT NULL AS sized FROM published_file p
+            JOIN series s ON s.id = p.series_id WHERE {where} AND {scope} ORDER BY p.library_path""").format(
+                where=where, scope=workflow.SCOPE
+            ),
+            params,
+        ):
+            by_series.setdefault(f["series_id"], []).append(File(f["library_path"], f["sized"]))
     planned: list[Planned] = []
     for row in rows:
         if series_ids is None and not row["eligible"]:
             continue
-        files = tuple(
-            File(f["library_path"], f["size"])
-            for f in conn.execute(
-                "SELECT library_path, size FROM published_file WHERE series_id = %s ORDER BY 1", (row["id"],)
-            )
-        )
-        one = Planned(row, merge.stored_records(conn, row["id"]), files)
+        one = Planned(row, merge.stored_records(conn, row["id"]), tuple(by_series.get(row["id"], [])))
         if not row["eligible"]:
             one = replace(one, problem="not eligible: its status, Kavita id, folder, check or baseline")
         elif row["busy"]:
             one = replace(one, problem="busy: a chapter claimed or at publish or confirm, or a file with a change due")
         planned.append(one)
-    stored: dict[str, tuple[int, str]] = {}
-    for r in conn.execute("SELECT id, name, localized_name, original_name, comicinfo_series FROM series"):
-        for n in (r["name"], r["localized_name"], r["original_name"], r["comicinfo_series"]):
-            if n and normalize(n):
-                stored.setdefault(normalize(n), (r["id"], f"series {r['id']} ({r['name']}) has that name"))
-    return Run(planned, admit.new_series_holders(conn, 0), stored)
+    new = conn.execute(
+        """SELECT id, comicinfo_series, localized_name FROM series
+        WHERE origin = 'new' AND kavita_series_id IS NULL AND comicinfo_series IS NOT NULL"""
+    ).fetchall()
+    stored = conn.execute(
+        sql.SQL("SELECT s.* FROM series s WHERE s.kavita_series_id IS NOT NULL AND {scope}").format(
+            scope=workflow.SCOPE
+        ),
+        params,
+    ).fetchall()
+    return Run(
+        planned,
+        _index(
+            (r["id"], (r["comicinfo_series"], r["localized_name"]), f"new series {r['id']} ({r['comicinfo_series']})")
+            for r in new
+        ),
+        _index(
+            (r["id"], (r["name"], r["localized_name"], r["original_name"]), f"series {r['id']} ({r['name']})")
+            for r in stored
+        ),
+    )
 
 
 def with_override(cfg: config.Config, one: Planned) -> Planned:
-    """Return the plan with its override file's name, or the file's problem (a share read: outside any snapshot)."""
+    """Return the plan with its override file's name, or why it cannot be read (a share read: outside any snapshot)."""
     if one.problem:
         return one
     try:
@@ -160,37 +208,38 @@ def with_override(cfg: config.Config, one: Planned) -> Planned:
         )
     except volumes.OverrideError as e:
         return replace(one, problem=str(e))
+    except OSError as e:
+        return replace(one, problem=f"its override file cannot be read: {e}")
+
+
+def _names(one: Planned, own: series_name.Own, kavita_localized: str | None, holders: dict[str, str]) -> Planned:
+    """Return the plan with the rule's names (a taken romanized name left out) and what is due."""
+    chosen = series_name.chosen(own, one.records, one.override or one.series["admit_name"])
+    if chosen.romaji and series_name.taken(chosen.romaji, holders):
+        log.info("series %s: its romanized name %r is taken: left out", one.series["id"], chosen.romaji)
+        chosen = replace(chosen, romaji="")
+    return replace(one, chosen=chosen, due=series_name.due(own, kavita_localized, one.series["folder"], chosen))
 
 
 def waiting(cfg: config.Config, run: Run) -> list[str]:
-    """Return status' lines of the series whose names are due, from the stored records and names (no Kavita read)."""
+    """Return status' lines of the series whose names are due, from the stored names (no Kavita or file read)."""
     lines: list[str] = []
     for planned in run.planned:
         if planned.problem:  # busy: renamed once it is not
             continue
         one = with_override(cfg, planned)
-        if one.problem:  # its override file's
+        if one.problem:
             lines.append(f"  series {one.series['id']}: {one.problem}")
             continue
         s = one.series
         own = series_name.Own(s["name"], s["localized_name"], s["original_name"], s["comicinfo_series"])
-        chosen = series_name.chosen(own, one.records, one.override or s["admit_name"])
-        holders = {k: who for k, (sid, who) in run.stored_names.items() if sid != s["id"]}
-        if chosen.romaji and series_name.taken(chosen.romaji, {**run.new_holders, **holders}):
-            chosen = replace(chosen, romaji="")
-        due = series_name.due(own, s["localized_name"], s["folder"], chosen)
-        if due.any():
-            what = [
-                w
-                for w, on in (
-                    ("files", due.files),
-                    ("Kavita name", due.kavita_name),
-                    ("localized name", due.localized),
-                    ("folder", due.folder),
-                )
-                if on
-            ]
-            lines.append(f"  series {s['id']} ({s['comicinfo_series']}): {chosen.name!r}: {', '.join(what)}")
+        holders = {**_others(run.new_holders, s["id"]), **_others(run.stored, s["id"])}
+        one = _names(one, own, s["localized_name"], holders)
+        if one.due.any():
+            due = one.due
+            what = [w for w, on in (("files", due.files), ("Kavita name", due.kavita_name)) if on]
+            what += [w for w, on in (("localized name", due.localized), ("folder", due.folder)) if on]
+            lines.append(f"  series {s['id']} ({s['comicinfo_series']}): {one.chosen.name!r}: {', '.join(what)}")
     return lines
 
 
@@ -199,32 +248,29 @@ def check(ctx: workflow.Context, run: Run) -> list[Planned]:
 
     A share error ends the run (raised); a file that cannot be read or rebuilt is the series' problem.
     """
-    library_id = ctx.cfg["kavita"]["library_id"]
-    listing = {s["id"]: s for s in ctx.kavita.series_in_library(library_id)}
+    listing = {s["id"]: s for s in ctx.kavita.series_in_library(ctx.cfg["kavita"]["library_id"])}
+    kavita_index = _index((i, series_names(s), f"Kavita series {i} ({s['name']})") for i, s in listing.items())
     taken_in_run: dict[str, str] = {}
     out: list[Planned] = []
     for planned in run.planned:
         one = with_override(ctx.cfg, planned)
-        if one.problem:
-            out.append(one)
-            continue
-        decided = _decide(ctx, one, listing, run.new_holders, taken_in_run)
-        if not decided.problem:
-            who = f"series {one.series['id']} of this run gets that name"
-            for n in (decided.chosen.name, decided.chosen.romaji):
+        if not one.problem:
+            holders = {
+                **_others(run.new_holders, one.series["id"]),
+                **_others(kavita_index, one.series["kavita_series_id"]),
+                **taken_in_run,
+            }
+            one = _decide(ctx.cfg, one, listing, holders)
+        if not one.problem:
+            who = f"series {one.series['id']} of this run gets it"
+            for n in (one.chosen.name, one.chosen.romaji):
                 if normalize(n):
                     taken_in_run[normalize(n)] = who
-        out.append(decided)
+        out.append(one)
     return out
 
 
-def _decide(
-    ctx: workflow.Context,
-    one: Planned,
-    listing: dict[int, Series],
-    new_holders: dict[str, str],
-    taken_in_run: dict[str, str],
-) -> Planned:
+def _decide(cfg: config.Config, one: Planned, listing: dict[int, Series], holders: dict[str, str]) -> Planned:
     """Return 1 series' plan (see check)."""
     series = one.series
     kavita = listing.get(series["kavita_series_id"])
@@ -233,27 +279,14 @@ def _decide(
     own = series_name.Own(
         kavita["name"], kavita.get("localizedName"), kavita.get("originalName"), series["comicinfo_series"]
     )
-    chosen = series_name.chosen(own, one.records, one.override or series["admit_name"])
-    holders = {
-        **new_holders,
-        **admit.kavita_holders(s for i, s in listing.items() if i != kavita["id"]),
-        **taken_in_run,
-    }
-    if chosen.romaji and series_name.taken(chosen.romaji, holders):
-        log.info("series %s: its romanized name %r is taken: left out", series["id"], chosen.romaji)
-        chosen = replace(chosen, romaji="")
-    one = replace(one, chosen=chosen, kavita=kavita, folder=series["folder"])
-    due = series_name.due(own, kavita.get("localizedName"), series["folder"], chosen)
-    one = replace(one, due=due)
-    if not due.any():
+    one = _names(replace(one, kavita=kavita, folder=series["folder"]), own, kavita.get("localizedName"), holders)
+    if not one.due.any():
         return one
-    if due.files or due.kavita_name:
-        why = series_name.taken(chosen.name, holders)
-        if why:
-            return replace(one, problem=f"its name {chosen.name!r} is not free: {why}", clash=True)
+    if one.name_changes and (why := series_name.taken(one.chosen.name, holders)):
+        return replace(one, problem=f"its name {one.chosen.name!r} is not free: {why}", clash=True)
     try:
-        one = _folders(ctx.cfg, one)
-        return replace(one, rewrite=tuple(_files_to_rewrite(ctx.cfg, one)))
+        one = _folders(cfg, one)
+        return replace(one, rewrite=tuple(_files_to_rewrite(cfg, one)))
     except _LeftError as e:
         return replace(one, problem=str(e))
 
@@ -265,27 +298,42 @@ class _LeftError(Exception):
 def _folders(cfg: config.Config, one: Planned) -> Planned:
     """Return the plan with its folder (where its files are now) and target; _LeftError when they do not fit.
 
-    After a stop past the folder rename, the old folder is gone and the target holds every published name.
+    The parent folder is listed once and names compared exactly, so a case-only rename is seen on a share that ignores
+    case too. After a stop past the folder rename, the old folder is gone and the target holds every published name.
+    When files are rewritten, the folder must hold no CBZ the series has no row for (it would keep the old name).
     """
     stored = one.series["folder"]
     parent = PurePosixPath(stored).parent
     target = str(parent / names.folder_name(one.chosen.name)) if one.due.folder else stored
     old, new = config.to_local(cfg, stored), config.to_local(cfg, target)
+    if not errors.exists(old.parent):
+        msg = f"its parent folder {parent} is missing"
+        raise _LeftError(msg)
+    there = {p.name for p in old.parent.iterdir()}
     published = {PurePosixPath(f.path).name for f in one.files}
-    if target != stored and not errors.exists(old):
-        if errors.exists(new) and published <= {p.name for p in new.iterdir()}:
-            return replace(one, folder=target, target=target)
-        msg = f"its folder {stored} is missing"
-        raise _LeftError(msg)
-    if not errors.exists(old):
-        msg = f"its folder {stored} is missing"
-        raise _LeftError(msg)
-    if target != stored:
-        others = [p.name for p in new.parent.iterdir() if p.name != old.name] if errors.exists(new.parent) else []
+    if old.name not in there:
+        if target != stored and new.name in there and published and published <= {p.name for p in new.iterdir()}:
+            one = replace(one, folder=target, target=target)
+        else:
+            msg = f"its folder {stored} is missing"
+            raise _LeftError(msg)
+    elif target != stored:
+        others = [n for n in there if n not in {old.name, new.name}]
+        if new.name in there and new.name.casefold() != old.name.casefold():
+            others.append(new.name)
         if taken := series_name.folder_taken(one.chosen.name, others):
             msg = f"the folder name is taken by {parent / taken}"
             raise _LeftError(msg)
-    return replace(one, target=target)
+        one = replace(one, target=target)
+    else:
+        one = replace(one, target=target)
+    if one.due.files:
+        now = config.to_local(cfg, one.folder)
+        stray = sorted(p.name for p in now.glob("*.cbz") if p.name not in published)
+        if stray:
+            msg = f"{one.folder} holds files the series has no row for: {', '.join(stray[:3])}"
+            raise _LeftError(msg)
+    return one
 
 
 def _moved(one: Planned, path: str) -> str:
@@ -365,113 +413,126 @@ def new_xml(stored: str, xml: bytes, chosen: series_name.Chosen) -> bytes:
 # --- the acts
 
 
-def apply(ctx: workflow.Context, planned: Sequence[Planned]) -> tuple[list[Planned], list[str]]:
-    """Rename each planned series without a problem, hold each clash; return those renamed and the lines of the rest.
+def apply(ctx: workflow.Context, planned: Sequence[Planned], outcome: Outcome) -> None:
+    """Rename each planned series without a problem, hold each clash; record each in outcome as it is done.
 
-    A share error raises: the series after it are not tried, and a rerun finishes what was begun.
+    A Kavita error or a file changed since the check lists the series and the run goes on. A share error raises: the
+    series after it are not tried, outcome holds what was done, and a rerun finishes what was begun.
     """
-    renamed: list[Planned] = []
-    left: list[str] = []
     for one in planned:
         if one.clash and one.problem:
             with db.transaction(ctx.conn):
                 workflow.needs_human(
                     ctx.conn, "series", one.series["id"], f"{one.problem} -> name it in its override file"
                 )
-            left.append(one.line())
+            outcome.left.append(one.line())
         elif one.problem:
-            left.append(one.line())
+            outcome.left.append(one.line())
         elif one.due.any():
-            why = _rename(ctx, one)
-            if why:
-                left.append(f"series {one.series['id']}: not renamed: {why}")
-            else:
-                renamed.append(one)
-    return renamed, left
+            _rename(ctx, one, outcome)
 
 
-def _rename(ctx: workflow.Context, one: Planned) -> str | None:
-    """Rename 1 series; return why a Kavita write failed (nothing further done for it), else None."""
-    cfg, kavita, kid = ctx.cfg, ctx.kavita, one.series["kavita_series_id"]
+def _rename(ctx: workflow.Context, one: Planned, outcome: Outcome) -> None:
+    """Rename 1 series, recording it in outcome.
+
+    A failure before the folder rename leaves the rows as they are; after it, the folder and file rows are stored (the
+    names not: the next run finds the names still due and finishes).
+    """
+    cfg, kavita, sid = ctx.cfg, ctx.kavita, one.series["id"]
     before = one.kavita or {}
     log.info(
         "series %s: renaming; before: Kavita name %r, localized name %r, sort name %r, folder %s",
-        one.series["id"],
+        sid,
         before.get("name"),
         before.get("localizedName"),
         before.get("sortName"),
         one.series["folder"],
     )
-    if one.due.files:
-        bridge = one.series["comicinfo_series"] or ""
-        if why := _read_back(kavita.rename_series(kid, one.chosen.name, bridge), one, one.chosen.name, bridge):
-            return why
-    sizes: dict[str, int] = {}
-    for path in one.rewrite:
-        sizes[path] = _rewrite_file(cfg, path, one.chosen)
-    if one.folder != one.target:
-        old, new = config.to_local(cfg, one.folder), config.to_local(cfg, one.target)
-        new.parent.mkdir(parents=True, exist_ok=True)
-        old.rename(new)
+    moved = False
     name, localized = one.kavita_name(), one.localized()
-    written = one.name_changes or one.due.localized
-    if written and (why := _read_back(kavita.rename_series(kid, name, localized), one, name, localized)):
-        return why
-    _store(ctx.conn, one, name, localized, sizes)
-    log.info("series %s: renamed: %s", one.series["id"], one.line())
-    return None
+    try:
+        if one.due.files:
+            _kavita_names(kavita, one, one.chosen.name, one.series["comicinfo_series"] or "")
+        for path in one.rewrite:
+            _rewrite_file(cfg, path, one.chosen)
+        if one.folder != one.target:
+            old, new = config.to_local(cfg, one.folder), config.to_local(cfg, one.target)
+            old.rename(new)
+        moved = one.series["folder"] != one.target
+        if one.name_changes or one.due.localized:
+            _kavita_names(kavita, one, name, localized)
+    except (*KAVITA_ERRORS, _LeftError) as e:
+        outcome.left.append(f"series {sid}: not renamed: {e}")
+        if moved:
+            _store(cfg, ctx.conn, one, None)
+            outcome.moved.append(one)
+        return
+    _store(cfg, ctx.conn, one, (name, localized))
+    outcome.renamed.append(one)
+    if moved:
+        outcome.moved.append(one)
+    log.info("series %s: renamed: %s", sid, one.line())
 
 
-def _read_back(got: Series | None, one: Planned, name: str, localized: str) -> str | None:
-    """Return why Kavita's read-back is not the names sent, both locked, or None."""
+def _kavita_names(kavita: Kavita, one: Planned, name: str, localized: str) -> None:
+    """Give the series' Kavita name and localized name, both locked; _LeftError when Kavita does not read them back."""
+    got = kavita.rename_series(one.series["kavita_series_id"], name, localized)
     if got is None:
-        return f"Kavita no longer holds series {one.series['kavita_series_id']}"
-    if (got["name"], got.get("localizedName") or "") != (name, localized):
-        return f"Kavita reads back {got['name']!r} / {got.get('localizedName')!r}, not what was sent"
-    if not (got.get("nameLocked") and got.get("localizedNameLocked")):
-        return "Kavita reads back the names unlocked"
-    return None
+        msg = f"Kavita no longer holds series {one.series['kavita_series_id']}"
+    elif (got["name"], got.get("localizedName") or "") != (name, localized):
+        msg = f"Kavita reads back {got['name']!r} / {got.get('localizedName')!r}, not what was sent"
+    elif not (got.get("nameLocked") and got.get("localizedNameLocked")):
+        msg = "Kavita reads back the names unlocked"
+    else:
+        return
+    raise _LeftError(msg)
 
 
-def _rewrite_file(cfg: config.Config, stored: str, chosen: series_name.Chosen) -> int:
-    """Replace a file by a copy with its new ComicInfo.xml, the old file kept the retention way; return its size.
+def _rewrite_file(cfg: config.Config, stored: str, chosen: series_name.Chosen) -> None:
+    """Replace a file by a copy with its new ComicInfo.xml, the old file kept the retention way.
 
     A file already carrying the name (a rerun) is left.
     """
     file = config.to_local(cfg, stored)
     xml = _comicinfo(cfg, stored)
     if _series_in(stored, xml) == chosen.name:
-        return file.stat().st_size
+        return
     data = new_xml(stored, xml, chosen)
     part = file.with_name(f"{file.name}.part")
     part.unlink(missing_ok=True)  # a stopped run's leftover
     retention.put_library(cfg, file)
-    size = rewrite.copy_replacing(file, part, archive.COMICINFO, data)
+    rewrite.copy_replacing(file, part, archive.COMICINFO, data)
     part.replace(file)
-    return size
 
 
-def _store(conn: db.Connection, one: Planned, kavita_name: str, localized: str, sizes: dict[str, int]) -> None:
-    """Write the rename's rows in 1 transaction: the series' names and folder, its files' paths, names and sizes."""
-    sid, name = one.series["id"], one.chosen.name
+def _store(cfg: config.Config, conn: db.Connection, one: Planned, names_: tuple[str, str] | None) -> None:
+    """Write the rename's rows in 1 transaction.
+
+    Its folder and file paths, the recorded sizes of its files on disk and, with names_ (Kavita's name, localized
+    name), the series' and its files' names.
+    """
+    sid, target = one.series["id"], one.target
+    sizes = [
+        (config.to_local(cfg, path).stat().st_size, path)
+        for path in (target + f.path[len(one.series["folder"]) :] for f in one.files if f.sized)
+    ]
     with db.transaction(conn):
+        if target != one.series["folder"]:
+            folder_rows(conn, sid, one.series["folder"], target)
+        db.executemany(conn, "UPDATE published_file SET size = %s WHERE library_path = %s", sizes)
+        if names_ is None:
+            return
+        kavita_name, localized = names_
         conn.execute(
             "UPDATE series SET name = %s, comicinfo_series = %s, localized_name = %s WHERE id = %s",
-            (kavita_name, name, localized or None, sid),
+            (kavita_name, one.chosen.name, localized or None, sid),
         )
-        if one.target != one.series["folder"]:
-            folder_rows(conn, sid, one.series["folder"], one.target)
         if one.due.files:
-            conn.execute("UPDATE published_file SET comicinfo_series = %s WHERE series_id = %s", (name, sid))
+            conn.execute("UPDATE published_file SET comicinfo_series = %s WHERE series_id = %s", (one.chosen.name, sid))
             conn.execute(
                 """UPDATE chapter SET comicinfo_series = %s
                 WHERE series_id = %s AND status <> 'done' AND comicinfo_series IS NOT NULL""",
-                (name, sid),
-            )
-            db.executemany(
-                conn,
-                "UPDATE published_file SET size = %s WHERE library_path = %s AND size IS NOT NULL",
-                [(size, path) for path, size in sizes.items()],
+                (one.chosen.name, sid),
             )
 
 
@@ -489,6 +550,17 @@ def folder_rows(conn: db.Connection, series_id: int, old: str, new: str) -> None
         )
 
 
+def only_lines(cfg: config.Config, renamed: Iterable[Planned]) -> list[str]:
+    """Return a line per renamed series `series.only` named by an old name it no longer has (out of scope now)."""
+    only = {normalize(n) for n in cfg["series"]["only"]}
+    return [
+        f"series {p.series['id']}: series.only names it {p.series['comicinfo_series']!r}: give its new name there"
+        for p in renamed
+        if only & {normalize(p.series["comicinfo_series"] or ""), normalize(p.series["name"] or "")}
+        and normalize(p.chosen.name) not in only
+    ]
+
+
 # --- the wait
 
 
@@ -500,25 +572,22 @@ def wait_for_kavita(
 ) -> list[Planned]:
     """Request a library scan, again every RESCAN_MINUTES, until Kavita lists each moved series in its new folder.
 
-    Return those it has not followed after minutes; Kavita not answering ends the wait (all left counted).
+    Return those it has not followed within minutes; Kavita not answering ends the wait (all left counted).
     """
     library_id = ctx.cfg["kavita"]["library_id"]
-    waiting = list(moved)
+    waiting_ = list(moved)
     start = last_request = time.monotonic()
-    ctx.kavita.scan_library(library_id)
-    while waiting:
-        sleep(POLL_SECONDS)
-        try:
-            waiting = [one for one in waiting if not _followed(ctx, one)]
-            if waiting and time.monotonic() - last_request >= RESCAN_MINUTES * 60:
+    try:
+        ctx.kavita.scan_library(library_id)
+        while waiting_ and time.monotonic() - start < minutes * 60:
+            sleep(POLL_SECONDS)
+            waiting_ = [one for one in waiting_ if not _followed(ctx, one)]
+            if waiting_ and time.monotonic() - last_request >= RESCAN_MINUTES * 60:
                 ctx.kavita.scan_library(library_id)
                 last_request = time.monotonic()
-        except workflow.Unreachable as e:
-            log.warning("Kavita did not answer during the wait: %s", e)
-            return waiting
-        if time.monotonic() - start >= minutes * 60:
-            break
-    return waiting
+    except KAVITA_ERRORS as e:
+        log.warning("Kavita did not answer during the wait: %s", e)
+    return waiting_
 
 
 def _followed(ctx: workflow.Context, one: Planned) -> bool:
@@ -527,8 +596,3 @@ def _followed(ctx: workflow.Context, one: Planned) -> bool:
     except FolderError:
         return False
     return folder == config.to_local(ctx.cfg, one.target)
-
-
-def moved_series(planned: Sequence[Planned]) -> list[Planned]:
-    """Return the series whose folder a rename moved."""
-    return [p for p in planned if not p.problem and p.series["folder"] != p.target and p.target]

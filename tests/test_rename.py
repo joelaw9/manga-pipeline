@@ -7,8 +7,9 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import archive, cli, comicinfo, config, db, intake, rename, workflow
-from manga_pipeline.metadata import check, series_name
+from manga_pipeline import archive, cli, comicinfo, config, db, intake, rename, status, workflow
+from manga_pipeline.clients import http
+from manga_pipeline.metadata import check, series_name, step
 
 from tests.builders import anilist_media, config_file
 from tests.timing import budget
@@ -23,31 +24,37 @@ def world(tmp_path):
     return World(tmp_path / "world")
 
 
-def checked(world, english, romaji=None, name="Ore Dake", folder=None):
+def checked(world, english, romaji=None, **where):
     """Add a bulk series Kavita holds as name (in folder), with AniList's record; run intake; return its id.
+
+    where: name (default "Ore Dake"), folder (default the name), al_id (its AniList id, default AL).
 
     Its files carry name as ComicInfo Series, as the bulk converter wrote it.
     """
+    name, folder, al_id = where.get("name", "Ore Dake"), where.get("folder"), where.get("al_id", AL)
     world.kavita_series(name, folder)
     for n, f in enumerate(sorted((world.library / (folder or name)).glob("*.cbz")), 1):
         archive.replace_member(f, archive.COMICINFO, comicinfo_xml(Series=name, Number=n).encode())
-    world.sources.anilist.records[("media", AL)] = anilist_media(
-        id=int(AL), title={"romaji": romaji, "english": english, "native": None}
+    world.sources.anilist.records[("media", al_id)] = anilist_media(
+        id=int(al_id), title={"romaji": romaji, "english": english, "native": None}
     )
     world.run(intake)
     (sid,) = world.rows("SELECT id FROM series WHERE name = %s", name)[0]
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
-        conn.execute("INSERT INTO series_source_id VALUES (%s, 'anilist', 'human', %s)", (sid, AL))
+        conn.execute("INSERT INTO series_source_id VALUES (%s, 'anilist', 'human', %s)", (sid, al_id))
         check.make_urgent(conn, sid)
+        conn.execute("DELETE FROM meta WHERE key = %s", (step.BASELINE_PASS_AT,))  # the daily baseline pass: now
     world.run(intake)
     return sid
 
 
 def renamed(world, *ids):
     """Plan and apply a rename of the series (all due ones without ids) as the command does; return (done, left)."""
+    outcome = rename.Outcome()
     with closing(db.connect(world.cfg)) as conn:
         ctx = world.context(conn, "export")
-        return rename.apply(ctx, rename.check(ctx, rename.read_db(world.cfg, conn, list(ids) or None)))
+        rename.apply(ctx, rename.check(ctx, rename.read_db(world.cfg, conn, list(ids) or None)), outcome)
+    return outcome.renamed, outcome.left
 
 
 def files(world, folder):
@@ -214,3 +221,118 @@ def test_a_file_with_an_element_the_schema_does_not_take_rebuilds_without_it():
     xml = comicinfo_xml(Series="Old", LocalizedSeries="Stale", Number="3", Extension="x").encode()
     got = comicinfo.read_all(rename.new_xml("f.cbz", xml, series_name.Chosen("New", "", "anilist")))
     assert got == {"Series": "New", "Number": "3"}, "Series the name, no stale LocalizedSeries, unknown element dropped"
+
+
+def raising(error, real, on_kid):
+    """Return a rename_series that raises error for on_kid and calls real for the others."""
+
+    def rename_series(kid, name, localized):
+        if kid == on_kid:
+            raise error
+        return real(kid, name, localized)
+
+    return rename_series
+
+
+@budget(load="db", seconds=10)
+def test_a_kavita_refusal_lists_the_series_and_the_run_goes_on(world, monkeypatch):
+    first = checked(world, "Solo Leveling")
+    second = checked(world, "Second Life", name="Niban", al_id="7")
+    kid, _ = kavita(world, first)
+    refusal = http.HttpError(400, "http://kavita.invalid/api/Series/update", b"bad name")
+    monkeypatch.setattr(world.kavita, "rename_series", raising(refusal, world.kavita.rename_series, kid))
+    done, left = renamed(world)
+    assert [p.series["id"] for p in done] == [second], "the next series is renamed"
+    assert left == [f"series {first}: not renamed: HTTP 400 from http://kavita.invalid/api/Series/update: bad name"]
+    assert files(world, "Ore Dake") != {}, "the refused series is left as it is"
+
+
+@budget(load="db", seconds=10)
+def test_a_kavita_refusal_after_the_folder_moved_stores_the_folder_and_the_next_run_finishes(world, monkeypatch):
+    sid = checked(world, "Solo Leveling", romaji="Ore Dake Level Up")
+    real, calls = world.kavita.rename_series, []
+
+    def second_call_fails(k, name, localized):
+        calls.append(k)
+        if len(calls) == 2:
+            raise http.HttpError(400, "http://kavita.invalid/api/Series/update", b"")
+        return real(k, name, localized)
+
+    with monkeypatch.context() as m:
+        m.setattr(world.kavita, "rename_series", second_call_fails)
+        done, left = renamed(world, sid)
+    assert (done, len(left)) == ([], 1), "listed"
+    assert world.rows("SELECT folder, comicinfo_series FROM series") == [("library/Solo Leveling", "Ore Dake")], (
+        "the moved folder is stored, the names are not: still due"
+    )
+    done, left = renamed(world, sid)
+    assert ([p.series["id"] for p in done], left) == ([sid], []), "the next run finishes"
+    assert kavita(world, sid)[1][:2] == ("Solo Leveling", "Ore Dake Level Up")
+
+
+@budget(load="db", seconds=10)
+def test_recorded_sizes_follow_the_rewritten_files(world):
+    sid = checked(world, "Solo Leveling")
+    world.rows("UPDATE published_file SET size = 1 WHERE series_id = %s RETURNING id", sid)
+    renamed(world, sid)
+    for path, size in world.rows("SELECT library_path, size FROM published_file"):
+        assert size == config.to_local(world.cfg, path).stat().st_size, "the size of the file on disk"
+
+
+@budget(load="db", seconds=10)
+def test_a_cbz_in_the_folder_without_a_row_leaves_the_series(world):
+    sid = checked(world, "Solo Leveling")
+    (world.library / "Ore Dake" / "Stray.cbz").write_bytes(b"")
+    done, left = renamed(world, sid)
+    assert done == []
+    assert "has no row for: Stray.cbz" in left[0], "it would keep the old name"
+
+
+@budget(load="db", seconds=10)
+def test_the_wait_ends_when_kavita_does_not_answer(world, monkeypatch):
+    checked(world, "Solo Leveling")
+    done, _ = renamed(world)
+
+    def unreachable(_kid):
+        service, msg = "kavita", "timed out"
+        raise workflow.Unreachable(service, msg)
+
+    monkeypatch.setattr(world.kavita, "series_folder", unreachable)
+    with closing(db.connect(world.cfg)) as conn:
+        ctx = world.context(conn, "export")
+        assert rename.wait_for_kavita(ctx, done, 5, sleep=lambda _s: None) == done, "listed, not raised"
+
+
+@budget(load="db", seconds=10)
+def test_status_lists_the_names_due_and_an_override_file_it_cannot_read(world):
+    sid = checked(world, "Solo Leveling")
+    other = checked(world, "Second Life", name="Niban", al_id="7")
+    (rules_key,) = world.rows("SELECT rules_key FROM series WHERE id = %s", other)[0]
+    overrides = config.abs_path(world.cfg["paths"]["naming_overrides"])
+    overrides.mkdir(parents=True, exist_ok=True)
+    (overrides / f"{rules_key}.yaml").write_bytes(b"name: [A]\n")
+    lines = status.run(world.cfg)
+    at = lines.index("Series names waiting for series rename:")
+    section = lines[at + 1 :]
+    assert f"  series {sid} (Ore Dake): 'Solo Leveling': files, Kavita name, folder" in section, section
+    assert any(line.startswith(f"  series {other}: ") and "name" in line for line in section), section
+
+
+@budget(load="db", seconds=20)
+def test_series_rename_lists_what_it_left_and_exits_1(world, tmp_path, monkeypatch, capsys):
+    world.kavita_series("Solo-Leveling")
+    sid = checked(world, "Solo Leveling")
+    monkeypatch.setattr(workflow, "context", lambda _cfg, conn, part: world.context(conn, part))
+    argv = ["--config", str(config_file(tmp_path, world.cfg)), "series", "rename", "--all", "--wait", "0"]
+    assert cli.main(argv) == 1, "a series not renamed: exit 1"
+    assert f"series {sid} (Ore Dake): name taken" in capsys.readouterr().err
+
+
+@budget(load="db", seconds=20)
+def test_series_rename_refuses_to_run_without_retention(world, tmp_path, monkeypatch, capsys):
+    checked(world, "Solo Leveling")
+    monkeypatch.setattr(workflow, "context", lambda _cfg, conn, part: world.context(conn, part))
+    cfg_file = str(config_file(tmp_path, world.cfg))
+    argv = ["--config", cfg_file, "--set", "export.retention_days=0", "series", "rename", "--all"]
+    assert cli.main(argv) == 2, "refused: nothing would keep the original files"
+    assert "retention_days is 0" in capsys.readouterr().err

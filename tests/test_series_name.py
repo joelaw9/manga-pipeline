@@ -2,14 +2,17 @@
 
 import pytest
 
+from manga_pipeline.metadata.records import SeriesRecords
 from manga_pipeline.metadata.series_name import Chosen, Due, Own, chosen, due, folder_taken, taken
+from manga_pipeline.replies.sources import MangaBakaSeries, MangaBakaTitle, MangaDexAttributes, MangaDexManga
 
+from tests.builders import anilist_media
 from tests.timing import budget
 
 OWN = Own("Ore Dake", None, None, "Ore Dake")
 
 
-def records(**titles):
+def records(**titles) -> SeriesRecords:
     """Return a series' records with the given titles (None for a source given nothing).
 
     titles: english, romaji (AniList); md_alt, md_title, md_romanized (MangaDex); mb_en, mb_romanized (MangaBaka).
@@ -17,15 +20,18 @@ def records(**titles):
     english, romaji = titles.get("english"), titles.get("romaji")
     md_alt, md_title, md_romanized = titles.get("md_alt", ()), titles.get("md_title"), titles.get("md_romanized", ())
     mb_en, mb_romanized = titles.get("mb_en", ()), titles.get("mb_romanized")
-    al = {"id": 1, "title": {"english": english, "romaji": romaji, "native": None}} if english or romaji else None
+    al = anilist_media(title={"english": english, "romaji": romaji, "native": None}) if english or romaji else None
     md = None
     if md_alt or md_title or md_romanized:
         alt = [{"en": t} for t in md_alt] + [{"ja-ro": t} for t in md_romanized]
-        md = {"id": "u", "attributes": {"title": {"en": md_title} if md_title else {}, "altTitles": alt}}
+        md = MangaDexManga(
+            id="u", attributes=MangaDexAttributes(title={"en": md_title} if md_title else {}, altTitles=alt)
+        )
     mb = None
     if mb_en or mb_romanized:
-        mb = {"id": 2, "secondary_titles": {"en": [{"title": t} for t in mb_en]}, "romanized_title": mb_romanized}
-    return {"anilist": al, "mangadex": md, "mangabaka": mb, "mangaupdates": None}
+        secondary: dict[str, list[MangaBakaTitle] | None] = {"en": [MangaBakaTitle(title=t) for t in mb_en]}
+        mb = MangaBakaSeries(id=2, secondary_titles=secondary, romanized_title=mb_romanized)
+    return SeriesRecords(anilist=al, mangadex=md, mangabaka=mb, mangaupdates=None)
 
 
 @pytest.mark.parametrize(
@@ -152,3 +158,20 @@ def test_due_names_each_fault_apart(own, localized, folder, want):
 def test_a_series_without_a_romaji_keeps_its_localized_name():
     got = due(Own("New", "Something", None, "New"), "Something", "library/X/New", Chosen("New", "", "anilist"))
     assert not got.any(), "the old tool never cleared a localized name"
+
+
+@budget(load="pure")
+def test_a_persons_name_keeps_its_own_spelling():
+    got = chosen(Own("solo leveling", None, None, "solo leveling"), records(), "Solo Leveling")
+    assert got == Chosen("Solo Leveling", "", "person"), "a person's casing is the name"
+    assert due(Own("solo leveling", None, None, "solo leveling"), None, "library/Solo Leveling", got) == Due(
+        files=True, kavita_name=True, localized=False, folder=False
+    ), "a person's spelling is a change"
+
+
+@budget(load="pure")
+def test_a_series_with_no_files_yet_has_no_comicinfo_name_to_keep():
+    assert chosen(Own("solo-leveling", None, None, None), records(english="Solo Leveling"), None).name == (
+        "Solo Leveling"
+    ), "a new series is named by the rule, not by the title it arrived under"
+    assert chosen(Own("x", None, None, None), records(), None).name == "", "nothing gives a name: the caller's fallback"

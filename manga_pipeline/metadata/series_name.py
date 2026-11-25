@@ -22,12 +22,15 @@ ROMANIZED = ("ja-ro", "ko-ro", "zh-ro")  # MangaDex's romanized title languages
 
 @dataclass(frozen=True)
 class Own:
-    """A series' own names: Kavita's name, localized and original name (as last synced) and its ComicInfo name."""
+    """A series' own names: Kavita's name, localized and original name, and its files' ComicInfo name.
+
+    comicinfo is None for a new series before admission: no files yet.
+    """
 
     name: str
     localized: str | None
     original: str | None
-    comicinfo: str
+    comicinfo: str | None
 
 
 @dataclass(frozen=True)
@@ -92,7 +95,10 @@ def _english_lists(records: SeriesRecords) -> list[tuple[str, list[str]]]:
 
 
 def chosen(own: Own, records: SeriesRecords, person: str | None) -> Chosen:
-    """Return the series' name and romanized name by the rule; person: the override file's or admission's name."""
+    """Return the series' name and romanized name by the rule; person: the override file's or admission's name.
+
+    The name is "" when nothing gives one (no person, no English title, no ComicInfo name: the caller's fallback).
+    """
     romanized = _romanized_keys(records)
     al_romaji = anilist_romaji(records["anilist"])
     if person:
@@ -100,7 +106,7 @@ def chosen(own: Own, records: SeriesRecords, person: str | None) -> Chosen:
     elif english := anilist_english(records["anilist"]):
         name, source = english, "anilist"
     else:
-        name, source = own.comicinfo, "comicinfo"
+        name, source = own.comicinfo or "", "comicinfo"
         excluded = romanized | {normalize(al_romaji)}
         for list_source, titles in _english_lists(records):
             keys = {normalize(t) for t in titles} - {""} - excluded
@@ -108,8 +114,8 @@ def chosen(own: Own, records: SeriesRecords, person: str | None) -> Chosen:
             if found:
                 name, source = found, list_source
                 break
-    if normalize(name) == normalize(own.comicinfo):
-        name = own.comicinfo  # another spelling of the same title is no change (KE:1281-1284)
+    if source != "person" and own.comicinfo and normalize(name) == normalize(own.comicinfo):
+        name = own.comicinfo  # another spelling of the same title is no change (KE:1281-1284); a person's is kept
     romaji = al_romaji or next(
         (n for n in (own.name, own.localized, own.original) if n and normalize(n) in romanized), ""
     )
@@ -139,8 +145,8 @@ def due(own: Own, kavita_localized: str | None, folder: str, chosen_: Chosen) ->
     """Return what a rename must change. folder: the series' stored folder; kavita_localized: Kavita's now."""
     key = normalize(chosen_.name)
     return Due(
-        files=normalize(own.comicinfo) != key,
-        kavita_name=normalize(own.name) != key,
+        files=normalize(own.comicinfo or "") != key or (chosen_.source == "person" and own.comicinfo != chosen_.name),
+        kavita_name=normalize(own.name) != key or (chosen_.source == "person" and own.name != chosen_.name),
         localized=bool(chosen_.romaji) and normalize(kavita_localized or "") != normalize(chosen_.romaji),
         folder=PurePosixPath(folder).name != names.folder_name(chosen_.name),
     )

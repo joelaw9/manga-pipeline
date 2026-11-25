@@ -7,6 +7,7 @@ holds lock.AUTOMATION and reads the automation's pause: paused, it ends there (S
 """
 
 import argparse
+import contextlib
 import logging
 import os
 import sys
@@ -307,11 +308,18 @@ def series_rename(cfg: config.Config, args: argparse.Namespace, conn: db.Connect
         raise workflow.Refused(msg)
     ctx = workflow.context(cfg, conn, "export")
     planned = rename.check(ctx, rename.read_db(cfg, conn, None if args.all else args.series_ids))
-    renamed, left = rename.apply(ctx, planned)
-    _lines(f"{p.line()}: done" for p in renamed)
-    moved = rename.moved_series(renamed)
-    behind = rename.wait_for_kavita(ctx, moved, args.wait) if moved else []
-    left += [f"series {p.series['id']}: Kavita has not followed its folder to {p.target}" for p in behind]
+    outcome = rename.Outcome()
+    try:
+        rename.apply(ctx, planned, outcome)
+    except BaseException:
+        if outcome.renamed or outcome.moved:  # Kavita must read what was done; the rerun finishes the rest
+            with contextlib.suppress(*rename.KAVITA_ERRORS):
+                ctx.kavita.scan_library(cfg["kavita"]["library_id"])
+        raise
+    _lines(f"{p.line()}: done" for p in outcome.renamed)
+    _lines(rename.only_lines(cfg, outcome.renamed))
+    behind = rename.wait_for_kavita(ctx, outcome.moved, args.wait) if outcome.renamed or outcome.moved else []
+    left = outcome.left + [f"series {p.series['id']}: Kavita has not followed its folder to {p.target}" for p in behind]
     if left:
         msg = "not done:\n" + "\n".join(left)
         raise rename.RenameError(msg)

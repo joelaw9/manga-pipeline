@@ -15,9 +15,10 @@ series is needs_human.
 
 import logging
 from collections.abc import Iterable, Sequence
+from dataclasses import replace
 from pathlib import Path
 
-from manga_pipeline import config, db, errors, names, volumes, workflow
+from manga_pipeline import config, db, errors, names, workflow
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.clients.kavita_match import normalize, series_names
 from manga_pipeline.db import sql
@@ -130,29 +131,20 @@ def new_series_holders(conn: db.Connection, series_id: int) -> dict[str, str]:
     return holders
 
 
-def name_for(cfg: config.Config, conn: db.Connection, series: db.Row) -> series_name.Chosen:
+def name_for(conn: db.Connection, series: db.Row) -> series_name.Chosen:
     """Return the series' name and romanized name by SPEC "Series identification".
 
-    OverrideError when its naming override file is malformed. A series not admitted yet has no rules key, so no
-    override file: its override name applies at `series rename`.
+    The rule's (a person's `--name`, AniList's English title or a fallback), else the names it arrived under. A series
+    not admitted yet has no rules key, so no override file: an override name applies at `series rename`.
     """
-    key = series["rules_key"]
-    override = volumes.override_name(config.abs_path(cfg["paths"]["naming_overrides"]), key) if key else None
-    own = series_name.Own(
-        series["name"], series["localized_name"], series["original_name"], series["alt_name"] or series["name"]
-    )
-    return series_name.chosen(own, merge.stored_records(conn, series["id"]), override or series["admit_name"])
+    own = series_name.Own(series["name"], series["localized_name"], series["original_name"], None)
+    chosen = series_name.chosen(own, merge.stored_records(conn, series["id"]), series["admit_name"])
+    return chosen if chosen.name else replace(chosen, name=series["alt_name"] or series["name"], source="arrived")
 
 
 def _admit(ctx: workflow.Context, series: db.Row, library: _Library, sources: Sequence[Source]) -> None:
     conn = ctx.conn
-    try:
-        chosen = name_for(ctx.cfg, conn, series)
-    except volumes.OverrideError as e:
-        with db.transaction(conn):
-            workflow.needs_human(conn, "series", series["id"], f"new series {series['name']!r}: {e} -> fix the file")
-        log.warning("series %s (%s): not admitted: %s", series["id"], series["name"], e)
-        return
+    chosen = name_for(conn, series)
     name = chosen.name
     # Before the transaction: its links do not change meanwhile, and the share is not read under the write lock
     source, clash = source_folder(conn, series["id"], sources)

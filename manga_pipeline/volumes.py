@@ -83,7 +83,8 @@ def override_name(overrides: Path, folder_name: str) -> str | None:
 
     OverrideError when the file is malformed.
     """
-    return (override_file(overrides, folder_name) or {}).get("name")
+    name = (override_file(overrides, folder_name) or {}).get("name")
+    return name.strip() if name else None
 
 
 def _check_name(value: Yaml) -> None:
