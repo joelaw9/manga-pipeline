@@ -11,7 +11,7 @@ import pytest
 from manga_pipeline import cli, config, db
 from manga_pipeline.junk import candidates, redecide, review, store, where
 
-from tests.builders import add_series, adopted, config_file, one
+from tests.builders import add_series, adopted, config_file, one, present
 from tests.timing import budget
 
 AT = "2026-11-25T00:00:00+00:00"
@@ -226,9 +226,9 @@ def test_where_lists_the_identities_whose_sightings_a_row_decides(site):
     seen(conn, "T", FAR[0], "c7")
     seen(conn, "T", FAR[1], "c8")  # another unit
     decide(conn, "T", FAR[0], "keep")  # T's own keep decides its sighting, not the global
-    units = where.decided_by(conn, store.get(conn, g))
+    units = where.decided_by(conn, present(store.get(conn, g)))
     assert units == [where.Unit("S", "c1", "block")], "the units the global decides now, by series and identity"
-    assert where.decided_by(conn, store.get(conn, g), ["T"]) == [], "--series narrows a global's search"
+    assert where.decided_by(conn, present(store.get(conn, g)), ["T"]) == [], "--series narrows a global's search"
 
 
 @budget(load="db")

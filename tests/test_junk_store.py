@@ -647,7 +647,7 @@ def retired_by_an_act(conn, decision_id):
 def test_a_superseded_or_retired_decision_decides_nothing(conn):
     put(conn, decision("S", "block", sig(), "junk", at="2026-11-01T00:00:00+00:00"))
     put(conn, decision("S", "block", sig(), "keep", at="2026-11-02T00:00:00+00:00"))
-    assert store.Decisions(conn, "S").decide("block", store.parse_key("block", sig()))["verdict"] == "keep", (
+    assert present(store.Decisions(conn, "S").decide("block", store.parse_key("block", sig())))["verdict"] == "keep", (
         "the superseding import decides; the superseded one is history"
     )
     retired_by_an_act(conn, one(conn, "SELECT id FROM junk_decision WHERE superseded_by IS NULL"))
