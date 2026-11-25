@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TypeIs
 
@@ -121,43 +122,16 @@ def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool
     Kavita does not hold yet has no Kavita record or ids.
     """
     conn = ctx.conn
-    series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series_id,))
-    mangas = conn.execute(
-        "SELECT manga_id, title FROM suwayomi_manga WHERE series_id = %s ORDER BY manga_id", (series_id,)
-    ).fetchall()
-    in_kavita = series["kavita_series_id"] is not None
-    kavita_series = ctx.kavita.series(series["kavita_series_id"]) if in_kavita else None
-    if in_kavita and kavita_series is None:
-        # Not checked, and not due again for the quiet interval: a deleted series never takes a capped check's place
-        now = workflow.now(conn)
-        later = (datetime.fromisoformat(now) + timedelta(days=ctx.cfg["metadata"]["quiet_days"])).isoformat()
-        with db.transaction(conn):
-            conn.execute(
-                """INSERT INTO series_check (series_id, next_check_at) VALUES (%s, %s)
-                ON CONFLICT (series_id) DO UPDATE SET next_check_at = excluded.next_check_at, urgent = false""",
-                (series_id, later),
-            )
-        log.info(
-            "series %s (%s): not checked: Kavita no longer holds series %s",
-            series_id,
-            series["name"],
-            series["kavita_series_id"],
-        )
+    gathered = gather(ctx, clients, series_id)
+    if gathered is None:
+        _put_off(ctx, series_id)
         return False
-    manga_rows = [m for m in (ctx.suwayomi.manga(row["manga_id"]) for row in mangas) if m is not None]
-    kavita_meta = None
-    kavita_ids: list[ids.Pair] = []
-    if kavita_series is not None:  # a new series Kavita does not hold yet has no Kavita record or ids
-        kavita_meta = ctx.kavita.metadata(series["kavita_series_id"])
-        kavita_ids = ids.kavita_ids(kavita_series, kavita_meta)
-    stored = _stored_ids(conn, series_id)
-    known = stored + _origin_ids(manga_rows, kavita_ids)
-    try:
-        records = _fetch(clients, _names(series), known)
-    except Disagree as e:
-        if _store_disagreement(conn, series, stored, known, str(e)):
-            log.warning("series %s (%s): needs_human: %s", series_id, series["name"], e)
+    series, stored, known = gathered.series, gathered.stored, gathered.known
+    if gathered.disagreement is not None:
+        if _store_disagreement(conn, series, stored, known, gathered.disagreement):
+            log.warning("series %s (%s): needs_human: %s", series_id, series["name"], gathered.disagreement)
         return False
+    records, kavita_meta, manga_rows = gathered.records, gathered.kavita_meta, gathered.manga_rows
     _scrub_records(series, records)
     platform = _platform(clients, series, kavita_meta, records, _stored_platform(conn, series_id))
     if _scrub(platform):
@@ -208,6 +182,77 @@ def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool
         version,
     )
     return True
+
+
+@dataclass(frozen=True)
+class Gathered:
+    """What a check read: the series, its ids (stored, then as the fetch grew them) and its source records.
+
+    disagreement: the problem text when 2 ids of a source differ (the fetch stopped there), else None.
+    """
+
+    series: db.Row
+    stored: list[ids.Known]
+    known: list[ids.Known]
+    records: Records
+    kavita_meta: SeriesMetadata | None
+    manga_rows: list[Manga]
+    disagreement: str | None
+
+
+def gather(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> Gathered | None:
+    """Read 1 series' ids and fetch its sources' records, writing nothing (the reading part of a check).
+
+    None when Kavita no longer holds the series. Unreachable, HttpError and SourceError from a
+    service propagate. A new series Kavita does not hold yet has no Kavita record or ids.
+    """
+    conn = ctx.conn
+    series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series_id,))
+    mangas = conn.execute(
+        "SELECT manga_id, title FROM suwayomi_manga WHERE series_id = %s ORDER BY manga_id", (series_id,)
+    ).fetchall()
+    in_kavita = series["kavita_series_id"] is not None
+    kavita_series = ctx.kavita.series(series["kavita_series_id"]) if in_kavita else None
+    if in_kavita and kavita_series is None:
+        return None
+    manga_rows = [m for m in (ctx.suwayomi.manga(row["manga_id"]) for row in mangas) if m is not None]
+    kavita_meta = None
+    kavita_ids: list[ids.Pair] = []
+    if kavita_series is not None:  # a new series Kavita does not hold yet has no Kavita record or ids
+        kavita_meta = ctx.kavita.metadata(series["kavita_series_id"])
+        kavita_ids = ids.kavita_ids(kavita_series, kavita_meta)
+    stored = _stored_ids(conn, series_id)
+    known = stored + _origin_ids(manga_rows, kavita_ids)
+    records = _empty_records()
+    try:
+        _described(clients, series, known, manga_rows)
+        _fetch(clients, records, _names(series), known)
+    except Disagree as e:
+        return Gathered(series, stored, known, records, kavita_meta, manga_rows, str(e))
+    return Gathered(series, stored, known, records, kavita_meta, manga_rows, None)
+
+
+def _put_off(ctx: workflow.Context, series_id: int) -> None:
+    """Put off the check of a series Kavita no longer holds by the quiet interval (logged).
+
+    A deleted series never takes a capped check's place.
+    """
+    conn = ctx.conn
+    series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series_id,))
+    now = workflow.now(conn)
+    later = (datetime.fromisoformat(now) + timedelta(days=ctx.cfg["metadata"]["quiet_days"])).isoformat()
+    with db.transaction(conn):
+        conn.execute(
+            """INSERT INTO series_check (series_id, next_check_at) VALUES (%s, %s)
+            ON CONFLICT (series_id) DO UPDATE SET next_check_at = excluded.next_check_at, urgent = false""",
+            (series["id"], later),
+        )
+    log.info(
+        "series %s (%s): not checked: Kavita no longer holds series %s",
+        series["id"],
+        series["name"],
+        series["kavita_series_id"],
+    )
 
 
 def _names(series: db.Row) -> list[str]:
@@ -313,14 +358,8 @@ def _store_platform(conn: db.Connection, series_id: int, platform: platforms.Pla
 type _Step = Callable[[sources.Sources, Records, list[ids.Known], str], None]  # 1 source's fetch by its id
 
 
-def _fetch(clients: sources.Sources, names: list[str], known: list[ids.Known]) -> Records:
-    """Fetch every source's records.
-
-    known grows with each search hit (origin search) and each record's cross-links. Disagree as soon as 2 ids of a
-    source differ. A source with no id at its turn (none agreed, its search missed) is fetched once the others are,
-    by the id a later record's cross-links gave it; no search then, and no third round.
-    """
-    records: Records = {
+def _empty_records() -> Records:
+    return {
         "mangabaka": None,
         "mangaupdates": None,
         "mangadex": None,
@@ -328,11 +367,67 @@ def _fetch(clients: sources.Sources, names: list[str], known: list[ids.Known]) -
         "mangadex_covers": None,
         "anilist": None,
     }
+
+
+def _described(clients: sources.Sources, series: db.Row, known: list[ids.Known], manga_rows: Iterable[Manga]) -> None:
+    """Add the ids the series' Suwayomi descriptions give to known, as search hits (SPEC "Source ids").
+
+    Only for a source no origin gives an id for, only when the descriptions give exactly 1 id for it, and only once
+    that id's record is fetched and is neither a novel's nor gone: a wrong kind's id never joins.
+    """
+    held = {source for source, _, _ in known}
+    given: dict[str, set[str]] = {}
+    for manga in manga_rows:
+        for source, value in ids.description_ids(manga["description"]):
+            given.setdefault(source, set()).add(value)
+    for source, values in sorted(given.items()):
+        if source in held or len(values) != 1:
+            continue
+        value = values.pop()
+        if _a_comic(clients, source, value):
+            known.append((source, "search", value))
+            log.info("series %s (%s): %s id %s from a description link", series["id"], series["name"], source, value)
+        else:
+            log.info(
+                "series %s (%s): description link %s %s not used: a novel's or gone",
+                series["id"],
+                series["name"],
+                source,
+                value,
+            )
+
+
+def _a_comic(clients: sources.Sources, source: str, value: str) -> bool:
+    """Return whether the source holds a record of that id and it is not a novel's (MangaDex holds only comics)."""
+    if source == "anilist":
+        media = clients.anilist.media(value)
+        return media is not None and (media.get("format") or "").lower() != "novel"
+    if source == "mangaupdates":
+        record = clients.mangaupdates.series(value)
+        return record is not None and (record.get("type") or "").lower() != "novel"
+    return clients.mangadex.manga(value) is not None
+
+
+def _fetch(clients: sources.Sources, records: Records, names: list[str], known: list[ids.Known]) -> None:
+    """Fetch every source's records into records.
+
+    known grows with each search hit (origin search) and each record's cross-links. Disagree as soon as 2 ids of a
+    source differ. A source with no id at its turn (none agreed, its search missed) is fetched once the others are,
+    by the id a later record's cross-links gave it; no search then, and no third round. MangaBaka and MangaUpdates
+    are searched by the names and their suffix-stripped variants; AniList and MangaDex by `search.lookup_names`,
+    which adds the titles of the records fetched before their turn.
+    """
+    own = search.unique(names)
+    plain = search.variants(own)
     turns: tuple[tuple[str, _Step, Callable[[], str | None]], ...] = (
-        ("mangabaka", _mangabaka, lambda: search.mangabaka(clients.mangabaka, names, _agreed(known))),
-        ("mangaupdates", _mangaupdates, lambda: search.mangaupdates(clients.mangaupdates, names)),
-        ("mangadex", _mangadex, lambda: search.mangadex(clients.mangadex, names, _agreed(known))),
-        ("anilist", _anilist, lambda: search.anilist(clients.anilist, names)),
+        ("mangabaka", _mangabaka, lambda: search.mangabaka(clients.mangabaka, plain, _agreed(known))),
+        ("mangaupdates", _mangaupdates, lambda: search.mangaupdates(clients.mangaupdates, plain)),
+        (
+            "mangadex",
+            _mangadex,
+            lambda: search.mangadex(clients.mangadex, search.lookup_names(own, records), _agreed(known)),
+        ),
+        ("anilist", _anilist, lambda: search.anilist(clients.anilist, search.lookup_names(own, records))),
     )
     missed: list[tuple[str, _Step]] = []
     for source, step, searcher in turns:
@@ -345,7 +440,6 @@ def _fetch(clients: sources.Sources, names: list[str], known: list[ids.Known]) -
         if (source_id := _agreed(known).get(source)) is not None:
             step(clients, records, known, source_id)
     _agreed(known)
-    return records
 
 
 def _mangabaka(clients: sources.Sources, records: Records, known: list[ids.Known], mb_id: str) -> None:

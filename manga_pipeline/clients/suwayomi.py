@@ -23,7 +23,7 @@ MAX_NAME_BYTES = 240  # UTF-8 bytes
 MANGAS_FOLDER = "mangas"  # the folder of downloads under Suwayomi's download root
 REPLACED = frozenset('"*/:<>?\\|\x7f')
 MANGA = (
-    "id title status url inLibrary sourceId source { id name lang displayName }"
+    "id title status url description inLibrary sourceId source { id name lang displayName }"
     " trackRecords { nodes { trackerId remoteId } }"
 )
 CHAPTER = "id mangaId name scanlator chapterNumber sourceOrder isDownloaded pageCount uploadDate url realUrl"
