@@ -30,6 +30,7 @@ def test_the_census_counts_what_adoption_would_do_and_writes_nothing(tmp_path, m
     monkeypatch.setattr(world.sources.mangabaka, "search", down)
     world.run(intake)  # rows, folders and checks; the pass adopts nothing
     with closing(db.connect(world.cfg)) as conn:  # back to before the pass: each series without a baseline
+        conn.execute("DELETE FROM chapter WHERE published_file_id IS NOT NULL")  # the adopted files' conversions
         conn.execute("DELETE FROM published_file")
         conn.execute("DELETE FROM series_conversion")
         conn.execute("UPDATE series SET baseline_at = NULL, naming_basis = NULL, status = 'ok', status_reason = NULL")
@@ -76,6 +77,7 @@ def test_the_census_gives_its_other_counts_and_main_prints_them_as_json(tmp_path
     world.download(world.manga("Solo Leveling"), "Chapter 2", scanlator="Grp")
     world.run(intake)  # rows, folders and checks; the download waits at validate
     with closing(db.connect(world.cfg)) as conn:  # back to before the baseline: each series without one
+        conn.execute("DELETE FROM chapter WHERE published_file_id IS NOT NULL")  # the adopted files' conversions
         conn.execute("DELETE FROM published_file")
         conn.execute("DELETE FROM series_conversion")
         conn.execute("UPDATE series SET baseline_at = NULL, naming_basis = NULL, status = 'ok', status_reason = NULL")

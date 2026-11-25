@@ -54,8 +54,11 @@ PENDING = ("pending_path", "pending_staged", "pending_size", "pending_volume", "
            "pending_cover", "pending_copy", "pending_title", "pending_unedited")  # fmt: skip
 PROGRESS = ("carry_pages_read", "carry_old_pages", "carry_new_pages", "carry_page_shift", "carry_kavita_modified")
 CARRY = (*PROGRESS, "carry_cover")
-# Open rewrite chapters and better copies (both name their file): the cap export.rewrites_open counts them.
-OPEN_REWRITES = sql.SQL("published_file_id IS NOT NULL AND status NOT IN ('done', 'needs_human')")
+# Open rewrite chapters and better copies (both name their file): the cap export.rewrites_open counts them. A chapter
+# that replaces an adopted file is counted apart, with the adopted files' conversions (SPEC "State").
+OPEN_REWRITES = sql.SQL("published_file_id IS NOT NULL AND status NOT IN ('done', 'needs_human') AND NOT {}").format(
+    workflow.REPLACES_ADOPTED.format(c=sql.Identifier("chapter"))
+)
 # A published file busy with a change, {p} its alias (fill it with sql.Identifier(alias)): an open chapter names it (a
 # rewrite or a copy), a queued rewrite, a wait for Kavita, a cover refresh due, or a failed rewrite. No new rewrite or
 # copy takes it meanwhile.
@@ -78,8 +81,9 @@ def compare(ctx: workflow.Context) -> None:
     """Compare every in-scope ok series with a Kavita id and its baseline taken whose naming inputs changed.
 
     Queue a rewrite chapter for each published file whose volume or cover should change, while fewer than
-    export.rewrites_open are open, and record the cover images wanted. A series compared whole stores the hash it was
-    compared with; one cut short, or whose files' covers could not be read, is compared again next run.
+    export.rewrites_open are open (OPEN_REWRITES: chapters replacing adopted files have their own count), and record
+    the cover images wanted. A series compared whole stores the hash it was compared with; one cut short, or whose
+    files' covers could not be read, is compared again next run.
     """
     conn, cap = ctx.conn, ctx.cfg["export"]["rewrites_open"]
     candidates = conn.execute(

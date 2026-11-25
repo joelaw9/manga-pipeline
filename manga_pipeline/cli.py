@@ -228,9 +228,10 @@ def chapter_drop(cfg: config.Config, args: argparse.Namespace) -> None:
             config.to_local(cfg, row["staged_path"]).unlink(missing_ok=True)
         if row["download_path"]:
             download = config.to_local(cfg, row["download_path"])
-            if digest is None and errors.exists(download):  # held at discover, before its digest was settled
-                digest = archive.digest_or_none(download)
-            retention.put(cfg, download)
+            if not download.is_dir():  # a directory: a conversion's link error, which intake removes once done
+                if digest is None and errors.exists(download):  # held at discover, before its digest was settled
+                    digest = archive.digest_or_none(download)
+                retention.put(cfg, download)
         workflow.drop_chapter(
             conn, args.chapter, lambda c: handled.record(c, row["series_id"], row["identity"], "dropped", digest)
         )

@@ -194,6 +194,8 @@ ignore_names = [
     "external_attr",
     "MAX_IMAGE_PIXELS",  # Pillow's module setting (images.py)
     "row_factory",  # sqlite3.Connection's attribute (junk/importing.py)
+    "collections",  # Kavita.collections and collection_series: used only by scripts/queue_first.py
+    "collection_series",
 ]
 # TypedDict fields are read by key, which vulture cannot see: scripts/vulture_check.py drops the findings on them.
 

@@ -58,7 +58,7 @@ metadata:
 
 export:
   retention_days: 7   # days a removed download (or a rewritten library file) stays in paths.retention; 0 deletes it at once
-  rewrites_open: 50   # at most this many file rewrites open at a time (SPEC "Retroactive updates")
+  rewrites_open: 50   # at most this many file rewrites open at a time, and apart this many conversions of adopted files; 0 queues neither (SPEC "Retroactive updates", "State")
 
 notify:
   discord_webhook: null   # Discord webhook URL for needs_human and title-change messages; null = Discord off; secret: set MANGA_PIPELINE_NOTIFY_DISCORD_WEBHOOK

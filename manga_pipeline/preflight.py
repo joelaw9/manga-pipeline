@@ -201,7 +201,7 @@ def workflow_settings(cfg: config.Config) -> str | None:
         ("kavita.library_id", 1),
         ("kavita.rescan_after_minutes", 1),
         ("export.retention_days", 0),
-        ("export.rewrites_open", 1),
+        ("export.rewrites_open", 0),
         ("convert.workers", 1),
         ("junk.review_limit", 1),
         ("junk.review_batch", 1),

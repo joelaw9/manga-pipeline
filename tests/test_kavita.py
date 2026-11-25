@@ -168,6 +168,35 @@ def test_series_in_library_stops_after_an_empty_page(monkeypatch):
 
 
 @budget(load="pure")
+def test_collections_are_read_with_their_id_and_title_only():
+    reply = [{"id": 2, "title": "Reading", "itemCount": 319, "promoted": False}, {"id": 5, "title": "Done"}]
+    k, service = client({"/api/Collection": reply})
+    assert k.collections() == [{"id": 2, "title": "Reading"}, {"id": 5, "title": "Done"}]
+    assert service.sent[-1] == ("GET", "/api/Collection", None)
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    "reply", [{"id": 2}, [{"title": "Reading"}], [{"id": "2", "title": "Reading"}], [{"id": True, "title": "x"}], [3]]
+)
+def test_a_collection_reply_lacking_an_int_id_or_a_str_title_is_a_reply_error(reply):
+    k, _service = client({"/api/Collection": reply})
+    with pytest.raises(kavita.ReplyError):
+        k.collections()
+
+
+@budget(load="pure")
+def test_collection_series_follows_pages(monkeypatch):
+    monkeypatch.setattr(kavita, "PAGE_SIZE", 2)
+    k, service = client({"/api/Series/series-by-collection": Each([[{"id": 1}, {"id": 2}], [{"id": 3}]])})
+    assert k.collection_series(2) == [{"id": 1}, {"id": 2}, {"id": 3}]
+    assert service.sent[1:] == [
+        ("GET", "/api/Series/series-by-collection?collectionId=2&PageNumber=1&PageSize=2", None),
+        ("GET", "/api/Series/series-by-collection?collectionId=2&PageNumber=2&PageSize=2", None),
+    ]
+
+
+@budget(load="pure")
 def test_series_is_its_dto():
     k, service = client({"/api/Series/12": {"id": 12, "name": "S"}})
     assert k.series(12) == {"id": 12, "name": "S"}

@@ -443,6 +443,7 @@ def test_share_ownership_applies_no_schema_step(tmp_path, monkeypatch):
     [
         ("kavita", "rescan_after_minutes", 0, "kavita.rescan_after_minutes must be at least 1, got 0"),
         ("export", "retention_days", -1, "export.retention_days must be at least 0, got -1"),
+        ("export", "rewrites_open", -1, "export.rewrites_open must be at least 0, got -1"),
         ("intake", "settle_minutes", 0, "intake.settle_minutes must be at least 1, got 0"),
     ],
 )

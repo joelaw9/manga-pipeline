@@ -29,6 +29,7 @@ LOADS = {
 # (module path below manga_pipeline/, enclosing function) of every load allowed; "" for module level.
 READERS = {
     ("clients/kavita.py", "_authenticated"),
+    ("clients/kavita.py", "_collections"),
     ("clients/kavita.py", "_libraries"),
     ("clients/kavita.py", "_metadata"),
     ("clients/kavita.py", "_series"),

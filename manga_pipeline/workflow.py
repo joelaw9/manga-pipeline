@@ -52,6 +52,11 @@ SCANNED = sql.SQL("""EXISTS (SELECT 1 FROM junk_scan js CROSS JOIN LATERAL (SELE
     JOIN series_conversion sc ON sc.series_id = js.series_id
     WHERE js.chapter_id = {c}.id AND js.series_id = {c}.series_id AND js.content_digest = {c}.content_digest
     AND jsonb_typeof(j.doc -> 'marks') = 'array' AND j.doc ->> 'layout' = sc.layout)""")
+# A chapter {c} that replaces an adopted file (SPEC "State"): it names a published file of origin library, as its
+# conversion or a better copy that took it. Picked after every other chapter; it holds back only other such chapters in
+# the claim gates. Fill {c} with sql.Identifier(alias).
+REPLACES_ADOPTED = sql.SQL("""EXISTS (SELECT 1 FROM published_file adopted_file
+    WHERE adopted_file.id = {c}.published_file_id AND adopted_file.origin = 'library')""")
 # A chapter {c} that failed less than RETRY_PAUSE ago is claimed by no machine (SPEC "Chapter stages"). Fill {c} with
 # sql.Identifier(alias).
 RETRY_PAUSE = timedelta(minutes=5)
@@ -254,18 +259,24 @@ class NewChapter:
     suwayomi_chapter_id: int | None
     source: str | None  # the Suwayomi source's display name
     source_url: str | None  # the chapter's page at its source
+    published_file_id: int | None = None  # the published file it replaces: an adopted file's conversion (SPEC "State")
 
 
-def add_chapter(conn: db.Connection, new: NewChapter) -> None:
-    """Record a discovered download as a chapter ready at the first stage; runs inside the caller's transaction."""
+def add_chapter(conn: db.Connection, new: NewChapter) -> int | None:
+    """Record a discovered download as a chapter ready at the first stage; runs inside the caller's transaction.
+
+    Returns its id; None when it names a published file another open chapter already names (nothing inserted).
+    """
     if not db.in_transaction(conn):
         msg = "add_chapter runs inside the caller's transaction"
         raise RuntimeError(msg)
     stamp = now(conn)
-    conn.execute(
+    row = conn.execute(
         """INSERT INTO chapter (series_id, kind, identity, download_path, suwayomi_chapter_id, source, source_url,
-            stage, status, discovered_at, updated_at)
-        VALUES (%s, 'download', %s, %s, %s, %s, %s, %s, 'ready', %s, %s)""",
+            published_file_id, stage, status, discovered_at, updated_at)
+        VALUES (%s, 'download', %s, %s, %s, %s, %s, %s, %s, 'ready', %s, %s)
+        ON CONFLICT (published_file_id) WHERE published_file_id IS NOT NULL AND status != 'done' DO NOTHING
+        RETURNING id""",
         (
             new.series_id,
             new.identity,
@@ -273,21 +284,26 @@ def add_chapter(conn: db.Connection, new: NewChapter) -> None:
             new.suwayomi_chapter_id,
             new.source,
             new.source_url,
+            new.published_file_id,
             STAGES[0],
             stamp,
             stamp,
         ),
-    )
+    ).fetchone()
+    return None if row is None else row[0]
 
 
 def claim(ctx: Context, stages: Iterable[str], series_id: int | None = None) -> db.Row | None:
     """Claim the next ready chapter at one of stages, by priority.
 
-    Series Kavita knows before new series, then the oldest discovery, then id. Chapters of a needs_human series, out of
-    scope, failed in this run, or at a stage whose service was unreachable in this run are not picked; nor is a
-    convert-stage chapter while its series has a ready junk-stage chapter (a series' junk is decided before any of it
-    converts), nor a scanned junk-stage chapter while its series has a ready junk-stage chapter not yet scanned (every
-    one is scanned before any is decided; a scan is current while its series and content digest are the chapter's). A
+    A chapter that replaces an adopted file (REPLACES_ADOPTED) after every other, then series Kavita knows before new
+    series, then the oldest discovery, then id. Chapters of a needs_human series, out of scope, failed in this run, or
+    at a stage whose service was unreachable in this run are not picked; nor is a convert-stage chapter while its
+    series has a ready junk-stage chapter (a series' junk is decided before any of it converts), nor a scanned
+    junk-stage chapter while its series has a ready junk-stage chapter not yet scanned (every one is scanned before any
+    is decided; a scan is current while its series and content digest are the chapter's). In both of those gates a
+    chapter that does not replace an adopted file ignores those that do: a download is decided and converted without
+    waiting for its series' conversions to be scanned, while a conversion waits for every chapter of its series. A
     new series' chapter waits at validate while its series has no naming basis and any of its chapters is at discover
     (the basis is chosen over the whole batch), and at junk while its series has no layout, fewer than
     strip.SAMPLE_CHAPTERS of its chapters past validate (with a download path this machine can use) and any chapter
@@ -330,12 +346,13 @@ def claim(ctx: Context, stages: Iterable[str], series_id: int | None = None) -> 
                     AND NOT (c.stage = 'convert' AND EXISTS (
                         SELECT 1 FROM chapter j
                         WHERE j.series_id = c.series_id AND j.stage = 'junk' AND j.status = 'ready'
-                            AND j.id <> ALL(%(failed)s::bigint[]) AND {j_not_paused}))
+                            AND j.id <> ALL(%(failed)s::bigint[]) AND {j_not_paused}
+                            AND ({c_adopted} OR NOT {j_adopted})))
                     AND NOT (c.stage = 'junk' AND {c_scanned} AND EXISTS (
                         SELECT 1 FROM chapter u
                         WHERE u.series_id = c.series_id AND u.stage = 'junk' AND u.status = 'ready'
                             AND u.id <> ALL(%(failed)s::bigint[]) AND {u_not_paused}
-                            AND NOT {u_scanned}))
+                            AND NOT {u_scanned} AND ({c_adopted} OR NOT {u_adopted})))
                 AND NOT (c.stage = 'validate' AND s.origin = 'new' AND s.naming_basis IS NULL AND EXISTS (
                     SELECT 1 FROM chapter d WHERE d.series_id = c.series_id AND d.stage = 'discover'
                         AND d.status IN ('ready', 'claimed')))
@@ -349,9 +366,12 @@ def claim(ctx: Context, stages: Iterable[str], series_id: int | None = None) -> 
                     AND EXISTS (
                         SELECT 1 FROM chapter d WHERE d.series_id = c.series_id
                             AND d.stage IN ('discover', 'validate') AND d.status IN ('ready', 'claimed')))
-                ORDER BY s.origin = 'new' AND s.kavita_series_id IS NULL, c.discovered_at, c.id
+                ORDER BY {c_adopted}, s.origin = 'new' AND s.kavita_series_id IS NULL, c.discovered_at, c.id
                 LIMIT 1)
             RETURNING *""").format(
+                c_adopted=REPLACES_ADOPTED.format(c=sql.Identifier("c")),
+                j_adopted=REPLACES_ADOPTED.format(c=sql.Identifier("j")),
+                u_adopted=REPLACES_ADOPTED.format(c=sql.Identifier("u")),
                 scope=SCOPE,
                 admitted=ADMITTED,
                 c_not_paused=NOT_PAUSED.format(c=sql.Identifier("c")),
@@ -384,14 +404,21 @@ def _free_dead_claims(ctx: Context) -> None:
 
 
 def series_with_ready(ctx: Context, stages: Iterable[str]) -> list[int]:
-    """Ids of the in-scope, not needs_human series with a ready chapter at one of stages, in priority order."""
+    """Ids of the in-scope, not needs_human series with a ready chapter at one of stages, in priority order.
+
+    A series whose ready chapters all replace an adopted file after every other, then claim's order.
+    """
     rows = ctx.conn.execute(
         sql.SQL("""SELECT c.series_id FROM chapter c JOIN series s ON s.id = c.series_id
         WHERE c.status = 'ready' AND c.stage = ANY(%(stages)s::text[]) AND s.status = 'ok' AND {scope}
             AND {admitted} AND {not_paused}
         GROUP BY c.series_id, s.origin, s.kavita_series_id
-        ORDER BY s.origin = 'new' AND s.kavita_series_id IS NULL, MIN(c.discovered_at), MIN(c.id)""").format(
-            scope=SCOPE, admitted=ADMITTED, not_paused=NOT_PAUSED.format(c=sql.Identifier("c"))
+        ORDER BY bool_and({adopted}), s.origin = 'new' AND s.kavita_series_id IS NULL, MIN(c.discovered_at),
+            MIN(c.id)""").format(
+            scope=SCOPE,
+            admitted=ADMITTED,
+            not_paused=NOT_PAUSED.format(c=sql.Identifier("c")),
+            adopted=REPLACES_ADOPTED.format(c=sql.Identifier("c")),
         ),
         _params(ctx, stages=list(stages)),
     )

@@ -8,7 +8,7 @@ Read-only: it never creates, migrates or writes the database.
 from contextlib import closing
 from datetime import datetime, timedelta
 
-from manga_pipeline import config, db, kavita_link, notify, pause, rewrite, workflow
+from manga_pipeline import config, conversions, db, kavita_link, notify, pause, rewrite, workflow
 from manga_pipeline.db import sql
 
 TITLES_SHOWN_DAYS = 30  # status lists the series titles changed at the sources this many days back
@@ -57,6 +57,7 @@ def _report(conn: db.Connection) -> list[str]:
         *_bulk_waits(conn),
         *_unattached(conn),
         *_rewrites(conn),
+        *_conversions(conn),
         *_needs_human(conn),
         *_titles(conn),
         *_discord(conn),
@@ -161,6 +162,32 @@ def _rewrites(conn: db.Connection) -> list[str]:
     if not (rows or open_rewrites or unknown or given_up):
         lines.append("  none")
     return lines + [_rewrite_file(r, limit) for r in rows]
+
+
+def _conversions(conn: db.Connection) -> list[str]:
+    """Count the adopted files not converted and the conversions open; list each adopted file left as it is.
+
+    Left as it is: not busy, and named only by done chapters (SPEC "State"). Why: its last chapter's drop reason, or
+    "replacement given up" for one done at publish without a drop.
+    """
+    adopted = db.one_row(conn, "SELECT count(*) FROM published_file WHERE origin = 'library'")[0]
+    opened = db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(conversions.OPEN))[0]
+    rows = conn.execute(
+        sql.SQL("""SELECT p.id, p.library_path, c.id AS chapter_id, c.stage, c.last_error FROM published_file p
+        JOIN (SELECT DISTINCT ON (published_file_id) * FROM chapter WHERE published_file_id IS NOT NULL
+            ORDER BY published_file_id, id DESC) c ON c.published_file_id = p.id
+        WHERE p.origin = 'library' AND NOT {busy} ORDER BY p.id""").format(
+            busy=rewrite.BUSY.format(p=sql.Identifier("p"))
+        )
+    ).fetchall()
+    lines = ["Adopted files:"]
+    if adopted or opened:
+        lines.append(f"  {adopted} not converted, {opened} conversion(s) open")
+    for r in rows:
+        dropped = (r["last_error"] or "").startswith("dropped")
+        why = "replacement given up" if r["stage"] == "publish" and not dropped else r["last_error"]
+        lines.append(f"  file {r['id']} ({r['library_path']}) left as it is: chapter {r['chapter_id']}, {why}")
+    return lines if len(lines) > 1 else [*lines, "  none"]
 
 
 def _rewrite_file(r: db.Row, limit: int) -> str:

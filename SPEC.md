@@ -13,15 +13,15 @@ Suwayomi to Kavita manga pipeline: junk removal, metadata, bad-download repair, 
 - Never waits on Suwayomi, Kavita or a junk decision. A chapter that depends on one of them is recorded as waiting and picked up by a later run.
 - Runs unattended on a Debian LXC with an NVIDIA GPU. `process` (junk and convert) also runs on Windows machines with NVIDIA GPUs against the same database, each chapter worked once, with the same output whichever machine works it.
 - Suwayomi downloads CBZ files. The downloads folder and the library are on the same NFS export.
-- Series written by the bulk converter carry its series record, `.optimizer.json`, in the series folder; the pipeline reads it and never writes it. A library series with no record is adopted from its own files.
+- Series written by the bulk converter carry its series record, `.optimizer.json`, in the series folder; the pipeline reads it and never writes it. The bulk converter no longer runs, so no new record appears; the pipeline is the only converter. A library series with no record is adopted: its files are recorded, then each goes through the pipeline and replaces itself.
 
 ## Parts
 
-3 commands (`intake`, `process`, `export`) share the work by chapter stage; the database is the only hand-off, and each runs from its own 10-minute timer; `process` runs on several machines, never 2 in 1 series at once. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#parts)
+3 commands (`intake`, `process`, `export`) share the work by chapter stage; the database is the only hand-off, and each runs from its own 10-minute timer; `process` runs on several machines, never 2 in 1 series at once; work that replaces an adopted file is picked after every other chapter. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#parts)
 
 ## State
 
-1 PostgreSQL 17 database on a server holds workflow state, knowledge and sync records; its write transactions run 1 at a time; a claim names its owner and count and is freed when its owner's session ends; paths are stored relative to their share root and times from the server's clock; a library series with no bulk-converter record is adopted: its own files are its baseline; `state reset` clears only the workflow state. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#state)
+1 PostgreSQL 17 database on a server holds workflow state, knowledge and sync records; its write transactions run 1 at a time; a claim names its owner and count and is freed when its owner's session ends; paths are stored relative to their share root and times from the server's clock; a library series with no bulk-converter record is adopted: its own files are its baseline, and each is then converted through the pipeline; `state reset` clears only the workflow state. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#state)
 
 ## Chapter stages
 
