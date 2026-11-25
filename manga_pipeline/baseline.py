@@ -88,8 +88,9 @@ def record_problem(cfg: config.Config, series: db.Row) -> str | None:
 def take(ctx: workflow.Context, series: db.Row) -> str | None:
     """Take the series' baseline from its record, or adopt it when it has none and no baseline (SPEC "State").
 
-    Returns None once the series has one; else why not (the chapter waits). A record whose series name is not one of the
-    series' Kavita names, or files that cannot be adopted, record nothing and make the series needs_human.
+    Returns None once the series has one; else why not (the chapter waits). A record that does not parse, a record whose
+    series name is not one of the series' Kavita names, or files that cannot be adopted, record nothing and make the
+    series needs_human.
     """
     if series["baseline_at"] is None:
         try:  # the folder first: a record in it is the series' baseline, whatever its stored row lacked
@@ -105,8 +106,17 @@ def take(ctx: workflow.Context, series: db.Row) -> str | None:
 
 
 def _from_record(ctx: workflow.Context, series: db.Row) -> str | None:
-    """Take the series' baseline from its record (take's), or fill its bulk rows' naming fields."""
+    """Take the series' baseline from its record (take's), or fill its bulk rows' naming fields.
+
+    A record that exists but does not parse, or an older baseline's record that is gone, makes the series needs_human
+    (SPEC "State"): nothing writes a record any more, so no wait would end.
+    """
     problem = record_problem(ctx.cfg, series)
+    if problem and (series["baseline_at"] is not None or has_record(ctx.cfg, series["folder"])):
+        reason = f"{problem} -> fix or remove the record, then retry --series"
+        with db.transaction(ctx.conn):
+            workflow.needs_human(ctx.conn, "series", series["id"], reason)
+        return reason
     if problem:
         return problem
     record = _load(ctx.cfg, series)

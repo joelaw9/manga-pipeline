@@ -44,7 +44,7 @@ from manga_pipeline import (
 )
 from manga_pipeline.clients import kavita, suwayomi
 from manga_pipeline.db import sql
-from manga_pipeline.junk import candidates, importing, review, review_run
+from manga_pipeline.junk import candidates, review, review_run
 from manga_pipeline.metadata import audit, human, importer, naming, sources
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
@@ -394,26 +394,6 @@ def source_retire(cfg: config.Config, args: argparse.Namespace, conn: db.Connect
     _lines(source_review.retire(ctx, args.series_id, args.manga_id))
 
 
-def junk_import(cfg: config.Config, args: argparse.Namespace) -> None:
-    """Import junk decisions from a bulk-converter junk store or a pipeline database and print the counts.
-
-    The `junk import` command.
-    """
-    try:
-        source = importing.read_store(args.path) if args.path else importing.read_database(cfg, args.database)
-    except importing.SourceError as e:
-        raise workflow.Refused(str(e)) from None
-    with closing(db.connect(cfg)) as conn:
-        counts = importing.run(conn, source)
-    skipped = ", ".join(f"{what} {n}" for what, n in counts["skipped"].items()) or "none"
-    print(
-        f"imported decisions: added {counts['added']}, removed {counts['removed']}, changed {counts['changed']}, "
-        f"unchanged {counts['unchanged']}; left to the pipeline's own decisions {counts['pipeline_kept']}; "
-        f"imported sightings {counts['seen']}; "
-        f"not imported: {skipped}"
-    )
-
-
 def _junk_db(cfg: config.Config) -> closing[db.Connection]:
     return _database(cfg, "list, show or decide")
 
@@ -522,7 +502,6 @@ COMMANDS = {
     "rewrite retry": Command((), None, None, (), _unlocked(rewrite_retry)),
     "metadata import": Command(("intake",), S, None, IMPORT_CHECKS, metadata_import),
     "metadata audit": Command((), None, None, LINK_CHECKS, _unlocked(metadata_audit)),
-    "junk import": Command((), None, None, (), _unlocked(junk_import)),
     "junk list": Command((), None, None, (), _unlocked(junk_list)),
     "junk show": Command((), None, None, (), _unlocked(junk_show)),
     "junk decide": Command((), None, None, (), _unlocked(junk_decide)),
@@ -665,11 +644,6 @@ def _metadata_commands(command: argparse.ArgumentParser) -> None:
 def _junk_commands(command: argparse.ArgumentParser) -> None:
     """Add the junk command's actions to its parser."""
     junk = command.add_subparsers(dest="junk_command", required=True, metavar="ACTION")
-    import_ = junk.add_parser("import", help="import decisions from a bulk-converter junk store or a pipeline database")
-    source = import_.add_mutually_exclusive_group(required=True)
-    source.add_argument("path", nargs="?", help="the bulk converter's junk.sqlite3 (only read)")
-    source.add_argument("--database", help="another pipeline database on the same server (only read)")
-    import_.set_defaults(command="junk import")
     list_ = junk.add_parser("list", help="the open junk candidates to decide")
     list_.add_argument("--all", action="store_true", help="every open candidate, stuck and unsure ones included")
     list_.set_defaults(command="junk list")

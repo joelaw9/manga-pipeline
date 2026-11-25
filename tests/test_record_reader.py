@@ -170,6 +170,13 @@ def test_record_that_is_not_json_is_refused(tmp_path):
 
 
 @budget(load="fs")
+def test_record_that_is_not_utf_8_is_refused(tmp_path):
+    (tmp_path / record.RECORD_NAME).write_bytes(b'{"schema": 4, "name": "\xff"}')  # cut mid-character, say
+    with pytest.raises(record.RecordError, match=r"\.optimizer\.json: not JSON: "):
+        record.load(tmp_path)
+
+
+@budget(load="fs")
 @pytest.mark.parametrize(
     ("rec", "msg"),
     [

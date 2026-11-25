@@ -241,10 +241,9 @@ def load(folder: Path) -> Record:
     FileNotFoundError when it has none; RecordError when it does not parse.
     """
     path = folder / RECORD_NAME
-    text = path.read_text(encoding="utf-8")
     try:
-        record = json.loads(text)
-    except json.JSONDecodeError as e:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
         msg = f"{path}: not JSON: {e}"
         raise RecordError(msg) from None
     parse(record)

@@ -362,6 +362,14 @@ def test_missing_command_is_a_usage_error(capsys):
     assert "COMMAND" in capsys.readouterr().err
 
 
+@budget(load="pure")
+def test_junk_import_is_no_command(capsys):
+    with pytest.raises(SystemExit) as exit_:
+        cli.main(["junk", "import", "junk.sqlite3"])
+    assert exit_.value.code == 2, "the bulk converter's store was imported once; nothing imports it again"
+    assert "invalid choice: 'import'" in capsys.readouterr().err
+
+
 @budget(load="fs")
 def test_bad_config_is_a_usage_error(tmp_path, capsys):
     bad = tmp_path / "config.yaml"

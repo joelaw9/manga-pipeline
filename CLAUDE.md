@@ -168,4 +168,3 @@ python -m manga_pipeline.cli --help
 - `config.yaml` is gitignored and may hold secrets: never print, log, copy or commit it. A new key goes in `config.yaml.example`, `tests/test_config.yaml` and `config.yaml`; loading refuses a mismatch. A secret may instead come from its environment variable.
 - `.gitattributes` forces LF line endings; keep every file LF.
 - `state/` is local runtime output (logs, locks, scratch, test timings) and is gitignored: nothing there is a source of truth; the database is on the PostgreSQL server.
-- The only SQLite left is the bulk converter's `junk.sqlite3`, read by `junk import PATH`.

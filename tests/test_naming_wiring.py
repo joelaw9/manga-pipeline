@@ -13,7 +13,7 @@ from contextlib import closing
 import pytest
 from PIL import Image
 
-from manga_pipeline import chapter_names, config, db, export, intake, names, process, workflow
+from manga_pipeline import baseline, chapter_names, config, db, export, intake, names, process, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.metadata import covers, episodes, platforms
 from manga_pipeline.stages import publish
@@ -141,7 +141,7 @@ def test_an_older_baseline_gets_its_naming_fields_at_the_next_validate(world):
 
 @budget(load="db", seconds=4)
 @pytest.mark.parametrize("readable", [True, False], ids=["record", "no-record"])
-def test_comicinfo_fills_the_bulk_rows_naming_fields_or_waits_for_the_record(world, readable):
+def test_comicinfo_fills_the_bulk_rows_naming_fields_or_holds_the_series_without_the_record(world, readable):
     world.kavita_series("Solo Leveling")
     world.download(world.manga("Solo Leveling"), "Chapter 2", scanlator="Grp")
     world.run(intake)
@@ -155,16 +155,18 @@ def test_comicinfo_fills_the_bulk_rows_naming_fields_or_waits_for_the_record(wor
         assert bulk_naming(world)[0][1:] == ("Grp_Chapter 1", "main", "none"), "filled from the record"
         assert row[0] != "comicinfo", "the chapter goes on to publish"
     else:
-        assert row == ("comicinfo", "waiting", "bulk_conversion"), "no record: the chapter waits for it"
+        assert row == ("comicinfo", "waiting", "bulk_conversion"), "no record: the chapter goes no further"
+        assert world.rows("SELECT status FROM series") == [("needs_human",)], "nothing writes a record: no wait ends"
         assert bulk_naming(world)[0][1:] == (None, None, None)
 
 
 @budget(load="db", seconds=3)
-def test_a_bulk_conversion_wait_left_at_junk_ends_with_a_baseline(world):
+def test_a_bulk_conversion_wait_left_at_junk_ends_with_a_baseline(world, monkeypatch):
     kavita_id = world.series_without_record("Solo Leveling")
-    world.write_record("Solo Leveling", {"schema": 4, "stages": ["structure"]})  # partial: still being written
     world.download(world.manga("Solo Leveling"), "Chapter 2", scanlator="Grp")
-    world.run(intake)
+    with monkeypatch.context() as m:  # an older version, whose partial record made the chapter wait
+        m.setattr(baseline, "take", lambda _ctx, _series: "record: partial")
+        world.run(intake)
     with closing(db.connect(world.cfg)) as conn:  # as an older version left a chapter waiting past validate
         conn.execute("UPDATE chapter SET stage = 'junk'")
     assert world.rows("SELECT stage, status, waiting_on FROM chapter") == [("junk", "waiting", "bulk_conversion")]
