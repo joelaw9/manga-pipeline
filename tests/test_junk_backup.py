@@ -1,7 +1,6 @@
 """`junk backup` and `junk restore` (SPEC "Junk decisions", decision commands): the junk knowledge, ids kept."""
 
 from contextlib import closing
-from datetime import UTC, datetime
 
 import pytest
 
@@ -116,13 +115,8 @@ def test_restore_refuses_a_table_lacking_a_column(source, tmp_path):
 
 @budget(load="db", seconds=10)
 def test_backup_refuses_an_existing_folder_and_no_database(source, tmp_path, monkeypatch):
-    class Fixed(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return datetime(2026, 11, 25, 12, 0, 0, tzinfo=tz or UTC)
-
-    monkeypatch.setattr(backup, "datetime", Fixed)
-    backup.backup(source, tmp_path / "backups")
+    monkeypatch.setattr(db, "now", lambda _conn: AT)
+    assert backup.backup(source, tmp_path / "backups").name == "junk-20261125-000000", "named by the server's clock"
     with pytest.raises(review.Refused, match="exists already"):
         backup.backup(source, tmp_path / "backups")
     with pytest.raises(review.Refused, match="nothing to back up"):

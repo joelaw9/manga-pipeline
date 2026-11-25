@@ -6,7 +6,6 @@ those columns, in TABLES order (acts before the decisions and log rows that name
 past the largest id restored. No JSON: the server reads and checks the rows.
 """
 
-from datetime import UTC, datetime
 from pathlib import Path
 
 from manga_pipeline import config, db
@@ -35,12 +34,13 @@ def backup(cfg: config.Config, parent: Path) -> Path:
     if not db.built(cfg):
         msg = f"no database {cfg['database']['name']} built yet: nothing to back up"
         raise Refused(msg)
-    folder = parent / f"junk-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
-    if folder.exists():
-        msg = f"{folder} exists already: a backup never overwrites one"
-        raise Refused(msg)
-    folder.mkdir(parents=True)
     with db.read_only(cfg) as conn, conn.transaction():  # repeatable read: 1 snapshot for every table
+        stamp = db.now(conn)[:19].replace("-", "").replace(":", "").replace("T", "-")  # the server's clock
+        folder = parent / f"junk-{stamp}"
+        if folder.exists():
+            msg = f"{folder} exists already: a backup never overwrites one"
+            raise Refused(msg)
+        folder.mkdir(parents=True)
         lines: list[str] = []
         for table in TABLES:
             columns = _columns(conn, table)
