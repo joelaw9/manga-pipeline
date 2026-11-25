@@ -12,7 +12,7 @@ import shutil
 import time
 import xml.etree.ElementTree as ET
 import zipfile
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -34,6 +34,7 @@ from manga_pipeline import (
     workflow,
 )
 from manga_pipeline.clients import kavita as kavita_client
+from manga_pipeline.clients.kavita_match import normalize
 from manga_pipeline.metadata import naming
 
 SCRATCH_PREFIX = "adopt-"  # <paths.scratch>/adopt-<series id>-<pid>/: the layout sample
@@ -73,6 +74,7 @@ class File:
     date: str | None
     pages_out: int  # its pages but a 000_cover page
     cover_state: str
+    series: str | None  # its ComicInfo Series
 
     @property
     def source_name(self) -> str:
@@ -107,6 +109,7 @@ class Prepared:
     """What an adoption records: its files, and the series' folder, layout and basis."""
 
     folder: str  # stored form
+    name: str  # the series' ComicInfo name (series_name)
     files: list[File]  # the files no published row holds yet
     layout: tuple[str, str] | None  # (layout, series_conversion origin); None: the series has one
     basis: str | None  # None: the series has one
@@ -156,6 +159,9 @@ def prepare(ctx: workflow.Context, series: db.Row, folder: str | Problem) -> Pre
             series = _with_folder(ctx.conn, series, folder)
         files = _read(ctx, paths, problems)
         problems += _same_chapters(files)
+        name = series_name([f.series for f in files], series)
+        if isinstance(name, Problem):
+            return [*problems, name]
         if problems:
             return problems
         layout = _layout(ctx, series, files)
@@ -164,7 +170,40 @@ def prepare(ctx: workflow.Context, series: db.Row, folder: str | Problem) -> Pre
         basis = _basis(ctx, series, files)
         if isinstance(basis, Problem):
             return [basis]
-    return Prepared(folder, files, layout, basis)
+    return Prepared(folder, name, files, layout, basis)
+
+
+def _kavita_names(series: db.Row) -> list[str]:
+    """Return the series' names Kavita lists: its name, localized name and original name, those it has."""
+    return [n for n in (series["name"], series["localized_name"], series["original_name"]) if n]
+
+
+def unlike_kavita(name: str, series: db.Row) -> str | None:
+    """Return why a ComicInfo Series name would leave the series (none of its Kavita names under normalize), or None."""
+    known = _kavita_names(series)
+    if normalize(name) in {normalize(n) for n in known}:
+        return None
+    return f"{name!r} is none of Kavita's names ({', '.join(known)})"
+
+
+def series_name(values: Sequence[str | None], series: db.Row) -> str | Problem:
+    """Return the series' ComicInfo name from the Series its files carry (SPEC "State"), or why there is none.
+
+    The value most files carry, by exact text; a tie: the one equal to Kavita's original name, else the first by sort.
+    Values that differ under normalize, or a name none of Kavita's names, are a Problem; no value: Kavita's name.
+    """
+    counts = Counter(v for v in values if v)
+    if not counts:
+        return series["name"]
+    if len({normalize(v) for v in counts}) > 1:
+        return Problem(
+            "series names", f"its files carry differing Series names: {', '.join(map(repr, sorted(counts)))}"
+        )
+    top = max(counts.values())
+    tied = sorted(v for v, n in counts.items() if n == top)
+    name = series["original_name"] if series["original_name"] in tied else tied[0]
+    why = unlike_kavita(name, series)
+    return name if why is None else Problem("series name", f"its files' Series name {why}")
 
 
 def plan(path: str, members: list[str], xml: bytes | None) -> File | Problem:
@@ -202,6 +241,7 @@ def plan(path: str, members: list[str], xml: bytes | None) -> File | Problem:
         date=names.ci_date(fields),
         pages_out=len(content),
         cover_state=rewrite_covers.member_state(members, volume),
+        series=fields.get("Series"),
     )
 
 

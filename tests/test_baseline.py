@@ -15,7 +15,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from manga_pipeline import adoption, baseline, config, db, intake, preflight, process, state, workflow
+from manga_pipeline import adoption, archive, baseline, config, db, export, intake, preflight, process, state, workflow
+from manga_pipeline import comicinfo as comicinfo_xml
 from manga_pipeline.clients import http
 from manga_pipeline.metadata import naming, step
 from manga_pipeline.stages import comicinfo as comicinfo_stage
@@ -189,16 +190,16 @@ def chapter_file(*numbers, info=None):
     return archive_of(members if info is None else {**members, "ComicInfo.xml": info})
 
 
-def library_series(world, files, name="Solo Leveling"):
+def library_series(world, files, name="Solo Leveling", **names):
     """Add a series Kavita holds with no record: files ({file name: CBZ bytes}) in <library>/<name>.
 
-    Returns the Kavita series id.
+    names: its other Kavita names (localized, original). Returns the Kavita series id.
     """
     folder = world.library / name
     folder.mkdir(parents=True)
     for file, data in files.items():
         (folder / file).write_bytes(data)
-    return world.kavita.add_series(name, name, LIBRARY_ID)
+    return world.kavita.add_series(name, name, LIBRARY_ID, **names)
 
 
 def kavita_lists(world, kavita_id, path):
@@ -843,3 +844,90 @@ def test_a_hold_names_at_most_10_problems_and_counts_the_rest():
     assert "Ch.10.cbz is gone" in reason, "the first 10 named"
     assert "Ch.11.cbz" not in reason, "the rest counted, not named"
     assert "and 2 more" in reason
+
+
+# --- the series' ComicInfo name: the Series its files carry (SPEC "State")
+
+KAVITA = db_row(name="Solo Leveling", localized_name=None, original_name="Na Honjaman Level Up")
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("values", "want"),
+    [
+        (["Solo Leveling.", "Solo Leveling.", "solo leveling"], "Solo Leveling."),
+        (["Na Honjaman Level-Up", "Na Honjaman Level Up"], "Na Honjaman Level Up"),
+        (["Solo  Leveling", "Solo-Leveling"], "Solo  Leveling"),
+        ([None, None], "Solo Leveling"),
+    ],
+    ids=["most-common", "tie-original-name", "tie-first-by-sort", "none-kavitas-name"],
+)
+def test_the_series_name_is_the_series_value_most_of_its_files_carry(values, want):
+    assert adoption.series_name(values, KAVITA) == want, (
+        "most common exact value; a tie: Kavita's original name, else the first by sort; none: Kavita's name"
+    )
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("values", "kind", "named"),
+    [
+        (["Solo Leveling", "Solo Leveling", "Other Thing"], "series names", "'Other Thing'"),
+        (["Other Thing", None], "series name", "'Other Thing' is none of Kavita's names"),
+    ],
+    ids=["differing", "not-kavitas"],
+)
+def test_differing_series_values_or_a_name_none_of_kavitas_is_a_problem(values, kind, named):
+    found = adoption.series_name(values, KAVITA)
+    assert isinstance(found, adoption.Problem), "a file carrying it would leave the series"
+    assert found.kind == kind
+    assert named in found.text, "the problem names the values"
+
+
+def named_files(*series):
+    """Return 1 library file per value of series: Ch.<n>.cbz, its ComicInfo.xml carrying that Series (None: none)."""
+    return {
+        f"Ch.{n}.cbz": chapter_file(n * 10 + 1, info=comicinfo(Number=str(n), **({"Series": s} if s else {})))
+        for n, s in enumerate(series, 1)
+    }
+
+
+@budget(load="db", seconds=3)
+def test_an_adopted_series_takes_the_series_name_its_files_carry_and_each_row_its_files_own(world):
+    library_series(world, named_files("Solo Leveling.", "Solo Leveling.", "solo leveling", None))
+    world.run(intake)
+    assert world.rows("SELECT comicinfo_series FROM series") == [("Solo Leveling.",)], "its files' name, not Kavita's"
+    assert world.rows("SELECT source_name, comicinfo_series FROM published_file ORDER BY 1") == [
+        ("Ch.1", "Solo Leveling."),
+        ("Ch.2", "Solo Leveling."),
+        ("Ch.3", "solo leveling"),
+        ("Ch.4", "Solo Leveling."),
+    ], "each row its file's own Series, else the series' name"
+
+
+@budget(load="db", seconds=3)
+@pytest.mark.parametrize(
+    ("series", "named"),
+    [(("Solo Leveling", "Other Thing"), "'Other Thing'"), (("Other Thing", "Other Thing"), "none of Kavita's names")],
+    ids=["differing", "not-kavitas"],
+)
+def test_files_whose_series_would_leave_the_series_hold_it_for_a_human(world, series, named):
+    library_series(world, named_files(*series))
+    world.run(intake)
+    ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
+    assert status == "needs_human", "a person fixes the files, rescans the library in Kavita, then retries"
+    assert named in reason, "the reason names the values"
+    assert world.rows("SELECT count(*) FROM published_file") == [(0,)], "nothing is recorded"
+
+
+@budget(load="db", seconds=10)
+def test_a_pipeline_chapter_of_an_adopted_series_is_written_with_its_files_name(world):
+    library_series(world, named_files("Na Honjaman Level Up", "Na Honjaman Level Up"), original="Na Honjaman Level Up")
+    world.download(world.manga("Solo Leveling"), "Chapter 3", scanlator="Grp")
+    world.run(intake)
+    world.run(process)
+    world.run(export)
+    ((path,),) = world.rows("SELECT library_path FROM published_file WHERE origin = 'pipeline'")
+    info = archive.read_comicinfo(config.to_local(world.cfg, path))
+    assert info is not None
+    assert comicinfo_xml.read_all(info)["Series"] == "Na Honjaman Level Up", "the files' name: Kavita keeps 1 series"
