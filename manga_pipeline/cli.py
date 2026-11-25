@@ -2,13 +2,15 @@
 
 COMMANDS is the command table: each command's locks, log file, preflight checks and handler. Every command runs in
 the same order: config, its connection and locks (a command with locks), logging, its checks, the schema steps (a
-command with locks), its handler.
+command with locks), its handler. A run the timers or tasks start (--scheduled, an automated command only) first
+holds lock.AUTOMATION and reads the automation's pause: paused, it ends there (SPEC "Parts").
 """
 
 import argparse
 import logging
 import os
 import sys
+import time
 from collections.abc import Callable, Sequence
 from contextlib import closing, nullcontext
 from dataclasses import dataclass
@@ -27,6 +29,7 @@ from manga_pipeline import (
     intake,
     lock,
     logs,
+    pause,
     preflight,
     process,
     retention,
@@ -125,6 +128,7 @@ class Command:
     # handler(cfg, args, conn): conn is the command's connection holding its locks, None for a command without any
     handler: Callable[[config.Config, argparse.Namespace, db.Connection | None], None]
     builds: bool = False  # creates the database when the server has none, and builds one holding no schema record
+    automated: bool = False  # the timers and tasks start it (--scheduled), so the automation's pause stops it
 
     @property
     def locked(self) -> bool:
@@ -149,6 +153,44 @@ def _database(cfg: config.Config, what: str) -> closing[db.Connection]:
         msg = f"no database {cfg['database']['name']} built yet: nothing to {what}"
         raise workflow.Refused(msg)
     return closing(db.connect(cfg))
+
+
+PAUSE_POLL = 10  # seconds between state pause's looks at the scheduled runs still running
+PAUSE_REPORT = 6  # looks between 2 of its progress lines (1 a minute)
+
+
+def _unbuilt_refused(cfg: config.Config, what: str) -> db.Connection:
+    """Open the built database and apply no schema step (any program version may); Refused when none is built."""
+    try:
+        return db.open_database(cfg, builds=False)
+    except db.NoDatabaseError:
+        msg = f"no database {cfg['database']['name']} built yet: nothing to {what}"
+        raise workflow.Refused(msg) from None
+
+
+def state_pause(cfg: config.Config, _args: argparse.Namespace) -> None:
+    """Pause the automation, then return once no scheduled run is left (`state pause`, SPEC "Run lock")."""
+    if not cfg["lock"]["enabled"]:
+        msg = "lock.enabled is false: with no locks, state pause cannot tell when the scheduled runs have ended"
+        raise workflow.Refused(msg)
+    with closing(_unbuilt_refused(cfg, "pause")) as conn:
+        print(f"automation paused since {pause.set_pause(conn)}")
+        looks = 0
+        while running := pause.waiting(conn):
+            if looks % PAUSE_REPORT == 0:
+                print(f"waiting for {running} scheduled run(s) to end")
+            looks += 1
+            time.sleep(PAUSE_POLL)
+    print("no scheduled run is running")
+
+
+def state_resume(cfg: config.Config, _args: argparse.Namespace) -> None:
+    """End the automation's pause (`state resume`); Refused when it is not paused."""
+    with closing(_unbuilt_refused(cfg, "resume")) as conn:
+        if not pause.clear(conn):
+            msg = "the automation is not paused"
+            raise workflow.Refused(msg)
+    print("automation resumed")
 
 
 def watch(cfg: config.Config, _args: argparse.Namespace) -> None:
@@ -440,20 +482,35 @@ def _unlocked(
 S, X = lock.SHARED, lock.EXCLUSIVE
 COMMANDS = {
     "intake": Command(
-        ("intake",), S, "intake", INTAKE_CHECKS, lambda cfg, _args, conn: intake.run(cfg, locked_connection(conn))
+        ("intake",),
+        S,
+        "intake",
+        INTAKE_CHECKS,
+        lambda cfg, _args, conn: intake.run(cfg, locked_connection(conn)),
+        automated=True,
     ),
     "process": Command(
-        ("process",), S, "process", PROCESS_CHECKS, lambda cfg, _args, conn: process.run(cfg, locked_connection(conn))
+        ("process",),
+        S,
+        "process",
+        PROCESS_CHECKS,
+        lambda cfg, _args, conn: process.run(cfg, locked_connection(conn)),
+        automated=True,
     ),
     "export": Command(
-        ("export",), S, "export", EXPORT_CHECKS, lambda cfg, _args, conn: export.run(cfg, locked_connection(conn))
+        ("export",),
+        S,
+        "export",
+        EXPORT_CHECKS,
+        lambda cfg, _args, conn: export.run(cfg, locked_connection(conn)),
+        automated=True,
     ),
     "status": Command((), None, None, (), _unlocked(lambda cfg, _args: status.run(cfg))),
     "retry": Command((), None, None, (), _unlocked(retry)),
     "chapter use": Command((), None, None, (), _unlocked(chapter_use)),
     "chapter drop": Command((), None, None, (), _unlocked(chapter_drop)),
     "smoke": Command((), None, None, SMOKE_CHECKS, _unlocked(lambda cfg, _args: smoke.run(cfg))),
-    "watch": Command((), None, None, WATCH_CHECKS, _unlocked(watch)),
+    "watch": Command((), None, None, WATCH_CHECKS, _unlocked(watch), automated=True),
     "series link": Command((), None, None, LINK_CHECKS, _unlocked(series_link)),
     "series set-id": Command((), None, None, (), _unlocked(series_set_id)),
     "series new": Command((), None, None, (), _unlocked(series_new)),
@@ -474,6 +531,7 @@ COMMANDS = {
         "junk-review",
         REVIEW_CHECKS,
         lambda cfg, _args, conn: review_run.run(cfg, locked_connection(conn)),
+        automated=True,
     ),
     "source survey": Command((), None, None, SOURCE_MEASURE_CHECKS, _unlocked(source_survey)),
     "source measure": Command((), None, None, SOURCE_MEASURE_CHECKS, _unlocked(source_measure)),
@@ -491,6 +549,8 @@ COMMANDS = {
     "state version": Command(
         (), X, None, VERSION_CHECKS, lambda cfg, _args, conn: state.version(cfg, locked_connection(conn))
     ),
+    "state pause": Command((), None, None, (), _unlocked(state_pause)),
+    "state resume": Command((), None, None, (), _unlocked(state_resume)),
 }
 
 
@@ -505,6 +565,11 @@ def parser() -> argparse.ArgumentParser:
         metavar="KEY=VALUE",
         help="set a config key for this run only, e.g. logging.level=DEBUG; beats the environment variable"
         f" {config.ENV_PREFIX}_LOGGING_LEVEL, which beats the config file",
+    )
+    p.add_argument(
+        "--scheduled",
+        action="store_true",
+        help="a run the timers or scheduled tasks start: does nothing while the automation is paused (state pause)",
     )
     commands = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
     commands.add_parser("intake", help="discover, validate and identify new downloads")
@@ -682,6 +747,10 @@ def _state_commands(commands: "argparse._SubParsersAction[argparse.ArgumentParse
     for sub, name in ((reset, "state reset"), (adopt_, "state adopt"), (version, "state version")):
         sub.add_argument("--yes", action="store_true", required=True, help="confirm")
         sub.set_defaults(command=name)
+    state.add_parser("pause", help="pause the timers' and tasks' runs; returns once none is running").set_defaults(
+        command="state pause"
+    )
+    state.add_parser("resume", help="end the pause").set_defaults(command="state resume")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -695,25 +764,54 @@ def main(argv: Sequence[str] | None = None) -> int:
     p = parser()
     args = p.parse_args(argv)
     command = COMMANDS[args.command]
+    if args.scheduled and not command.automated:
+        p.error(f"--scheduled is only for the commands the timers and tasks start, not {args.command}")
     try:
         cfg = config.init(args.config, args.set)
     except config.ConfigError as e:
         p.error(str(e))
-    conn = None
+    conns: list[db.Connection] = []
     try:
-        if command.locked:
-            try:
-                conn = _open(cfg, command)
-            except (db.CannotConnectError, db.NoDatabaseError) as e:
-                # Not logged: the log file is opened only under the run's locks.
-                print(f"error: {e}", file=sys.stderr)
-                return 4
-            except config.ConfigError as e:
-                p.error(str(e))
-        return _under_locks(p, cfg, command, args, conn)
+        try:
+            conn = _open(cfg, command) if command.locked else None
+            conns.extend([conn] if conn is not None else [])
+            pause_conn = None
+            if args.scheduled:  # the connection holding lock.AUTOMATION: watch, unlocked, gets one of its own
+                pause_conn = conn if conn is not None else db.open_database(cfg, builds=False)
+                conns.append(pause_conn)
+        except (db.CannotConnectError, db.NoDatabaseError) as e:
+            # Not logged: the log file is opened only under the run's locks.
+            print(f"error: {e}", file=sys.stderr)
+            return 4
+        except config.ConfigError as e:
+            p.error(str(e))
+        if pause_conn is None:
+            return _under_locks(p, cfg, command, args, conn)
+        return _scheduled(p, cfg, command, args, (conn, pause_conn))
     finally:
-        if conn is not None:
-            conn.close()
+        for opened in dict.fromkeys(conns):
+            opened.close()
+
+
+def _scheduled(
+    p: argparse.ArgumentParser,
+    cfg: config.Config,
+    command: Command,
+    args: argparse.Namespace,
+    conns: tuple[db.Connection | None, db.Connection],
+) -> int:
+    """Run a scheduled command: hold lock.AUTOMATION, then read the pause; paused, end at once (exit 0).
+
+    Holding it before the read is what lets state pause wait for every run that read no pause (SPEC "Run lock"). conns
+    is (the command's connection, None for one without locks; the connection holding the lock).
+    """
+    conn, pause_conn = conns
+    with lock.held(pause_conn, cfg, (), automation=True):
+        since = pause.paused(pause_conn)
+        if since is not None:
+            print(f"automation paused since {since}: nothing run")
+            return 0
+        return _under_locks(p, cfg, command, args, conn)
 
 
 def _under_locks(

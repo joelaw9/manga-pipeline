@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/manga-pipeline
-ExecStart=/opt/manga-pipeline/.venv/bin/python -m manga_pipeline.cli export
+ExecStart=/opt/manga-pipeline/.venv/bin/python -m manga_pipeline.cli --scheduled export
 EnvironmentFile=/etc/manga-pipeline/pipeline.env
 Environment=HOME=/root
 SuccessExitStatus=3

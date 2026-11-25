@@ -1,4 +1,4 @@
-# Deploy (LXC)
+# Deploy (LXC and Windows)
 
 Units: `deploy/systemd/manga-pipeline-{intake,process,export,junk-review,watch}.{service,timer}` (SPEC "Parts"; `watch`: SPEC "Needs human"). They run `/opt/manga-pipeline/.venv/bin/python` and read `/etc/manga-pipeline/pipeline.env` (mode 600, root: the 3 secret keys, never in a session or log; never `ANTHROPIC_API_KEY`). Single-quote a value that holds `$`, a space or `#`, so systemd and the shell read it the same.
 
@@ -20,6 +20,10 @@ Start the timers (only at the plan's start step):
 systemctl enable --now manga-pipeline-{intake,process,export,junk-review,watch}.timer
 ```
 
+Every unit starts its command with `--scheduled`: while the automation is paused (`state pause`) the run ends at once, doing nothing (SPEC "Parts"). A command run by hand never passes it, so it works during a pause.
+
+On Celestia and Luna, the scheduled task `manga-pipeline process` runs every 10 minutes: the machine's Python with the arguments `-m manga_pipeline.cli --scheduled process`, the checkout as working directory, whether logged on or not, below-normal priority, `IgnoreNew`, a 4-hour limit.
+
 A command by hand runs from the checkout (the program is not packaged) with the env file loaded in a subshell:
 
 ```bash
@@ -28,10 +32,9 @@ A command by hand runs from the checkout (the program is not packaged) with the 
 
 ## Deploy or change a shared setting
 
-1. `systemctl stop` the 5 timers (if enabled), the watch one included, so `watch` never runs mid-install or applies a pulled schema step before the other machines are updated; disable both Windows scheduled tasks.
-2. Wait until `systemctl list-units "manga-pipeline-*.service" --state=activating,active` lists nothing (a running oneshot is `activating`) and no Windows `process` runs.
-3. Pull and install on all 3 machines; `systemctl daemon-reload` on the LXC; edit the configs.
-4. `state version --yes` on Celestia only.
+1. `state pause` on any machine (by hand, as above, `state pause` in place of `status`): it pauses every timer's and task's run and returns once none is still running, printing how many it waits for each minute. Manual commands keep working. Timers and tasks stay enabled.
+2. Pull and install on all 3 machines; `systemctl daemon-reload` on the LXC; edit the configs right after the pull: a scheduled run started between the 2 fails its config check (exit 2) and does nothing. A run started mid-pull may fail on import (exit 1), touching nothing. On Windows, a `pip install` that fails on a file in use is run again.
+3. `state version --yes` on Celestia only.
+4. `state resume`. Timers and tasks stopped on purpose before the deploy (junk review, say) stay as they were.
 5. Each machine's next `process` checks the version (exit 4 before any work if it differs).
-6. Start the timers that step 1 stopped and enable the tasks (those that were enabled before).
-7. Run `watch` by hand (as above, `watch` in place of `status`): it must exit 0 (a config or schema every command refuses is reported by nothing else); then `systemctl list-timers "manga-pipeline-*"` lists every timer step 1 stopped.
+6. Run `watch` by hand: it must exit 0 (a config or schema every command refuses is reported by nothing else); `status` shows no pause.
