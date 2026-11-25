@@ -457,7 +457,8 @@ def keep_decided(cfg: config.Config, conn: db.Connection) -> int:
         )
     ]
     decided = root / DECIDED
-    decided.mkdir(exist_ok=True)
+    if named:
+        decided.mkdir(exist_ok=True)
     for name in named:
         if (decided / name).exists():
             shutil.rmtree(root / name)
