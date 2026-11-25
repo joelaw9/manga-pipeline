@@ -35,12 +35,13 @@ class TrackRecords(TypedDict):
 
 
 class Manga(TypedDict):
-    """A manga: source is null when its extension is not installed; sourceId is always there."""
+    """A manga: source is null when its extension is not installed; sourceId always there; description null or text."""
 
     id: int
     title: str
     status: str
     url: str
+    description: str | None
     inLibrary: bool
     sourceId: str
     source: Source | None

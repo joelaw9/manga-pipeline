@@ -678,3 +678,126 @@ def test_recreated_series_loses_its_import_row(world):
     assert world.rows("SELECT count(*) FROM series_import") == [(0,)], (
         "a recreated series is a new Kavita entity the old tool never wrote: its locks are no longer the old tool's"
     )
+
+
+def described(world, title, description):
+    """Add a Suwayomi manga titled as a series, its description holding description."""
+    manga = world.manga(title)
+    world.suwayomi.manga_rows[manga]["description"] = description
+    return manga
+
+
+@budget(load="db")
+def test_a_description_link_gives_a_source_with_no_id_its_id_and_mangabaka_through_it(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    described(world, "Solo Leveling", "More at [AniList](https://anilist.co/manga/105398).")
+    world.sources.anilist.records[("media", "105398")] = {"id": 105398, "format": "MANGA"}
+    world.sources.mangabaka.records[("anilist", "105398")] = {"id": 50, "title": "Solo Leveling"}
+    world.sources.mangabaka.records[("series", "50")] = {"id": 50, "title": "Solo Leveling"}
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    assert ("anilist", "search", "105398") in ids_of(world, sid), "the description's id is a search hit"
+    assert ("mangabaka", "search", "50") in ids_of(world, sid), "MangaBaka found by id through it, before its turn"
+    assert not [c for c in world.sources.calls if c[0] == "FakeAniList" and c[1] == "search"], "AniList not searched"
+
+
+@budget(load="db")
+def test_a_description_link_never_overrides_an_id_an_origin_gives(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.kavita.metadata_rows[kavita_id] = {"webLinks": "https://anilist.co/manga/1"}
+    described(world, "Solo Leveling", "https://anilist.co/manga/2")
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    assert [r for r in ids_of(world, sid) if r[0] == "anilist"] == [("anilist", "kavita", "1")], "Kavita's id stands"
+    assert ("FakeAniList", "media", "2") not in world.sources.calls, "the description's id is not even fetched"
+
+
+@budget(load="db")
+def test_descriptions_giving_2_ids_of_a_source_give_none(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    described(world, "Solo Leveling", "https://anilist.co/manga/1")
+    world.suwayomi.manga_rows[world.manga("Solo Leveling")]["description"] = "https://anilist.co/manga/2"
+    for al_id in ("1", "2"):  # both comics: only the 2-id rule keeps them out
+        world.sources.anilist.records[("media", al_id)] = {"id": int(al_id), "format": "MANGA"}
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    assert world.rows("SELECT count(*) FROM suwayomi_manga WHERE series_id = %s", sid) == [(2,)], "both linked"
+    assert not [r for r in ids_of(world, sid) if r[0] == "anilist"], "2 ids of 1 source: neither is used"
+
+
+@pytest.mark.parametrize("record", [None, {"id": 999, "format": "NOVEL"}], ids=["gone", "novel"])
+@budget(load="db")
+def test_a_description_id_that_is_a_novels_or_gone_never_joins(world, record):
+    kavita_id = world.kavita_series("Solo Leveling")
+    described(world, "Solo Leveling", "https://anilist.co/manga/999")
+    if record is not None:
+        world.sources.anilist.records[("media", "999")] = record
+    world.sources.mangabaka.results["Solo Leveling"] = [{"id": 50, "title": "Solo Leveling"}]
+    world.sources.mangabaka.records[("series", "50")] = {
+        "id": 50,
+        "title": "Solo Leveling",
+        "source": {"anilist": {"id": 123}},
+    }
+    world.sources.anilist.records[("media", "123")] = {"id": 123, "format": "MANGA"}
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    assert world.rows("SELECT status FROM series WHERE id = %s", sid) == [("ok",)], "no disagreement with MangaBaka's"
+    assert [r for r in ids_of(world, sid) if r[0] == "anilist"] == [("anilist", "mangabaka", "123")], "999 not stored"
+    assert ("FakeMangaBaka", "search", "Solo Leveling") in world.sources.calls, "MangaBaka title-searched"
+
+
+@budget(load="db")
+def test_anilist_is_searched_by_a_mangabaka_title_the_series_names_lack(world):
+    kavita_id = world.kavita_series("Ore dake Level Up na Ken")
+    world.sources.mangabaka.results["Ore dake Level Up na Ken"] = [
+        {"id": 50, "title": "Ore dake Level Up na Ken", "secondary_titles": {"en": [{"title": "Solo Leveling"}]}}
+    ]
+    world.sources.mangabaka.records[("series", "50")] = world.sources.mangabaka.results["Ore dake Level Up na Ken"][0]
+    title: dict[str, str | None] = {"romaji": None, "english": "Solo Leveling", "native": None}
+    world.sources.anilist.results["Solo Leveling"] = [{"id": 7, "format": "MANGA", "title": title, "synonyms": None}]
+    world.sources.anilist.records[("media", "7")] = {"id": 7, "format": "MANGA"}
+    world.run(intake)
+    assert ("anilist", "search", "7") in ids_of(world, series_id(world, kavita_id)), "found by MangaBaka's title"
+
+
+@budget(load="db")
+def test_a_suffixed_name_is_also_searched_without_its_suffix(world):
+    kavita_id = world.kavita_series("Solo Leveling (Official)")
+    world.sources.mangabaka.results["Solo Leveling"] = [{"id": 50, "title": "Solo Leveling"}]
+    world.sources.mangabaka.records[("series", "50")] = {"id": 50, "title": "Solo Leveling"}
+    world.run(intake)
+    assert ("mangabaka", "search", "50") in ids_of(world, series_id(world, kavita_id))
+
+
+@budget(load="db")
+def test_gather_writes_nothing(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    manga = world.manga("Solo Leveling")
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    world.suwayomi.manga_rows[manga]["status"] = "COMPLETED"  # what refresh.completed acts on
+    world.sources.mangabaka.results["Solo Leveling"] = [{"id": 50, "title": "Solo Leveling"}]
+    world.sources.mangabaka.records[("series", "50")] = {"id": 50, "title": "Solo Leveling"}
+    tables = (
+        "SELECT (SELECT count(*) FROM series_source_id), (SELECT count(*) FROM fetched),"
+        " (SELECT count(*) FROM series_check)"
+    )
+    before, writes = world.rows(tables), list(world.suwayomi.writes)
+    with closing(db.connect(world.cfg)) as conn:
+        gathered = check.gather(world.context(conn, "intake"), world.sources, sid)
+    assert gathered is not None
+    assert gathered.records["mangabaka"] is not None, "the records are fetched"
+    assert (world.rows(tables), world.suwayomi.writes) == (before, writes), "no database row and no Suwayomi write"
+
+
+@budget(load="db")
+def test_ids_that_already_disagree_stop_the_check_before_a_description_id_is_fetched(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.kavita.metadata_rows[kavita_id] = {"webLinks": "https://anilist.co/manga/1"}
+    manga = described(world, "Solo Leveling", f"https://mangadex.org/title/{MD}")
+    world.suwayomi.add_tracker(manga, 2, 2)
+    world.run(intake)
+    sid = series_id(world, kavita_id)
+    assert world.rows("SELECT status FROM series WHERE id = %s", sid) == [("needs_human",)]
+    assert world.sources.calls == [], "no source is asked, the description's either"
+    assert not [r for r in ids_of(world, sid) if r[0] == "mangadex"], "no description id stored"

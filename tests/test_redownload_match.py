@@ -17,6 +17,7 @@ def hit(manga_id, title) -> suwayomi.Manga:
         "title": title,
         "status": "ONGOING",
         "url": f"/manga/{manga_id}",
+        "description": None,
         "inLibrary": False,
         "sourceId": "1",
         "source": None,
