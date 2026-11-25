@@ -77,7 +77,7 @@ def fields(records: SeriesRecords, agreed: Mapping[str, str], rules: tags.Rules)
         pencillers=tuple(dict.fromkeys(name for role, name in staff if role in PENCILLER_ROLES and name)),
         links=tuple(_links(agreed, mb, mu, md, al)),
         kavita_ids={
-            "aniListId": _int(agreed.get("anilist")) if al else None,
+            "aniListId": _int(agreed.get("anilist")) if al else (0 if agreed.get("anilist") else None),
             "malId": _int(agreed.get("myanimelist")),
             "mangaBakaId": _int(agreed.get("mangabaka")) if mb else None,
         },

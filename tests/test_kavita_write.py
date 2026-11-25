@@ -13,7 +13,7 @@ from PIL import Image
 
 from manga_pipeline import config, db, export, intake
 from manga_pipeline.clients import kavita as kavita_client
-from manga_pipeline.metadata import kavita_write
+from manga_pipeline.metadata import human, kavita_write
 
 from tests.timing import budget
 from tests.world import World
@@ -433,3 +433,90 @@ def test_a_lock_only_import_row_takes_over_the_locked_lists_and_status(world):
         "a list `metadata import` recorded from Kavita's lock is the old tool's: replaced, pruned"
     )
     assert m["publicationStatus"] == 2, "a lock-only import row makes the locked status the old tool's too"
+
+
+def anilist_in_kavita(world, kavita_id, al_id):
+    """Give the Kavita series an AniList id and a link to its page."""
+    world.kavita.series_rows[kavita_id]["aniListId"] = al_id
+    world.kavita.metadata_rows[kavita_id] = {"seriesId": kavita_id, "webLinks": f"https://anilist.co/manga/{al_id}"}
+
+
+def anilist_links(world, kavita_id):
+    return [u for u in meta(world, kavita_id)["webLinks"].split(",") if "anilist.co" in u]
+
+
+@budget(load="db")
+def test_a_persons_anilist_id_replaces_the_wrong_id_and_link_in_kavita(world, caplog):
+    kavita_id = world.kavita_series("Solo Leveling")
+    anilist_in_kavita(world, kavita_id, 1)
+    world.sources.anilist.records[("media", "1")] = {"id": 1, "format": "MANGA"}
+    world.run(intake)
+    with closing(db.connect(world.cfg)) as conn:
+        human.set_id(conn, series_id(world, kavita_id), "anilist", "2")
+    world.sources.anilist.records[("media", "2")] = {"id": 2, "format": "MANGA"}
+    world.run(intake)
+    with caplog.at_level("INFO"):
+        world.run(export)
+    assert world.kavita.series_rows[kavita_id]["aniListId"] == 2, "the person's id"
+    assert anilist_links(world, kavita_id) == ["https://anilist.co/manga/2"], "the wrong link removed, the right added"
+    assert "web link https://anilist.co/manga/1 removed" in caplog.text, "each removal logged"
+
+
+@budget(load="db")
+def test_an_anilist_id_whose_record_is_a_novels_is_cleared_to_0_with_its_links(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    anilist_in_kavita(world, kavita_id, 1)
+    world.sources.anilist.records[("media", "1")] = {"id": 1, "format": "NOVEL"}
+    world.run(intake)
+    world.run(export)
+    assert world.kavita.series_rows[kavita_id]["aniListId"] == 0, "0 clears Kavita's AniList id"
+    assert anilist_links(world, kavita_id) == [], "no AniList page is the series'"
+    before = len(field_writes(world))
+    world.run(export)
+    assert len(field_writes(world)) == before, "nothing written again"
+
+
+@budget(load="db")
+def test_no_0_is_written_over_an_anilist_id_kavita_does_not_hold(world):
+    world.kavita_series("Solo Leveling")
+    world.suwayomi.add_tracker(world.manga("Solo Leveling"), 2, 1)
+    world.sources.anilist.records[("media", "1")] = {"id": 1, "format": "NOVEL"}
+    world.run(intake)
+    known = world.rows("SELECT source, origin, source_id FROM series_source_id WHERE source = 'anilist'")
+    assert known == [("anilist", "suwayomi", "1")], "the novel's id is the series' AniList id"
+    world.run(export)
+    assert not [w for w in world.kavita.writes if w[0] == "series" and "aniListId" in w[2]], "Kavita holds none"
+
+
+@budget(load="db")
+def test_a_found_anilist_record_writes_its_id_and_keeps_other_sources_links(world):
+    kavita_id = world.kavita_series("Solo Leveling")
+    anilist_in_kavita(world, kavita_id, 1)
+    world.kavita.metadata_rows[kavita_id]["webLinks"] += ",https://example.com/solo"
+    world.sources.anilist.records[("media", "1")] = {"id": 1, "format": "MANGA"}
+    world.run(intake)
+    world.run(export)
+    assert meta(world, kavita_id)["webLinks"] == "https://anilist.co/manga/1,https://example.com/solo", (
+        "nothing removed"
+    )
+    assert not [w for w in world.kavita.writes if w[0] == "series" and "aniListId" in w[2]], "Kavita holds it already"
+
+
+@budget(load="db")
+def test_a_mangaupdates_link_to_another_id_than_the_persons_is_removed(world):
+    kavita_id = checked(world)
+    wrong, right = str(int("04gtb06", 36)), str(int("04gtb07", 36))
+    world.kavita.metadata_rows[kavita_id]["webLinks"] = "https://www.mangaupdates.com/series/04gtb06"
+    with closing(db.connect(world.cfg)) as conn:
+        execute(
+            world,
+            "DELETE FROM series_source_id WHERE series_id = %s AND source = 'mangaupdates'",
+            series_id(world, kavita_id),
+        )
+        human.set_id(conn, series_id(world, kavita_id), "mangaupdates", right)
+    world.sources.mangaupdates.records[("series", right)] = {"title": "Solo Leveling", "type": "Manhwa"}
+    world.run(intake)
+    world.run(export)
+    links = meta(world, kavita_id)["webLinks"]
+    assert "mangaupdates.com/series/4gtb07" in links, "the person's page added"
+    assert "04gtb06" not in links, f"the link to {wrong} removed"
