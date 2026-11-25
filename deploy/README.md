@@ -39,6 +39,17 @@ A command by hand runs from the checkout (the program is not packaged) with the 
 5. Each machine's next `process` checks the version (exit 4 before any work if it differs).
 6. Run `watch` by hand: it must exit 0 (a config or schema every command refuses is reported by nothing else); `status` shows no pause.
 
+## Back up and restore the junk knowledge
+
+`junk backup DIR` (no lock, any time) writes the decisions with their history, the acts, the sightings and the
+watermarks into a new `junk-<time>` folder in DIR. A new database regains them with `junk restore DIR/junk-<time>`,
+run first, before any part (a part's baseline fills the decisions, and restore needs every junk table empty), by the
+program that wrote the backup or a later one (each table must have the backup's columns):
+
+```bash
+( cd /opt/manga-pipeline && set -a && . /etc/manga-pipeline/pipeline.env && set +a && .venv/bin/python -m manga_pipeline.cli junk restore /backups/junk-20261125-120000 )
+```
+
 ## Front-load adopted files' conversions (backfill only)
 
 The drop-in `deploy/systemd/manga-pipeline-intake.service.d/queue-first.conf` runs `scripts/queue_first.py --scheduled` before each `intake` run (nothing while the automation is paused; `state pause` does not wait for a run already past its pause check, which may still queue conversions for a few seconds): it queues the conversions of the "Reading" collection's series, then of the series with an open download (SPEC "State"). Its failure is in the journal and never stops `intake` (`ExecStartPre=-`). `systemctl link` takes unit files only, so the drop-in is linked by hand.

@@ -44,7 +44,7 @@ from manga_pipeline import (
 )
 from manga_pipeline.clients import kavita, suwayomi
 from manga_pipeline.db import sql
-from manga_pipeline.junk import candidates, groups, redecide, review, review_run, store, where
+from manga_pipeline.junk import backup, candidates, groups, redecide, review, review_run, store, where
 from manga_pipeline.metadata import audit, human, importer, naming, sources
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
@@ -567,6 +567,26 @@ def junk_undo(cfg: config.Config, args: argparse.Namespace) -> None:
     log.info("junk act %s undid act %s", act, args.act)
 
 
+def junk_backup(cfg: config.Config, args: argparse.Namespace) -> None:
+    """Write the junk knowledge into a new folder in DIR (`junk backup`)."""
+    try:
+        folder = backup.backup(cfg, Path(args.dir))
+    except review.Refused as e:
+        raise workflow.Refused(str(e)) from None
+    print(f"junk knowledge backed up to {folder}")
+    log.info("junk knowledge backed up to %s", folder)
+
+
+def junk_restore(args: argparse.Namespace, conn: db.Connection) -> None:
+    """Write a junk backup back into an empty junk store, ids kept (`junk restore`)."""
+    try:
+        counts = backup.restore(conn, Path(args.dir))
+    except review.Refused as e:
+        raise workflow.Refused(str(e)) from None
+    print(", ".join(f"{table} {n}" for table, n in counts.items()))
+    log.info("junk knowledge restored from %s: %s", args.dir, counts)
+
+
 def locked_connection(conn: db.Connection | None) -> db.Connection:
     """Return a locked command's connection; RuntimeError when it has none (its row in COMMANDS takes no lock)."""
     if conn is None:
@@ -631,6 +651,10 @@ COMMANDS = {
     "junk row": Command((), None, None, (), _unlocked(junk_row)),
     "junk redecide": Command((), None, None, (), _unlocked(junk_redecide)),
     "junk undo": Command((), None, None, (), _unlocked(junk_undo)),
+    "junk backup": Command((), None, None, (), _unlocked(junk_backup)),
+    "junk restore": Command(
+        (), X, None, (), lambda _cfg, args, conn: junk_restore(args, locked_connection(conn)), builds=True
+    ),
     "junk review": Command(
         ("junk-review",),
         S,
@@ -804,6 +828,12 @@ def _junk_commands(command: argparse.ArgumentParser) -> None:
     undo = junk.add_parser("undo", help="reverse a junk act exactly")
     undo.add_argument("act", type=int, help="the act's id, as junk redecide printed it")
     undo.set_defaults(command="junk undo")
+    backup_ = junk.add_parser("backup", help="write the junk knowledge (decisions, acts, sightings, watermarks) to DIR")
+    backup_.add_argument("dir", help="the folder to write a new junk-<time> folder in")
+    backup_.set_defaults(command="junk backup")
+    restore = junk.add_parser("restore", help="restore a junk backup into an empty junk store, ids kept")
+    restore.add_argument("dir", help="the junk-<time> folder junk backup wrote")
+    restore.set_defaults(command="junk restore")
     junk.add_parser("review", help="let Claude decide the open candidates (claude -p)").set_defaults(
         command="junk review"
     )
