@@ -18,10 +18,10 @@ import numpy as np
 
 from manga_pipeline import db, images
 from manga_pipeline.db import sql
-from manga_pipeline.junk import frames, marks
+from manga_pipeline.junk import chains, frames, marks
 
 GLOBAL = ""
-KINDS = ("block", "probe", "piece", "page", "band", "frame", "logo")
+KINDS = ("block", "probe", "piece", "page", "band", "frame", "logo", "cut")  # cut: a cut decision (junk.chains)
 # A unit's kind -> the kinds of the decisions that decide it (the bulk converter's junk.UNIT_KINDS).
 DECIDING: dict[str, tuple[str, ...]] = {
     "block": ("block", "probe"),
@@ -49,7 +49,11 @@ type DecideUnit = Callable[[str, str], db.Row | None]  # (kind, key text) -> the
 
 
 class Decision(TypedDict):
-    """A junk decision as upsert writes it: its series key, kind, key text, verdict, decider, time and source."""
+    """A junk decision as upsert writes it: its series key, kind, key text, verdict, decider, time and source.
+
+    A block or probe junk decision may carry its card's extent (chain), a cut decision carries its chain and may carry
+    credit (junk.chains).
+    """
 
     series_key: str
     kind: str
@@ -59,6 +63,8 @@ class Decision(TypedDict):
     decided_at: str
     source: str | None
     images: NotRequired[str | None]  # the candidate folder of a decision made from a candidate
+    chain: NotRequired[str | None]  # canonical chain text (junk.chains), None for none
+    credit: NotRequired[bool]  # a cut decision whose tail ranges are tail bands
 
 
 def series_key(series: db.Row) -> str:
@@ -228,16 +234,45 @@ def _check(r: Decision) -> None:
     if unsignable(r["kind"], r["key"]):
         msg = f"a decision on an unsignable key (it would match any blank or flat rows): {r}"
         raise ValueError(msg)
+    _check_chain(r)
+
+
+def _check_chain(r: Decision) -> None:
+    """Which decisions carry a chain and credit (junk.chains; the bulk converter's row shapes); ValueError otherwise.
+
+    A cut decision: series-scoped, junk, with its chain, credit allowed. A series block or probe junk decision: a chain
+    or none, no credit. Any other decision: neither (no global rows carry one: none are made).
+    """
+    chain, credit, scoped = r.get("chain"), r.get("credit", False), r["series_key"] != GLOBAL
+    if type(credit) is not bool:
+        msg = f"credit {credit!r}: not a bool: {r}"
+        raise ValueError(msg)
+    if r["kind"] == "cut":
+        if r["verdict"] != "junk" or not scoped or chain is None:
+            msg = f"a cut decision is series-scoped, junk, and carries a chain: {r}"
+            raise ValueError(msg)
+        chains.check_cut(r["key"], chain)
+        return
+    if credit:
+        msg = f"credit on a {r['kind']} decision (credit: cut decisions only): {r}"
+        raise ValueError(msg)
+    if chain is None:
+        return
+    if r["kind"] not in chains.UNIT_KINDS or r["verdict"] != "junk" or not scoped:
+        msg = f"a chain on a decision that is no series block or probe junk decision: {r}"
+        raise ValueError(msg)
+    chains.check_unit(chain)
 
 
 def _insert(conn: db.Connection, r: Decision, act: int | None = None) -> int:
     """Insert decision r as active, written by act (None: not by an act); return its id."""
     return db.one_row(
         conn,
-        """INSERT INTO junk_decision (series_key, kind, key, verdict, decider, decided_at, source, images, written_by)
+        """INSERT INTO junk_decision
+            (series_key, kind, key, verdict, decider, decided_at, source, images, chain, credit, written_by)
         VALUES (%(series_key)s, %(kind)s, %(key)s, %(verdict)s, %(decider)s, %(decided_at)s, %(source)s, %(images)s,
-            %(act)s) RETURNING id""",
-        {"images": None, **r, "act": act},
+            %(chain)s, %(credit)s, %(act)s) RETURNING id""",
+        {"images": None, "chain": None, "credit": False, **r, "act": act},
     )[0]
 
 
@@ -267,7 +302,9 @@ def _keeps(old: db.Row, r: Decision) -> bool:
         return old["decider"] != "import"  # a pipeline decision supersedes only an import
     if old["decider"] != "import" or old["written_by"] is not None or old["retired_by"] is not None:
         return True  # the pipeline's own, or a key an act wrote or retired
-    same = all(old[c] == r[c] for c in ("verdict", "decider", "decided_at", "source"))
+    same = all(old[c] == r[c] for c in ("verdict", "decider", "decided_at", "source")) and (
+        old["chain"] == r.get("chain") and old["credit"] == r.get("credit", False)
+    )
     return same or r["decided_at"] < old["decided_at"]
 
 

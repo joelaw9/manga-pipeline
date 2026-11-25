@@ -8,10 +8,11 @@ Inputs: the download's measured pages (images.measure_pages), the extracted page
 """
 
 import json
+import math
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Literal, NamedTuple, TypedDict, final
+from typing import Literal, NamedTuple, NotRequired, TypedDict, final
 
 from manga_pipeline import archive, images, strip
 from manga_pipeline.convert import pages as page_reads
@@ -39,9 +40,15 @@ PAIR_LEN = 2  # a join entry: [page, sliver]
 
 
 class RemovedRange(strip.RowRange):
-    """A strip_removed entry: strip rows [start, end) taken out, and why (the junk rule that removed them)."""
+    """A strip_removed entry: strip rows [start, end) taken out, and why (the junk rule that removed them).
+
+    A range a junk decision removed also names it (decision: its id) and, for a unit (match, piece), the unit's
+    signature text (hash); a range a rule removed (blank, wedge, join) names neither (SPEC "Junk decisions").
+    """
 
     why: str
+    decision: NotRequired[int]
+    hash: NotRequired[str]
 
 
 class BandCrop(TypedDict):
@@ -292,8 +299,8 @@ class RoutedPlan(ChapterPlan):
 def check_edit(text: str) -> ChapterEdit:
     """Return the chapter_edit row's edit (JSON text) as a dict, checked.
 
-    Checked: exactly EDIT_KEYS with their types, indexes ints, no page dropped twice, ranges ({start, end, why}, 0 <=
-    start < end) and boxes of ints. Raises EditError naming what is wrong.
+    Checked: exactly EDIT_KEYS with their types, indexes ints, no page dropped twice, ranges ({start, end, why,
+    decision?, hash?}, 0 <= start < end) and boxes of ints. Raises EditError naming what is wrong.
     """
     try:
         edit = json.loads(text)
@@ -352,11 +359,38 @@ def _check_drops(drops: list[Json]) -> None:
         raise EditError(msg)
 
 
+def _signature(x: Json) -> bool:
+    """Return whether x is a unit's signature text: as images.sig_to_str writes it, a finite aspect > 0, signable."""
+    if not isinstance(x, str):
+        return False
+    try:
+        sig = images.sig_from_str(x)
+    except ValueError:
+        return False
+    tiles, aspect = sig
+    return (
+        images.sig_to_str(sig) == x
+        and all(0 <= t < 1 << 64 for t in tiles)
+        and math.isfinite(aspect)
+        and aspect > 0
+        and not images.unsignable(sig)
+    )
+
+
 def _check_strip_removed(ranges: list[Json]) -> None:
-    """strip_removed: {start, end, why} ranges of integers, 0 <= start < end."""
+    """strip_removed: {start, end, why, decision?, hash?} ranges of integers, 0 <= start < end.
+
+    decision an integer; hash a signature's text, only beside a decision.
+    """
     for r in ranges:
-        if not isinstance(r, dict) or set(r) != {"start", "end", "why"} or not isinstance(r["why"], str):
-            msg = f"chapter_edit strip_removed entries are {{start, end, why}}, got {r!r}"
+        if (
+            not isinstance(r, dict)
+            or not {"start", "end", "why"} <= set(r) <= {"start", "end", "why", "decision", "hash"}
+            or not isinstance(r["why"], str)
+            or ("decision" in r and type(r["decision"]) is not int)
+            or ("hash" in r and ("decision" not in r or not _signature(r["hash"])))
+        ):
+            msg = f"chapter_edit strip_removed entries are {{start, end, why, decision?, hash?}}, got {r!r}"
             raise EditError(msg)
         start, end = _ints([r["start"], r["end"]], "strip_removed start / end")
         if not 0 <= start < end:

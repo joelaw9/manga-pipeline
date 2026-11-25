@@ -15,6 +15,20 @@ from tests.timing import budget
 AT = "2026-11-25T00:00:00+00:00"
 
 
+CUT: store.Decision = {
+    "series_key": "S",
+    "kind": "cut",
+    "key": "c1d84387cf25a7a5|0.5",
+    "verdict": "junk",
+    "decider": "import",
+    "decided_at": AT,
+    "source": "held row 1",
+    "chain": '{"below":[{"ref":[["S","c",0]],"segments":[{"h":0.5,"kind":"cut","tiles":"c1d84387cf25a7a5"}],'
+    '"src":{"file":"a.cbz","sha256":"' + "ab" * 32 + '"}}]}',
+    "credit": True,
+}
+
+
 def knowledge(conn):
     """Add decisions (1 re-decided, so history and acts), a sighting and a watermark."""
     with db.transaction(conn):
@@ -41,6 +55,8 @@ def knowledge(conn):
         )
         conn.execute("INSERT INTO junk_watermark (series_key, key) VALUES ('S', 'w')")
     redecide.redecide(conn, [one(conn, "SELECT min(id) FROM junk_decision")], "keep", AT)
+    with db.transaction(conn):  # a cut decision: its chain and credit travel too
+        store.write(conn, [CUT], store.new_act(conn, "cut", AT))
 
 
 def rows(conn):
@@ -74,7 +90,7 @@ def test_backup_then_restore_into_an_empty_database_gives_equal_rows(source, tmp
     folder = backup.backup(source, tmp_path / "backups")
     target = site_cfg(tmp_path / "b", built=False)
     assert cli.main(["--config", str(config_file(tmp_path / "b", target)), "junk", "restore", str(folder)]) == 0
-    assert "junk_decision 3" in capsys.readouterr().out, "the restore names what it wrote"
+    assert "junk_decision 4" in capsys.readouterr().out, "the restore names what it wrote"
     with closing(db.connect(source)) as a, closing(db.connect(target)) as b:
         assert rows(b) == rows(a), "every row of the 5 tables, every column, ids included"
 
@@ -86,7 +102,8 @@ def test_a_restored_store_writes_new_ids_past_the_restored_ones(source, tmp_path
     with closing(db.connect(target)) as conn:
         backup.restore(conn, folder)
         top = one(conn, "SELECT max(id) FROM junk_decision")
-        act = redecide.redecide(conn, [top], "junk", AT)
+        keep = one(conn, "SELECT max(id) FROM junk_decision WHERE verdict = 'keep'")  # the re-decided row
+        act = redecide.redecide(conn, [keep], "junk", AT)
         assert one(conn, "SELECT max(id) FROM junk_decision") == top + 1, "a new decision takes the next id"
         assert act == one(conn, "SELECT max(id) FROM junk_act"), "a new act takes the next id"
         assert act > 1, "past the restored act"

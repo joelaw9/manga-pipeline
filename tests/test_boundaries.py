@@ -52,9 +52,10 @@ READERS = {
     ("convert/plan.py", "read_page_aspect"),
     ("convert/record_reader.py", "decisions"),
     ("convert/record_reader.py", "load"),
-    ("junk/candidates.py", "read_info"),
     ("fleet.py", "_read_digest"),
     ("hand_edits.py", "load"),
+    ("junk/candidates.py", "read_info"),
+    ("junk/chains.py", "parse"),
     ("junk/review_run.py", "_reply"),
     ("metadata/importer.py", "read_overrides"),
     ("metadata/importer.py", "read_state"),
@@ -81,8 +82,8 @@ READERS = {
     ("stages/junk.py", "read_scan"),
     ("stages/validate.py", "_phashes"),
     ("volumes.py", "override_file"),
-    ("workflow.py", "read_redownload"),
     ("workflow.py", "read_notes"),
+    ("workflow.py", "read_redownload"),
 }
 
 

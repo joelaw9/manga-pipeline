@@ -491,6 +491,7 @@ def _decision_line(row: db.Row, acts: dict[int, list[str]]) -> str:
         state,
         "acts: " + (", ".join(acts.get(row["id"], [])) or "-"),
         "images" if row["images"] else "no images",
+        ("chained" if row["chain"] else "no chain") + (", credit" if row["credit"] else ""),
     ]
     return "\t".join(fields)
 

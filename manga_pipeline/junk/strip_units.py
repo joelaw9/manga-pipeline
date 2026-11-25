@@ -114,13 +114,17 @@ class StripScan(TypedDict):
 
 
 class Matched[R](TypedDict):
-    """An edge block, piece or remainder a junk decision removed (match_blocks): rows, edge, deciding row, "match"."""
+    """An edge block, piece or remainder a junk decision removed (match_blocks): rows, edge, deciding row, "match", sig.
+
+    sig: the removed unit's signature text.
+    """
 
     start: int
     end: int
     where: str
     decision: R
     why: str
+    sig: str
 
 
 class LeftBlock(Piece):
@@ -148,7 +152,7 @@ class PieceUnit(TypedDict):
 
 
 class Removed(TypedDict):
-    """A range a junk decision removed: its rows, edge, the decision's id, why ("match") and the decision's key."""
+    """A range a junk decision removed: rows, edge, the decision's id, why ("match"), its key and the unit's sig."""
 
     start: int
     end: int
@@ -156,16 +160,21 @@ class Removed(TypedDict):
     decision: int
     why: str
     key: str
+    sig: str
 
 
 class Drop(TypedDict):
-    """A range a tail rule or the join rule removes: its rows, edge, the deciding piece decision's id (None: a rule)."""
+    """A range a tail rule or the join rule removes: rows, edge, the deciding piece decision's id and the piece's sig.
+
+    decision and sig are None for a range a rule removed (blank, wedge, join).
+    """
 
     start: int
     end: int
     where: str
     decision: int | None
     why: str
+    sig: str | None
 
 
 type Range = Removed | Drop
@@ -422,18 +431,20 @@ def match_blocks[R](
 ) -> tuple[list[Matched[R]], list[LeftBlock]]:
     """Apply the stored decisions to the edge blocks; return (removed, left).
 
-    removed [{"start", "end", "where", "decision", "why": "match"}]; left: the edge blocks no junk decision removed,
-    each with its non-uniform pieces as "probes". approve(kind, sig text) -> the deciding junk row or None. A block
-    matching whole is removed; else its hard-join pieces are tried from the chapter edge inward and the first match is
-    removed, then its remainder (removed when it matches, else left as a block without probes, marked "rest": 1 cut per
-    block); else the block is left.
+    removed [{"start", "end", "where", "decision", "why": "match", "sig"}]; left: the edge blocks no junk decision
+    removed, each with its non-uniform pieces as "probes". approve(kind, sig text) -> the deciding junk row or None.
+    A block matching whole is removed; else its hard-join pieces are tried from the chapter edge inward and the
+    first match is removed, then its remainder (removed when it matches, else left as a block without probes, marked
+    "rest": 1 cut per block); else the block is left.
     """
     removed: list[Matched[R]]
     left: list[LeftBlock]
     removed, left = [], []
 
-    def gone(u: strip.RowRange, row: R, where: str) -> None:
-        removed.append({"start": u["start"], "end": u["end"], "where": where, "decision": row, "why": "match"})
+    def gone(u: Piece | Rest, row: R, where: str) -> None:
+        removed.append(
+            {"start": u["start"], "end": u["end"], "where": where, "decision": row, "why": "match", "sig": u["sig"]}
+        )
 
     for b in blocks:
         row = approve("block", b["sig"])
@@ -617,7 +628,9 @@ def join_rule(layout: Layout, removed: Iterable[Range], gutter: int) -> list[Dro
         for x, y in c:
             parts = [(x, y)] if keep is None else uncovered(x, y, [(x + keep[0] - off, x + keep[1] - off)])
             out.extend(
-                {"start": s, "end": t, "where": where, "decision": None, "why": "join"} for s, t in parts if t > s
+                {"start": s, "end": t, "where": where, "decision": None, "why": "join", "sig": None}
+                for s, t in parts
+                if t > s
             )
             off += y - x
     return sorted(out, key=lambda r: r["start"])
@@ -709,14 +722,25 @@ def _tail_pass(
     for i, c in sorted(classes.items(), key=lambda item: item[0]):
         if isinstance(c, str):
             p = pieces[i]
-            drops.append({"start": p["start"], "end": p["end"], "where": "tail", "decision": None, "why": c})
+            drops.append(
+                {"start": p["start"], "end": p["end"], "where": "tail", "decision": None, "why": c, "sig": None}
+            )
             continue
         p = c
         row = decide_unit("piece", p["sig"])
         if row is None:
             review.append({"kind": "piece", "start": p["start"], "end": p["end"], "where": "tail", "sig": p["sig"]})
         elif row["verdict"] == "junk":
-            drops.append({"start": p["start"], "end": p["end"], "where": "tail", "decision": row["id"], "why": "piece"})
+            drops.append(
+                {
+                    "start": p["start"],
+                    "end": p["end"],
+                    "where": "tail",
+                    "decision": row["id"],
+                    "why": "piece",
+                    "sig": p["sig"],
+                }
+            )
     return _Tail(pieces, drops, review)
 
 
@@ -735,6 +759,16 @@ def _undecided_blocks(
         if decide_unit("block", b["sig"]) is None:
             probes = [p for p in b["probes"] if decide_unit("probe", p["sig"]) is None]
             out.append({**b, "kind": "block", "probes": probes})
+    return out
+
+
+def _entry(r: Range) -> plan.RemovedRange:
+    """Return a final range as strip_removed holds it: rows and why, and for a decision's range its id and the sig."""
+    out: plan.RemovedRange = {"start": r["start"], "end": r["end"], "why": r["why"]}
+    if r["decision"] is not None:
+        out["decision"] = r["decision"]
+        if r["sig"] is not None:
+            out["hash"] = r["sig"]
     return out
 
 
@@ -761,6 +795,7 @@ def decide(sc: StripScan, decide_unit: store.DecideUnit, known: Iterable[images.
             "decision": r["decision"]["id"],
             "why": r["why"],
             "key": r["decision"]["key"],
+            "sig": r["sig"],
         }
         for r in found
     ]
@@ -772,7 +807,7 @@ def decide(sc: StripScan, decide_unit: store.DecideUnit, known: Iterable[images.
     undecided = tail.review + _undecided_blocks(left, owned, decide_unit)
     final = settle(layout, everything, gutter(layout.width))
     return {
-        "removed": [{"start": r["start"], "end": r["end"], "why": r["why"]} for r in final],
+        "removed": [_entry(r) for r in final],
         "undecided": sorted(undecided, key=lambda u: u["start"]),
         "kept_problem": kept_problem(layout, final) if final else None,
         "watermarks": sorted({r["key"] for r in removed if r["decision"] in marks}),

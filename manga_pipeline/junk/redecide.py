@@ -46,6 +46,9 @@ def _checked(conn: db.Connection, ids: Sequence[int], verdict: str, *, global_on
         raise Refused(msg)
     rows = _rows(conn, ids)
     for row in rows:
+        if row["kind"] == "cut":
+            msg = f"junk decision {row['id']} is a cut decision: it changes only by junk undo of the act that wrote it"
+            raise Refused(msg)
         if row["verdict"] == verdict:
             msg = f"junk decision {row['id']} is {verdict} already"
             raise Refused(msg)
