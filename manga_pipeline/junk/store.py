@@ -11,7 +11,7 @@ An unsignable key (a signature whose every tile is a uniform image's) would matc
 with one matches no decision, and no decision is written on one.
 """
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import NotRequired, TypedDict, TypeIs
 
 import numpy as np
@@ -37,6 +37,12 @@ NEAR_KINDS = ("block", "band", "probe")  # the approved decisions the near rule 
 DECIDERS = ("import", "claude", "human")
 # An active decision decides units; a superseded or retired one is history (SPEC "Junk decisions", decisions).
 ACTIVE = sql.SQL("superseded_by IS NULL AND retired_by IS NULL")
+
+
+def is_active(row: db.Row) -> bool:
+    """Return whether a decision row is active (ACTIVE, for a row read already)."""
+    return row["superseded_by"] is None and row["retired_by"] is None
+
 
 type ParsedKey = images.Signature | frames.Frame | marks.Template  # a key's text parsed for its kind (parse_key)
 type DecideUnit = Callable[[str, str], db.Row | None]  # (kind, key text) -> the deciding junk_decision row, or None
@@ -335,6 +341,12 @@ def restore(conn: db.Connection, ids: Iterable[int], act: int) -> None:
         _log(conn, act, [i], "restored")
 
 
+def unknown_series(conn: db.Connection, keys: Sequence[str]) -> list[str]:
+    """Return the keys of keys that no series has as its rules key, sorted."""
+    known = {r[0] for r in conn.execute("SELECT rules_key FROM series WHERE rules_key = ANY(%s)", (list(keys),))}
+    return sorted(set(keys) - known)
+
+
 def get(conn: db.Connection, decision_id: int) -> db.Row | None:
     """Return decision decision_id's row, any state, or None."""
     return conn.execute("SELECT * FROM junk_decision WHERE id = %s", (decision_id,)).fetchone()
@@ -364,11 +376,15 @@ def history(conn: db.Connection, series_key_: str | None) -> tuple[list[db.Row],
         rows = conn.execute(
             "SELECT * FROM junk_decision WHERE series_key IN (%s, %s) ORDER BY id", (series_key_, GLOBAL)
         ).fetchall()
+    return rows, acts_of(conn, [r["id"] for r in rows])
+
+
+def acts_of(conn: db.Connection, ids: Sequence[int]) -> dict[int, list[str]]:
+    """Return the act log of decisions ids: "<change> <act>" entries, oldest act first."""
     acts: dict[int, list[str]] = {}
     log = conn.execute(
-        "SELECT decision, act, change FROM junk_act_row WHERE decision = ANY(%s) ORDER BY act, change",
-        ([r["id"] for r in rows],),
+        "SELECT decision, act, change FROM junk_act_row WHERE decision = ANY(%s) ORDER BY act, change", (list(ids),)
     )
     for decision, act, change in log:
         acts.setdefault(decision, []).append(f"{change} {act}")
-    return rows, acts
+    return acts

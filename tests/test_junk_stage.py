@@ -23,7 +23,7 @@ from manga_pipeline.stages import convert as convert_stage
 from manga_pipeline.stages import junk as junk_stage
 
 from tests import pages as fx
-from tests.builders import config_file, present, run_part
+from tests.builders import config_file, one, present, run_part
 from tests.convert_pages import gray, jpeg
 from tests.fakes.suwayomi import page as fake_page
 from tests.timing import budget
@@ -950,3 +950,28 @@ def test_a_first_decide_held_on_unsure_candidates_records_them(site):
     site.parts()
     got = site.rows("SELECT status, junk_candidates FROM chapter ORDER BY id")
     assert got[1] == ("needs_human", 1), "a first decide held on an unsure candidate records the candidates it held on"
+
+
+@budget(load="db", seconds=10)
+def test_a_series_whose_only_decision_is_retired_counts_as_new_in_the_refill(site):
+    site.download("Alpha", 2, cbz(credit=True))
+    run_part(site.cfg, intake)
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        store.upsert(
+            conn,
+            [
+                {
+                    "series_key": "Alpha",
+                    "kind": "page",
+                    "key": "123456789abcdef0|0.7",
+                    "verdict": "keep",
+                    "decider": "human",
+                    "decided_at": "2026-01-01T00:00:00+00:00",
+                    "source": None,
+                }
+            ],
+        )
+        act = store.new_act(conn, "test", "2026-01-02T00:00:00+00:00")
+        store.retire(conn, [one(conn, "SELECT id FROM junk_decision")], act)
+    run_part(site.cfg, process)
+    assert refill(site) == [(1, True)], "a retired decision is history: the series has none of its own in force"

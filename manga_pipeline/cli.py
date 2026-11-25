@@ -395,7 +395,7 @@ def source_retire(cfg: config.Config, args: argparse.Namespace, conn: db.Connect
 
 
 def _junk_db(cfg: config.Config) -> closing[db.Connection]:
-    return _database(cfg, "list, show or decide")
+    return _database(cfg, "list, show, decide or re-decide")
 
 
 def _folder(cfg: config.Config, row: db.Row) -> Path:
@@ -498,6 +498,9 @@ def _decision_line(row: db.Row, acts: dict[int, list[str]]) -> str:
 def junk_rows(cfg: config.Config, args: argparse.Namespace) -> None:
     """Print the decisions of a series and the global ones, or every decision, active and not (`junk rows`)."""
     with _junk_db(cfg) as conn:
+        if args.series is not None and store.unknown_series(conn, [args.series]):
+            msg = f"no series has the key {args.series!r}"
+            raise workflow.Refused(msg)
         rows, acts = store.history(conn, args.series)
         for row in rows:
             print(_decision_line(row, acts))
@@ -515,8 +518,15 @@ def junk_row(cfg: config.Config, args: argparse.Namespace) -> None:
             if row is None:
                 msg = f"no junk decision {i}"
                 raise workflow.Refused(msg)
+            if args.series and row["series_key"] != store.GLOBAL:
+                msg = f"junk decision {i} is series {row['series_key']!r}'s: --series is for a global one"
+                raise workflow.Refused(msg)
             rows.append(row)
-        _, acts = store.history(conn, None)
+        missing = store.unknown_series(conn, args.series)
+        if missing:
+            msg = f"no series has the key(s) {missing}"
+            raise workflow.Refused(msg)
+        acts = store.acts_of(conn, args.ids)
         for row in rows:
             print(_decision_line(row, acts))
             if args.where:

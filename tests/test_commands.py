@@ -310,7 +310,18 @@ def test_junk_review_on_a_missing_database_exits_4_and_creates_none(tmp_path, mi
 
 
 @budget(load="db")
-@pytest.mark.parametrize("argv", [["junk", "list"], ["junk", "show", "1"], ["junk", "decide", "1", "junk"]])
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["junk", "list"],
+        ["junk", "show", "1"],
+        ["junk", "decide", "1", "junk"],
+        ["junk", "rows"],
+        ["junk", "row", "1"],
+        ["junk", "redecide", "1", "keep"],
+        ["junk", "undo", "1"],
+    ],
+)
 def test_junk_commands_on_a_missing_database_are_refused_and_create_none(tmp_path, missing, capsys, argv):
     assert main(tmp_path, missing, *argv) == 2
     assert "built yet" in capsys.readouterr().err

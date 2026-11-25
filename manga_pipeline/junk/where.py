@@ -27,25 +27,21 @@ def decided_by(conn: db.Connection, row: db.Row, series: Sequence[str] = ()) -> 
     """
     kinds = [unit for unit, deciding in store.DECIDING.items() if row["kind"] in deciding]
     if row["series_key"] != store.GLOBAL:
-        scope = [row["series_key"]]
-    elif series:
-        scope = list(series)
+        scope: list[str] | None = [row["series_key"]]
     else:
-        scope = [r[0] for r in conn.execute("SELECT DISTINCT series_key FROM junk_seen WHERE kind = ANY(%s)", (kinds,))]
+        scope = list(series) or None  # None: every series
+    query = "SELECT DISTINCT series_key, kind, key, identity FROM junk_seen WHERE kind = ANY(%s)"
+    params: tuple[list[str], ...] = (kinds,)
+    if scope is not None:
+        query += " AND series_key = ANY(%s)"
+        params = (kinds, scope)
     stored = store.parse_key(row["kind"], row["key"])
-    hits = [
-        s
-        for s in conn.execute(
-            """SELECT DISTINCT series_key, kind, key, identity FROM junk_seen
-            WHERE series_key = ANY(%s) AND kind = ANY(%s)""",
-            (scope, kinds),
-        )
-        if store.matches(stored, store.parse_key(s["kind"], s["key"]))  # 1 comparison, before any lookup
-    ]
-    lookup = store.decisions_of(conn, {s["series_key"] for s in hits})
+    parsed = ((s, store.parse_key(s["kind"], s["key"])) for s in conn.execute(query, params))
+    hits = [(s, k) for s, k in parsed if store.matches(stored, k)]  # 1 comparison, before any lookup
+    lookup = store.decisions_of(conn, {s["series_key"] for s, _ in hits})
     units: set[Unit] = set()
-    for s in hits:
-        deciding = lookup(s["series_key"]).decide(s["kind"], store.parse_key(s["kind"], s["key"]))
+    for s, k in hits:
+        deciding = lookup(s["series_key"]).decide(s["kind"], k)
         if deciding is not None and deciding["id"] == row["id"]:
             units.add(Unit(s["series_key"], s["identity"], s["kind"]))
     return sorted(units)

@@ -261,3 +261,73 @@ def test_redecide_carries_the_images_and_row_prints_them(site, tmp_path, capsys)
     capsys.readouterr()
     assert cli.main(["--config", path, "junk", "row", str(new)]) == 0
     assert str(kept / "unit.png") in capsys.readouterr().out, "junk row prints the kept images' paths"
+
+
+@budget(load="db")
+def test_redecide_refuses_an_unknown_a_twice_named_or_a_same_verdict_decision(site):
+    _cfg, conn = site
+    row = decide(conn, "S", FAR[0], "junk")
+    for ids, verdict, why in (
+        ([999], "keep", "no junk decision 999"),
+        ([row, row], "keep", "named twice"),
+        ([row], "junk", "is junk already"),
+    ):
+        with pytest.raises(review.Refused, match=why):
+            redecide.redecide(conn, ids, verdict, AT)
+    g = decide(conn, "", FAR[1], "junk", "import")
+    with pytest.raises(review.Refused, match="series is named twice"):
+        redecide.redecide_in(conn, [g], "keep", ["S", "S"], AT)
+    with pytest.raises(review.Refused, match="are for global"):
+        redecide.retire_global(conn, [row], "keep", AT)
+
+
+@budget(load="db")
+def test_redecide_in_refuses_a_series_with_its_own_decision_on_the_key(site):
+    _cfg, conn = site
+    g = decide(conn, "", FAR[0], "junk", "import")
+    own = decide(conn, "S", FAR[0], "junk")
+    with pytest.raises(review.Refused, match=f"its own decision {own}"):
+        redecide.redecide_in(conn, [g], "keep", ["S"], AT)
+
+
+@budget(load="db")
+def test_undo_refuses_an_unknown_act(site):
+    _cfg, conn = site
+    with pytest.raises(review.Refused, match="no junk act 999"):
+        redecide.undo(conn, 999, AT)
+
+
+@budget(load="db")
+def test_the_commands_through_the_cli(site, tmp_path, capsys):
+    cfg, conn = site
+    g = decide(conn, "", FAR[0], "junk", "import")
+    seen(conn, "S", FAR[0] ^ 1, "c1")
+    path = str(config_file(tmp_path, cfg))
+    capsys.readouterr()
+    assert cli.main(["--config", path, "junk", "row", str(g), "--where"]) == 0
+    assert "  S\tc1\tblock" in capsys.readouterr().out, "--where names the series, identity and kind"
+    assert cli.main(["--config", path, "junk", "row", str(g), "--series", "S"]) == 2, "--series goes with --where"
+    assert cli.main(["--config", path, "junk", "row", str(g), "--where", "--series", "Nope"]) == 2, "unknown series"
+    assert cli.main(["--config", path, "junk", "rows", "Nope"]) == 2, "rows of an unknown series is refused"
+    capsys.readouterr()
+    assert cli.main(["--config", path, "junk", "redecide", str(g), "keep"]) == 0
+    act = capsys.readouterr().out.split()[2].rstrip(":")
+    assert cli.main(["--config", path, "junk", "undo", act]) == 0
+    assert deciding(conn, "S", FAR[0]) == "junk", "the act is undone through the CLI"
+    capsys.readouterr()
+    assert cli.main(["--config", path, "junk", "rows"]) == 0
+    assert len(capsys.readouterr().out.strip().splitlines()) == 2, "every decision, history included"
+
+
+@budget(load="db")
+def test_row_says_when_no_images_are_kept_or_they_are_missing(site, tmp_path, capsys):
+    cfg, conn = site
+    row = decide(conn, "S", FAR[0], "junk")
+    path = str(config_file(tmp_path, cfg))
+    capsys.readouterr()
+    assert cli.main(["--config", path, "junk", "row", str(row)]) == 0
+    assert "no images kept" in capsys.readouterr().out, "a decision with no images says so"
+    with db.transaction(conn):
+        conn.execute("UPDATE junk_decision SET images = 'gone-1' WHERE id = %s", (row,))
+    assert cli.main(["--config", path, "junk", "row", str(row)]) == 0
+    assert "images missing: gone-1" in capsys.readouterr().out, "a folder gone from the share is named"

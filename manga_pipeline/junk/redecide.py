@@ -22,7 +22,7 @@ def _rows(conn: db.Connection, ids: Sequence[int]) -> list[db.Row]:
         if row is None:
             msg = f"no junk decision {i}"
             raise Refused(msg)
-        if row["superseded_by"] is not None or row["retired_by"] is not None:
+        if not store.is_active(row):
             msg = f"junk decision {i} is not active (it is history): nothing to re-decide"
             raise Refused(msg)
         rows.append(row)
@@ -101,8 +101,7 @@ def redecide_in(conn: db.Connection, ids: Sequence[int], verdict: str, series: S
         msg = f"a series is named twice: {list(series)}"
         raise Refused(msg)
     rows = _checked(conn, ids, verdict, global_only=True)
-    known = {r[0] for r in conn.execute("SELECT rules_key FROM series WHERE rules_key = ANY(%s)", (list(series),))}
-    missing = sorted(set(series) - known)
+    missing = store.unknown_series(conn, series)
     if missing:
         msg = f"no series has the key(s) {missing}"
         raise Refused(msg)
@@ -171,7 +170,7 @@ def undo(conn: db.Connection, act: int, at: str) -> int:
         wrote, retired = store.act_rows(conn, act, "wrote"), store.act_rows(conn, act, "retired")
         for i in wrote:
             d = db.one_row(conn, "SELECT * FROM junk_decision WHERE id = %s", (i,))
-            if d["superseded_by"] is not None or d["retired_by"] is not None:
+            if not store.is_active(d):
                 msg = f"decision {i} that act {act} wrote has changed since: undo that change first"
                 raise Refused(msg)
         for i in retired:
