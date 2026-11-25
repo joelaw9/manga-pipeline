@@ -65,13 +65,14 @@ class FakeSuwayomi(suwayomi.Suwayomi):
         self.source_rows[source_id] = {"id": source_id, "name": name, "lang": lang, "displayName": display}
         return source_id
 
-    def add_manga(self, title, source_id, *, in_library=True, status="ONGOING"):
+    def add_manga(self, title, source_id, *, in_library=True, status="ONGOING", description=None):
         manga_id = self._new_id()
         self.manga_rows[manga_id] = {
             "id": manga_id,
             "title": title,
             "status": status,
             "url": f"/manga/{manga_id}",
+            "description": description,
             "inLibrary": in_library,
             "sourceId": source_id,
             "trackRecords": {"nodes": []},

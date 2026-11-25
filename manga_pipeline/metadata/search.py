@@ -6,6 +6,7 @@ is; MangaUpdates also accepts exactly 1 of its top 3 results whose associated na
 library is comics. Each function returns the found id in its source's form, or None.
 """
 
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 
@@ -13,6 +14,7 @@ from rapidfuzz import fuzz
 
 from manga_pipeline import names
 from manga_pipeline.metadata import ids, sources
+from manga_pipeline.metadata.records import SeriesRecords
 from manga_pipeline.replies.sources import AniListHit, MangaBakaSeries, MangaUpdatesSeries
 
 CLOSE_RATIO = 90  # rapidfuzz ratio of the lenient keys (D7.18's threshold)
@@ -20,6 +22,14 @@ PREFIX_LENGTH = 15  # a lenient key at least this long that starts the other cou
 NAMES_TRIED = 4  # names searched per source (MangaDex: 8, as MangaDex search matches less)
 MANGADEX_NAMES_TRIED = 8
 MANGAUPDATES_ASSOCIATED_CHECKED = 3
+SUFFIXES_STRIPPED = 2
+# A trailing bracketed suffix ("(Official)", "〘Official〙"): flat text, the old metadata tool's brackets
+OPENING = "([«〘≪【{<" + chr(0xFF08)  # and the fullwidth left parenthesis
+CLOSING = ")]»〙≫】}>" + chr(0xFF09)
+TRAILING_BRACKETS = re.compile(
+    rf"\s*[{re.escape(OPENING)}][^{re.escape(OPENING + CLOSING)}]*[{re.escape(CLOSING)}]\s*$"
+)
+TYPE_SUFFIX = re.compile(r"[(\[]\s*(manhwa|manhua|manga|webtoon)\s*[)\]]\s*$", re.IGNORECASE)
 
 
 def close(a: str, b: str) -> bool:
@@ -34,6 +44,58 @@ def close(a: str, b: str) -> bool:
     if min(len(ka), len(kb)) >= PREFIX_LENGTH and (ka.startswith(kb) or kb.startswith(ka)):
         return True
     return fuzz.ratio(ka, kb) >= CLOSE_RATIO
+
+
+def unique(series_names: Iterable[str | None]) -> list[str]:
+    """Return the names, 1 per lenient key (the first spelling kept), leaving out names with an empty key."""
+    seen: dict[str, str] = {}
+    for name in series_names:
+        if name and (k := names.key(name)) and k not in seen:
+            seen[k] = name
+    return list(seen.values())
+
+
+def variants(series_names: Sequence[str]) -> list[str]:
+    """Return the names, then each name with up to 2 trailing bracketed suffixes removed, 1 at a time.
+
+    "Title (Official)" and "Title 〘Official〙" also give "Title"; a name the removal would leave with no letters or
+    digits stops there. 1 per lenient key (`unique`).
+    """
+    found = list(series_names)
+    for name in series_names:
+        stripped = name
+        for _ in range(SUFFIXES_STRIPPED):
+            shorter = TRAILING_BRACKETS.sub("", stripped)
+            if shorter == stripped or not names.key(shorter):
+                break
+            found.append(shorter)
+            stripped = shorter
+    return unique(found)
+
+
+def lookup_names(series_names: Sequence[str], records: SeriesRecords) -> list[str]:
+    """Return the AniList and MangaDex search names (the old tool's order).
+
+    The series' names, then MangaBaka's main title (MangaUpdates' when there is no MangaBaka record), then the
+    suffix-stripped names (`variants`), then MangaBaka's (else MangaUpdates') other titles. 1 per lenient key.
+    """
+    mb, mu = records["mangabaka"], records["mangaupdates"]
+    if mb is not None:
+        titles = mangabaka_titles(mb)
+    elif mu is not None:
+        titles = [t for t in [mu.get("title"), *(a.get("title") for a in mu.get("associated") or [])] if t]
+    else:
+        titles = []
+    return unique([*series_names, *titles[:1], *variants(series_names), *titles])
+
+
+def _type_hint(series_names: Iterable[str]) -> set[str]:
+    """Return the types (MangaUpdates' and MangaBaka's, case-folded) a name's `(Manhwa)`-style suffix allows.
+
+    Empty when no name has one; Webtoon allows Manhwa and Manhua.
+    """
+    hints = {m[1].casefold() for n in series_names if (m := TYPE_SUFFIX.search(n))}
+    return hints - {"webtoon"} | ({"manhwa", "manhua"} if "webtoon" in hints else set())
 
 
 def _exactly_one[R](
@@ -91,12 +153,16 @@ def _mangabaka_by_ids(client: sources.MangaBaka, agreed: Mapping[str, str]) -> t
 def _mangabaka_by_title(client: sources.MangaBaka, series_names: Sequence[str]) -> str | None:
     """Return the 1 result whose title is a name, searched name by name.
 
-    Else the first name's top result when it is close and no other result is.
+    Else the first name's top result when it is close and no other result is. A name's `(Manhwa)`-style suffix keeps
+    only results of that type, as for MangaUpdates.
     """
     wanted = _wanted(series_names)
+    types = _type_hint(series_names)
     first: list[MangaBakaSeries] | None = None
     for name in series_names[:NAMES_TRIED]:
-        results = [r for r in client.search(name) if not _novel(r)]
+        results = [
+            r for r in client.search(name) if not _novel(r) and (not types or (r.get("type") or "").casefold() in types)
+        ]
         if first is None:
             first = results
         hit = _exactly_one(results, wanted, mangabaka_titles, lambda r: r["id"])
@@ -114,12 +180,18 @@ def mangaupdates(client: sources.MangaUpdates, series_names: Sequence[str]) -> s
 
     Exactly 1 series whose title or hit title is a name; else, when no result's title matches, exactly 1 of the top
     MANGAUPDATES_ASSOCIATED_CHECKED results whose associated names hold a name (each record fetched once, reused
-    across names). Novels are left out.
+    across names). Novels are left out; a name ending in `(Manhwa)`, `(Manhua)`, `(Manga)` or `(Webtoon)` keeps only
+    results of that type (Webtoon: Manhwa or Manhua).
     """
     wanted = _wanted(series_names)
+    types = _type_hint(series_names)
     fetched: dict[int, MangaUpdatesSeries | None] = {}
     for name in series_names[:NAMES_TRIED]:
-        results = [r for r in client.search(name) if (r["record"].get("type") or "").lower() != "novel"]
+        results = [
+            r
+            for r in client.search(name)
+            if (kind := (r["record"].get("type") or "").casefold()) != "novel" and (not types or kind in types)
+        ]
         hits = {
             r["record"]["series_id"]
             for r in results

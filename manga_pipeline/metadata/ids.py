@@ -7,6 +7,7 @@ base-36 text spells (an all-digit MangaUpdates link is a retired legacy id and i
 lower-case UUID.
 """
 
+import re
 import urllib.parse
 import uuid
 from collections.abc import Iterable
@@ -35,6 +36,18 @@ KIND_ID_SITES = {
     "myanimelist.net": ("manga", "myanimelist"),
     "mangadex.org": ("title", "mangadex"),
 }
+# Series page links in free text (a Suwayomi description), the id captured: {source: pattern}
+DESCRIPTION_LINKS = (
+    ("anilist", re.compile(r"anilist\.co/manga/(\d+)", re.IGNORECASE)),
+    ("mangaupdates", re.compile(r"mangaupdates\.com/series/([0-9a-z]+)", re.IGNORECASE)),
+    ("mangaupdates", re.compile(r"mangaupdates\.com/series\.html(?:\?|%3F)id=([0-9a-z]+)", re.IGNORECASE)),
+    (
+        "mangadex",
+        re.compile(
+            r"mangadex\.org/title/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", re.IGNORECASE
+        ),
+    ),
+)
 type Pair = tuple[str, str]  # (source, id in its form)
 type Known = tuple[str, str, str]  # (source, origin, id) of 1 series
 
@@ -93,6 +106,22 @@ def _mangaupdates_page(path: list[str], query: str) -> Pair | None:
 def _pair(source: str, value: str | int | None) -> Pair | None:
     found = form(source, value)
     return (source, found) if found else None
+
+
+def description_ids(text: str | None) -> list[Pair]:
+    """Return the AniList, MangaUpdates and MangaDex ids that series pages linked in free text name, in text order.
+
+    The old metadata tool's link forms: scheme and `www.` optional, the id captured up to the first character outside
+    its form, so Markdown or HTML around a link is no part of it. A match of a URL substring in free text, not a parse
+    of the text.
+    """
+    found: list[tuple[int, Pair]] = []
+    for source, pattern in DESCRIPTION_LINKS:
+        for match in pattern.finditer(text or ""):
+            value = mangaupdates_link(match[1]) if source == "mangaupdates" else form(source, match[1])
+            if value:
+                found.append((match.start(), (source, value)))
+    return [pair for _, pair in sorted(found)]
 
 
 def suwayomi_ids(manga: Manga) -> list[Pair]:

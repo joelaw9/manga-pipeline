@@ -1,0 +1,585 @@
+{
+ "recorded": "2026-11-25",
+ "rule": "K30: a trailing bracketed suffix removed",
+ "mangabaka_search": {
+  "Solo Leveling (Official)": [],
+  "Solo Leveling": [
+   {
+    "id": 3397,
+    "title": "Solo Leveling",
+    "romanized_title": "Na Honjaman Lebel-eob",
+    "native_title": "나 혼자만 레벨업",
+    "secondary_titles": {
+     "unknown": [
+      {
+       "type": "unknown",
+       "title": "나혼렙",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "나 혼자만 레벨업",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Ben yanlız gelişirim",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Chỉ Mình Tôi Thăng Cấp",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Grinding Sendiri",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Jogador solo",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Na Honjaman Level Up",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Na Honjaman Level-Up",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Only I Level Up",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Ore dake Level Up na Ken",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Singur îmi ridic nivelul",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo adtritio",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo Leveling",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Tek başına seviye atlama",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Tôi Thăng Cấp Một Mình",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Upando Sozinho",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Yalnız seviye atlama",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Поднятие уровня в одиночку",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Тільки я візьму новий рівень",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "სოლო ლეველინგი",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "الإرتقاء بالمستوى منفردًا",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "تکرو",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "سولو لولینگ",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "سولو ليفيلنغ",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "केवल मैं स्तर बढ़ाता हूं",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "सोलो लेभलिङ",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "俺だけレベルアップな件",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "俺だけレベルアップな件　～外伝～",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "俺だけレベルアップな件〜外伝〜",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "我独自升级",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "我獨自升級",
+       "note": null
+      }
+     ]
+    },
+    "type": "manhwa",
+    "state": "active"
+   },
+   {
+    "id": 85266,
+    "title": "Solo Leveling",
+    "romanized_title": "Na Honjaman Level Up",
+    "native_title": "나 혼자만 레벨업",
+    "secondary_titles": {
+     "unknown": [
+      {
+       "type": "unknown",
+       "title": "나 혼자만 레벨업 (소설)",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Only I Level Up",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Only I Level Up (Novel)",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Ore Dake Level Up na Ken (Novel)",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo Leveling",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "俺だけレベルアップな件 （小説）",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "我獨自升級 （小说）",
+       "note": null
+      }
+     ]
+    },
+    "type": "novel",
+    "state": "active"
+   },
+   {
+    "id": 1252,
+    "title": "Solo Leveling: Ragnarok",
+    "romanized_title": "Na Honjaman Level Up: Ragnarok",
+    "native_title": "나 혼자만 레벨업 : 라그나로크",
+    "secondary_titles": {
+     "unknown": [
+      {
+       "type": "unknown",
+       "title": "나 혼자만 레벨업 : 라그나로크",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "I Alone Level Up: Ragnarok",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Na Honjaman Level Up: Ragnarok",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Na Honjaman Rebereop: Ragnarok",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Only I Level Up: Ragnarok",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Ore dake Level Up na Ken: Ragnarok",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo Leveling : Ragnarok",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo Leveling: Ragnarok",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Поднятие уровня в одиночку: Рагнарёк",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "俺だけレベルアップな件〜ラグナロク〜",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "我独自升级 ：诸神黄昏",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "我独自升级：诸神黄昏",
+       "note": null
+      }
+     ]
+    },
+    "type": "manhwa",
+    "state": "active"
+   },
+   {
+    "id": 85267,
+    "title": "Solo Leveling: Ragnarok",
+    "romanized_title": "Na Honjaman Level Up: Ragnarok",
+    "native_title": "俺だけレベルアップな件〜ラグナロク〜",
+    "secondary_titles": {
+     "unknown": [
+      {
+       "type": "unknown",
+       "title": "나 혼자만 레벨업 : 라그나로크 (소설)",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo Leveling: Ragnarok",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "俺だけレベルアップな件〜ラグナロク〜（ノベル）",
+       "note": null
+      }
+     ]
+    },
+    "type": "novel",
+    "state": "active"
+   },
+   {
+    "id": 3368,
+    "title": "The Privilege of the Second Life is Power Leveling",
+    "romanized_title": "Insaeng 2-hoechaui Teukgwoneun Pokpung Rebereop",
+    "native_title": "인생 2회차의 특권은 폭풍 레벨업",
+    "secondary_titles": {
+     "unknown": [
+      {
+       "type": "unknown",
+       "title": "인생 2회차의 특권은 폭풍 레벨업",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "인생2회차의 특권은 폭풍 레벨업",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Aiming for Maximal Level in a Post-Apocalyptic World",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Aiming For Maximal Volume in the Apocalypse",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Apocalypse Reborn Leveling Like Mad",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Apocalypse Reborn Naik Level Gila",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo Leveling in Apocalypse",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "The Privilege of the Second Life Is Power Leveling",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Trùng Sinh Tận Thế Tôi Điên Cuồng Thăng Cấp",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "เกิดใหม่วันสิ้นโลก ฉันขออัปเลเวลไม่ยั้ง",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "末日重生后我疯狂升级",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "終末世界でレベルカンストを狙います",
+       "note": null
+      }
+     ]
+    },
+    "type": "manhua",
+    "state": "active"
+   },
+   {
+    "id": 1291,
+    "title": "I’m the Max-Level Newbie",
+    "romanized_title": "Na Honja Mallep Newbie",
+    "native_title": "나 혼자 만렙 뉴비",
+    "secondary_titles": {
+     "unknown": [
+      {
+       "type": "unknown",
+       "title": "나혼자만렙뉴비",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "나 혼자 만렙 뉴비",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "I Am the Top Ranker Newbie",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "I'm the Max-Level Newbie",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "I’m the Max-Level Newbie",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "I'm the Only Max-Leveled Newbie",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Na Honja Mallep Newbie",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Người Chơi Mới Cấp Tối Đa",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Novato Solo a Nivel Máximo",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo Max-Level Newbie",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Нуб максимального уровня",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "ผู้เล่นหน้าใหม่เลเวลแมกซ์",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "俺だけレベルMAXなビギナー",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "我独自满级新手",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "满级新手",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "滿級新手",
+       "note": null
+      }
+     ]
+    },
+    "type": "manhwa",
+    "state": "active"
+   },
+   {
+    "id": 599423,
+    "title": "unknown title (please report on Discord)",
+    "romanized_title": null,
+    "native_title": null,
+    "secondary_titles": null,
+    "type": "novel",
+    "state": "active"
+   },
+   {
+    "id": 78950,
+    "title": "Solo Leveling: Hunter Origin",
+    "romanized_title": "Hunter: Origin",
+    "native_title": "나 혼자만 레벨업: 어라이즈",
+    "secondary_titles": {
+     "unknown": [
+      {
+       "type": "unknown",
+       "title": "헌터: 오리진",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "나 혼자만 레벨업: 어라이즈",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Hunter: Origin",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Only I Level Up: Arise",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo Leveling: Arise",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo Leveling: ARISE - Hunter Backstories",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo Leveling: Arise - Hunter: Origin",
+       "note": null
+      }
+     ]
+    },
+    "type": "manhwa",
+    "state": "active"
+   },
+   {
+    "id": 83843,
+    "title": "I’m the Max-Level Newbie",
+    "romanized_title": null,
+    "native_title": "나혼자만렙뉴비",
+    "secondary_titles": {
+     "unknown": [
+      {
+       "type": "unknown",
+       "title": "I Am the Top Ranker Newbie (Novel)",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "I'm the Max-Level Newbie",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "I’m the Max-Level Newbie",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "I'm the Only Max-Leveled Newbie (Novel)",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "나혼자만렙뉴비 (Novel)",
+       "note": null
+      },
+      {
+       "type": "unknown",
+       "title": "Solo Max-Level Newbie (Novel)",
+       "note": null
+      }
+     ]
+    },
+    "type": "novel",
+    "state": "active"
+   }
+  ]
+ },
+ "note": "each result trimmed to the fields the title search reads"
+}

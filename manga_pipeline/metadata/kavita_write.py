@@ -332,19 +332,42 @@ def _add_people(
         kv.update_metadata(meta)
 
 
+def wrong_links(links: list[str], fields: merge.SeriesFields) -> list[str]:
+    """Return the links (Kavita's) to a source's page for another id than the one fields write for that source.
+
+    Every AniList link when the AniList id is 0 (no AniList page is the series'). A source fields give no link for
+    keeps its links.
+    """
+    wanted = dict(pair for u in fields.links if (pair := ids.link_id(u)))
+    if fields.kavita_ids["aniListId"] == 0:
+        wanted["anilist"] = ""
+    return [u for u in links if (pair := ids.link_id(u)) and pair[0] in wanted and pair[1] != wanted[pair[0]]]
+
+
 def _links_and_ids(kv: kavita_client.Kavita, kid: int, fields: merge.SeriesFields) -> None:
-    """Web links appended (a link to a source already there is kept as it is); the provider ids set when known."""
+    """Write the web links, then the provider ids.
+
+    Links: each source's link added when Kavita holds none to it; a link to a source's page for another id than the
+    one written for that source removed (every AniList link when the AniList id is 0), each removal logged. Provider
+    ids: set when known and different; 0 (an AniList id with no record) only over an id Kavita holds.
+    """
     meta = kv.metadata(kid)
     links = [u.strip() for u in (meta.get("webLinks") or "").split(",") if u.strip()]
-    have = {ids.link_id(u) or u for u in links}
+    removed = wrong_links(links, fields)
+    kept = [u for u in links if u not in removed]
+    have = {ids.link_id(u) or u for u in kept}
     added = [u for u in fields.links if (ids.link_id(u) or u) not in have]
-    if added:
-        meta["webLinks"] = ",".join(links + added)
+    if added or removed:
+        for url in removed:
+            log.info("Kavita series %s: web link %s removed: not the series' id at that source", kid, url)
+        meta["webLinks"] = ",".join(kept + added)
         kv.update_metadata(meta)
     series = kv.series(kid)
     if series is None:
         return
-    changes = {k: v for k, v in fields.kavita_ids.items() if v is not None and series.get(k) != v}
+    changes = {
+        k: v for k, v in fields.kavita_ids.items() if v is not None and series.get(k) != v and (v or series.get(k))
+    }
     if changes:
         kv.update_series(series, **changes)
 
