@@ -4,6 +4,8 @@ A backup is a folder: each table as a PostgreSQL COPY binary file, and columns.t
 (`table: col, col, …`, 1 line each). Restore writes them back into a database whose junk tables are all empty and have
 those columns, in TABLES order (acts before the decisions and log rows that name them), then moves each id sequence
 past the largest id restored. No JSON: the server reads and checks the rows.
+Restore copies the rows as they are: a later program's schema steps run on the empty tables first, so a step that
+rewrites junk rows never sees restored ones.
 """
 
 from pathlib import Path

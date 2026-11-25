@@ -44,7 +44,7 @@ A command by hand runs from the checkout (the program is not packaged) with the 
 `junk backup DIR` (no lock, any time) writes the decisions with their history, the acts, the sightings and the
 watermarks into a new `junk-<time>` folder in DIR. A new database regains them with `junk restore DIR/junk-<time>`,
 run first, before any part (a part's baseline fills the decisions, and restore needs every junk table empty), by the
-program that wrote the backup or a later one (each table must have the backup's columns):
+program that wrote the backup or a later one (each table must have the backup's columns; a later program's steps that rewrite junk rows do not reach the restored rows):
 
 ```bash
 ( cd /opt/manga-pipeline && set -a && . /etc/manga-pipeline/pipeline.env && set +a && .venv/bin/python -m manga_pipeline.cli junk restore /backups/junk-20261125-120000 )

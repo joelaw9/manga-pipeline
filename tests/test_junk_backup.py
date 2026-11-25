@@ -1,6 +1,7 @@
 """`junk backup` and `junk restore` (SPEC "Junk decisions", decision commands): the junk knowledge, ids kept."""
 
 from contextlib import closing
+from typing import LiteralString
 
 import pytest
 
@@ -91,13 +92,37 @@ def test_a_restored_store_writes_new_ids_past_the_restored_ones(source, tmp_path
         assert act > 1, "past the restored act"
 
 
+# 1 row in 1 junk table alone (junk_act_row names an act and a decision, so it never holds rows alone).
+ONE_ROW: dict[str, LiteralString] = {
+    "junk_act": "INSERT INTO junk_act (command, at) VALUES ('x', %(at)s)",
+    "junk_decision": """INSERT INTO junk_decision (series_key, kind, key, verdict, decider, decided_at)
+        VALUES ('T', 'block', 'k', 'junk', 'human', %(at)s)""",
+    "junk_seen": """INSERT INTO junk_seen (series_key, kind, key, identity, first_seen, origin)
+        VALUES ('T', 'block', 'k', 'c9', %(at)s, 'pipeline')""",
+    "junk_watermark": "INSERT INTO junk_watermark (series_key, key) VALUES ('T', 'w')",
+}
+
+
 @budget(load="db", seconds=10)
-def test_restore_refuses_a_database_holding_any_of_the_5(source, tmp_path):
+@pytest.mark.parametrize("table", sorted(ONE_ROW))
+def test_restore_refuses_a_database_holding_a_row_in_any_junk_table(source, tmp_path, table):
     folder = backup.backup(source, tmp_path / "backups")
-    with closing(db.connect(source)) as conn:
-        with pytest.raises(review.Refused, match="holds rows"):
+    target = adopted(tmp_path / "b")
+    with closing(db.connect(target)) as conn:
+        conn.execute(ONE_ROW[table], {"at": AT})
+        with pytest.raises(review.Refused, match=f"{table} holds rows"):
             backup.restore(conn, folder)
-        assert one(conn, "SELECT count(*) FROM junk_decision") == 3, "nothing is written"
+        assert one(conn, "SELECT count(*) FROM junk_watermark") == (table == "junk_watermark"), "nothing is written"
+
+
+@budget(load="db", seconds=10)
+@pytest.mark.parametrize("drop", ["columns.txt", "junk_seen.copy"])
+def test_restore_refuses_a_folder_that_is_no_whole_backup(source, tmp_path, drop):
+    folder = backup.backup(source, tmp_path / "backups")
+    (folder / drop).unlink()
+    target = adopted(tmp_path / "b")
+    with closing(db.connect(target)) as conn, pytest.raises(review.Refused, match="is no junk backup"):
+        backup.restore(conn, folder)
 
 
 @budget(load="db", seconds=10)
