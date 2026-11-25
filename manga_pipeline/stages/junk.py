@@ -51,13 +51,20 @@ def _candidate_ids(text: str) -> list[int]:
 
 
 def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
-    """Run the put-aside, open-copy, library-copy and notice checks, then scan the chapter, or decide it from its scan.
+    """Run the renamed, put-aside, open-copy, library-copy and notice checks, then scan the chapter, or decide it.
 
     A chapter with no content digest fails before any check acts: the put-aside check and its scan need the digest.
     """
     if not chapter["content_digest"]:
         msg = f"chapter {chapter['id']} has no content digest: discovery sets it before junk"
         raise ValueError(msg)
+    why = handled.renamed(ctx.cfg, ctx.conn, chapter)
+    if why:  # a scan it made before its file went goes with it, so no candidate counts it
+
+        def forget_scan(conn: db.Connection) -> None:
+            conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
+
+        return workflow.Dropped(why, record=forget_scan)
     series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     why = handled.put_aside(ctx, chapter, chapter["content_digest"])
     if why:

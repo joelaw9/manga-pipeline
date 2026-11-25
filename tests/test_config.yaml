@@ -10,6 +10,7 @@ lock:
 
 preflight:
   min_free_mb: 0
+  min_share_free_mb: 0
 
 database:
   # The test role exists only on the developer's and CI's servers (SPEC "Tests"); its password protects nothing.

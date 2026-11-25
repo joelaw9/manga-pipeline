@@ -32,10 +32,19 @@ def broken(text):
 
 
 def with_min_free(mb, folder=None) -> config.Config:
-    cfg: config.Config = {**config.cached(), "preflight": {"min_free_mb": mb}}
+    cfg: config.Config = {**config.cached(), "preflight": {**config.cached()["preflight"], "min_free_mb": mb}}
     if folder is not None:
         cfg["logging"] = {**cfg["logging"], "dir": str(folder)}
     return cfg
+
+
+def with_share_floor(mb, library) -> config.Config:
+    base = config.cached()
+    return {
+        **base,
+        "preflight": {**base["preflight"], "min_share_free_mb": mb},
+        "paths": {**base["paths"], "library": str(library)},
+    }
 
 
 @budget(load="pure")
@@ -44,6 +53,7 @@ def test_shipped_checks():
     want = {
         "runtime version": (HARD, preflight.python_version),
         "free disk space": (SOFT, preflight.free_space),
+        "share free space": (SOFT, preflight.share_space),
         "folder layout": (HARD, preflight.folder_layout),
         "share folders": (HARD, preflight.share_folders),
         "workflow settings": (HARD, preflight.workflow_settings),
@@ -111,6 +121,20 @@ def test_free_space_compares_mib(tmp_path):
         preflight.free_space(with_min_free(int(free * 1.02) + 1, tmp_path))
     )
     assert preflight.free_space(with_min_free(int(free * 0.98), tmp_path)) is None
+
+
+@budget(load="fs")
+def test_share_space_measures_the_library_drive(tmp_path):
+    free = shutil.disk_usage(tmp_path).free // preflight.MIB
+    # 2% margins, as test_free_space_compares_mib
+    assert "below preflight.min_share_free_mb" in problem_text(
+        preflight.share_space(with_share_floor(int(free * 1.02) + 1, tmp_path))
+    ), "SPEC 'Preflight': less than min_share_free_mb free on paths.library's drive is a problem"
+    assert preflight.share_space(with_share_floor(int(free * 0.98), tmp_path)) is None
+    assert preflight.share_space(with_share_floor(0, tmp_path / "missing")) is None, "0 skips the check"
+    assert preflight.share_space(with_share_floor(-5, tmp_path)) == (
+        "preflight.min_share_free_mb must be 0 or more, got -5"
+    ), "a negative floor is itself the problem"
 
 
 @budget(load="fs")

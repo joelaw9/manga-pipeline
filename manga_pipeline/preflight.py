@@ -61,13 +61,23 @@ def python_version(_cfg: config.Config, version: tuple[int | str, ...] = sys.ver
 
 def free_space(cfg: config.Config) -> str | None:
     """Check that logging.dir's drive has preflight.min_free_mb MiB free; 0 skips the check, below 0 is a problem."""
-    want = cfg["preflight"]["min_free_mb"]
+    # The drive is what counts; logging.dir itself may not exist yet (console-only commands never create it).
+    return _floor(config.abs_path(cfg["logging"]["dir"]), cfg["preflight"]["min_free_mb"], "preflight.min_free_mb")
+
+
+def share_space(cfg: config.Config) -> str | None:
+    """Check that paths.library's drive has preflight.min_share_free_mb MiB free; 0 skips, below 0 is a problem."""
+    want = cfg["preflight"]["min_share_free_mb"]
+    return _floor(config.abs_path(cfg["paths"]["library"]), want, "preflight.min_share_free_mb")
+
+
+def _floor(wanted: Path, want: int, key: str) -> str | None:
+    """Return the problem when wanted's drive has under want MiB free; want 0 skips, below 0 is itself the problem."""
     if want < 0:
-        return f"preflight.min_free_mb must be 0 or more, got {want}"
+        return f"{key} must be 0 or more, got {want}"
     if want == 0:
         return None
-    # The drive is what counts; logging.dir itself may not exist yet (console-only commands never create it).
-    return _below(config.abs_path(cfg["logging"]["dir"]), want, "preflight.min_free_mb")
+    return _below(wanted, want, key)
 
 
 def _below(wanted: Path, want: int, key: str) -> str | None:
@@ -370,6 +380,7 @@ def fleet_version(cfg: config.Config) -> str | None:
 
 PYTHON_VERSION = Check("runtime version", HARD, python_version)
 FREE_SPACE = Check("free disk space", SOFT, free_space)
+SHARE_SPACE = Check("share free space", SOFT, share_space)
 STAGING_FOLDER = Check("staging folder", HARD, staging_folder)
 FOLDER_LAYOUT = Check("folder layout", HARD, folder_layout)
 SHARE_FOLDERS_PRESENT = Check("share folders", HARD, share_folders)

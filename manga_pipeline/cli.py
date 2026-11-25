@@ -54,7 +54,13 @@ LOCKED_CHECKS = (
     preflight.FOLDER_LAYOUT,
     preflight.SHARE_FOLDERS_PRESENT,
 )
-PART_CHECKS = (*LOCKED_CHECKS, preflight.WORKFLOW_SETTINGS, preflight.SHARE_OWNERSHIP, preflight.FLEET_VERSION)
+PART_CHECKS = (
+    *LOCKED_CHECKS,
+    preflight.SHARE_SPACE,
+    preflight.WORKFLOW_SETTINGS,
+    preflight.SHARE_OWNERSHIP,
+    preflight.FLEET_VERSION,
+)
 # process runs OCR and the image tools and scorer; it reaches no service.
 PROCESS_CHECKS = (
     *PART_CHECKS,
@@ -165,6 +171,10 @@ def chapter_drop(cfg: config.Config, args: argparse.Namespace) -> None:
     """
     with _database(cfg, "drop") as conn:
         row = workflow.droppable(conn, args.chapter)
+        renamed = handled.renamed(cfg, conn, row)
+        if renamed:  # a drop records its digest, and junk would then put the renamed copy aside
+            msg = f"chapter {args.chapter}: {renamed}: retry {args.chapter} closes it and keeps that copy"
+            raise workflow.Refused(msg)
         if row["kind"] == "rewrite":  # no download, nothing handled: its staged file goes; the file stays as it is
             if row["staged_path"]:
                 config.to_local(cfg, row["staged_path"]).unlink(missing_ok=True)

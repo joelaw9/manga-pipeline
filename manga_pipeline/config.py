@@ -60,6 +60,7 @@ class PreflightConfig(TypedDict):
     """The preflight section (SPEC "Preflight")."""
 
     min_free_mb: int
+    min_share_free_mb: int
 
 
 class DatabaseConfig(TypedDict):

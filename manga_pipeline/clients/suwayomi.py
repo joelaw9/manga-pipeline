@@ -16,6 +16,9 @@ from manga_pipeline.replies.suwayomi import Chapter, ChapterPages, DownloadStatu
 
 PAGE_SIZE = 50  # library manga per query: the whole library in 1 query times out
 SOURCE_TIMEOUT = 120  # seconds; a source search or chapter fetch waits on the source's site
+# Suwayomi's own calls: its library update starves its 6-connection database pool for minutes at a time (up to ~35 min
+# seen, 2026-11-14), and it then answers late or not at all. A call that reaches a source keeps http.WAITS.
+WAITS = (10, 20, 60, 180, 300)
 MAX_NAME_BYTES = 240  # UTF-8 bytes
 MANGAS_FOLDER = "mangas"  # the folder of downloads under Suwayomi's download root
 REPLACED = frozenset('"*/:<>?\\|\x7f')
@@ -169,14 +172,17 @@ class Suwayomi:
         self, query: str, read: Callable[[bytes], Reply[T]], variables: Mapping[str, object] | None = None
     ) -> T:
         """Return the `data` of 1 query or mutation, its reply read by `read`. GraphQLError when it carries errors."""
-        reply = self._service.request("POST", f"{self.base}/api/graphql", json=_body(query, variables))
+        reply = self._service.request("POST", f"{self.base}/api/graphql", json=_body(query, variables), waits=WAITS)
         return _data(reply, read)
 
     # --- reads
 
     def ping(self) -> None:
-        """Send a trivial query: Unreachable when Suwayomi does not answer."""
-        self.graphql("{ __typename }", _unread)
+        """Send a query that reads Suwayomi's database: Unreachable when Suwayomi does not answer.
+
+        A trivial query ({ __typename }) is answered while the database pool is starved; this one is not.
+        """
+        self.library_size()
 
     def library_size(self) -> int:
         """Return how many manga the library holds."""
@@ -236,7 +242,7 @@ class Suwayomi:
                 headers={"Accept": "image/*"},
                 timeout=SOURCE_TIMEOUT,
                 retry_timeout=False,
-                retries=0,
+                waits=(),
             )
         except http.HttpTimeoutError:
             return None
@@ -364,14 +370,19 @@ class Suwayomi:
     ) -> http.Response:
         """Send a request Suwayomi answers from a source's site.
 
-        A timeout is not retried: when Suwayomi still answers a ping, the source is what hangs (SourceUnavailableError).
+        A timeout is not retried: when Suwayomi still answers a ping, the source is what hangs (SourceUnavailableError);
+        a ping that fails in any way is Suwayomi unreachable (its database pool starved, say), not the source.
         """
         try:
             return self._service.request(
                 method, url, headers=headers, json=json, timeout=SOURCE_TIMEOUT, retry_timeout=False
             )
         except http.HttpTimeoutError as e:
-            self.ping()
+            try:
+                self.ping()
+            except (GraphQLError, http.HttpError) as ping_error:
+                msg = f"timed out, then a ping failed: {ping_error}"
+                raise self._service.mark_unreachable(msg) from None
             raise SourceUnavailableError(str(e)) from None
 
 
@@ -396,7 +407,7 @@ def _data[T](reply: http.Response, read: Callable[[bytes], Reply[T]]) -> T:
 
 
 def _unread(body: bytes) -> Reply[object]:
-    """Read the reply of a query whose data the program does not read (ping, the mutations); unchecked."""
+    """Read the reply of a query whose data the program does not read (the mutations); unchecked."""
     return json.loads(body)
 
 

@@ -113,6 +113,24 @@ def test_back_off_doubles_over_4_retries_then_the_service_is_unreachable(monkeyp
 
 
 @budget(load="pure")
+def test_a_request_waits_its_own_list_and_its_last_try_counts(monkeypatch, clock):
+    urlopen = scripted(monkeypatch, *[http_error(503)] * 5, Reply({"ok": True}))
+    got = http.Service("svc").request("GET", URL, waits=(10, 20, 60, 180, 300))
+    assert got.parse(json.loads) == {"ok": True}, "the answer after the last wait is returned"
+    assert len(urlopen.requests) == 6
+    assert clock.sleeps == [10, 20, 60, 180, 300], "SPEC 'Services': each retry waits its own list's seconds"
+
+
+@budget(load="pure")
+def test_no_waits_send_once(monkeypatch, clock):
+    urlopen = scripted(monkeypatch, http_error(503))
+    with pytest.raises(Unreachable, match="HTTP 503"):
+        http.Service("svc").request("GET", URL, waits=())
+    assert len(urlopen.requests) == 1, "waits=() sends the request once"
+    assert clock.sleeps == [], "and waits for nothing"
+
+
+@budget(load="pure")
 @pytest.mark.parametrize("status", [429, 502, 503, 504])
 @pytest.mark.usefixtures("clock")
 def test_these_statuses_after_the_retries_are_unreachable(monkeypatch, status):
@@ -335,10 +353,10 @@ def test_a_mangabaka_search_waits_its_longer_gap_after_any_mangabaka_request(mon
 @budget(load="pure")
 @pytest.mark.usefixtures("clock")
 def test_mangabaka_found_unreachable_by_a_search_is_unreachable_for_its_records(monkeypatch):
-    urlopen = scripted(monkeypatch, *[http_error(503) for _ in range(http.RETRIES + 1)])
+    urlopen = scripted(monkeypatch, *[http_error(503) for _ in range(len(http.WAITS) + 1)])
     client = sources.MangaBaka()
     with pytest.raises(Unreachable):
         client.search("Solo Leveling")
     with pytest.raises(Unreachable):
         client.series("1")
-    assert len(urlopen.requests) == http.RETRIES + 1, "MangaBaka found unreachable is asked nothing more in the run"
+    assert len(urlopen.requests) == len(http.WAITS) + 1, "MangaBaka found unreachable is asked nothing more in the run"

@@ -20,7 +20,7 @@ from http import HTTPStatus
 from manga_pipeline.errors import Unreachable
 
 log = logging.getLogger(__name__)
-RETRIES = 4
+WAITS = (2, 4, 8, 16)  # seconds before each retry of a failed request; their count is the retries
 MAX_RETRY_AFTER = 60  # seconds; a service asking for longer is unreachable at once
 UNREACHABLE_STATUS = frozenset({429, 502, 503, 504})
 SECRET_WORDS = ("key", "token", "secret", "pass", "auth", "sig")
@@ -126,13 +126,14 @@ class Service:
         json: Mapping[str, object] | None = None,
         timeout: float = 60,
         retry_timeout: bool = True,
-        retries: int = RETRIES,
+        waits: tuple[float, ...] = WAITS,
         min_gap: float | None = None,
     ) -> Response:
         """Send 1 request, retried as SPEC "Services" says, and return its Response.
 
         Raises Unreachable (and marks the service), HttpError, or HttpTimeoutError for a timeout when retry_timeout is
-        false. retries=0 sends it once: a 5xx reply other than UNREACHABLE_STATUS is then an HttpError. min_gap, when
+        false. waits are the seconds before each retry; waits=() sends it once: a 5xx reply other than
+        UNREACHABLE_STATUS is then an HttpError. min_gap, when
         given, replaces the service's gap before this request (a call the service limits more). ValueError for a URL
         that is not http or https: a wrong setting, never retried.
         """
@@ -148,9 +149,10 @@ class Service:
             data = jsonlib.dumps(json).encode()
             headers["Content-Type"] = "application/json"
         failed: tuple[int, bytes] | None = None  # bound here: the checker cannot see the loop runs
+        retries = len(waits)
         for attempt in range(retries + 1):
             self._wait_for_gap(self.min_gap if min_gap is None else min_gap)
-            wait = 2**attempt * 2
+            wait = waits[attempt] if attempt < retries else 0
             failed = None  # (status, body) of an HTTP failure; None for a network one
             try:
                 return _send(

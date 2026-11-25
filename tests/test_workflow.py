@@ -14,7 +14,7 @@ from manga_pipeline.db import sql
 from manga_pipeline.metadata import sources as metadata_sources
 from manga_pipeline.workflow import Done, Dropped, Failed, NeedsHuman, Waiting
 
-from tests.builders import add_chapter, add_series, chapter, one, present, scope_cfg, site_cfg
+from tests.builders import WinOSError, add_chapter, add_series, chapter, one, present, scope_cfg, site_cfg
 from tests.timing import budget
 
 
@@ -242,15 +242,20 @@ def test_attempt_limit_makes_the_chapter_needs_human(ctx, caplog):
         OSError(errno.EIO, "io"),
         OSError(errno.ESTALE, "stale"),
         TimeoutError(errno.ETIMEDOUT, "t"),
+        OSError(errno.ENOSPC, "No space left on device"),
+        WinOSError(errno.EINVAL, "There is not enough space on the disk"),
     ],
-    ids=["unreachable", "eio", "estale", "etimedout"],
+    ids=["unreachable", "eio", "estale", "etimedout", "enospc", "winerror-39"],
 )
 def test_unreachable_share_leaves_attempts_unchanged_and_skips_the_stage(ctx, error):
+    if isinstance(error, WinOSError):
+        error.winerror = 39  # ERROR_HANDLE_DISK_FULL: Windows gives it errno EINVAL, not ENOSPC
     row = claimed(ctx)
     other = add_chapter(ctx.conn, add_series(ctx.conn, "T"), "c2", "convert", number=1)
     outcome = workflow.work(ctx, row, raises(error))
     assert isinstance(outcome, workflow.Unreachable)
     assert outcome.service == "share"
+    assert isinstance(error, workflow.Unreachable) or str(error) in str(outcome), "the reason names the error"
     after = chapter(ctx.conn, row["id"])
     assert (after["stage"], after["status"], after["attempts"], after["claimed_by"]) == ("junk", "ready", 0, None)
     assert workflow.claim(ctx, ("junk",)) is None, "the stage is not claimed again in this run"
