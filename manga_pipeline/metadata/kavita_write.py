@@ -332,6 +332,18 @@ def _add_people(
         kv.update_metadata(meta)
 
 
+def wrong_links(links: list[str], fields: merge.SeriesFields) -> list[str]:
+    """Return the links (Kavita's) to a source's page for another id than the one fields write for that source.
+
+    Every AniList link when the AniList id is 0 (no AniList page is the series'). A source fields give no link for
+    keeps its links.
+    """
+    wanted = dict(pair for u in fields.links if (pair := ids.link_id(u)))
+    if fields.kavita_ids["aniListId"] == 0:
+        wanted["anilist"] = ""
+    return [u for u in links if (pair := ids.link_id(u)) and pair[0] in wanted and pair[1] != wanted[pair[0]]]
+
+
 def _links_and_ids(kv: kavita_client.Kavita, kid: int, fields: merge.SeriesFields) -> None:
     """Write the web links, then the provider ids.
 
@@ -341,10 +353,7 @@ def _links_and_ids(kv: kavita_client.Kavita, kid: int, fields: merge.SeriesField
     """
     meta = kv.metadata(kid)
     links = [u.strip() for u in (meta.get("webLinks") or "").split(",") if u.strip()]
-    wanted = dict(pair for u in fields.links if (pair := ids.link_id(u)))
-    if fields.kavita_ids["aniListId"] == 0:
-        wanted["anilist"] = ""  # no AniList page is the series'
-    removed = [u for u in links if (pair := ids.link_id(u)) and pair[0] in wanted and pair[1] != wanted[pair[0]]]
+    removed = wrong_links(links, fields)
     kept = [u for u in links if u not in removed]
     have = {ids.link_id(u) or u for u in kept}
     added = [u for u in fields.links if (ids.link_id(u) or u) not in have]

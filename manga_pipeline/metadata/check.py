@@ -226,7 +226,7 @@ def gather(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> G
     records = _empty_records()
     try:
         _described(clients, series, known, manga_rows)
-        _fetch(clients, records, _names(series), known)
+        _fetch(clients, records, series_names(series), known)
     except Disagree as e:
         return Gathered(series, stored, known, records, kavita_meta, manga_rows, str(e))
     return Gathered(series, stored, known, records, kavita_meta, manga_rows, None)
@@ -255,7 +255,7 @@ def _put_off(ctx: workflow.Context, series_id: int) -> None:
     )
 
 
-def _names(series: db.Row) -> list[str]:
+def series_names(series: db.Row) -> list[str]:
     """Return the names a source is searched by.
 
     The series' Kavita names; a new series' names it arrived under (its manga's title or title folder, a folder's
