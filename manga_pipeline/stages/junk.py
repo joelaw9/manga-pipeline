@@ -347,7 +347,11 @@ def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> wor
     applied = chapter_scan.apply(sc, decide_unit, [r["key"] for r in known])
     watermarks = [(key, k) for k in applied.watermarks]
     if applied.problem:
-        return workflow.NeedsHuman(applied.problem)
+
+        def too_much(conn: db.Connection) -> None:
+            _refill(conn, chapter, key, 0)  # no candidate: the removal itself needs a person
+
+        return workflow.NeedsHuman(applied.problem, record=too_much)
     picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, ocr.word_lists(ctx.cfg["junk"]))
     if not picks:
         return _finished(ctx, chapter, key, applied.edit, watermarks)

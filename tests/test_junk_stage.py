@@ -372,10 +372,13 @@ def test_a_strip_chapter_whose_junk_would_leave_too_little_needs_a_human(site, m
     site.download("Long", 2, strip_cbz("w2"))
     site.parts()
     assert decide_junk(site.cfg, "junk") > 0, "a first chapter offers its blocks"
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):  # as a first decide after its scan would be
+        conn.execute("UPDATE chapter SET junk_candidates = NULL")
     run_part(site.cfg, process)
-    ((status, reason),) = site.rows("SELECT status, last_error FROM chapter")
+    ((status, reason, waited_on),) = site.rows("SELECT status, last_error, junk_candidates FROM chapter")
     assert status == "needs_human", "a removal that would leave too little: a person decides"
     assert "junk removal would leave" in reason, reason
+    assert waited_on == 0, "that first decide counts in the junk refill, with no candidate"
 
 
 @budget(load="db", seconds=10)
