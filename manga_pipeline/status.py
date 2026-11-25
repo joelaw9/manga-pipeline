@@ -10,8 +10,10 @@ from datetime import datetime, timedelta
 
 from manga_pipeline import config, conversions, db, kavita_link, notify, pause, rewrite, workflow
 from manga_pipeline.db import sql
+from manga_pipeline.junk import candidates
 
 TITLES_SHOWN_DAYS = 30  # status lists the series titles changed at the sources this many days back
+REFILL_DAYS = 7  # status reports the junk refill over this many days back
 
 
 def run(cfg: config.Config) -> list[str]:
@@ -58,6 +60,7 @@ def _report(conn: db.Connection) -> list[str]:
         *_rewrites(conn),
         *_conversions(conn),
         *_needs_human(conn),
+        *_junk_refill(conn),
         *_titles(conn),
         *_discord(conn),
         *_redownloads(conn),
@@ -216,6 +219,36 @@ def _needs_human(conn: db.Connection) -> list[str]:
     human = [_human(workflow.human_line("series", r, r["status_reason"])) for r in series]
     human += [_human(workflow.human_line("chapter", r, r["last_error"])) for r in chapters]
     return lines + (human or ["  none"])
+
+
+def _junk_refill(conn: db.Connection) -> list[str]:
+    """Return the junk refill (SPEC "Junk decisions", review): candidates per chapter first decided in the window."""
+    since = (datetime.fromisoformat(db.now(conn)) - timedelta(days=REFILL_DAYS)).isoformat()
+    lines = [f"Junk refill (last {REFILL_DAYS} days):"]
+    groups = conn.execute(
+        """SELECT junk_new_series, count(*), sum(junk_candidates) FROM chapter
+        WHERE junk_decided_at >= %s GROUP BY junk_new_series ORDER BY junk_new_series DESC""",
+        (since,),
+    ).fetchall()
+    for new, chapters, waited in groups:
+        which = "series with no decision of their own" if new else "series with decisions"
+        lines.append(f"  {which}: {chapters} chapter(s), {waited} candidate(s), {waited / chapters:.2f} per chapter")
+    open_now = len(candidates.open_rows(conn))
+    days = conn.execute(
+        """SELECT substr(decided_at, 1, 10), count(*) FROM junk_decision WHERE decider = 'claude' AND decided_at >= %s
+        GROUP BY 1 ORDER BY 1""",
+        (since,),
+    ).fetchall()
+    held = db.one_row(conn, "SELECT count(*) FROM chapter WHERE stage = 'junk' AND status = 'needs_human'", ())[0]
+    if not (groups or open_now or days or held):
+        return [*lines, "  none"]
+    per_day = ", ".join(f"{day} {n}" for day, n in days) or "none"
+    return [
+        *lines,
+        f"  open candidates: {open_now}",
+        f"  decisions Claude made per day: {per_day}",
+        f"  junk chapters that need a human: {held}",
+    ]
 
 
 def _human(line: tuple[str, str]) -> str:

@@ -1,8 +1,9 @@
 """A fake `claude` for junk review tests.
 
 Dumps its arguments, environment, prompt and the child config it was given, runs the canned junk commands of its plan,
-and prints a canned JSON result. Its plan is plan.json beside it: {"dump": folder, "scratch": the run's paths.scratch,
-"actions": ["list" | "decide:<verdict>" | "crash"], "exit": code, "reply": result dict or null}.
+and prints canned stream-json lines: 1 assistant message per call, then the result. Its plan is plan.json beside it:
+{"dump": folder, "scratch": the run's paths.scratch, "actions": ["list" | "decide:<verdict>" | "crash" | "call:<the
+call's context>"], "exit": code, "reply": result dict or null}.
 """
 
 import json
@@ -36,11 +37,17 @@ def main():
     (dump / f"prompt-{runs}.txt").write_bytes(sys.stdin.buffer.read())  # the prompt arrives as UTF-8 bytes
     (child,) = Path(plan["scratch"], "junk-review").glob("*.yaml")
     (dump / f"config-{runs}.yaml").write_bytes(child.read_bytes())  # secret-free by design
-    listed, log = [], []
+    listed, log, calls = [], [], 0
     for action in plan["actions"]:
         if action == "crash":
             sys.exit(3)
-        if action == "list":
+        if action.startswith("call:"):  # stream-json: the call's message, twice (2 content blocks), as it happens
+            usage = {"cache_read_input_tokens": int(action.split(":")[1])}
+            line = json.dumps({"type": "assistant", "message": {"id": f"m{calls}", "usage": usage}})
+            print(line, flush=True)
+            print(line, flush=True)
+            calls += 1
+        elif action == "list":
             code, out = junk(child, "list")
             listed = [line.split("\t")[0] for line in out.splitlines() if line]
             log.append(["list", code, listed])
@@ -48,7 +55,7 @@ def main():
             log.extend(["decide", *junk(child, "decide", cid, action.split(":")[1])] for cid in listed)
     (dump / f"log-{runs}.json").write_text(json.dumps(log), encoding="utf-8")
     if plan["reply"] is not None:
-        print(json.dumps(plan["reply"]))
+        print(json.dumps({"type": "result", **plan["reply"]}))
     sys.exit(plan["exit"])
 
 

@@ -163,12 +163,12 @@ def test_unsure_makes_the_chapter_needs_human_until_decided_and_retried(site):
     site.parts()
     (cand,) = open_candidates(site)
     with closing(db.connect(site.cfg)) as conn:
-        review.decide(conn, cand["id"], "unsure", None, workflow.now(conn))
+        review.decide(conn, [cand["id"]], "unsure", None, workflow.now(conn))
         assert review.listing(conn, site.cfg) == [], "an unsure candidate is never listed to Claude again"
     run_part(site.cfg, process)
     assert site.chapters() == [("junk", "needs_human", None)], "unsure: a person decides"
     with closing(db.connect(site.cfg)) as conn:
-        review.decide(conn, cand["id"], "keep", None, workflow.now(conn))
+        review.decide(conn, [cand["id"]], "keep", None, workflow.now(conn))
         workflow.retry_chapter(conn, site.rows("SELECT id FROM chapter")[0][0])
     run_part(site.cfg, process)
     assert site.chapters()[0][0] != "junk", "decided and retried, the chapter goes on"
@@ -372,10 +372,13 @@ def test_a_strip_chapter_whose_junk_would_leave_too_little_needs_a_human(site, m
     site.download("Long", 2, strip_cbz("w2"))
     site.parts()
     assert decide_junk(site.cfg, "junk") > 0, "a first chapter offers its blocks"
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):  # as a first decide after its scan would be
+        conn.execute("UPDATE chapter SET junk_candidates = NULL")
     run_part(site.cfg, process)
-    ((status, reason),) = site.rows("SELECT status, last_error FROM chapter")
+    ((status, reason, waited_on),) = site.rows("SELECT status, last_error, junk_candidates FROM chapter")
     assert status == "needs_human", "a removal that would leave too little: a person decides"
     assert "junk removal would leave" in reason, reason
+    assert waited_on == 0, "that first decide counts in the junk refill, with no candidate"
 
 
 @budget(load="db", seconds=10)
@@ -449,7 +452,7 @@ def decide_kinds(cfg, verdicts):
     with closing(db.connect(cfg)) as conn:
         rows = review.listing(conn, cfg, everything=True)
         for r in rows:
-            review.decide(conn, r["id"], verdicts[r["kind"]], None, workflow.now(conn))
+            review.decide(conn, [r["id"]], verdicts[r["kind"]], None, workflow.now(conn))
     return sorted(r["kind"] for r in rows)
 
 
@@ -634,7 +637,7 @@ def test_an_edge_page_decided_junk_frees_its_chapter_though_its_band_is_unsure(s
     with closing(db.connect(site.cfg)) as conn:
         for c in got:
             verdict = "unsure" if c["kind"] == "band" else "junk"
-            review.decide(conn, c["id"], verdict, None, workflow.now(conn))
+            review.decide(conn, [c["id"]], verdict, None, workflow.now(conn))
     run_part(site.cfg, process)
     assert site.chapters()[0][0] != "junk", "the page is dropped, so its band holds nothing: no person is asked"
     (edit,) = edits(site)
@@ -860,7 +863,7 @@ def test_a_layout_change_keeps_a_needs_human_chapters_candidate_open_until_decid
     site.parts()
     (cand,) = open_candidates(site)
     with closing(db.connect(site.cfg)) as conn:
-        review.decide(conn, cand["id"], "unsure", None, workflow.now(conn))
+        review.decide(conn, [cand["id"]], "unsure", None, workflow.now(conn))
     run_part(site.cfg, process)
     assert site.chapters() == [("junk", "needs_human", None)], "unsure: a person decides"
     set_override_layout(site, "Alpha", "strip")
@@ -869,7 +872,7 @@ def test_a_layout_change_keeps_a_needs_human_chapters_candidate_open_until_decid
     assert site.chapters()[0] == ("junk", "needs_human", None), "a needs_human chapter is not reset"
     with closing(db.connect(site.cfg)) as conn:
         assert cand["id"] in [r["id"] for r in candidates.open_rows(conn)], "its candidate stays open"
-        review.decide(conn, cand["id"], "keep", None, workflow.now(conn))
+        review.decide(conn, [cand["id"]], "keep", None, workflow.now(conn))
         workflow.retry_chapter(conn, 1)
     seen = decided_from(monkeypatch)
     run_part(site.cfg, process)
@@ -906,3 +909,44 @@ def test_an_override_naming_the_same_layout_resets_no_chapter(site):
     with closing(db.connect(site.cfg)) as conn:
         chapter = present(conn.execute("SELECT * FROM chapter WHERE id = 1").fetchone())
         assert junk_stage.current_scan(conn, chapter) is not None, "its scan is still current"
+
+
+def refill(site):
+    """Return each chapter's junk refill record (junk_candidates, junk_new_series), in id order."""
+    return site.rows("SELECT junk_candidates, junk_new_series FROM chapter ORDER BY id")
+
+
+@budget(load="db", seconds=10)
+def test_the_first_decide_after_a_scan_records_its_candidates_and_a_later_one_keeps_them(site):
+    site.download("Alpha", 2, cbz(credit=True))
+    site.parts()
+    assert refill(site) == [(1, True)], "the first decide waits on 1 candidate; the series has no decision of its own"
+    decide_junk(site.cfg, "keep")
+    run_part(site.cfg, process)
+    assert site.chapters()[0][0] != "junk", "decided, the chapter goes on"
+    assert refill(site) == [(1, True)], "the decide that ends Done keeps the first decide's record"
+
+
+@budget(load="db", seconds=10)
+def test_a_new_scan_clears_the_record(site):
+    site.download("Alpha", 2, cbz(credit=True))
+    site.parts()
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE chapter SET junk_candidates = 99")
+        conn.execute("DELETE FROM junk_scan")  # the scan is gone: the chapter is scanned again
+        conn.execute("UPDATE chapter SET status = 'ready', waiting_on = NULL")
+    run_part(site.cfg, process)
+    assert refill(site) == [(1, True)], "a new scan clears the record; its first decide records it anew"
+
+
+@budget(load="db", seconds=20)
+def test_a_first_decide_held_on_unsure_candidates_records_them(site):
+    site.download("Alpha", 2, cbz(credit=True))
+    site.parts()
+    (cand,) = open_candidates(site)
+    with closing(db.connect(site.cfg)) as conn:
+        review.decide(conn, [cand["id"]], "unsure", None, workflow.now(conn))
+    site.download("Alpha", 3, cbz(credit=True))
+    site.parts()
+    got = site.rows("SELECT status, junk_candidates FROM chapter ORDER BY id")
+    assert got[1] == ("needs_human", 1), "a first decide held on an unsure candidate records the candidates it held on"

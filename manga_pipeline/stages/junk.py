@@ -251,6 +251,11 @@ def scan(ctx: workflow.Context, chapter: db.Row, series: db.Row, key: str) -> wo
                 candidates = '[]'""",
             (chapter["id"], chapter["series_id"], chapter["content_digest"], json.dumps(sc), at),
         )
+        conn.execute(  # a new scan: its first decide records the refill anew
+            """UPDATE chapter SET junk_decided_at = NULL, junk_candidates = NULL, junk_new_series = NULL
+            WHERE id = %s""",
+            (chapter["id"],),
+        )
         candidates.write_seen(conn, seen)
 
     return workflow.Ready(record=record)
@@ -268,6 +273,20 @@ def _nul_rows(sc: strip_units.StripScan) -> list[tuple[int, int]]:
 # ---------------------------------------------------------------- decide
 
 
+def _refill(conn: db.Connection, chapter: db.Row, key: str, waited_on: int) -> None:
+    """Record the junk refill with the outcome of the first decide after a scan (SPEC "Junk decisions", review).
+
+    Its time, the candidates it waited on and whether the series had no decision of its own then. A later decide of
+    that scan keeps it.
+    """
+    conn.execute(
+        """UPDATE chapter SET junk_decided_at = %s, junk_candidates = %s,
+            junk_new_series = NOT EXISTS (SELECT 1 FROM junk_decision WHERE series_key = %s)
+        WHERE id = %s AND junk_candidates IS NULL""",
+        (workflow.now(conn), waited_on, key, chapter["id"]),
+    )
+
+
 def _remember(conn: db.Connection, watermarks: Iterable[tuple[str, str]]) -> None:
     """With the outcome: the series' later chapters know these bands as watermarks."""
     db.executemany(
@@ -276,7 +295,7 @@ def _remember(conn: db.Connection, watermarks: Iterable[tuple[str, str]]) -> Non
 
 
 def _finished(
-    ctx: workflow.Context, chapter: db.Row, edit: plan.ChapterEdit, watermarks: list[tuple[str, str]]
+    ctx: workflow.Context, chapter: db.Row, key: str, edit: plan.ChapterEdit, watermarks: list[tuple[str, str]]
 ) -> workflow.OUTCOMES:
     """Return the outcome of a chapter that offers no candidate.
 
@@ -289,6 +308,7 @@ def _finished(
 
         def closed(conn: db.Connection) -> None:
             _remember(conn, watermarks)
+            _refill(conn, chapter, key, 0)  # no candidate: the copy check decides it
             if isinstance(copy, workflow.Dropped):  # a held copy keeps its scan for its retry
                 conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
             if copy.record:
@@ -298,6 +318,7 @@ def _finished(
 
     def done(conn: db.Connection) -> None:
         _remember(conn, watermarks)
+        _refill(conn, chapter, key, 0)
         values = (chapter["id"], json.dumps(edit))
         conn.execute(
             "INSERT INTO chapter_edit (chapter_id, edit) VALUES (%s, %s) ON CONFLICT"
@@ -326,10 +347,14 @@ def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> wor
     applied = chapter_scan.apply(sc, decide_unit, [r["key"] for r in known])
     watermarks = [(key, k) for k in applied.watermarks]
     if applied.problem:
-        return workflow.NeedsHuman(applied.problem)
+
+        def too_much(conn: db.Connection) -> None:
+            _refill(conn, chapter, key, 0)  # no candidate: the removal itself needs a person
+
+        return workflow.NeedsHuman(applied.problem, record=too_much)
     picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, ocr.word_lists(ctx.cfg["junk"]))
     if not picks:
-        return _finished(ctx, chapter, applied.edit, watermarks)
+        return _finished(ctx, chapter, key, applied.edit, watermarks)
     limit = ctx.cfg["junk"]["review_limit"]
     rows = [candidates.find(ctx.conn, decisions, p["kind"], p["key"]) for p in picks]
     held = [r for r in rows if r is not None and (r["verdict"] == "unsure" or candidates.stuck(r, limit))]
@@ -339,6 +364,7 @@ def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> wor
             _remember(conn, watermarks)
             ids = sorted(r["id"] for r in rows if r is not None)
             conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
+            _refill(conn, chapter, key, len(picks))
 
         return workflow.NeedsHuman(held_reason(held, limit), record=hold)
     new = [p for p, r in zip(picks, rows, strict=True) if r is None]
@@ -350,6 +376,7 @@ def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> wor
         _remember(conn, watermarks)
         ids = candidates.join(conn, key, picks, at)
         conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
+        _refill(conn, chapter, key, len(picks))
 
     return workflow.Waiting("junk_decision", {"candidates": len(picks)}, record=wait)
 

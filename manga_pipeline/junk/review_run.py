@@ -26,7 +26,7 @@ from typing import Literal, TypedDict
 import yaml
 
 from manga_pipeline import config, db, workflow
-from manga_pipeline.junk import candidates, review
+from manga_pipeline.junk import candidates, groups, review
 
 log = logging.getLogger(__name__)
 
@@ -41,13 +41,43 @@ class ReviewError(RuntimeError):
     """Claude's run failed (non-zero exit, an error result, or the time limit)."""
 
 
-class ClaudeReply(TypedDict, total=False):
-    """The fields junk review reads of the result object `claude -p --output-format json` prints."""
+class Usage(TypedDict, total=False):
+    """The token counts of 1 API call (a message's usage) or of the whole run (the result's)."""
 
+    input_tokens: int
+    cache_creation_input_tokens: int
+    cache_read_input_tokens: int
+    output_tokens: int
+
+
+class Message(TypedDict, total=False):
+    """The fields junk review reads of an assistant message: its id and its usage."""
+
+    id: str
+    usage: Usage
+
+
+class ModelUsage(TypedDict, total=False):
+    """The field junk review reads of a model's usage in the result: its context window."""
+
+    contextWindow: int
+
+
+class ClaudeReply(TypedDict, total=False):
+    """The fields junk review reads of the lines `claude -p --output-format stream-json` prints.
+
+    An assistant line (type "assistant") carries its message; the result line (type "result") the rest.
+    """
+
+    type: str
+    message: Message
     permission_denials: list[object]
     is_error: bool
     subtype: str
     num_turns: int
+    duration_ms: int
+    usage: Usage
+    modelUsage: dict[str, ModelUsage]
 
 
 def child_config(cfg: config.Config) -> config.Config:
@@ -112,7 +142,8 @@ def command(cfg: config.Config, prefix: str) -> list[str]:
         claude,
         "-p",
         "--output-format",
-        "json",
+        "stream-json",
+        "--verbose",  # stream-json needs it: every assistant message, with its usage
         "--permission-prompts",
         "none",
         "--tools",
@@ -152,6 +183,7 @@ def run(cfg: config.Config, conn: db.Connection) -> None:
         log.info("junk review: %d closed candidate(s) cleaned up", gone)
     folder = config.abs_path(cfg["paths"]["scratch"]) / "junk-review"
     shutil.rmtree(folder, ignore_errors=True)
+    groups.remove_all(cfg)
     if not review.listable(conn, cfg):
         log.info("junk review: no candidate to review")
         end = workflow.now(conn)
@@ -176,6 +208,7 @@ def run(cfg: config.Config, conn: db.Connection) -> None:
                 (review_id,),
             ).rowcount
         shutil.rmtree(folder, ignore_errors=True)
+        groups.remove_all(cfg)
         end = workflow.now(conn)
         ok = result.startswith("ok")
         _meta(conn, [("last_end", end), ("last_result", result)] + ([("last_success", end)] if ok else []))
@@ -190,36 +223,79 @@ def _claude(cfg: config.Config, prefix: str, review_id: str) -> str:
     env = child_env(cfg["junk"]["claude_token"], review_id)
     cwd = config.abs_path(cfg["paths"]["candidates"])
     cwd.mkdir(parents=True, exist_ok=True)
+    # stdout to a file in the review's scratch: stream-json repeats every image read, too much to hold in memory
+    out = config.abs_path(cfg["paths"]["scratch"]) / "junk-review" / f"{review_id}.jsonl"
     try:
-        done = subprocess.run(
-            command(cfg, prefix),
-            input=prompt.encode("utf-8"),
-            capture_output=True,
-            env=env,
-            cwd=cwd,
-            timeout=TIMEOUT_S,
-            check=False,  # the exit is judged below
-        )
+        with out.open("wb") as stdout:
+            done = subprocess.run(
+                command(cfg, prefix),
+                input=prompt.encode("utf-8"),
+                stdout=stdout,
+                stderr=subprocess.DEVNULL,
+                env=env,
+                cwd=cwd,
+                timeout=TIMEOUT_S,
+                check=False,  # the exit is judged below
+            )
     except subprocess.TimeoutExpired:
-        return f"error: claude was killed after {TIMEOUT_S} s"
-    reply = _reply(done.stdout)
-    if isinstance(reply, dict) and (denials := reply.get("permission_denials")):
+        return f"error: claude was killed after {TIMEOUT_S} s; {contexts(_reply(out))}"
+    lines = _reply(out)
+    results = [line for line in lines if line.get("type") == "result"]
+    reply = results[-1] if results else None
+    if reply is None:
+        why = f"claude exited {done.returncode}" if done.returncode else "claude printed no JSON result"
+        return f"error: {why}; {contexts(lines)}"
+    if denials := reply.get("permission_denials"):
         log.warning("junk review %s: claude was refused %s", review_id, denials)
+    used = usage(lines, reply)
     if done.returncode != 0:
-        return f"error: claude exited {done.returncode}"
-    if not isinstance(reply, dict):
-        return "error: claude printed no JSON result"
+        return f"error: claude exited {done.returncode}; {used}"
     if reply.get("is_error"):
-        return f"error: claude reported an error ({reply.get('subtype')})"
-    return f"ok: {reply.get('num_turns')} turn(s)"
+        return f"error: claude reported an error ({reply.get('subtype')}); {used}"
+    return f"ok: {reply.get('num_turns')} turn(s), {used}"
 
 
-def _reply(stdout: bytes) -> ClaudeReply | list[object] | str | float | bool | None:
-    """Return what Claude printed, its stdout as JSON: any JSON value, an object read as its result; None for no JSON.
+def context(u: Usage) -> int:
+    """Return a call's context: its input, cache creation and cache read tokens (the old reviewer's measure)."""
+    return u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("cache_read_input_tokens", 0)
 
-    Unchecked: an object is not checked to be a result object.
+
+def contexts(lines: list[ClaudeReply]) -> str:
+    """Return a run's first call's context and its largest, from its assistant lines (a run cut short has them too).
+
+    Each assistant message counts once (its content blocks arrive as lines sharing its id and usage).
     """
-    try:
-        return json.loads(stdout.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None
+    calls: dict[str, int] = {}
+    for line in lines:
+        message = line.get("message")
+        if line.get("type") == "assistant" and message is not None and "id" in message:
+            calls.setdefault(message["id"], context(message.get("usage", {})))
+    sizes = list(calls.values())
+    start, peak = (sizes[0], max(sizes)) if sizes else (0, 0)
+    return f"start {start}, peak {peak}"
+
+
+def usage(lines: list[ClaudeReply], reply: ClaudeReply) -> str:
+    """Return a run's usage as the review result names it: seconds, tokens, its first call's context and the peak."""
+    total = reply.get("usage", {})
+    tokens = context(total) + total.get("output_tokens", 0)
+    window = max((m.get("contextWindow", 0) for m in reply.get("modelUsage", {}).values()), default=0)
+    return f"{reply.get('duration_ms', 0) // 1000} s, {tokens} tokens, {contexts(lines)} of {window}"
+
+
+def _reply(path: Path) -> list[ClaudeReply]:
+    """Return the assistant and result lines Claude printed to `path` (stream-json), read 1 line at a time.
+
+    A line that is no JSON object, or another type (a tool result, with its image), is skipped. Unchecked: an object
+    is not checked to be an assistant or a result line beyond its type.
+    """
+    out: list[ClaudeReply] = []
+    with path.open("rb") as lines:
+        for raw in lines:
+            try:
+                line: ClaudeReply | list[object] | str | float | bool | None = json.loads(raw)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if isinstance(line, dict) and line.get("type") in ("assistant", "result"):
+                out.append(line)
+    return out

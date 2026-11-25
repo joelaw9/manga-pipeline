@@ -17,7 +17,7 @@ import yaml
 from manga_pipeline import cli, config, db, fleet, intake, preflight, process
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
-from manga_pipeline.junk import review, review_run
+from manga_pipeline.junk import groups, review, review_run
 from manga_pipeline.metadata import sources
 
 from tests.builders import config_file, problem_text, run_part
@@ -163,7 +163,50 @@ def test_an_error_result_exits_1_and_records_no_success(world, tmp_path):
     with closing(db.connect(cfg)) as conn:
         meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
     assert meta["junk-review.last_result"].startswith("error")
+    assert "peak" in meta["junk-review.last_result"], "an error result names the usage reached too"
     assert "junk-review.last_success" not in meta
+
+
+@budget(load="subprocess", seconds=20)
+def test_a_review_removes_every_sheets_folder(world, tmp_path):
+    stale = config.abs_path(world.cfg["paths"]["candidates"]) / f"{groups.FOLDER_PREFIX}old"
+    stale.mkdir(parents=True)
+    exe = fake_claude(tmp_path / "claude", world.cfg, ["list"])
+    code, cfg = review_cmd(tmp_path, world.cfg, exe)
+    assert code == 0
+    left = list(config.abs_path(cfg["paths"]["candidates"]).glob(f"{groups.FOLDER_PREFIX}*"))
+    assert left == [], "a killed review's sheets go"
+
+
+@budget(load="subprocess", seconds=20)
+def test_a_run_cut_short_records_the_contexts_it_reached(world, tmp_path):
+    exe = fake_claude(tmp_path / "claude", world.cfg, ["list", "call:500", "call:700", "crash"], exit_code=3)
+    code, cfg = review_cmd(tmp_path, world.cfg, exe)
+    assert code == 1
+    with closing(db.connect(cfg)) as conn:
+        meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
+    assert meta["junk-review.last_result"] == "error: claude exited 3; start 500, peak 700", (
+        "a run with no result still records the first call's context and the largest"
+    )
+
+
+@budget(load="subprocess", seconds=20)
+def test_the_review_result_records_turns_seconds_tokens_start_and_peak(world, tmp_path):
+    reply = {
+        "is_error": False,
+        "num_turns": 3,
+        "duration_ms": 4500,
+        "usage": {"input_tokens": 10, "cache_read_input_tokens": 900, "output_tokens": 5},
+        "modelUsage": {"claude": {"contextWindow": 1000000}},
+    }
+    exe = fake_claude(tmp_path / "claude", world.cfg, ["list", "call:500", "call:700", "call:650"], reply=reply)
+    code, cfg = review_cmd(tmp_path, world.cfg, exe)
+    assert code == 0
+    with closing(db.connect(cfg)) as conn:
+        meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
+    assert meta["junk-review.last_result"] == "ok: 3 turn(s), 4 s, 915 tokens, start 500, peak 700 of 1000000", (
+        "the result names turns, seconds, tokens, the first call's context and the largest (each message once)"
+    )
 
 
 @budget(load="subprocess", seconds=20)

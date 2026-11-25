@@ -384,6 +384,7 @@ def test_a_duplicate_dropped_at_junk_is_no_chapter_status_lists(world):
     world.run(process)
     assert outcome(world)[2].startswith("dropped: a duplicate"), outcome(world)
     assert world.rows("SELECT notes FROM chapter") == [(None,)], "a dropped chapter carries no notes"
+    assert world.rows("SELECT junk_candidates FROM chapter") == [(0,)], "its decide counts in the junk refill: 0"
 
 
 @budget(load="db")
@@ -511,7 +512,7 @@ def test_the_later_copy_waits_on_an_earlier_held_for_a_person_until_it_is_droppe
     assert state(world, earlier)[:3] == ("junk", "waiting", "junk_decision"), "set up: its credit page is a candidate"
     with closing(db.connect(world.cfg)) as conn:
         ((candidate,),) = conn.execute("SELECT id FROM junk_candidate").fetchall()
-        review.decide(conn, candidate, "unsure", None, workflow.now(conn))
+        review.decide(conn, [candidate], "unsure", None, workflow.now(conn))
     world.run(process)
     assert state(world, earlier)[:2] == ("junk", "needs_human"), "set up: unsure, a person decides"
     _, later = world.download(world.manga_id, "Chapter 5", "Beta", data=cbz(seed="beta 5"))

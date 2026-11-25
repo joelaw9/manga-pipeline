@@ -295,36 +295,50 @@ def stuck(row: db.Row, limit: int) -> bool:
     return row["verdict"] is None and row["reviews"] >= limit
 
 
+# The scans of the not-done junk-stage chapters: a candidate one of them waits on is waited on.
+WAITING_SCANS = sql.SQL(
+    "junk_scan js JOIN chapter c ON c.id = js.chapter_id WHERE c.stage = 'junk' AND c.status != 'done'"
+)
+
+
+def covering(decisions: Callable[[str], store.Decisions], row: db.Row) -> db.Row | None:
+    """Return the decision that covers a candidate row, or None (is_open's second half)."""
+    return decisions(row["series_key"]).decide(row["kind"], store.parse_key(row["kind"], row["key"]))
+
+
+def _undecided(decisions: Callable[[str], store.Decisions], row: db.Row) -> bool:
+    return covering(decisions, row) is None
+
+
 def is_open(conn: db.Connection, row: db.Row, decisions: Callable[[str], store.Decisions] | None = None) -> bool:
     """Return whether a candidate row is open: a not-done junk-stage chapter waits on it, no decision covers it.
 
     decisions: a store.by_series lookup to share across calls.
     """
     waiting = conn.execute(
-        """SELECT 1 FROM junk_scan js JOIN chapter c ON c.id = js.chapter_id
-        WHERE c.stage = 'junk' AND c.status != 'done' AND js.candidates::jsonb @> to_jsonb(%s::bigint) LIMIT 1""",
+        sql.SQL("SELECT 1 FROM {} AND js.candidates::jsonb @> to_jsonb(%s::bigint) LIMIT 1").format(WAITING_SCANS),
         (row["id"],),
     ).fetchone()
-    if waiting is None:
-        return False
-    lookup = (decisions or store.by_series(conn))(row["series_key"])
-    return lookup.decide(row["kind"], store.parse_key(row["kind"], row["key"])) is None
+    return waiting is not None and _undecided(decisions or store.by_series(conn), row)
 
 
 def open_rows(conn: db.Connection) -> list[db.Row]:
-    """Return the open candidate rows, fewest reviews first.
+    """Return the open candidate rows, fewest reviews first, in a fixed number of queries whatever their count.
 
     Among those, the candidates a waiting chapter that does not replace an adopted file shows first (SPEC "State"),
     then the oldest.
     """
-    decisions = store.by_series(conn)
     rows = conn.execute(
         sql.SQL("""SELECT k.* FROM junk_candidate k ORDER BY k.reviews, NOT EXISTS (
             SELECT 1 FROM junk_scan js JOIN chapter c ON c.id = js.chapter_id
             WHERE c.stage = 'junk' AND c.status != 'done' AND js.candidates::jsonb @> to_jsonb(k.id)
                 AND NOT {adopted}), k.id""").format(adopted=workflow.REPLACES_ADOPTED.format(c=sql.Identifier("c")))
     ).fetchall()
-    return [r for r in rows if is_open(conn, r, decisions)]
+    query = sql.SQL("SELECT DISTINCT jsonb_array_elements(js.candidates::jsonb)::bigint FROM {}").format(WAITING_SCANS)
+    waited_on = {r[0] for r in conn.execute(query)}
+    waiting = [r for r in rows if r["id"] in waited_on]
+    decisions = store.decisions_of(conn, {r["series_key"] for r in waiting})
+    return [r for r in waiting if _undecided(decisions, r)]
 
 
 def cleanup(cfg: config.Config, conn: db.Connection) -> int:
