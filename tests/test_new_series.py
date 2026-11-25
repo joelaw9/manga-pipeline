@@ -509,3 +509,15 @@ def test_a_new_series_romaji_another_series_holds_is_left_out(world):
     assert world.rows("SELECT status, comicinfo_series, localized_name FROM series WHERE origin = 'new'") == [
         ("ok", "Brand New Thing", None)
     ], "a romanized name that is not free is left out; the series is still admitted"
+
+
+@budget(load="db", seconds=2)
+def test_a_new_series_named_by_its_title_has_no_romaji_equal_to_it(world):
+    media = {"id": 7, "format": "MANGA", "title": {"romaji": "Brand New Thing", "english": None, "native": None}}
+    world.sources.anilist.results["Brand New Thing"] = [media]
+    world.sources.anilist.records[("media", "7")] = media
+    world.download(world.manga("Brand New Thing"), "Chapter 1")
+    world.run(intake)
+    assert world.rows("SELECT comicinfo_series, localized_name FROM series WHERE origin = 'new'") == [
+        ("Brand New Thing", None)
+    ], "SPEC 'Series names': no romanized name when it equals the name"

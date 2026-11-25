@@ -15,7 +15,6 @@ series is needs_human.
 
 import logging
 from collections.abc import Iterable, Sequence
-from dataclasses import replace
 from pathlib import Path
 
 from manga_pipeline import config, db, errors, names, workflow
@@ -87,7 +86,7 @@ class _Library:
         if not errors.exists(root):
             raise workflow.Unreachable(workflow.SHARE, f"library folder {root} missing")
         self.root = root
-        self.holders = kavita_holders(listing)
+        self.holders = kavita_index(listing)
         self._on_disk: dict[str, list[str]] = {}
 
     def read(self, source: str) -> None:
@@ -102,33 +101,26 @@ class _Library:
         return None if folder is None else f"the library already has a folder {f'{source}/{folder}'!r}"
 
 
-def kavita_holders(listing: Iterable[Series]) -> dict[str, str]:
-    """Return {normalised name: who holds it} of every name of the listed Kavita series."""
-    return {
-        normalize(n): f"Kavita series {s['id']} ({s['name']}) has that name"
-        for s in listing
-        for n in series_names(s)
-        if normalize(n)
-    }
+def kavita_index(listing: Iterable[Series]) -> series_name.Holders:
+    """Return the names of the listed Kavita series (holder "kavita:<id>")."""
+    return series_name.index(
+        (f"kavita:{s['id']}", series_names(s), f"Kavita series {s['id']} ({s['name']}) has that name") for s in listing
+    )
 
 
-def new_series_holders(conn: db.Connection, series_id: int) -> dict[str, str]:
-    """Return {normalised name: who holds it} of the other new series' names.
-
-    Their ComicInfo and localized names, of the new series Kavita does not hold yet but series_id.
-    """
-    holders: dict[str, str] = {}
-    for other in conn.execute(
-        """SELECT id, comicinfo_series, localized_name FROM series
-        WHERE origin = 'new' AND kavita_series_id IS NULL AND comicinfo_series IS NOT NULL AND id <> %s""",
-        (series_id,),
-    ):
-        for n in (other["comicinfo_series"], other["localized_name"]):
-            if n and normalize(n):
-                holders.setdefault(
-                    normalize(n), f"new series {other['id']} ({other['comicinfo_series']}) has that name"
-                )
-    return holders
+def new_series_index(conn: db.Connection) -> series_name.Holders:
+    """Return the ComicInfo and localized names of the new series Kavita does not hold yet (holder "series:<id>")."""
+    return series_name.index(
+        (
+            f"series:{r['id']}",
+            (r["comicinfo_series"], r["localized_name"]),
+            f"new series {r['id']} ({r['comicinfo_series']}) has that name",
+        )
+        for r in conn.execute(
+            """SELECT id, comicinfo_series, localized_name FROM series
+            WHERE origin = 'new' AND kavita_series_id IS NULL AND comicinfo_series IS NOT NULL"""
+        )
+    )
 
 
 def name_for(conn: db.Connection, series: db.Row) -> series_name.Chosen:
@@ -139,7 +131,11 @@ def name_for(conn: db.Connection, series: db.Row) -> series_name.Chosen:
     """
     own = series_name.Own(series["name"], series["localized_name"], series["original_name"], None)
     chosen = series_name.chosen(own, merge.stored_records(conn, series["id"]), series["admit_name"])
-    return chosen if chosen.name else replace(chosen, name=series["alt_name"] or series["name"], source="arrived")
+    if chosen.name:
+        return chosen
+    name = series["alt_name"] or series["name"]
+    romaji = "" if normalize(chosen.romaji) == normalize(name) else chosen.romaji
+    return series_name.Chosen(name, romaji, "arrived")
 
 
 def _admit(ctx: workflow.Context, series: db.Row, library: _Library, sources: Sequence[Source]) -> None:
@@ -235,4 +231,4 @@ def _clash(conn: db.Connection, series: db.Row, name: str, library: _Library, so
 
 def _held(conn: db.Connection, series: db.Row, name: str, library: _Library) -> str | None:
     """Why a Kavita series, or another new series Kavita does not hold yet, has the name; or None."""
-    return series_name.taken(name, {**new_series_holders(conn, series["id"]), **library.holders})
+    return series_name.taken(name, (new_series_index(conn), library.holders), {f"series:{series['id']}"})

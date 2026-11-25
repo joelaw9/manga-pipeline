@@ -3,6 +3,7 @@
 Kavita first, then the files, the folder, the rows.
 """
 
+import copy
 from contextlib import closing
 
 import pytest
@@ -336,3 +337,84 @@ def test_series_rename_refuses_to_run_without_retention(world, tmp_path, monkeyp
     argv = ["--config", cfg_file, "--set", "export.retention_days=0", "series", "rename", "--all"]
     assert cli.main(argv) == 2, "refused: nothing would keep the original files"
     assert "retention_days is 0" in capsys.readouterr().err
+
+
+def never_sleeps(_seconds):
+    msg = "slept"
+    raise AssertionError(msg)
+
+
+@budget(load="db", seconds=10)
+def test_a_zero_wait_requests_the_scan_and_never_sleeps(world):
+    checked(world, "Solo Leveling")
+    done, _ = renamed(world)
+    with closing(db.connect(world.cfg)) as conn:
+        assert rename.wait_for_kavita(world.context(conn, "export"), done, 0, sleep=never_sleeps) == done
+    assert [w for w in world.kavita.writes if w[0] == "scan_library"], "the scan is still requested"
+
+
+@budget(load="db", seconds=10)
+def test_a_scan_request_kavita_does_not_answer_ends_the_wait(world, monkeypatch):
+    checked(world, "Solo Leveling")
+    done, _ = renamed(world)
+
+    def unreachable(_library_id):
+        service, msg = "kavita", "timed out"
+        raise workflow.Unreachable(service, msg)
+
+    monkeypatch.setattr(world.kavita, "scan_library", unreachable)
+    with closing(db.connect(world.cfg)) as conn:
+        assert rename.wait_for_kavita(world.context(conn, "export"), done, 5, sleep=never_sleeps) == done
+
+
+@budget(load="db", seconds=10)
+def test_kavita_is_renamed_before_the_folder_moves_when_no_file_changes(world, monkeypatch):
+    sid = checked(world, "Solo Leveling", name="Solo Leveling", folder="Old Folder")
+    kid, _ = kavita(world, sid)
+    world.kavita.series_rows[kid]["name"] = "Wrong Name"
+    refusal = http.HttpError(400, "http://kavita.invalid/api/Series/update", b"")
+    monkeypatch.setattr(world.kavita, "rename_series", raising(refusal, world.kavita.rename_series, kid))
+    done, left = renamed(world, sid)
+    assert (done, len(left)) == ([], 1), "listed"
+    assert files(world, "Old Folder") != {}, "the folder did not move under a name Kavita lacks"
+    assert world.rows("SELECT folder FROM series") == [("library/Old Folder",)]
+
+
+@budget(load="db", seconds=10)
+def test_an_override_file_that_cannot_be_read_is_a_line_of_the_status_list(world, monkeypatch):
+    sid = checked(world, "Solo Leveling")
+
+    def denied(_overrides, _key):
+        msg = "permission denied"
+        raise PermissionError(13, msg)
+
+    monkeypatch.setattr(rename.volumes, "override_name", denied)
+    lines = status.run(world.cfg)
+    section = lines[lines.index("Series names waiting for series rename:") + 1 :]
+    assert section == [f"  series {sid}: its override file cannot be read: [Errno 13] permission denied"], section
+
+
+@budget(load="db", seconds=10)
+def test_a_renamed_series_series_only_named_by_its_old_name_is_listed(world):
+    sid = checked(world, "Solo Leveling")
+    world.rows("UPDATE series SET original_name = NULL RETURNING id")  # an original name keeps it in scope
+    done, _ = renamed(world)
+    cfg = copy.deepcopy(world.cfg)
+    cfg["series"]["only"] = ["Ore Dake"]
+    assert rename.only_lines(cfg, done) == [
+        f"series {sid}: out of scope now: series.only must name it 'Solo Leveling'"
+    ], "workflow.in_scope over its names after the rename"
+    cfg["series"]["only"] = ["Ore Dake", "Solo Leveling"]
+    assert rename.only_lines(cfg, done) == [], "still named there"
+
+
+@budget(load="db", seconds=20)
+def test_series_rename_renames_prints_done_and_exits_0(world, tmp_path, monkeypatch, capsys):
+    sid = checked(world, "Solo Leveling")
+    monkeypatch.setattr(workflow, "context", lambda _cfg, conn, part: world.context(conn, part))
+    argv = ["--config", str(config_file(tmp_path, world.cfg)), "series", "rename", str(sid), "--wait", "0"]
+    assert cli.main(argv) == 1, "Kavita has not followed within --wait 0: exit 1"
+    captured = capsys.readouterr()
+    assert f"series {sid} (Ore Dake): name -> 'Solo Leveling'" in captured.out, captured.out
+    assert "Kavita has not followed its folder to library/Solo Leveling" in captured.err
+    assert [w for w in world.kavita.writes if w[0] == "scan_library"], "the scan is requested"

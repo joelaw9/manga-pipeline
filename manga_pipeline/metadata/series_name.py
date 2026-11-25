@@ -7,7 +7,7 @@ MangaBaka's English titles, else MangaDex's main English title list, holds, that
 AniList's romaji; else the ComicInfo name as it is. Names are compared under Kavita's normalising.
 """
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
@@ -124,12 +124,25 @@ def chosen(own: Own, records: SeriesRecords, person: str | None) -> Chosen:
     return Chosen(name, romaji, source)
 
 
-def taken(name: str, others: Mapping[str, str]) -> str | None:
-    """Return why the name is not free, or None. others: {normalised name: who holds it} of every other series."""
+# {normalised name: [(holder key, who holds it)]}; a holder key is "kavita:<Kavita id>" or "series:<series id>"
+type Holders = dict[str, list[tuple[str, str]]]
+
+
+def index(holders: Iterable[tuple[str, Iterable[str | None], str]]) -> Holders:
+    """Return the names of (holder key, names, who) holders, by normalised name."""
+    out: Holders = {}
+    for holder, held, who in holders:
+        for key in {normalize(n) for n in held if n} - {""}:
+            out.setdefault(key, []).append((holder, who))
+    return out
+
+
+def taken(name: str, indexes: Iterable[Holders], own: Collection[str] = ()) -> str | None:
+    """Return why the name is not free (who holds it), or None; a holder whose key is in own does not count."""
     key = normalize(name)
     if not key:
         return "its name has no letter or digit Kavita keeps"
-    return others.get(key)
+    return next((who for ix in indexes for holder, who in ix.get(key, []) if holder not in own), None)
 
 
 def folder_taken(name: str, folders: Iterable[str]) -> str | None:

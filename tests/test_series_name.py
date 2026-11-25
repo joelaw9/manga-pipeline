@@ -3,7 +3,7 @@
 import pytest
 
 from manga_pipeline.metadata.records import SeriesRecords
-from manga_pipeline.metadata.series_name import Chosen, Due, Own, chosen, due, folder_taken, taken
+from manga_pipeline.metadata.series_name import Chosen, Due, Own, chosen, due, folder_taken, index, taken
 from manga_pipeline.replies.sources import MangaBakaSeries, MangaBakaTitle, MangaDexAttributes, MangaDexManga
 
 from tests.builders import anilist_media
@@ -99,7 +99,8 @@ def test_the_name_rule_picks_in_order_and_keeps_the_old_tool_exclusions(own, rec
 
 @budget(load="pure")
 def test_a_name_is_free_unless_another_series_holds_it_under_normalising():
-    others = {"sololeveling": "Kavita series 3 (Solo Leveling) has that name"}
+    others = [index([("kavita:3", ["Solo Leveling"], "Kavita series 3 (Solo Leveling) has that name")])]
+    assert taken("Solo Leveling", others, {"kavita:3"}) is None, "a series' own name is free for it"
     assert taken("Solo-Leveling", others) == "Kavita series 3 (Solo Leveling) has that name", "normalised"
     assert taken("Other", others) is None, "free"
     assert taken("-", others) == "its name has no letter or digit Kavita keeps", "an empty key is never free"

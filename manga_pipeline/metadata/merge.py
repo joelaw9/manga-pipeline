@@ -8,7 +8,7 @@ D7.11): age rating from MangaBaka, language from MangaDex, writers and penciller
 """
 
 import html.parser
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import override
 
@@ -87,10 +87,12 @@ def fields(records: SeriesRecords, agreed: Mapping[str, str], rules: tags.Rules)
 
 def stored_records(conn: db.Connection, series_id: int) -> SeriesRecords:
     """Return the series' stored records (None for a source without one)."""
-    payloads = {
-        (r["source"], r["kind"]): r["payload"]
-        for r in conn.execute("SELECT source, kind, payload FROM fetched WHERE series_id = %s", (series_id,))
-    }
+    return records_of(conn.execute("SELECT source, kind, payload FROM fetched WHERE series_id = %s", (series_id,)))
+
+
+def records_of(rows: Iterable[db.Row]) -> SeriesRecords:
+    """Return a series' records from its `fetched` rows (source, kind, payload; None for a source without one)."""
+    payloads = {(r["source"], r["kind"]): r["payload"] for r in rows}
     return {
         "mangabaka": payloads.get(STORED["mangabaka"]),
         "mangaupdates": payloads.get(STORED["mangaupdates"]),
