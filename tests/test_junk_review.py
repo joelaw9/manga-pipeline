@@ -168,6 +168,28 @@ def test_an_error_result_exits_1_and_records_no_success(world, tmp_path):
 
 
 @budget(load="subprocess", seconds=20)
+def test_a_review_with_a_refused_call_is_an_error_and_still_counts(world, tmp_path):
+    """A refused call (a chained command) fails the review; it still counts, so review_limit stops a loop."""
+    refused = {"tool_name": "Bash", "tool_input": {"command": 'C="junk decide"; $C 1 junk; $C 2 keep'}}
+    reply = {"is_error": False, "num_turns": 3, "permission_denials": [refused]}
+    exe = fake_claude(tmp_path / "claude", world.cfg, ["list"], reply=reply)
+    code, cfg = review_cmd(tmp_path, world.cfg, exe)
+    assert code == 1, "a refused call fails the review"
+    assert [(r["reviews"], r["review_open"]) for r in candidate_rows(cfg)] == [(1, 0)], "counted, as every review"
+    with closing(db.connect(cfg)) as conn:
+        meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
+    assert meta["junk-review.last_result"].startswith("error: claude was refused 1 tool call(s)"), meta
+    assert "junk-review.last_success" not in meta
+
+
+@budget(load="pure")
+def test_the_prompt_asks_for_1_whole_command_per_call():
+    text = review_run.PROMPT.read_text(encoding="utf-8")
+    assert "1 command per Bash call" in text, "a chained or variable-built command is refused"
+    assert "no `;`, `&&`, `||` or `|`" in text, text
+
+
+@budget(load="subprocess", seconds=20)
 def test_a_review_removes_every_sheets_folder(world, tmp_path):
     stale = config.abs_path(world.cfg["paths"]["candidates"]) / f"{groups.FOLDER_PREFIX}old"
     stale.mkdir(parents=True)

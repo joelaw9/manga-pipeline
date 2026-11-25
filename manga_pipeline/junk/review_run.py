@@ -6,8 +6,9 @@ Claude's environment is built from nothing: the OS variables a program needs, th
 CLAUDE_CODE_OAUTH_TOKEN, and this review's id as review.REVIEW_ID_VARIABLE; no MANGA_PIPELINE_ variable and no API
 key. Claude's `junk` commands read a copy of this run's resolved config with every secret set to null and every path
 absolute, written to <paths.scratch>/junk-review/<id>.yaml for the review's length. Claude may read the candidates
-folder and run the 3 junk commands, nothing else. When Claude has ended, each candidate this review listed counts 1
-review.
+folder and run the 3 junk commands, nothing else; a run with a refused tool call fails. When Claude has ended, each
+candidate this review listed counts 1 review, whatever the result (a refused run too: junk.review_limit still stops a
+candidate that keeps leading Claude into a refused call).
 """
 
 import copy
@@ -38,7 +39,7 @@ PATH_KEYS: tuple[tuple[Literal["logging"], Literal["dir"]], ...] = (("logging", 
 
 
 class ReviewError(RuntimeError):
-    """Claude's run failed (non-zero exit, an error result, or the time limit)."""
+    """Claude's run failed (non-zero exit, an error result, a refused tool call, or the time limit)."""
 
 
 class Usage(TypedDict, total=False):
@@ -245,9 +246,10 @@ def _claude(cfg: config.Config, prefix: str, review_id: str) -> str:
     if reply is None:
         why = f"claude exited {done.returncode}" if done.returncode else "claude printed no JSON result"
         return f"error: {why}; {contexts(lines)}"
+    used = usage(lines, reply)
     if denials := reply.get("permission_denials"):
         log.warning("junk review %s: claude was refused %s", review_id, denials)
-    used = usage(lines, reply)
+        return f"error: claude was refused {len(denials)} tool call(s); {used}"
     if done.returncode != 0:
         return f"error: claude exited {done.returncode}; {used}"
     if reply.get("is_error"):
