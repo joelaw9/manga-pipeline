@@ -3,29 +3,29 @@
 A new series whose first metadata check completed gets its name and folder, once, before any of its chapters is taken.
 Its folder is `<library root>/<source folder>/<safe name>`, the source folder that of its first link (`source_folder`).
 
-The name is the one a person gave (`series new --name`), else the stored AniList English title, else the names the
-series arrived under (a folder's ComicInfo Series before its title folder; a manga's title). It must be unique under
-Kavita's name normalising among the library's series, the other new series Kavita does not hold yet and the folders
-in its source folder, and must leave a folder name once made safe; and none of its agreed ids may be one a series
-the library holds or an admitted new series holds (a double hit), unless a person confirmed it (`series new` after a
-completed check); and the source of its first link must be installed; else the series is needs_human.
+The name is the series name rule's (metadata/series_name.py: a person's name, the override file's `name` then
+`series new --name`; else AniList's English title or a fallback; else the names the series arrived under, a folder's
+ComicInfo Series before its title folder, a manga's title), and its romanized name, when free, its localized name. The
+name must be free (series_name.taken, series_name.folder_taken) among the library's series, the other new series Kavita
+does not hold yet and the folders in its source folder, and must leave a folder name once made safe; and none of its
+agreed ids may be one a series the library holds or an admitted new series holds (a double hit), unless a person
+confirmed it (`series new` after a completed check); and the source of its first link must be installed; else the
+series is needs_human.
 """
 
 import logging
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from manga_pipeline import config, db, errors, names, workflow
+from manga_pipeline import config, db, errors, names, volumes, workflow
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.clients.kavita_match import normalize, series_names
 from manga_pipeline.db import sql
-from manga_pipeline.metadata import ids
+from manga_pipeline.metadata import ids, merge, series_name
 from manga_pipeline.replies.kavita import Series
-from manga_pipeline.replies.sources import AniListMedia
 from manga_pipeline.replies.suwayomi import Source
 
 log = logging.getLogger(__name__)
-ANILIST_SUFFIX = " @COMIC"  # AniList's mark on a title also used by an anime, dropped as the old tool did
 SOURCE_FIX = "install the source; then series new {series_id}"  # a series with no source folder: the fix
 
 
@@ -86,15 +86,8 @@ class _Library:
         if not errors.exists(root):
             raise workflow.Unreachable(workflow.SHARE, f"library folder {root} missing")
         self.root = root
-        self._kavita_keys = {normalize(n): s for s in listing for n in series_names(s) if normalize(n)}
+        self.holders = kavita_holders(listing)
         self._on_disk: dict[str, list[str]] = {}
-
-    def series_clash(self, key: str) -> str | None:
-        """Why a Kavita series holds the name of normalised key, or None."""
-        if key not in self._kavita_keys:
-            return None
-        found = self._kavita_keys[key]
-        return f"Kavita series {found['id']} ({found['name']}) has that name"
 
     def read(self, source: str) -> None:
         """List the source folder, once: a share read, so made outside any transaction."""
@@ -102,36 +95,65 @@ class _Library:
             parent = self.root / source
             self._on_disk[source] = [p.name for p in parent.iterdir()] if errors.exists(parent) else []
 
-    def folder_clash(self, source: str, key: str, safe: str) -> str | None:
-        """Why a folder in the source folder (read first) holds the name (of normalised key, safe name), or None."""
-        for folder in self._on_disk[source]:
-            if folder.casefold() == safe.casefold() or normalize(folder) == key:
-                return f"the library already has a folder {f'{source}/{folder}'!r}"
-        return None
+    def folder_clash(self, source: str, name: str) -> str | None:
+        """Why a folder in the source folder (read first) holds the name, or None."""
+        folder = series_name.folder_taken(name, self._on_disk[source])
+        return None if folder is None else f"the library already has a folder {f'{source}/{folder}'!r}"
 
 
-def name_for(conn: db.Connection, series: db.Row) -> str:
-    """Return the series' name by SPEC "Series identification"."""
-    if series["admit_name"]:
-        return series["admit_name"]
-    row = conn.execute(
-        "SELECT payload FROM fetched WHERE series_id = %s AND source = 'anilist' AND kind = 'media'", (series["id"],)
-    ).fetchone()
-    media: AniListMedia | None = row["payload"] if row else None
-    return anilist_title(media) or series["alt_name"] or series["name"]
+def kavita_holders(listing: Iterable[Series]) -> dict[str, str]:
+    """Return {normalised name: who holds it} of every name of the listed Kavita series."""
+    return {
+        normalize(n): f"Kavita series {s['id']} ({s['name']}) has that name"
+        for s in listing
+        for n in series_names(s)
+        if normalize(n)
+    }
 
 
-def anilist_title(media: AniListMedia | None) -> str | None:
-    """Return an AniList record's English title less ANILIST_SUFFIX, None when it has none."""
-    english = (((media or {}).get("title")) or {}).get("english")
-    if not english:
-        return None
-    return english.removesuffix(ANILIST_SUFFIX).strip() or None
+def new_series_holders(conn: db.Connection, series_id: int) -> dict[str, str]:
+    """Return {normalised name: who holds it} of the other new series' names.
+
+    Their ComicInfo and localized names, of the new series Kavita does not hold yet but series_id.
+    """
+    holders: dict[str, str] = {}
+    for other in conn.execute(
+        """SELECT id, comicinfo_series, localized_name FROM series
+        WHERE origin = 'new' AND kavita_series_id IS NULL AND comicinfo_series IS NOT NULL AND id <> %s""",
+        (series_id,),
+    ):
+        for n in (other["comicinfo_series"], other["localized_name"]):
+            if n and normalize(n):
+                holders.setdefault(
+                    normalize(n), f"new series {other['id']} ({other['comicinfo_series']}) has that name"
+                )
+    return holders
+
+
+def name_for(cfg: config.Config, conn: db.Connection, series: db.Row) -> series_name.Chosen:
+    """Return the series' name and romanized name by SPEC "Series identification".
+
+    OverrideError when its naming override file is malformed. A series not admitted yet has no rules key, so no
+    override file: its override name applies at `series rename`.
+    """
+    key = series["rules_key"]
+    override = volumes.override_name(config.abs_path(cfg["paths"]["naming_overrides"]), key) if key else None
+    own = series_name.Own(
+        series["name"], series["localized_name"], series["original_name"], series["alt_name"] or series["name"]
+    )
+    return series_name.chosen(own, merge.stored_records(conn, series["id"]), override or series["admit_name"])
 
 
 def _admit(ctx: workflow.Context, series: db.Row, library: _Library, sources: Sequence[Source]) -> None:
     conn = ctx.conn
-    name = name_for(conn, series)
+    try:
+        chosen = name_for(ctx.cfg, conn, series)
+    except volumes.OverrideError as e:
+        with db.transaction(conn):
+            workflow.needs_human(conn, "series", series["id"], f"new series {series['name']!r}: {e} -> fix the file")
+        log.warning("series %s (%s): not admitted: %s", series["id"], series["name"], e)
+        return
+    name = chosen.name
     # Before the transaction: its links do not change meanwhile, and the share is not read under the write lock
     source, clash = source_folder(conn, series["id"], sources)
     if source is not None:
@@ -160,9 +182,19 @@ def _admit(ctx: workflow.Context, series: db.Row, library: _Library, sources: Se
             )
         else:
             folder = library.root / source / names.folder_name(name)
+            romaji = chosen.romaji and not _held(conn, series, chosen.romaji, library)
+            if chosen.romaji and not romaji:
+                log.info("series %s: its romanized name %r is taken: left out", series["id"], chosen.romaji)
             conn.execute(
-                "UPDATE series SET comicinfo_series = %s, folder = %s, admitted_at = %s WHERE id = %s",
-                (name, config.to_stored(ctx.cfg, folder), workflow.now(conn), series["id"]),
+                """UPDATE series SET comicinfo_series = %s, localized_name = %s, folder = %s, admitted_at = %s
+                WHERE id = %s""",
+                (
+                    name,
+                    chosen.romaji if romaji else None,
+                    config.to_stored(ctx.cfg, folder),
+                    workflow.now(conn),
+                    series["id"],
+                ),
             )
     if clash:
         log.warning("series %s (%s): not admitted: %s", series["id"], series["name"], clash)
@@ -204,23 +236,11 @@ def _clash(conn: db.Connection, series: db.Row, name: str, library: _Library, so
 
     Runs inside the admission's transaction, so 2 admissions never both take a name.
     """
-    safe = names.folder_name(name)
-    if not safe:
+    if not names.folder_name(name):
         return "its name leaves no folder name once made safe"
-    key = normalize(name)
-    if not key:
-        return "its name has no letter or digit Kavita keeps"
-    return library.series_clash(key) or _new_series_clash(conn, series, key) or library.folder_clash(source, key, safe)
+    return _held(conn, series, name, library) or library.folder_clash(source, name)
 
 
-def _new_series_clash(conn: db.Connection, series: db.Row, key: str) -> str | None:
-    """Why another new series Kavita does not hold yet has the name of normalised key, or None."""
-    others = conn.execute(
-        """SELECT id, comicinfo_series FROM series
-        WHERE origin = 'new' AND kavita_series_id IS NULL AND comicinfo_series IS NOT NULL AND id <> %s""",
-        (series["id"],),
-    ).fetchall()
-    for other in others:
-        if normalize(other["comicinfo_series"]) == key:
-            return f"new series {other['id']} ({other['comicinfo_series']}) has that name"
-    return None
+def _held(conn: db.Connection, series: db.Row, name: str, library: _Library) -> str | None:
+    """Why a Kavita series, or another new series Kavita does not hold yet, has the name; or None."""
+    return series_name.taken(name, {**new_series_holders(conn, series["id"]), **library.holders})

@@ -482,3 +482,30 @@ def test_suwayomi_down_at_admission_leaves_the_series_pending_and_intake_works_i
         )
     world.run(intake)
     assert series(world)[0][4] is True, "admitted once Suwayomi answers"
+
+
+@budget(load="db", seconds=2)
+def test_a_new_series_gets_its_romaji_as_localized_name_when_free(world):
+    anilist(world, "Brand New Thing", "The Brand New Thing")
+    world.download(world.manga("Brand New Thing"), "Chapter 1")
+    world.run(intake)
+    assert world.rows("SELECT comicinfo_series, localized_name FROM series WHERE origin = 'new'") == [
+        ("The Brand New Thing", "Brand New Thing")
+    ], "SPEC 'Series names': the romanized name is the localized name, so its files carry it as LocalizedSeries"
+
+
+@budget(load="db", seconds=2)
+def test_a_new_series_romaji_another_series_holds_is_left_out(world):
+    world.kavita_series("Shinpin-Mono")
+    media = {
+        "id": 7,
+        "format": "MANGA",
+        "title": {"romaji": "Shinpin Mono", "english": "Brand New Thing", "native": None},
+    }
+    world.sources.anilist.results["Brand New Thing"] = [media]
+    world.sources.anilist.records[("media", "7")] = media
+    world.download(world.manga("Brand New Thing"), "Chapter 1")
+    world.run(intake)
+    assert world.rows("SELECT status, comicinfo_series, localized_name FROM series WHERE origin = 'new'") == [
+        ("ok", "Brand New Thing", None)
+    ], "a romanized name that is not free is left out; the series is still admitted"
