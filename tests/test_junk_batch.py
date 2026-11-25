@@ -8,7 +8,7 @@ from contextlib import closing
 import pytest
 from PIL import Image
 
-from manga_pipeline import cli, db
+from manga_pipeline import cli, config, db
 from manga_pipeline.junk import candidates, groups, review
 
 from tests.builders import add_chapter, add_series, adopted, config_file, db_row, one
@@ -89,7 +89,7 @@ def decisions(conn):
     ).fetchall()
 
 
-def with_batch(cfg, n):
+def with_batch(cfg: config.Config, n: int) -> config.Config:
     return {**cfg, "junk": {**cfg["junk"], "review_batch": n}}
 
 
