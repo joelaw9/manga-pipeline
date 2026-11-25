@@ -5,7 +5,8 @@ the backfill, fills the room the cap has first with the series of the API key's 
 "Reading" (case ignored), then with the in-scope series that have an open download (needs_human included), through
 the program's own queue (conversions.queue). It takes no lock and never touches the share: the queue's transactions
 re-check each file and the cap. With --scheduled (the intake unit's drop-in), it queues nothing while the automation
-is paused (SPEC "Parts"), reading the pause without applying a schema step.
+is paused (SPEC "Parts"), reading the pause without applying a schema step. It takes no automation lock, so state pause
+does not wait for a run already past that read (SPEC "Run lock").
 
 Exit 1 when Kavita cannot be reached or refuses the key, or when not exactly 1 collection is titled "Reading"; exit 2
 with no database built.
