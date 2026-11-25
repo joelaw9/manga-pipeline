@@ -232,6 +232,17 @@ def test_the_checked_chapters_are_capped_and_each_not_checked_is_counted(site, r
     assert [ln for ln in out.splitlines() if ln.startswith("chapter ")] == [f"chapter {named}: taken"], out
 
 
+@budget(load="db", seconds=90)
+def test_named_chapters_among_the_newest_are_not_counted_in_the_cap(site, run, monkeypatch):
+    oldest, older, named, newest = (real_head(site, n) for n in (2, 3, 4, 5))
+    monkeypatch.setattr(cut, "CHECKED_RECENT", 1)
+    code, out, err = run("junk", "cut", *oracle(named), *oracle(newest))
+    assert code == 0, err
+    checked = sorted(int(ln.split()[1].rstrip(":")) for ln in out.splitlines() if ln.startswith("chapter "))
+    assert checked == [older, named, newest], "the named ones, then the 1 newest scanned chapter not named"
+    assert "1 beyond the 1 most recent" in out, f"chapter {oldest} is left over: {out}"
+
+
 @budget(load="db", seconds=60)
 def test_a_checked_chapters_also_removed_rows_get_a_sheet(site, run):
     named = real_head(site, 2)

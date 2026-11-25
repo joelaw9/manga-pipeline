@@ -21,7 +21,7 @@ import json
 import os
 import shutil
 import time
-from collections.abc import Generator, Sequence
+from collections.abc import Collection, Generator, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Literal, NamedTuple
 
@@ -154,6 +154,16 @@ def _snapshot(cfg: config.Config) -> Generator[db.Connection]:
         conn.close()
 
 
+def checked_others(scanned: Sequence[int], hand: Collection[int], cap: int) -> tuple[list[int], int]:
+    """Return the scanned chapters checked besides those in hand, the cap newest by id, and how many are left over.
+
+    The checked run reads it with cap CHECKED_RECENT; the snapshot loads it with 1 more for a card side, whose chapter
+    in hand is picked after the snapshot (D7).
+    """
+    others = [c for c in reversed(scanned) if c not in hand]
+    return others[:cap], len(others[cap:])
+
+
 def _scanned() -> sql.Composable:
     return workflow.SCANNED.format(c=sql.Identifier("c"))
 
@@ -224,7 +234,8 @@ def _inputs(conn: db.Connection, series: db.Row, named: Sequence[int], candidate
     ).fetchall()
     scanned = [r["id"] for r in rows]
     waiting = [r["id"] for r in rows if r["waits"]]
-    wanted = {*named, *waiting, *scanned[-(CHECKED_RECENT + 1) :]}
+    others, _ = checked_others(scanned, named, CHECKED_RECENT + (1 if candidate else 0))
+    wanted = {*named, *waiting, *others}
     unscanned = conn.execute(
         sql.SQL("""SELECT c.id FROM chapter c WHERE c.series_id = %s AND c.status <> 'done'
             AND c.stage IN ('discover', 'validate', 'junk') AND NOT {} ORDER BY c.id""").format(_scanned()),
@@ -334,22 +345,32 @@ def _pages_folder(work: Path, chapter: int) -> Path:
     return work / "x" / str(chapter)
 
 
-def _in_hand(cfg: config.Config, ch: Scanned, cbz: Path, work: Path, decisions: store.Decisions) -> Strip:
-    """Return a chapter's strip from its pages: its current scan, else the strip scanned again (held in memory).
+def _read(cbz: Path) -> list[tuple[str, bytes]] | None:
+    """Return a CBZ's pages (archive.pages), or None when the archive cannot be read.
 
-    archive.UNREADABLE or OSError for pages that cannot be read.
+    Only the zip's open and read are caught (archive.UNREADABLE, and OSError but a dropped share's); measuring the
+    pages, writing them and decoding them raise.
     """
-    paths, names, sizes, _ = junk_stage.extract(cbz, ch.pages, _pages_folder(work, ch.row["id"]))
-    pages = chapter_scan.Extracted(paths, names, sizes)
+    try:
+        return archive.pages(cbz)
+    except (*archive.UNREADABLE, OSError) as e:
+        if errors.dropped_share(e):
+            raise
+        return None
+
+
+def _extracted(ch: Scanned, cbz: Path, pages: Sequence[tuple[str, bytes]], work: Path) -> chapter_scan.Extracted:
+    """Write a chapter's pages read from cbz under work (stages.junk.write_pages), measured with its page rows."""
+    measured = images.measure_pages(cbz, ch.pages)
+    paths, names, sizes, _ = junk_stage.write_pages(pages, measured, _pages_folder(work, ch.row["id"]))
+    return chapter_scan.Extracted(paths, names, sizes)
+
+
+def _in_hand(cfg: config.Config, ch: Scanned, pages: chapter_scan.Extracted, decisions: store.Decisions) -> Strip:
+    """Return a chapter's strip from its extracted pages: its current scan, else the strip scanned again (in memory)."""
     sc = ch.scan if ch.scan is not None else chapter_scan.scan_strip(pages, decisions, cfg["junk"]["ocr_device"])
     layout = an.Layout(sc["height"], sc["width"], sc["spans"], sc["gaps"])
     return Strip(ch.row, sc, layout, chapter_scan.renderer(pages))
-
-
-def _readable(e: BaseException) -> None:
-    """Re-raise an OSError of a share that dropped (errors.dropped_share): that is no unreadable archive."""
-    if errors.dropped_share(e):
-        raise e
 
 
 def _named_strip(cfg: config.Config, inp: Inputs, chapter: int, work: Path) -> Strip:
@@ -365,12 +386,11 @@ def _named_strip(cfg: config.Config, inp: Inputs, chapter: int, work: Path) -> S
     if cbz is None:
         msg = f"no pages for chapter {chapter}: neither its download nor a retention original is on this machine"
         raise workflow.Refused(msg)
-    try:
-        return _in_hand(cfg, ch, cbz, work, _rules(inp).decisions)
-    except (*archive.UNREADABLE, OSError) as e:
-        _readable(e)
-        msg = f"chapter {chapter}: its pages cannot be read ({cbz.name}: {e})"
-        raise workflow.Refused(msg) from None
+    pages = _read(cbz)
+    if pages is None:
+        msg = f"chapter {chapter}: its pages cannot be read ({cbz.name} is no readable archive)"
+        raise workflow.Refused(msg)
+    return _in_hand(cfg, ch, _extracted(ch, cbz, pages, work), _rules(inp).decisions)
 
 
 def _waiting_strips(cfg: config.Config, inp: Inputs, work: Path) -> Generator[Strip]:
@@ -382,14 +402,10 @@ def _waiting_strips(cfg: config.Config, inp: Inputs, work: Path) -> Generator[St
     for chapter in inp.waiting:
         ch = inp.loaded[chapter]
         cbz = _download(cfg, ch.row) if ch.row["content_digest"] else None
-        if cbz is None:
+        pages = _read(cbz) if cbz is not None else None
+        if cbz is None or pages is None:
             continue
-        try:
-            s = _in_hand(cfg, ch, cbz, work, decisions)
-        except (*archive.UNREADABLE, OSError) as e:
-            _readable(e)
-            continue
-        yield s
+        yield _in_hand(cfg, ch, _extracted(ch, cbz, pages, work), decisions)
 
 
 @contextlib.contextmanager
@@ -399,7 +415,11 @@ def _workspace(cfg: config.Config) -> Generator[Path]:
     own = root / str(os.getpid())
     if root.exists():
         for old in root.iterdir():
-            if old != own and time.time() - old.stat().st_mtime > SCRATCH_AGE:
+            try:
+                aged = old != own and time.time() - old.stat().st_mtime > SCRATCH_AGE
+            except FileNotFoundError:  # another junk cut removed it meanwhile
+                continue
+            if aged:
                 shutil.rmtree(old, ignore_errors=True)
     own.mkdir(parents=True, exist_ok=True)
     try:
@@ -845,12 +865,6 @@ def _outcome(p: Plan, s: Strip, before: Decided, after: Decided) -> Outcome:
     return Outcome(chapter, misses, bool(mine), [r for r in mine if not an.hits(*r, named)])
 
 
-def _recent(inp: Inputs, hand: set[int]) -> tuple[list[int], int]:
-    """Return the scanned chapters checked besides those in hand (the CHECKED_RECENT newest by id) and how many not."""
-    others = [c for c in reversed(inp.scanned) if c not in hand]
-    return others[:CHECKED_RECENT], len(others[CHECKED_RECENT:])
-
-
 def _also_sheets(s: Strip, before: Decided, o: Outcome, dest: Path) -> list[Path]:
     """Write a sheet per range a checked chapter's decide with the proposal also removes; return their paths.
 
@@ -879,20 +893,16 @@ def _check(cfg: config.Config, p: Plan, work: Path, dest: Path) -> Checked:
         after[h.strip.row["id"]] = got
         outcomes.append(_outcome(p, h.strip, h.before, got))
         sheets += _also_sheets(h.strip, h.before, outcomes[-1], dest)
-    others, beyond = _recent(p.inputs, set(after))
+    others, beyond = checked_others(p.inputs.scanned, after, CHECKED_RECENT)
     unusable = 0
     for chapter in others:
         ch = p.inputs.loaded[chapter]
         cbz = _download(cfg, ch.row)
-        if cbz is None:
-            unusable += 1
+        pages = _read(cbz) if cbz is not None else None
+        if cbz is None or pages is None:
+            unusable += 1  # missing, or an archive it cannot read: no usable download here
             continue
-        try:
-            s = _in_hand(cfg, ch, cbz, work, today.decisions)
-        except (*archive.UNREADABLE, OSError) as e:
-            _readable(e)
-            unusable += 1  # a download it cannot read is no usable download here
-            continue
+        s = _in_hand(cfg, ch, _extracted(ch, cbz, pages, work), today.decisions)
         before = _decide(s, today)
         outcomes.append(_outcome(p, s, before, _decide(s, proposed)))
         sheets += _also_sheets(s, before, outcomes[-1], dest)
@@ -1093,8 +1103,8 @@ def _chapters(p: Plan) -> list[tuple[int, str]]:
 def propose(cfg: config.Config, args: CutArgs | EdgeArgs, review_id: str | None) -> list[str]:
     """Propose a cut or a card side, writing only sheets; return the lines to print (a digest when no miss)."""
     with _workspace(cfg) as work:
-        dest = _sheet_folder(cfg, review_id, work)
         p = _plan(cfg, args, review_id, work)
+        dest = _sheet_folder(cfg, review_id, work)
         checked = _check(cfg, p, work, dest)
         sheets = [*_named_sheets(p, checked, dest), *checked.sheets]
     lines = list(p.lines)

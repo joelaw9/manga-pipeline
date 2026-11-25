@@ -813,8 +813,9 @@ def _late_cuts(
 def seeds_left(layout: an.Layout, ranges: Iterable[Range], matches: Iterable[an.Match]) -> list[an.Seed]:
     """Return the seeds a decide leaves (the bulk converter's junk_cut._seed_list).
 
-    an.seeds over the removed ranges before the join rule (steps 1-5), then each match's far edge as a chained seed
-    (its side and its seed's region); a position seeded twice is listed twice.
+    an.seeds over the removed ranges before the join rule (steps 1-5), then each match's far edge as a chained seed of
+    its side; a position seeded twice is listed twice. A chained seed takes the region of the seed its match was made
+    at (the old code computed the far edge's own); nothing reads the region.
     """
     out = an.seeds(layout, ranges, EDGE_PX)
     for m in matches:

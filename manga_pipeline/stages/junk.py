@@ -141,13 +141,20 @@ def extract(
     known: its page rows (page_store.load), so a page is measured only for what they lack.
     """
     measured = images.measure_pages(cbz, known)
+    return write_pages(archive.pages(cbz), measured, work)
+
+
+def write_pages(
+    pages: Sequence[tuple[str, bytes]], measured: list[images.MeasuredPage], work: Path
+) -> tuple[list[Path], list[str], list[strip.Size], list[images.MeasuredPage]]:
+    """Write pages read from a CBZ (archive.pages) to `work`, emptied first; return extract's 4 lists."""
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True)
     paths: list[Path]
     names: list[str]
     paths, names = [], []
-    for i, (name, data) in enumerate(archive.pages(cbz)):
+    for i, (name, data) in enumerate(pages):
         path = work / f"{i:04d}{Path(name).suffix.lower()}"
         path.write_bytes(data)
         paths.append(path)
