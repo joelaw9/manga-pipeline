@@ -167,22 +167,19 @@ def test_an_error_result_exits_1_and_records_no_success(world, tmp_path):
     assert "junk-review.last_success" not in meta
 
 
-@budget(load="subprocess", seconds=40)
-def test_a_review_with_a_refused_call_is_an_error_and_counts_no_review(world, tmp_path):
-    """Claude's refused call (a chained command) is the run's fault: no listed candidate loses a review to it."""
+@budget(load="subprocess", seconds=20)
+def test_a_review_with_a_refused_call_is_an_error_and_still_counts(world, tmp_path):
+    """A refused call (a chained command) fails the review; it still counts, so review_limit stops a loop."""
     refused = {"tool_name": "Bash", "tool_input": {"command": 'C="junk decide"; $C 1 junk; $C 2 keep'}}
     reply = {"is_error": False, "num_turns": 3, "permission_denials": [refused]}
     exe = fake_claude(tmp_path / "claude", world.cfg, ["list"], reply=reply)
     code, cfg = review_cmd(tmp_path, world.cfg, exe)
     assert code == 1, "a refused call fails the review"
-    assert [(r["reviews"], r["review_open"]) for r in candidate_rows(cfg)] == [(0, 0)], "listed, closed, not counted"
+    assert [(r["reviews"], r["review_open"]) for r in candidate_rows(cfg)] == [(1, 0)], "counted, as every review"
     with closing(db.connect(cfg)) as conn:
         meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
     assert meta["junk-review.last_result"].startswith("error: claude was refused 1 tool call(s)"), meta
     assert "junk-review.last_success" not in meta
-    clean = fake_claude(tmp_path / "claude2", world.cfg, ["list"])
-    assert review_cmd(tmp_path, world.cfg, clean)[0] == 0
-    assert [r["reviews"] for r in candidate_rows(cfg)] == [1], "the next clean review counts as usual"
 
 
 @budget(load="pure")

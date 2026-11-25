@@ -29,7 +29,7 @@ Media or WebComics), and content warnings.
 
 Run exactly these commands, nothing else, each written out in full as shown, 1 command per Bash call: no shell
 variables, no `;`, `&&`, `||` or `|`, no other command around it. A call in any other form is refused, and a review
-with a refused call is thrown away whole:
+with a refused call fails:
 
 - List the candidates: {prefix} list
 - Look at candidates: {prefix} show ID [ID ...]
