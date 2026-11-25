@@ -33,7 +33,7 @@ A command by hand runs from the checkout (the program is not packaged) with the 
 ## Deploy or change a shared setting
 
 1. `state pause` on any machine (by hand, as above, `state pause` in place of `status`): it pauses every timer's and task's run and returns once none is still running, printing how many it waits for each minute. Manual commands keep working. Timers and tasks stay enabled.
-2. Pull and install on all 3 machines; `systemctl daemon-reload` on the LXC; edit the configs right after the pull: a scheduled run started between the 2 fails its config check (exit 2) and does nothing. A run started mid-pull may fail on import (exit 1), touching nothing. On Windows, a `pip install` that fails on a file in use is run again.
+2. Pull and install on all 3 machines; `systemctl daemon-reload` on the LXC; edit the configs right after the pull, with `python -m scripts.set_config KEY=VALUE ...` from the checkout (`python -m scripts.set_config export.rewrites_open=0`; `.venv/bin/python` on the LXC): a scheduled run started between the 2 fails its config check (exit 2) and does nothing. A run started mid-pull may fail on import (exit 1), touching nothing. On Windows, a `pip install` that fails on a file in use is run again.
 3. `state version --yes` on Celestia only.
 4. `state resume`. Timers and tasks stopped on purpose before the deploy (junk review, say) stay as they were.
 5. Each machine's next `process` checks the version (exit 4 before any work if it differs).

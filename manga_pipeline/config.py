@@ -14,6 +14,7 @@ from typing import TypedDict, overload
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+DEFAULT = ROOT / "config.yaml"
 EXAMPLE = ROOT / "config.yaml.example"
 ENV_PREFIX = "MANGA_PIPELINE"
 INT = re.compile(r"-?[0-9]+")
@@ -241,7 +242,7 @@ def load(
     shipped example, the result is a Config (tests/test_config.py holds Config to the example); against another, the
     mapping that example describes.
     """
-    path = Path(path or ROOT / "config.yaml")
+    path = Path(path or DEFAULT)
     schema = _read(Path(example or EXAMPLE))
     cfg = _read(path, allow_empty=True)
     leaves = _leaves(schema)
