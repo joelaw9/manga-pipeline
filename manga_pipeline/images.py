@@ -116,7 +116,7 @@ def dimensions(head: bytes) -> tuple[int, int] | None:
         return None
     try:
         return Image.open(io.BytesIO(head)).size
-    except Exception:  # Pillow's format plugins raise many types on a partial header: size unknown
+    except Exception:  # noqa: BLE001  # Pillow's format plugins raise many types on a partial header: size unknown
         return None
 
 
@@ -149,7 +149,7 @@ def is_srgb(icc: bytes | None) -> bool:
         return True
     try:
         return "srgb" in ImageCms.getProfileDescription(ImageCms.ImageCmsProfile(io.BytesIO(icc))).lower()
-    except Exception:  # a profile littlecms cannot parse (any error type) falls back to the byte test
+    except Exception:  # noqa: BLE001  # a profile littlecms cannot parse (any error type) falls back to the byte test
         return b"sRGB" in icc
 
 

@@ -24,6 +24,7 @@ dev = [
     "coverage>=7.10",  # [tool.coverage.run] patch = ["subprocess"]
     # Exact pins: select = ["ALL"] takes in every rule a new ruff release adds; upgrading is a deliberate change.
     "ruff==0.17.3",
+    # A bump compares [tool.basedpyright]'s second environment with the new version's strict set (its list mirrors 1.40.2's).
     "basedpyright==1.40.2",
     # Exact pins, as ruff's: a new release can add findings.
     "import-linter==2.16",
@@ -38,15 +39,11 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "COM", "CPY",                 # not used
-    "ISC001", "W191", "E111", "E114", "E117", "D206", "D300", "Q000", "Q001", "Q002", "Q003",  # the formatter's job
+    "CPY",                        # not used
+    "COM812", "COM819", "ISC001", "W191", "E111", "E114", "E117", "D206", "D300", "Q000", "Q001", "Q002", "Q003",  # the formatter's job
     "D203", "D213",               # incompatible with D211 / D212, which are kept (ruff must drop 1 of each pair)
-    "BLE001",                     # every catch-all is deliberate: a stage, row or check boundary, or Pillow's many errors
     "S603",                       # every subprocess call is list-form with runtime arguments, no shell
-    "S310",                       # Service.request refuses a URL that is not http or https before opening it
-    "S314",                       # xml.etree on expat >= 2.4.1 resists entity expansion and resolves no external entity
     "TRY004",                     # every isinstance check validates a parsed YAML file: a value error, not a type error
-    "S105",                       # every hit is a false positive (a meta key name; a fake test token)
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -56,6 +53,9 @@ ignore = [
 "manga_pipeline/{cli,smoke,status}.py" = ["T201"]         # printing is these modules' job: a command's own output
 "manga_pipeline/metadata/audit.py" = ["T201"]
 "tests/fake_claude.py" = ["T201"]                         # a fake CLI whose stdout is its result
+# xml.etree on expat >= 2.4.1 resists entity expansion and resolves no external entity. Per file, not a noqa at each of
+# its 5 parses: the file is part of rewrite.CODE, so a comment in it would compare every series again.
+"manga_pipeline/comicinfo.py" = ["S314"]
 
 [tool.ruff.lint.isort]
 known-local-folder = ["tests"]
@@ -66,21 +66,66 @@ pythonVersion = "3.13"
 pythonPlatform = "Windows"  # CI's platform; CI and the merge hook also run --pythonplatform Linux (the LXC)
 include = ["manga_pipeline", "tests", "scripts"]
 
-# The program is held to the strict reports below (CLAUDE.md, Types); tests and scripts stay basic. The first root that
-# holds a file decides its rules; each environment needs extraPaths to import the package.
+# The program and scripts/ are held to strict mode's settings but 2 (CLAUDE.md, Types); tests stay basic. The first
+# root that holds a file decides its rules, so tests comes first and "." takes the rest; each environment needs
+# extraPaths to import the package. An environment cannot set typeCheckingMode, and a `strict` path cannot relax a
+# rule, so the second environment lists every setting basedpyright 1.40.2's strict mode changes from basic, less:
+# - reportUnnecessaryIsInstance (10 hits): 4 are the only type check of a config value config.load does not check
+#   (database.password and notify.discord_webhook, whose example is null; the items of series.only and
+#   paths.kavita_path_map, whose example is empty). Reopened by the next change to config._check, the Config types,
+#   metadata/importer.py's 2 readers or the stage-outcome guard in workflow.work.
+# - reportMissingTypeStubs (2 hits): onnxruntime ships no stubs. Reopened by the next change of the onnxruntime or
+#   basedpyright pin.
+# reportExplicitAny is basedpyright's own, not part of strict.
 [[tool.basedpyright.executionEnvironments]]
 root = "tests"
 extraPaths = ["."]
 
 [[tool.basedpyright.executionEnvironments]]
-root = "manga_pipeline"
+root = "."
 extraPaths = ["."]
+strictListInference = true
+strictSetInference = true
+strictDictionaryInference = true
+reportAssertAlwaysTrue = "error"
+reportConstantRedefinition = "error"
+reportDeprecated = "error"
+reportDuplicateImport = "error"
+reportFunctionMemberAccess = "error"
+reportIncompatibleMethodOverride = "error"
+reportIncompatibleVariableOverride = "error"
+reportIncompleteStub = "error"
+reportInconsistentConstructor = "error"
+reportInvalidStringEscapeSequence = "error"
+reportInvalidStubStatement = "error"
+reportInvalidTypeVarUse = "error"
+reportMatchNotExhaustive = "error"
+reportMissingParameterType = "error"
 reportMissingTypeArgument = "error"
-reportUnknownParameterType = "error"
+reportOverlappingOverload = "error"
+reportPossiblyUnboundVariable = "error"
+reportPrivateUsage = "error"
+reportSelfClsParameterName = "error"
+reportTypeCommentUsage = "error"
 reportUnknownArgumentType = "error"
-reportUnknownVariableType = "error"
-reportUnknownMemberType = "error"
 reportUnknownLambdaType = "error"
+reportUnknownMemberType = "error"
+reportUnknownParameterType = "error"
+reportUnknownVariableType = "error"
+reportUnnecessaryCast = "error"
+reportUnnecessaryComparison = "error"
+reportUnnecessaryContains = "error"
+reportUnsupportedDunderAll = "error"
+reportUntypedBaseClass = "error"
+reportUntypedClassDecorator = "error"
+reportUntypedFunctionDecorator = "error"
+reportUntypedNamedTuple = "error"
+reportUnusedClass = "error"
+reportUnusedExpression = "error"
+reportUnusedFunction = "error"
+reportUnusedImport = "error"
+reportUnusedVariable = "error"
+reportWildcardImportFromLibrary = "error"
 reportExplicitAny = "error"
 
 # Import rules (lint-imports --no-cache): each contract encodes a rule CLAUDE.md or SPEC states. A new contract or

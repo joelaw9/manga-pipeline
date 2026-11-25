@@ -12,7 +12,7 @@ import logging
 import os
 import socket
 from collections import Counter
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
+from collections.abc import Callable, Collection, Generator, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -453,7 +453,7 @@ def work(ctx: Context, chapter: db.Row, stage: Stage) -> OUTCOMES | ClaimLost | 
             chapter["stage"],
         )
         return e
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # the stage boundary: whatever a stage raises is its chapter's failure
         outcome = Failed(f"{type(e).__name__}: {e}")
     if not isinstance(outcome, OUTCOMES):
         msg = f"stage {stage.__module__}.{stage.__name__} returned {outcome!r}, not an outcome"
@@ -1052,7 +1052,7 @@ SHARE = "share"  # the service an Unreachable of the share names
 
 
 @contextmanager
-def share_errors() -> Iterator[None]:
+def share_errors() -> Generator[None]:
     """Turn a share error into Unreachable("share", the error's text); other errors pass unchanged.
 
     A share error is an OSError with a SHARE_ERRNOS errno, or on Windows a SHARE_WINERRORS winerror (a full disk is

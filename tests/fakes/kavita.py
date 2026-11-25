@@ -293,7 +293,7 @@ def _volume_in(local):
     """Return the ComicInfo Volume a scan reads from a CBZ, or None."""
     try:
         with zipfile.ZipFile(local) as archive:
-            return (ET.fromstring(archive.read("ComicInfo.xml")).findtext("Volume") or "").strip() or None
+            return (ET.fromstring(archive.read("ComicInfo.xml")).findtext("Volume") or "").strip() or None  # noqa: S314  # test data: a ComicInfo.xml a test or the program under test wrote
     except (KeyError, zipfile.BadZipFile, ET.ParseError):
         return None
 
@@ -305,7 +305,7 @@ def _names_in(local, folder_name):
     """
     try:
         with zipfile.ZipFile(local) as archive:
-            root = ET.fromstring(archive.read("ComicInfo.xml"))
+            root = ET.fromstring(archive.read("ComicInfo.xml"))  # noqa: S314  # test data: a ComicInfo.xml a test or the program under test wrote
     except (KeyError, zipfile.BadZipFile, ET.ParseError):
         return folder_name, None
     return (root.findtext("Series") or "").strip() or folder_name, (root.findtext("LocalizedSeries") or "").strip()

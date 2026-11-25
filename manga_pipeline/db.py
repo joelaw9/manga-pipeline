@@ -8,7 +8,7 @@ branches are both applied whatever order they merge in.
 
 import functools
 import os
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Generator, Iterable, Mapping, Sequence
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, LiteralString, SupportsIndex, overload
@@ -275,7 +275,7 @@ def peek_id(cfg: config.Config) -> str:
 
 
 @contextmanager
-def transaction(conn: Connection) -> Iterator[Connection]:
+def transaction(conn: Connection) -> Generator[Connection]:
     """Run 1 write transaction: committed when the block ends, rolled back when it raises.
 
     It takes the database-wide write lock first, so write transactions never overlap (SPEC "State").

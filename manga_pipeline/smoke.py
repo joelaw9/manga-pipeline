@@ -16,7 +16,7 @@ def run(cfg: config.Config) -> None:
     for name, check in (("suwayomi", _suwayomi), ("kavita", _kavita)):
         try:
             check(cfg)
-        except Exception as e:  # the command's edge: whatever stops a check is that check's problem
+        except Exception as e:  # noqa: BLE001  # the command's edge: whatever stops a check is that check's problem
             problems.append(f"{name}: {type(e).__name__}: {e}")
             print(f"{name}: FAILED: {type(e).__name__}: {e}")
     if problems:
