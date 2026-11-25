@@ -151,9 +151,13 @@ def test_a_pipeline_decision_is_never_overwritten_by_an_import(conn):
 def test_an_older_import_never_undoes_a_newer_one(conn):
     put(conn, decision("S", "block", sig(), "keep", at="2026-11-05T00:00:00+00:00"))
     put(conn, decision("S", "block", sig(), "junk", at="2026-11-01T00:00:00+00:00"))
-    assert one(conn, "SELECT verdict FROM junk_decision") == "keep", "the newer import stays"
+    assert (
+        one(conn, "SELECT verdict FROM junk_decision WHERE superseded_by IS NULL AND retired_by IS NULL") == "keep"
+    ), "the newer import stays"
     put(conn, decision("S", "block", sig(), "junk", at="2026-11-06T00:00:00+00:00"))
-    assert one(conn, "SELECT verdict FROM junk_decision") == "junk", "a newer import replaces it"
+    assert (
+        one(conn, "SELECT verdict FROM junk_decision WHERE superseded_by IS NULL AND retired_by IS NULL") == "junk"
+    ), "a newer import replaces it"
 
 
 def logo(grey=200, w=40):
@@ -619,3 +623,82 @@ def test_step_0040_names_each_series_by_its_first_folder_and_a_later_folder_leav
     want = {"win": "Solo Leveling", "posix": "Omniscient Reader", "held": "First", "fresh": "Fresh"}
     assert keys() == want, "set with the first folder a series gets, never changed by a later one"
     conn.close()
+
+
+# ---------------------------------------------------------------- history (decisions are never deleted)
+
+
+def active(conn):
+    """Return the active decisions' (series key, verdict, decider), in id order."""
+    rows = conn.execute(
+        "SELECT series_key, verdict, decider FROM junk_decision WHERE superseded_by IS NULL AND retired_by IS NULL"
+        " ORDER BY id"
+    ).fetchall()
+    return [tuple(r) for r in rows]
+
+
+def retired_by_an_act(conn, decision_id):
+    """Retire decision_id by a new act, as junk redecide's retirement does."""
+    with db.transaction(conn):
+        store.retire(conn, [decision_id], store.new_act(conn, "test", "2026-11-10T00:00:00+00:00"))
+
+
+@budget(load="db")
+def test_a_superseded_or_retired_decision_decides_nothing(conn):
+    put(conn, decision("S", "block", sig(), "junk", at="2026-11-01T00:00:00+00:00"))
+    put(conn, decision("S", "block", sig(), "keep", at="2026-11-02T00:00:00+00:00"))
+    assert store.Decisions(conn, "S").decide("block", store.parse_key("block", sig()))["verdict"] == "keep", (
+        "the superseding import decides; the superseded one is history"
+    )
+    retired_by_an_act(conn, one(conn, "SELECT id FROM junk_decision WHERE superseded_by IS NULL"))
+    assert store.Decisions(conn, "S").decide("block", store.parse_key("block", sig())) is None, (
+        "a retired row decides nothing"
+    )
+
+
+@budget(load="db")
+def test_an_import_replacing_an_import_supersedes_it_and_keeps_it(conn):
+    put(conn, decision("S", "block", sig(), "junk", at="2026-11-01T00:00:00+00:00"))
+    counts = put(conn, decision("S", "block", sig(), "keep", at="2026-11-02T00:00:00+00:00"))
+    rows = conn.execute("SELECT id, verdict, superseded_by FROM junk_decision ORDER BY id").fetchall()
+    assert [(r["verdict"], r["superseded_by"]) for r in rows] == [("junk", rows[1]["id"]), ("keep", None)], (
+        "the older import stays as history, superseded by the newer"
+    )
+    assert counts["updated"] == 1, "a superseded row counts as updated"
+
+
+@budget(load="db")
+def test_an_identical_reimport_is_unchanged(conn):
+    row = decision("S", "block", sig(), "junk", at="2026-11-01T00:00:00+00:00")
+    put(conn, row)
+    counts = put(conn, row)
+    assert counts["unchanged"] == 1, "the same import again changes nothing"
+    assert one(conn, "SELECT count(*) FROM junk_decision") == 1, "no history row for an identical import"
+
+
+@budget(load="db")
+def test_an_import_never_writes_a_key_an_act_retired(conn):
+    put(conn, decision("", "block", sig(), "junk", at="2026-11-01T00:00:00+00:00"))
+    retired_by_an_act(conn, one(conn, "SELECT id FROM junk_decision"))
+    counts = put(conn, decision("", "block", sig(), "junk", at="2026-11-20T00:00:00+00:00"))
+    assert counts["unchanged"] == 1, "a baseline's global row does not revive what an act retired"
+    assert active(conn) == [], "nothing is active on the key"
+
+
+@budget(load="db")
+def test_a_pipeline_decision_on_a_key_an_undone_act_left_inactive_is_written(conn):
+    with db.transaction(conn):
+        act = store.new_act(conn, "test", "2026-11-10T00:00:00+00:00")
+        (written,) = store.write(conn, [decision("S", "block", sig(), "keep", "human")], act)
+        store.retire(conn, [written], store.new_act(conn, "undo", "2026-11-11T00:00:00+00:00", undoes=act))
+    counts = put(conn, decision("S", "block", sig(), "junk", "claude", at="2026-11-12T00:00:00+00:00"))
+    assert counts["inserted"] == 1, "Claude's decision is written on a key with no active row"
+    assert active(conn) == [("S", "junk", "claude")], "Claude's decision is the active one"
+
+
+@budget(load="db")
+def test_near_ignores_inactive_rows(conn):
+    put(conn, decision("O", "block", sig((flip(T, 8),)), "junk"))
+    assert store.near(conn, "S", ((T,), 1.0)) is not None, "an active junk of another series is near"
+    retired_by_an_act(conn, one(conn, "SELECT id FROM junk_decision"))
+    assert store.near(conn, "S", ((T,), 1.0)) is None, "a retired one is not"
