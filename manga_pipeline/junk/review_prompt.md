@@ -28,7 +28,7 @@ lines), localization and staff credits, publisher marks, logos and watermarks (s
 Media or WebComics), and content warnings.
 
 Run exactly these commands, nothing else, each written out in full as shown, 1 command per Bash call: no shell
-variables, no `;`, `&&`, `||` or `|`, no other command around it. A call in any other form is refused, and a review
+variables, no `;`, `&&`, `||` or `|`, no other command around it. A call in another form may be refused, and a review
 with a refused call fails:
 
 - List the candidates: {prefix} list
