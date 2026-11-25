@@ -1,8 +1,9 @@
 """A fake `claude` for junk review tests.
 
 Dumps its arguments, environment, prompt and the child config it was given, runs the canned junk commands of its plan,
-and prints a canned JSON result. Its plan is plan.json beside it: {"dump": folder, "scratch": the run's paths.scratch,
-"actions": ["list" | "decide:<verdict>" | "crash"], "exit": code, "reply": result dict or null}.
+and prints canned stream-json lines: 1 assistant message per call, then the result. Its plan is plan.json beside it:
+{"dump": folder, "scratch": the run's paths.scratch, "actions": ["list" | "decide:<verdict>" | "crash" | "call:<the
+call's context>"], "exit": code, "reply": result dict or null}.
 """
 
 import json
@@ -47,8 +48,13 @@ def main():
         elif action.startswith("decide:"):
             log.extend(["decide", *junk(child, "decide", cid, action.split(":")[1])] for cid in listed)
     (dump / f"log-{runs}.json").write_text(json.dumps(log), encoding="utf-8")
+    calls = [int(a.split(":")[1]) for a in plan["actions"] if a.startswith("call:")]
+    for n, call in enumerate(calls):  # stream-json: each call's message (twice: 2 content blocks)
+        line = {"type": "assistant", "message": {"id": f"m{n}", "usage": {"cache_read_input_tokens": call}}}
+        print(json.dumps(line))
+        print(json.dumps(line))
     if plan["reply"] is not None:
-        print(json.dumps(plan["reply"]))
+        print(json.dumps({"type": "result", **plan["reply"]}))
     sys.exit(plan["exit"])
 
 

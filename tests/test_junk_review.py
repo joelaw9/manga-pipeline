@@ -167,6 +167,25 @@ def test_an_error_result_exits_1_and_records_no_success(world, tmp_path):
 
 
 @budget(load="subprocess", seconds=20)
+def test_the_review_result_records_turns_seconds_tokens_start_and_peak(world, tmp_path):
+    reply = {
+        "is_error": False,
+        "num_turns": 3,
+        "duration_ms": 4500,
+        "usage": {"input_tokens": 10, "cache_read_input_tokens": 900, "output_tokens": 5},
+        "modelUsage": {"claude": {"contextWindow": 1000000}},
+    }
+    exe = fake_claude(tmp_path / "claude", world.cfg, ["list", "call:500", "call:700", "call:650"], reply=reply)
+    code, cfg = review_cmd(tmp_path, world.cfg, exe)
+    assert code == 0
+    with closing(db.connect(cfg)) as conn:
+        meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
+    assert meta["junk-review.last_result"] == "ok: 3 turn(s), 4 s, 915 tokens, start 500, peak 700 of 1000000", (
+        "the result names turns, seconds, tokens, the first call's context and the largest (each message once)"
+    )
+
+
+@budget(load="subprocess", seconds=20)
 def test_a_review_that_cannot_start_claude_records_why(world, tmp_path):
     """No claude executable (preflight refuses that run): the review fails and records the reason, not "not run"."""
     cfg = copy.deepcopy(world.cfg)
