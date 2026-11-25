@@ -8,6 +8,7 @@ import logging
 import shutil
 
 from manga_pipeline import config, db, fleet, preflight, workflow
+from manga_pipeline.junk import candidates
 
 log = logging.getLogger(__name__)
 
@@ -24,19 +25,21 @@ def reset(cfg: config.Config, conn: db.Connection) -> None:
         for r in conn.execute("SELECT pending_staged FROM published_file WHERE pending_staged IS NOT NULL")
     }
     owner = preflight.owner_file(cfg)
+    candidates.keep_decided(cfg, conn)  # decisions are knowledge: their images stay, in decided/
+    kept = config.abs_path(cfg["paths"]["candidates"]) / candidates.DECIDED
     for key in ("staging", "scratch", "candidates"):
         folder = config.abs_path(cfg["paths"][key])
         if not folder.exists():
             continue
         for entry in folder.iterdir():
-            if entry == owner or entry in queued:
+            if entry in (owner, kept) or entry in queued:
                 continue
             # A symlink or junction is removed itself, never followed; rmtree does the same for those inside a folder.
             if entry.is_dir() and not entry.is_symlink() and not entry.is_junction():
                 shutil.rmtree(entry)
             else:
                 entry.unlink()
-    log.info("workflow state reset; staging, scratch and candidates emptied")
+    log.info("workflow state reset; staging, scratch and candidates (but decided images) emptied")
 
 
 def adopt(cfg: config.Config, conn: db.Connection) -> None:

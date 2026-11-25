@@ -114,6 +114,7 @@ def _decision(row: db.Row, verdict: str, decider: str, at: str) -> store.Decisio
         "decider": decider,
         "decided_at": at,
         "source": f"candidate {row['id']}",
+        "images": row["folder"],
     }
 
 

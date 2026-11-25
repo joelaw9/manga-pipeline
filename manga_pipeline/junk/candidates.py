@@ -372,6 +372,7 @@ def cleanup(cfg: config.Config, conn: db.Connection) -> int:
         db.executemany(conn, "DELETE FROM junk_candidate WHERE id = %s", [(row["id"],) for row in gone])
         named = {r[0] for r in conn.execute("SELECT folder FROM junk_candidate")}
     root = config.abs_path(cfg["paths"]["candidates"])
+    keep_decided(cfg, conn)  # a decision's images move to decided/ before the gone rows' folders are removed
     for row in gone:
         shutil.rmtree(root / row["folder"], ignore_errors=True)
     _remove_orphans(root, named)
@@ -386,6 +387,8 @@ def _remove_orphans(root: Path, named: Container[str]) -> None:
     if root.is_dir():
         old = time.time() - ORPHAN_KEEP_S
         for entry in root.iterdir():
+            if entry.name == DECIDED:
+                continue  # decisions' images: never swept
             if entry.is_dir() and entry.name not in named and entry.stat().st_mtime < old:
                 shutil.rmtree(entry)
 
@@ -433,3 +436,31 @@ def kept_images(cfg: config.Config, name: str | None) -> str:
         if where_.is_dir():
             return f"{where_ / 'unit.png'}\t{where_ / 'context.png'}"
     return f"images missing: {name}"
+
+
+def keep_decided(cfg: config.Config, conn: db.Connection) -> int:
+    """Move every top-level folder a decision names and no candidate does into decided/ (its images); count them.
+
+    A rename on the share; a folder whose copy is in decided/ already (a move cut short) is removed. Run by junk
+    review's cleanup and by state reset, before either removes a folder.
+    """
+    root = config.abs_path(cfg["paths"]["candidates"])
+    if not root.is_dir():
+        return 0
+    folders = [e.name for e in root.iterdir() if e.is_dir() and e.name != DECIDED]
+    named = [  # a folder a candidate row still names stays: an act may reopen that candidate
+        r[0]
+        for r in conn.execute(
+            """SELECT DISTINCT d.images FROM junk_decision d WHERE d.images = ANY(%s)
+            AND NOT EXISTS (SELECT 1 FROM junk_candidate k WHERE k.folder = d.images)""",
+            (folders,),
+        )
+    ]
+    decided = root / DECIDED
+    decided.mkdir(exist_ok=True)
+    for name in named:
+        if (decided / name).exists():
+            shutil.rmtree(root / name)
+        else:
+            (root / name).rename(decided / name)
+    return len(named)

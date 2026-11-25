@@ -344,3 +344,12 @@ def test_open_rows_issues_the_same_number_of_queries_for_3_and_30_candidates_in_
             assert len(candidates.open_rows(conn)) == n, "every candidate is open"
             counts.append(queries_of_open_rows(conn, monkeypatch))
     assert counts[0] == counts[1], f"open_rows runs a fixed number of queries: {counts}"
+
+
+@budget(load="db")
+def test_a_decision_made_from_a_candidate_names_its_images(site):
+    cfg, conn = site
+    cid = Series(cfg, conn, "A").candidate(FAR[0])
+    review.decide(conn, [cid], "junk", None, AT)
+    folder = one(conn, "SELECT folder FROM junk_candidate WHERE id = %s", (cid,))
+    assert one(conn, "SELECT images FROM junk_decision") == folder, "the decision keeps the candidate's images"

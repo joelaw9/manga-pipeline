@@ -8,8 +8,8 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import cli, db
-from manga_pipeline.junk import redecide, review, store, where
+from manga_pipeline import cli, config, db
+from manga_pipeline.junk import candidates, redecide, review, store, where
 
 from tests.builders import add_series, adopted, config_file, one
 from tests.timing import budget
@@ -244,3 +244,20 @@ def test_rows_lists_history_with_states_and_acts(site, tmp_path, capsys):
         "the old row: retired, its act"
     )
     assert lines[1].split("\t")[7:9] == ["active", f"acts: wrote {act}"], "the new row: active, written by the act"
+
+
+@budget(load="db")
+def test_redecide_carries_the_images_and_row_prints_them(site, tmp_path, capsys):
+    cfg, conn = site
+    row = decide(conn, "S", FAR[0], "junk")
+    with db.transaction(conn):
+        conn.execute("UPDATE junk_decision SET images = 'S-a-1' WHERE id = %s", (row,))
+    kept = config.abs_path(cfg["paths"]["candidates"]) / candidates.DECIDED / "S-a-1"
+    kept.mkdir(parents=True)
+    redecide.redecide(conn, [row], "keep", AT)
+    new = one(conn, "SELECT max(id) FROM junk_decision")
+    assert one(conn, "SELECT images FROM junk_decision WHERE id = %s", (new,)) == "S-a-1", "the new row keeps them"
+    path = str(config_file(tmp_path, cfg))
+    capsys.readouterr()
+    assert cli.main(["--config", path, "junk", "row", str(new)]) == 0
+    assert str(kept / "unit.png") in capsys.readouterr().out, "junk row prints the kept images' paths"
