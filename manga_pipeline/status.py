@@ -14,13 +14,12 @@ from manga_pipeline.db import sql
 TITLES_SHOWN_DAYS = 30  # status lists the series titles changed at the sources this many days back
 
 
-def run(cfg: config.Config) -> None:
-    """Print the status report; with no database built yet, say so."""
+def run(cfg: config.Config) -> list[str]:
+    """Return the status report as lines; with no database built yet, 1 line saying so."""
     if not db.built(cfg):
-        print(f"no database {cfg['database']['name']}: no run has built it yet")
-        return
+        return [f"no database {cfg['database']['name']}: no run has built it yet"]
     with closing(db.read_only(cfg)) as conn:
-        print("\n".join(report(conn)))
+        return report(conn)
 
 
 def report(conn: db.Connection) -> list[str]:

@@ -11,7 +11,7 @@ import logging
 import os
 import sys
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import closing, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -344,10 +344,10 @@ def metadata_audit(cfg: config.Config, args: argparse.Namespace) -> None:
     series matches. Opens no database (SPEC "Metadata checks", Audit): it runs before cutover, with or without one.
     """
     state = importer.read_state(args.state) if args.state else None
-    audit.run(cfg, kavita.from_config(cfg), suwayomi.from_config(cfg), sources.new_sources(), state)
+    _lines(audit.run(cfg, kavita.from_config(cfg), suwayomi.from_config(cfg), sources.new_sources(), state))
 
 
-def _lines(lines: list[str]) -> None:
+def _lines(lines: Iterable[str]) -> None:
     for line in lines:
         print(line)
 
@@ -506,11 +506,11 @@ COMMANDS = {
         lambda cfg, _args, conn: export.run(cfg, locked_connection(conn)),
         automated=True,
     ),
-    "status": Command((), None, None, (), _unlocked(lambda cfg, _args: status.run(cfg))),
+    "status": Command((), None, None, (), _unlocked(lambda cfg, _args: _lines(status.run(cfg)))),
     "retry": Command((), None, None, (), _unlocked(retry)),
     "chapter use": Command((), None, None, (), _unlocked(chapter_use)),
     "chapter drop": Command((), None, None, (), _unlocked(chapter_drop)),
-    "smoke": Command((), None, None, SMOKE_CHECKS, _unlocked(lambda cfg, _args: smoke.run(cfg))),
+    "smoke": Command((), None, None, SMOKE_CHECKS, _unlocked(lambda cfg, _args: _lines(smoke.run(cfg)))),
     "watch": Command((), None, None, WATCH_CHECKS, _unlocked(watch), automated=True),
     "series link": Command((), None, None, LINK_CHECKS, _unlocked(series_link)),
     "series set-id": Command((), None, None, (), _unlocked(series_set_id)),

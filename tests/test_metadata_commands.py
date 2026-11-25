@@ -135,13 +135,12 @@ def test_import_refuses_a_file_that_is_not_the_state_file(tmp_path):
 
 
 @budget(load="db")
-def test_audit_lists_disagreements_missing_ids_and_unmatched_manga(world, capsys):
+def test_audit_lists_disagreements_missing_ids_and_unmatched_manga(world):
     kavita_id = world.kavita_series("Solo Leveling")
     world.kavita.metadata_rows[kavita_id] = {"webLinks": "https://anilist.co/manga/1"}
     world.suwayomi.add_tracker(world.manga("Solo Leveling"), 2, 2)
     world.manga("Nobody's Manga")
-    audit.run(world.cfg, world.kavita, world.suwayomi, world.sources)
-    out = capsys.readouterr().out
+    out = "\n".join(audit.run(world.cfg, world.kavita, world.suwayomi, world.sources))
     assert "series whose ids disagree: 1\n  Solo Leveling" in out
     assert "1 (kavita), 2 (suwayomi)" in out
     assert "series with no mangadex id: 1" in out
