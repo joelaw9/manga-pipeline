@@ -1,6 +1,7 @@
 """scripts/set_config.py: config.yaml keys set from the command line, comments and formatting kept (SPEC "Config")."""
 
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -264,3 +265,56 @@ def test_the_script_runs_as_a_module(cfg_file):
     )
     assert (done.returncode, done.stdout) == (0, "set export.rewrites_open\n"), done.stderr
     assert config.load(cfg_file, env={})["export"]["rewrites_open"] == 0, "the file is written"
+
+
+@budget(load="fs")
+def test_an_unchanged_1st_copy_of_a_duplicate_key_is_refused(cfg_file, capsys):
+    text = cfg_file.read_text(encoding="utf-8")
+    old = next(line for line in text.split("\n") if line.startswith(REWRITES))
+    text = replace_line(text, REWRITES, f"{old}\n  rewrites_open: 7")
+    refused_by_the_edit_check(cfg_file, text, "export.rewrites_open=50", capsys)
+
+
+@budget(load="fs")
+def test_an_unchanged_key_in_a_repeated_section_is_refused(cfg_file, capsys):
+    text = cfg_file.read_text(encoding="utf-8") + "export:\n  retention_days: 7\n  rewrites_open: 7\n"
+    refused_by_the_edit_check(cfg_file, text, "export.rewrites_open=50", capsys)
+
+
+@budget(load="fs")
+def test_a_read_only_file_is_refused_up_front(cfg_file, capsys):
+    before = cfg_file.read_bytes()
+    cfg_file.chmod(stat.S_IREAD)
+    try:
+        assert run(cfg_file, "export.rewrites_open=0") == 2, "a read-only file is bad input"
+    finally:
+        cfg_file.chmod(stat.S_IREAD | stat.S_IWRITE)
+    assert cfg_file.read_bytes() == before, "the file is untouched"
+    assert not cfg_file.with_name("config.yaml.part").exists(), "no .part made"
+    assert "read-only" in capsys.readouterr().err, "the refusal says why"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX owners")
+@budget(load="fs")
+def test_the_files_owner_is_kept(cfg_file):
+    before = cfg_file.stat()
+    assert run(cfg_file, "export.rewrites_open=0") == 0
+    after = cfg_file.stat()
+    assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid), "the owner stays"
+
+
+@budget(load="fs")
+def test_the_program_check_sees_the_environment(cfg_file, monkeypatch, capsys):
+    monkeypatch.setenv("MANGA_PIPELINE_KAVITA_API_KEY", "from-env")
+    text = replace_line(cfg_file.read_text(encoding="utf-8"), "  api_key:", None)
+    cfg_file.write_bytes(text.encode())
+    assert run(cfg_file, "export.rewrites_open=0") == 0, "a secret only the environment holds passes the check"
+    assert capsys.readouterr().out == "set export.rewrites_open\n"
+
+
+@budget(load="fs")
+def test_the_program_checks_error_names_the_file_not_its_part(cfg_file, capsys):
+    assert run(cfg_file, "export.rewrites_open=abc") == 1
+    err = capsys.readouterr().err
+    assert ".part" not in err, "the error names the config file"
+    assert str(cfg_file) in err, "the error names the config file"

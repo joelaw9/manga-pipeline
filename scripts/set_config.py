@@ -12,13 +12,15 @@ the program loads it; on the LXC, run it like the other hand commands, with pipe
 secrets may live only there:
     ( cd /opt/manga-pipeline && set -a && . /etc/manga-pipeline/pipeline.env && set +a &&
       .venv/bin/python -m scripts.set_config KEY=VALUE )
-The file is written as <file>.part (mode 0600, then the file's own mode) and replaced; .part never outlives the run.
+The edit check runs on every run, `unchanged` keys included. The file is written as <file>.part (mode 0600, then the
+file's own mode and, on POSIX, its owner) and replaced; .part never outlives the run, or the error says to delete it.
 
-It prints 1 line per key, `set KEY`, `added KEY` or `unchanged KEY`, and never a value, old or new, nor an argument
-lacking its `=`: the file may hold secrets. It reads and writes only the config file and takes no lock.
+It prints 1 line per key, `set KEY`, `added KEY` or `unchanged KEY`, and never a value from the file, old or new, nor
+an argument lacking its `=`: the file may hold secrets. An environment variable with a malformed value is quoted by
+the program's own check, as every command quotes it. It reads and writes only the config file and takes no lock.
 
-Exit 2 on bad input (a malformed KEY=VALUE, a key config.yaml.example lacks, a key refused as above, a missing or
-unreadable file); exit 1 when a check fails or the file cannot be written. The file is untouched on either.
+Exit 2 on bad input (a malformed KEY=VALUE, a key config.yaml.example lacks, a key refused as above, a missing,
+unreadable or read-only file); exit 1 when a check fails or the file cannot be written. The file is untouched on either.
 
 Usage, from the project root: python -m scripts.set_config [--config PATH] KEY=VALUE [KEY=VALUE ...]
 """
@@ -197,21 +199,35 @@ def write(path: Path, text: str) -> None:
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if sys.platform == "win32":
         flags |= os.O_BINARY  # no CRLF translation
+    error: str | None = None
     try:
         part.unlink(missing_ok=True)
         with os.fdopen(os.open(part, flags, 0o600), "wb") as f:
             f.write(text.encode("utf-8"))
         shutil.copymode(path, part)
+        if sys.platform != "win32":
+            st = path.stat()
+            os.chown(part, st.st_uid, st.st_gid)
         config.load(part)
         part.replace(path)
     except config.ConfigError as e:
-        msg = f"the config check fails: {e}"
-        raise CheckError(msg) from None
+        error = f"the config check fails: {str(e).replace(str(part), str(path))}"
     except OSError as e:
-        msg = f"cannot write {path}: {type(e).__name__} ({e.strerror})"
-        raise CheckError(msg) from None
+        error = f"cannot write {path}: {type(e).__name__} ({e.strerror})"
     finally:
-        part.unlink(missing_ok=True)
+        try:
+            part.unlink(missing_ok=True)
+        except OSError:
+            error = f"{error or 'cannot remove the part file'}; {part.name} is left: delete it by hand"
+    if error is not None:
+        raise CheckError(error)
+
+
+def writable(path: Path) -> None:
+    """RefusedError when the file is read-only (on Windows, os.access reads the read-only attribute)."""
+    if not os.access(path, os.W_OK):
+        msg = f"{path}: read-only"
+        raise RefusedError(msg)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -230,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, UnicodeDecodeError) as e:
             msg = f"{path}: cannot read as UTF-8 ({type(e).__name__})"
             raise RefusedError(msg) from None
+        writable(path)
         text = original
         lines: list[str] = []
         for key, parts, value in items:
@@ -238,13 +255,13 @@ def main(argv: list[str] | None = None) -> int:
     except RefusedError as e:
         sys.stderr.write(f"set_config: {e}; {path} untouched\n")
         return 2
-    if text != original:
-        try:
-            check_edit(original, text, items)
+    try:
+        check_edit(original, text, items)  # every run: an `unchanged` 1st copy of a duplicate key is still refused
+        if text != original:
             write(path, text)
-        except CheckError as e:
-            sys.stderr.write(f"set_config: {e}; {path} untouched\n")
-            return 1
+    except CheckError as e:
+        sys.stderr.write(f"set_config: {e}; {path} untouched\n")
+        return 1
     sys.stdout.write("\n".join(lines) + "\n")
     return 0
 
