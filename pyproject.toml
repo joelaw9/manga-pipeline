@@ -50,8 +50,7 @@ ignore = [
 "tests/**" = ["S101", "PLR2004", "S311", "ANN"]           # pytest asserts; literal expectations and test data; seeded data; tests are not annotated
 "tests/test_*.py" = ["D103"]                              # a test's name is its statement
 "tests/fakes/**" = ["D1"]                                 # a fake imitates a documented real class
-"manga_pipeline/{cli,smoke,status}.py" = ["T201"]         # printing is these modules' job: a command's own output
-"manga_pipeline/metadata/audit.py" = ["T201"]
+"manga_pipeline/cli.py" = ["T201"]                        # printing is this module's job: a command's own output
 "tests/fake_claude.py" = ["T201"]                         # a fake CLI whose stdout is its result
 # xml.etree on expat >= 2.4.1 resists entity expansion and resolves no external entity. Per file, not a noqa at each of
 # its 5 parses: the file is part of rewrite.CODE, so a comment in it would compare every series again.

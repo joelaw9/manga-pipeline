@@ -37,10 +37,9 @@ def services(tmp_path, monkeypatch):
 
 
 @budget(load="fs")
-def test_smoke_prints_what_both_services_answer_and_writes_nothing(services, capsys, tmp_path):
+def test_smoke_reports_what_both_services_answer_and_writes_nothing(services, tmp_path):
     suw, kav = services
-    smoke.run(config.cached())
-    out = capsys.readouterr().out
+    out = "\n".join(smoke.run(config.cached()))
     assert "suwayomi: 1 manga in the library, 1 sources" in out
     assert '"Re:Zero" (MangaDex (EN)): 2 chapters, 1 downloaded' in out
     assert "  Group_Ch.1_ Start.cbz" in out
@@ -54,18 +53,17 @@ def test_smoke_prints_what_both_services_answer_and_writes_nothing(services, cap
 
 
 @budget(load="fs")
-def test_empty_libraries_are_reported_not_a_failure(services, capsys):
+def test_empty_libraries_are_reported_not_a_failure(services):
     suw, kav = services
     suw.manga_rows.clear()
     kav.series_rows.clear()
-    smoke.run(config.cached())
-    out = capsys.readouterr().out
+    out = "\n".join(smoke.run(config.cached()))
     assert "suwayomi: the library is empty" in out
     assert "kavita: library 4 holds 0 series" in out
 
 
 @budget(load="fs")
-def test_kavita_is_checked_though_suwayomi_failed(services, capsys, monkeypatch):
+def test_kavita_is_checked_though_suwayomi_failed(services, monkeypatch):
     suw, _ = services
 
     def down():
@@ -73,20 +71,22 @@ def test_kavita_is_checked_though_suwayomi_failed(services, capsys, monkeypatch)
         raise Unreachable(msg, "timed out after 60 s")
 
     monkeypatch.setattr(suw, "library_size", down)
+    lines = []
     with pytest.raises(smoke.SmokeError, match="suwayomi: Unreachable: suwayomi: timed out"):
-        smoke.run(config.cached())
-    out = capsys.readouterr().out
+        lines.extend(smoke.run(config.cached()))  # the error ends the report: the lines before it are kept
+    out = "\n".join(lines)
     assert "suwayomi: FAILED" in out, "SPEC 'Services': both are tried"
     assert "kavita: library 4 holds 1 series" in out, "SPEC 'Services': both are tried"
 
 
 @budget(load="fs")
 @pytest.mark.usefixtures("services")
-def test_a_mapped_path_that_does_not_exist_fails_the_check(capsys, tmp_path):
+def test_a_mapped_path_that_does_not_exist_fails_the_check(tmp_path):
     (tmp_path / "library" / "Alpha" / "Ch.1.cbz").unlink()
+    lines = []
     with pytest.raises(smoke.SmokeError, match="1 of 1 mapped paths do not exist"):
-        smoke.run(config.cached())
-    assert "MISSING" in capsys.readouterr().out
+        lines.extend(smoke.run(config.cached()))  # the error ends the report: the lines before it are kept
+    assert "MISSING" in "\n".join(lines)
 
 
 @budget(load="fs")
@@ -94,11 +94,11 @@ def test_a_mapped_path_that_does_not_exist_fails_the_check(capsys, tmp_path):
 def test_a_library_id_kavita_does_not_have_fails_the_check():
     cfg: config.Config = {**config.cached(), "kavita": {**config.cached()["kavita"], "library_id": 9}}
     with pytest.raises(smoke.SmokeError, match=r"kavita\.library_id 9 is none of Kavita's libraries"):
-        smoke.run(cfg)
+        list(smoke.run(cfg))
 
 
 @budget(load="fs")
-def test_a_series_without_a_usable_folder_is_reported_not_a_failure(services, capsys, tmp_path):
+def test_a_series_without_a_usable_folder_is_reported_not_a_failure(services, tmp_path):
     _, kav = services
     other = tmp_path / "library" / "Other"
     other.mkdir()
@@ -106,16 +106,20 @@ def test_a_series_without_a_usable_folder_is_reported_not_a_failure(services, ca
     kav.scan_library(4)
     kav.run_scans()
     assert len(kav.series_in_library(4)) == 1, "both folders' files are 1 series"
-    smoke.run(config.cached())
-    assert "no usable folder" in capsys.readouterr().out
+    assert "no usable folder" in "\n".join(smoke.run(config.cached()))
 
 
 @budget(load="fs")
 def test_cli_exit_codes(services, capsys, monkeypatch):
     assert cli.main(["smoke"]) == 0
+    out = capsys.readouterr().out
+    assert "suwayomi: 1 manga in the library, 1 sources" in out, "the command prints what Suwayomi answers"
+    assert "kavita: library 4 holds 1 series" in out, "the command prints what Kavita answers"
     monkeypatch.setattr(services[0], "sources", lambda: 1 / 0)
     assert cli.main(["smoke"]) == 1, "SPEC 'CLI': a failed smoke check exits 1"
-    assert "error: suwayomi: ZeroDivisionError" in capsys.readouterr().err
+    failed = capsys.readouterr()
+    assert "error: suwayomi: ZeroDivisionError" in failed.err
+    assert "kavita: library 4 holds 1 series" in failed.out, "the report is printed before the error ends the command"
 
 
 @budget(load="fs")

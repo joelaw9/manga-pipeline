@@ -1,7 +1,7 @@
 """`metadata audit [--state PATH]` (SPEC "Metadata checks", Audit): a read-only check of the library's series' ids.
 
 It runs over every series of the library whatever `series.only` says. Gathers each series' ids from every origin
-itself (the database is not read: a test database holds few series) and prints the series whose ids disagree, the
+itself (the database is not read: a test database holds few series) and lists the series whose ids disagree, the
 sources no origin gives an id for, and the Suwayomi library manga no series matches by name.
 """
 
@@ -22,8 +22,8 @@ def run(
     suwayomi: Suwayomi,
     clients: sources.Sources,
     state: importer.OldState | None = None,
-) -> None:
-    """Print the audit.
+) -> list[str]:
+    """Return the audit as lines.
 
     clients: the metadata sources' clients; state: the old tool's state file as importer.read_state gives it, or None.
     """
@@ -46,10 +46,10 @@ def run(
             if source not in agreed:
                 lacking.setdefault(source, []).append(kseries["name"])
     unmatched = [f"{m['title']} (manga {m['id']})" for m in manga if m["id"] not in matched]
-    _print("series whose ids disagree", disagree)
+    out = _section("series whose ids disagree", disagree)
     for source in ids.SOURCES:
-        _print(f"series with no {source} id", lacking.get(source, []))
-    _print("Suwayomi library manga no series matches by name", unmatched)
+        out += _section(f"series with no {source} id", lacking.get(source, []))
+    return out + _section("Suwayomi library manga no series matches by name", unmatched)
 
 
 def _known(
@@ -74,7 +74,5 @@ def _known(
     return known
 
 
-def _print(title: str, lines: list[str]) -> None:
-    print(f"{title}: {len(lines)}")
-    for line in sorted(lines):
-        print(f"  {line}")
+def _section(title: str, lines: list[str]) -> list[str]:
+    return [f"{title}: {len(lines)}", *(f"  {line}" for line in sorted(lines))]
