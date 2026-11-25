@@ -11,7 +11,6 @@ from pathlib import Path, PurePosixPath
 
 from manga_pipeline import adoption, config, db, errors, names, workflow
 from manga_pipeline.clients import http
-from manga_pipeline.clients.kavita_match import normalize
 from manga_pipeline.convert import calibrate, record_reader
 from manga_pipeline.junk import importing, store
 
@@ -116,10 +115,10 @@ def _from_record(ctx: workflow.Context, series: db.Row) -> str | None:
             _fill_naming(ctx.conn, series, record)
         return None
     name = record["series"]["naming"]["series_name"]
-    kavita_names = [series["name"], series["localized_name"], series["original_name"]]
-    if normalize(name) not in {normalize(n) for n in kavita_names if n}:
+    why = adoption.unlike_kavita(name, series)
+    if why is not None:
         reason = (
-            f"record series name {name!r} is none of Kavita's names ({', '.join(n for n in kavita_names if n)}): "
+            f"record series name {why}: "
             "a file carrying it would leave the series -> series link to refresh the names, or fix the record"
         )
         with db.transaction(ctx.conn):
@@ -189,7 +188,7 @@ def _write_adopted(conn: db.Connection, series: db.Row, found: adoption.Prepared
                 series["id"],
                 f.identity,
                 f.pages_out,
-                series["name"],
+                f.series or found.name,
                 f.volume,
                 f.number,
                 f.title,
@@ -211,7 +210,7 @@ def _write_adopted(conn: db.Connection, series: db.Row, found: adoption.Prepared
     conn.execute(
         """UPDATE series SET baseline_at = %s, comicinfo_series = %s, folder = coalesce(folder, %s),
             naming_basis = coalesce(naming_basis, %s) WHERE id = %s""",
-        (workflow.now(conn), series["name"], found.folder, found.basis, series["id"]),
+        (workflow.now(conn), found.name, found.folder, found.basis, series["id"]),
     )
 
 
