@@ -176,6 +176,10 @@ class Decisions:
         self.series_key = key
         self._rows = [(row, keys[row["id"]]) for row in in_lookup_order(row for row, _ in parsed)]
 
+    def cuts(self) -> list[db.Row]:
+        """Return the series' active cut decisions, oldest first (decided_at, then id): the cut pool (junk.anchored)."""
+        return sorted((row for row, _ in self._rows if row["kind"] == "cut"), key=lambda r: (r["decided_at"], r["id"]))
+
     def decide(self, kind: str, key: ParsedKey) -> db.Row | None:
         """Return the deciding row for a unit of `kind` with parsed key `key`, or None (undecided)."""
         if is_signature(key) and images.unsignable(key):

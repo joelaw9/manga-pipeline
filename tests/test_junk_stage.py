@@ -8,6 +8,7 @@ import json
 import zipfile
 import zlib
 from contextlib import closing
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -17,7 +18,7 @@ from manga_pipeline import cli, config, db, errors, export, identify, intake, pr
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import plan
-from manga_pipeline.junk import candidates, logo_units, ocr, review, store
+from manga_pipeline.junk import anchored, candidates, chains, logo_units, ocr, review, store
 from manga_pipeline.metadata import sources
 from manga_pipeline.stages import convert as convert_stage
 from manga_pipeline.stages import junk as junk_stage
@@ -975,3 +976,243 @@ def test_a_series_whose_only_decision_is_retired_counts_as_new_in_the_refill(sit
         store.retire(conn, [one(conn, "SELECT id FROM junk_decision")], act)
     run_part(site.cfg, process)
     assert refill(site) == [(1, True)], "a retired decision is history: the series has none of its own in force"
+
+
+# ---------------------------------------------------------------- chains and cuts (SPEC "Junk decisions")
+
+CHAIN_PANELS = ["a", "b", "c", "d", "e", "f"]
+FIX_JUNK = Path(__file__).parent / "fixtures_pages" / "junk"
+
+
+def strip_rows(data):
+    """Return a panels CBZ's strip (its pages stacked: 1 width, no resize) as an RGB array."""
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        return np.vstack([np.asarray(Image.open(io.BytesIO(z.read(n))).convert("RGB")) for n in sorted(z.namelist())])
+
+
+def span_segment(pixels, rows):
+    """Return a cut segment of strip rows (start, end): their height in strip widths and their tiles."""
+    s, e = rows
+    tiles = present(anchored.signable(Image.fromarray(pixels[s:e]))).split("|")[0]
+    return {"kind": "cut", "h": round((e - s) / pixels.shape[1], 4), "tiles": tiles}
+
+
+def chain_text(side, *segs, src):
+    return chains.text({side: [{"segments": list(segs), "ref": [["S", "c.cbz", 0]], "src": src}]})
+
+
+def chained_strip(site, monkeypatch):
+    """Scan 1 strip chapter of 6 panels; return (its CBZ bytes, its stored scan)."""
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    data = panels_cbz(CHAIN_PANELS)
+    site.download("Long", 2, data)
+    site.parts()
+    ((scan,),) = site.rows("SELECT scan FROM junk_scan")
+    return data, json.loads(scan)
+
+
+def counted_extracts(monkeypatch):
+    """Count junk_stage.extract calls; return the list each call appends to."""
+    calls = []
+    real = junk_stage.extract
+
+    def counting(ctx, chapter, work):
+        calls.append(chapter["id"])
+        return real(ctx, chapter, work)
+
+    monkeypatch.setattr(junk_stage, "extract", counting)
+    return calls
+
+
+@budget(load="db", seconds=30)
+def test_a_cut_decision_removes_its_range_from_the_download_and_leaves_no_scratch(site, monkeypatch):
+    data, sc = chained_strip(site, monkeypatch)
+    last = tuple(sc["spans"][-1])
+    cut = chain_text("below", span_segment(strip_rows(data), last), src={"file": "c.cbz", "sha256": "a" * 64})
+    decision: store.Decision = {
+        "series_key": "Long",
+        "kind": "cut",
+        "key": chains.key_span(chains.parse(cut)),
+        "verdict": "junk",
+        "decider": "import",
+        "decided_at": "2026-11-01T00:00:00+00:00",
+        "source": "test",
+        "chain": cut,
+        "credit": False,
+    }
+    imported(site.cfg, decision)
+    decide_junk(site.cfg, "keep")
+    calls = counted_extracts(monkeypatch)
+    run_part(site.cfg, process)
+    ((cut_id,),) = site.rows("SELECT id FROM junk_decision WHERE kind = 'cut'")
+    (edit,) = edits(site)
+    assert {"start": last[0], "end": last[1], "why": "cut", "decision": cut_id} in edit["strip_removed"], edit
+    assert len(calls) == 1, "the download is extracted once, at decide"
+    scratch = config.abs_path(site.cfg["paths"]["scratch"])
+    assert not list(scratch.rglob("junk")), "the decide's scratch folder is gone"
+
+
+@budget(load="db", seconds=30)
+def test_a_series_without_chains_or_cuts_extracts_nothing_at_decide(site, monkeypatch):
+    chained_strip(site, monkeypatch)
+    decide_junk(site.cfg, "keep")
+    calls = counted_extracts(monkeypatch)
+    run_part(site.cfg, process)
+    assert all(c[0] != "junk" for c in site.chapters()), "kept blocks free the chapter"
+    assert calls == [], "no chain, no cut, no new candidate: decide reads no pixels"
+
+
+@budget(load="db", seconds=30)
+def test_a_card_that_does_not_match_holds_its_chapter_for_a_person(site, monkeypatch):
+    data, sc = chained_strip(site, monkeypatch)
+    pixels = strip_rows(data)
+    band = sc["blocks"][-2]  # panel e, in the tail half
+    first = tuple(sc["spans"][0])  # panel a's tiles where panel f lies: no match
+    card = chain_text("below", {**span_segment(pixels, first), "h": round(400 / 300, 4)}, src=None)
+    decision: store.Decision = {
+        "series_key": "Long",
+        "kind": "block",
+        "key": band["sig"],
+        "verdict": "junk",
+        "decider": "import",
+        "decided_at": "2026-11-01T00:00:00+00:00",
+        "source": "test",
+        "chain": card,
+    }
+    imported(site.cfg, decision)
+    decide_junk(site.cfg, "keep")
+    run_part(site.cfg, process)
+    ((status, reason),) = site.rows("SELECT status, last_error FROM chapter")
+    ((block_id,),) = site.rows("SELECT id FROM junk_decision WHERE kind = 'block' AND decider = 'import'")
+    assert status == "needs_human", "a card that should apply and does not: a person decides"
+    assert f"junk decision {block_id}'s card (below) does not match beside rows {band['start']}-{band['end']}" in (
+        reason
+    ), reason
+
+
+def import_decision(site, kind, key, chain, *, credit=False):
+    decision: store.Decision = {
+        "series_key": "Long",
+        "kind": kind,
+        "key": key,
+        "verdict": "junk",
+        "decider": "import",
+        "decided_at": "2026-11-01T00:00:00+00:00",
+        "source": "test",
+        "chain": chain,
+    }
+    imported(site.cfg, {**decision, "credit": True} if credit else decision)
+    ((row_id,),) = site.rows("SELECT id FROM junk_decision WHERE decider = 'import'")
+    return row_id
+
+
+@budget(load="db", seconds=30)
+def test_a_chained_blocks_edge_card_removes_every_row_to_the_strip_end(site, monkeypatch):
+    _, sc = chained_strip(site, monkeypatch)
+    band = sc["blocks"][-2]  # panel e, in the tail half
+    card = chain_text("below", {"kind": "edge"}, src=None)
+    block_id = import_decision(site, "block", band["sig"], card)
+    decide_junk(site.cfg, "keep")
+    run_part(site.cfg, process)
+    (edit,) = edits(site)
+    assert {"start": band["start"], "end": band["end"], "why": "match", "decision": block_id, "hash": band["sig"]} in (
+        edit["strip_removed"]
+    ), edit
+    assert {"start": band["end"], "end": sc["height"], "why": "card", "decision": block_id} in edit["strip_removed"], (
+        "the card: every row from the block to the strip end, its decision named, no hash"
+    )
+
+
+@budget(load="db", seconds=30)
+def test_44_a_credit_cut_on_the_real_card_removes_its_notice_lines_through_the_stage(site, monkeypatch):
+    """#44 as #38's version: I Was the Real Head of the House c0003's D&C card (its crop, 1 page).
+
+    [keep (c)][keep logo][cut][cut][cut] from the gap seed under the (c) line, credit: the 3 notice lines are cut.
+    """
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    png = (FIX_JUNK / "s5_2_real_head_c0003" / "strip.png").read_bytes()
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        z.writestr("001.png", png)
+    site.download("Long", 2, data.getvalue())
+    site.parts()
+    pixels = np.asarray(Image.open(io.BytesIO(png)).convert("RGB"))
+    o = 111380  # the crop's first row in the chapter's strip
+    rows = [(111830, 111847), (111751, 111787), (111665, 111684), (111638, 111657), (111612, 111630)]
+    segs = [
+        {**span_segment(pixels, (s - o, e - o)), "kind": kind}
+        for kind, (s, e) in zip(("keep", "keep", "cut", "cut", "cut"), rows, strict=True)
+    ]
+    cut = chain_text("above", *segs, src={"file": "Gamma_Chapter 3.cbz", "sha256": "a" * 64})
+    cut_id = import_decision(site, "cut", chains.key_span(chains.parse(cut)), cut, credit=True)
+    decide_junk(site.cfg, "keep")
+    run_part(site.cfg, process)
+    (edit,) = edits(site)
+    got = [(r["start"] + o, r["end"] + o) for r in edit["strip_removed"] if r["why"] == "cut"]
+    assert got == [(111612, 111630), (111638, 111657), (111665, 111684)], edit["strip_removed"]
+    assert all(r.get("decision") == cut_id and "hash" not in r for r in edit["strip_removed"] if r["why"] == "cut")
+
+
+@budget(load="db", seconds=30)
+def test_a_decide_that_renders_and_writes_candidate_images_extracts_once(site, monkeypatch):
+    """A cut decision known before the scan: the decide renders for it and writes candidate images, 1 extraction."""
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    data = panels_cbz(CHAIN_PANELS)
+    last = (2400 + 700, 2400 + 1100)  # panel f: page 3's second panel
+    cut = chain_text("below", span_segment(strip_rows(data), last), src={"file": "c.cbz", "sha256": "a" * 64})
+    import_decision(site, "cut", chains.key_span(chains.parse(cut)), cut)
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    site.download("Long", 2, data)
+    calls = counted_extracts(monkeypatch)
+    site.parts()
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "its blocks are offered"
+    assert open_candidates(site), "their images are written"
+    assert len(calls) == 2, "1 extraction to scan, 1 to decide: rendering and the images share it"
+    assert not list(config.abs_path(site.cfg["paths"]["scratch"]).rglob("junk")), "no scratch folder is left"
+
+
+@budget(load="db", seconds=30)
+def test_a_decide_failing_after_its_extraction_leaves_no_scratch_folder(site, monkeypatch):
+    data, sc = chained_strip(site, monkeypatch)
+    last = tuple(sc["spans"][-1])
+    cut = chain_text("below", span_segment(strip_rows(data), last), src={"file": "c.cbz", "sha256": "a" * 64})
+    import_decision(site, "cut", chains.key_span(chains.parse(cut)), cut)
+    decide_junk(site.cfg, "keep")
+
+    def broken(render):
+        render(0, 10)  # the download is extracted
+        msg = "a fault while matching"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(anchored, "span_sigs", broken)
+    run_part(site.cfg, process)
+    ((attempts, reason),) = site.rows("SELECT attempts, last_error FROM chapter")
+    assert attempts == 1, "the chapter fails"
+    assert "a fault while matching" in reason, reason
+    assert not list(config.abs_path(site.cfg["paths"]["scratch"]).rglob("junk")), "the decide's folder is removed"
+
+
+@budget(load="db", seconds=60)
+def test_a_held_card_decides_again_after_its_fix_and_holds_again_after_junk_undo(site, monkeypatch, tmp_path):
+    data, sc = chained_strip(site, monkeypatch)
+    band = sc["blocks"][-2]
+    first = tuple(sc["spans"][0])
+    card = chain_text("below", {**span_segment(strip_rows(data), first), "h": round(400 / 300, 4)}, src=None)
+    block_id = import_decision(site, "block", band["sig"], card)
+    decide_junk(site.cfg, "keep")
+    run_part(site.cfg, process)
+    ((chapter_id, status),) = site.rows("SELECT id, status FROM chapter")
+    assert status == "needs_human"
+    path = str(config_file(tmp_path, site.cfg))
+    assert cli.main(["--config", path, "junk", "redecide", str(block_id), "keep"]) == 0, "the fix: a plain keep"
+    ((act,),) = site.rows("SELECT max(id) FROM junk_act")
+    assert cli.main(["--config", path, "retry", str(chapter_id)]) == 0
+    run_part(site.cfg, process)
+    assert site.chapters()[0][0] != "junk", "decided again, the chapter goes on"
+    assert cli.main(["--config", path, "junk", "undo", str(act)]) == 0, "the chained decision is back"
+    assert site.rows("SELECT chain FROM junk_decision WHERE id = %s", block_id) == [(card,)]
