@@ -79,7 +79,7 @@ def record_rows(record: record_reader.Record) -> list[store.Decision]:
     """Return the rows to upsert from a bulk-converter series record.
 
     Schema 4 carries the decision rows its runs used (series.decisions.rows; a marks row names its template in
-    series.decisions.templates); a schema-3 record carries none it can give (its decisions are in the store). Cut rows
+    series.decisions.templates); a schema-3 record carries none it can give. Cut rows
     are left out and chains dropped. RecordError on a malformed row.
     """
     if record["schema"] != record_reader.SCHEMA:

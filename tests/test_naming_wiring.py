@@ -141,7 +141,7 @@ def test_an_older_baseline_gets_its_naming_fields_at_the_next_validate(world):
 
 @budget(load="db", seconds=4)
 @pytest.mark.parametrize("readable", [True, False], ids=["record", "no-record"])
-def test_comicinfo_fills_the_bulk_rows_naming_fields_or_waits_for_the_record(world, readable):
+def test_comicinfo_fills_the_bulk_rows_naming_fields_or_holds_the_series_without_the_record(world, readable):
     world.kavita_series("Solo Leveling")
     world.download(world.manga("Solo Leveling"), "Chapter 2", scanlator="Grp")
     world.run(intake)
@@ -155,7 +155,8 @@ def test_comicinfo_fills_the_bulk_rows_naming_fields_or_waits_for_the_record(wor
         assert bulk_naming(world)[0][1:] == ("Grp_Chapter 1", "main", "none"), "filled from the record"
         assert row[0] != "comicinfo", "the chapter goes on to publish"
     else:
-        assert row == ("comicinfo", "waiting", "bulk_conversion"), "no record: the chapter waits for it"
+        assert row == ("comicinfo", "waiting", "bulk_conversion"), "no record: the chapter goes no further"
+        assert world.rows("SELECT status FROM series") == [("needs_human",)], "nothing writes a record: no wait ends"
         assert bulk_naming(world)[0][1:] == (None, None, None)
 
 

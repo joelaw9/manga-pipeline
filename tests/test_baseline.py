@@ -102,6 +102,18 @@ def test_a_download_with_the_pages_of_a_bulk_source_is_put_aside_once_the_baseli
 
 
 @budget(load="db")
+def test_a_record_that_does_not_parse_holds_the_series_at_validate_too(world):
+    world.series_without_record("Solo Leveling")
+    world.write_record("Solo Leveling", PARTIAL)
+    with closing(db.connect(world.cfg)) as conn, db.transaction(conn):
+        workflow.set_meta(conn, step.BASELINE_PASS_AT, workflow.now(conn))  # the day's pass ran before it broke
+    world.download(world.manga("Solo Leveling"), "Chapter 2")
+    world.run(intake)
+    assert world.rows("SELECT status FROM series") == [("needs_human",)], "validate holds the series as the pass does"
+    assert world.rows("SELECT stage, status, waiting_on FROM chapter") == [("validate", "waiting", "bulk_conversion")]
+
+
+@budget(load="db")
 def test_a_record_naming_another_series_records_nothing_and_needs_a_human(world):
     at_junk(world, record=lambda kid: bulk_record("Some Other Name", kid, []))
     ((status, reason),) = world.rows("SELECT status, status_reason FROM series")

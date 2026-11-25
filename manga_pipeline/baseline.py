@@ -108,10 +108,11 @@ def take(ctx: workflow.Context, series: db.Row) -> str | None:
 def _from_record(ctx: workflow.Context, series: db.Row) -> str | None:
     """Take the series' baseline from its record (take's), or fill its bulk rows' naming fields.
 
-    A record that exists but does not parse makes the series needs_human (SPEC "State"): nothing writes it any more.
+    A record that exists but does not parse, or an older baseline's record that is gone, makes the series needs_human
+    (SPEC "State"): nothing writes a record any more, so no wait would end.
     """
     problem = record_problem(ctx.cfg, series)
-    if problem and has_record(ctx.cfg, series["folder"]):
+    if problem and (series["baseline_at"] is not None or has_record(ctx.cfg, series["folder"])):
         reason = f"{problem} -> fix or remove the record, then retry --series"
         with db.transaction(ctx.conn):
             workflow.needs_human(ctx.conn, "series", series["id"], reason)

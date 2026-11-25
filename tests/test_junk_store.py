@@ -17,7 +17,6 @@ from tests.timing import budget
 from tests.world import bulk_record
 
 T = 0x0123456789ABCDEF
-PIPELINE_SIGHTING = ("S", "block", "x", "a pipeline chapter", "2026-11-12T00:00:00+00:00", "pipeline")
 
 
 def sig(tiles=(T,), aspect=1.0):
@@ -228,6 +227,15 @@ def decisions_of(rec) -> dict:
     block = rec["series"]["decisions"]
     assert isinstance(block, dict), "series.decisions is an object"
     return block
+
+
+@budget(load="pure")
+def test_of_2_record_rows_on_1_key_the_keep_wins_then_the_newest():
+    junk = decision("S", "block", sig(), "junk", at="2026-11-09T00:00:00+00:00")
+    keep = decision("S", "block", sig(), "keep", at="2026-11-01T00:00:00+00:00")
+    newer = decision("S", "block", sig(), "keep", at="2026-11-05T00:00:00+00:00")
+    assert importing.winners([junk, keep]) == [keep], "the bulk converter obeyed a keep before a junk, however new"
+    assert importing.winners([keep, newer]) == [newer], "then the newest"
 
 
 @budget(load="db")
