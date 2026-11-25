@@ -42,20 +42,20 @@ def reports(world):
 
 
 @budget(load="db", seconds=4)
-def test_a_changed_anilist_title_is_reported_once_and_changes_nothing(world, caplog):
+def test_a_changed_anilist_title_is_reported_once_as_a_name_waiting(world, caplog):
     world.kavita_series("Solo Leveling")
     world.run(intake)
     checked_with(world, "Solo Leveling @COMIC")
     with caplog.at_level(logging.WARNING, logger="manga_pipeline"):
         sid = checked_with(world, "Only I Level Up")
-    want = f'series {sid} (Solo Leveling): AniList title changed: "Solo Leveling" -> "Only I Level Up"'
-    assert reports(world) == [(want,)], "SPEC 'Retroactive updates': a changed title is reported"
-    assert caplog.text.count("AniList title changed") == 1, "1 log line"
+    want = f'series {sid} (Solo Leveling): name waiting: "Solo Leveling" -> "Only I Level Up"'
+    assert reports(world) == [(want,)], "SPEC 'Metadata checks': a changed title is reported as a name waiting"
+    assert caplog.text.count("name waiting") == 1, "1 log line"
     assert world.rows("SELECT name FROM series") == [("Solo Leveling",)], "the series keeps Kavita's name"
     checked_with(world, "Only I Level Up")
     world.run(export)
     world.run(export)
-    assert world.discord.posts == [f"{want} -> rename the series in Kavita if wanted"], "1 Discord message"
+    assert world.discord.posts == [f"{want} -> series rename {sid}"], "1 Discord message"
 
 
 @budget(load="db", seconds=4)

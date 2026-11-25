@@ -7,6 +7,7 @@ holds lock.AUTOMATION and reads the automation's pause: paused, it ends there (S
 """
 
 import argparse
+import contextlib
 import logging
 import os
 import sys
@@ -32,6 +33,7 @@ from manga_pipeline import (
     pause,
     preflight,
     process,
+    rename,
     retention,
     rewrite,
     smoke,
@@ -102,6 +104,9 @@ LINK_CHECKS = SMOKE_CHECKS
 IMPORT_CHECKS = SMOKE_CHECKS
 # series edit reads the series' open downloads on the share and its override file to name its chapters.
 EDIT_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SHARE_FOLDERS_PRESENT, preflight.NAMING_OVERRIDES)
+# series names reads Kavita, the override files and every file of a series due a rename; series rename writes them.
+NAMES_CHECKS = (*EDIT_CHECKS, preflight.SERVICE_SETTINGS)
+RENAME_CHECKS = (*RESET_CHECKS, *NAMES_CHECKS)
 # source survey, measure and search read the clients and scope; survey and measure read library files.
 SOURCE_READ_CHECKS = SMOKE_CHECKS
 SOURCE_MEASURE_CHECKS = (*SMOKE_CHECKS, preflight.SHARE_FOLDERS_PRESENT)
@@ -278,6 +283,47 @@ def series_edit(cfg: config.Config, args: argparse.Namespace) -> None:
         lines = hand_edits.apply(workflow.context(cfg, conn, "export"), data, args.series_id)
     for line in lines:
         print(line)
+
+
+def series_names(cfg: config.Config, args: argparse.Namespace) -> None:
+    """Print what `series rename` would do to each series due a rename, and what stops it (read only, no lock).
+
+    The database is read in 1 snapshot, ended before Kavita and the files are read.
+    """
+    with closing(db.read_only(cfg)) as conn:
+        with conn.transaction():
+            run = rename.read_db(cfg, conn, args.series_ids or None)
+        planned = rename.check(workflow.context(cfg, conn, "export"), run)
+    _lines(p.line() for p in planned if p.problem or p.due.any())
+
+
+def series_rename(cfg: config.Config, args: argparse.Namespace, conn: db.Connection | None) -> None:
+    """Rename the series (SPEC "Retroactive updates", Series names), then wait for Kavita.
+
+    RenameError listing what was not done.
+    """
+    conn = locked_connection(conn)
+    if cfg["export"]["retention_days"] == 0:
+        msg = "export.retention_days is 0: a rewritten file's original would not be kept"
+        raise workflow.Refused(msg)
+    ctx = workflow.context(cfg, conn, "export")
+    planned = rename.check(ctx, rename.read_db(cfg, conn, None if args.all else args.series_ids))
+    outcome = rename.Outcome()
+    try:
+        rename.apply(ctx, planned, outcome)
+    except BaseException:
+        if outcome.renamed or outcome.moved:  # Kavita must read what was done; the rerun finishes the rest
+            with contextlib.suppress(*rename.KAVITA_ERRORS):
+                ctx.kavita.scan_library(cfg["kavita"]["library_id"])
+        raise
+    _lines(f"{p.line()}: done" for p in outcome.renamed)
+    _lines(rename.only_lines(cfg, outcome.renamed))
+    behind = rename.wait_for_kavita(ctx, outcome.moved, args.wait) if outcome.renamed or outcome.moved else []
+    for p in behind:
+        outcome.leave(f"series {p.series['id']}: Kavita has not followed its folder to {p.target}")
+    if outcome.left:
+        msg = f"{len(outcome.left)} series not done (listed above)"
+        raise rename.RenameError(msg)
 
 
 def naming_diff(cfg: config.Config, args: argparse.Namespace) -> None:
@@ -640,6 +686,8 @@ COMMANDS = {
     "series new": Command((), None, None, (), _unlocked(series_new)),
     "series refetch-covers": Command((), None, None, (), _unlocked(series_refetch_covers)),
     "series edit": Command((), None, None, EDIT_CHECKS, _unlocked(series_edit)),
+    "series names": Command((), None, None, NAMES_CHECKS, _unlocked(series_names)),
+    "series rename": Command((), X, "rename", RENAME_CHECKS, series_rename),
     "naming diff": Command((), None, None, (), _unlocked(naming_diff)),
     "rewrite drop": Command((), None, None, (), _unlocked(rewrite_drop)),
     "rewrite retry": Command((), None, None, (), _unlocked(rewrite_retry)),
@@ -759,6 +807,17 @@ def _series_commands(command: argparse.ArgumentParser) -> None:
     )
     link.add_argument("kavita_series_id", type=int, help="Kavita series id")
     link.set_defaults(command="series link")
+    names_ = series.add_parser("names", help="what series rename would do, and what stops it (read only)")
+    names_.add_argument("series_ids", metavar="SERIES_ID", type=int, nargs="*", help="default: every series")
+    names_.set_defaults(command="series names")
+    rename_ = series.add_parser("rename", help="give series their names: Kavita, files, folder (stops every part)")
+    which = rename_.add_mutually_exclusive_group(required=True)
+    which.add_argument("series_ids", metavar="SERIES_ID", type=int, nargs="*", default=[])
+    which.add_argument("--all", action="store_true", help="every series due a rename")
+    rename_.add_argument(
+        "--wait", type=float, default=60, metavar="MINUTES", help="how long to wait for Kavita's scan (default 60)"
+    )
+    rename_.set_defaults(command="series rename")
 
 
 def _naming_commands(command: argparse.ArgumentParser) -> None:
@@ -1002,7 +1061,7 @@ def _run(
         return 4
     except config.ConfigError as e:  # a database setting, checked where the database is opened
         p.error(str(e))
-    except (smoke.SmokeError, review_run.ReviewError) as e:
+    except (smoke.SmokeError, review_run.ReviewError, rename.RenameError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     except Exception:

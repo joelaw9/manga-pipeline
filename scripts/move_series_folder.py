@@ -6,8 +6,8 @@ once, under the lock). Under lock.IDLE exclusive: no part runs meanwhile. Every 
 root is not there or --to-parent names no folder under it. Per series, in this order: refused when it is not a new
 series, or while a chapter is claimed or not done at publish or confirm, or a published file is rewrite.BUSY; refused
 when it has no target. Then, so rows and disk never disagree: already there only when its folder holds its published
-files; rows only when a rename was not committed (old folder gone, the target holding exactly its published files, of
-which it has some); refused when the target exists otherwise; with published files, a rename of its old folder,
+files; rows only when a rename was not committed (old folder gone, the target holding every one of its published files,
+of which it has some); refused when the target exists otherwise; with published files, a rename of its old folder,
 refused when that is missing or does not hold them all; without, rows only
 when its old folder is absent or holds nothing (an empty one removed), else a rename. A rename is followed by 1
 transaction rewriting series.folder, published_file.library_path and chapter.library_path, and undone when the
@@ -26,7 +26,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from manga_pipeline import config, db, errors, lock, rewrite
+from manga_pipeline import config, db, errors, lock, rename, rewrite
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import admit
@@ -117,7 +117,7 @@ def _act(cfg: config.Config, conn: db.Connection, series_id: int, old_stored: st
             raise MoveRefusedError(held)
         return THERE
     if errors.exists(new):
-        if published and not errors.exists(old) and _names(new) == published:
+        if published and not errors.exists(old) and published <= _names(new):
             return RESUME
         msg = f"{old_stored} -> {new_stored}: the target exists"
         raise MoveRefusedError(msg)
@@ -145,33 +145,19 @@ def apply(cfg: config.Config, conn: db.Connection, move: Move) -> None:
         old.rmdir()
     if move.act != RENAME:
         with db.transaction(conn):
-            _write_rows(conn, move)
+            rename.folder_rows(conn, move.series_id, move.old, move.new)
         return
     new.parent.mkdir(parents=True, exist_ok=True)
     old.rename(new)
     with db.transaction(conn):
         try:
-            _write_rows(conn, move)
+            rename.folder_rows(conn, move.series_id, move.old, move.new)
         except BaseException:
             # Raised inside the transaction: it rolls back, the rows still name the old folder, so the folder goes
             # back. A failure at the commit itself is not caught here: whether it committed is unknown, the folder
             # stays renamed, and a rerun resumes (rows only) or refuses.
             new.rename(old)
             raise
-
-
-def _write_rows(conn: db.Connection, move: Move) -> None:
-    """Write the move's rows (caller's transaction): the series' folder, and each library path under the old one."""
-    params = {"id": move.series_id, "old": move.old, "new": move.new}
-    conn.execute("UPDATE series SET folder = %(new)s WHERE id = %(id)s", params)
-    for table in ("published_file", "chapter"):
-        conn.execute(
-            sql.SQL("""UPDATE {table} SET library_path = %(new)s || substr(library_path, length(%(old)s) + 1)
-            WHERE series_id = %(id)s AND starts_with(library_path, %(old)s || '/')""").format(
-                table=sql.Identifier(table)
-            ),
-            params,
-        )
 
 
 def _run_problem(cfg: config.Config, parent: str | None) -> str | None:
