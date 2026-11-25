@@ -2,7 +2,7 @@
 
 import pytest
 
-from manga_pipeline import export, intake
+from manga_pipeline import export, intake, rename
 from manga_pipeline.clients import suwayomi
 from scripts import move_series_folder
 
@@ -108,11 +108,11 @@ def test_a_rename_whose_rows_were_not_committed_is_resumed_with_rows_only(world,
 def test_a_failed_transaction_renames_the_folder_back_and_stops(world, tmp_path, monkeypatch):
     sid = published(world)
 
-    def fails(_conn, _move):
+    def fails(_conn, _series_id, _old, _new):
         msg = "the database went away"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(move_series_folder, "_write_rows", fails)
+    monkeypatch.setattr(rename, "folder_rows", fails)
     with pytest.raises(RuntimeError, match="went away"):
         move(world, tmp_path, str(sid), "--to-parent", "")
     assert on_disk(world, AT_SOURCE) == ["Ch.1.cbz", "Ch.2.cbz", "Ch.3.cbz"], "renamed back"

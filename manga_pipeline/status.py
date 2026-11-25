@@ -1,6 +1,7 @@
 """The status command (SPEC "CLI", "Needs human"): what is where, what waits and on what, and what needs a human.
 
-Also the series titles changed at the sources, and the Discord reports not sent.
+Also the series titles changed at the sources, the series whose names are due a rename (SPEC "Retroactive updates",
+Series names; read after the rest, in a snapshot of its own), and the Discord reports not sent.
 
 Read-only: it never creates, migrates or writes the database.
 """
@@ -8,7 +9,7 @@ Read-only: it never creates, migrates or writes the database.
 from contextlib import closing
 from datetime import datetime, timedelta
 
-from manga_pipeline import config, conversions, db, kavita_link, notify, pause, rewrite, workflow
+from manga_pipeline import config, conversions, db, kavita_link, notify, pause, rename, rewrite, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates
 
@@ -21,7 +22,11 @@ def run(cfg: config.Config) -> list[str]:
     if not db.built(cfg):
         return [f"no database {cfg['database']['name']}: no run has built it yet"]
     with closing(db.read_only(cfg)) as conn:
-        return report(conn)
+        lines = report(conn)
+        with conn.transaction():
+            run = rename.read_db(cfg, conn, None)
+        names = rename.waiting(cfg, run)  # override files: a share read, outside the snapshot
+    return [*lines, "Series names waiting for series rename:", *(names or ["  none"])]
 
 
 def report(conn: db.Connection) -> list[str]:
@@ -257,7 +262,7 @@ def _human(line: tuple[str, str]) -> str:
 
 
 def _titles(conn: db.Connection) -> list[str]:
-    lines = [f"Series titles changed at the sources (last {TITLES_SHOWN_DAYS} days, not applied):"]
+    lines = [f"Series titles changed at the sources (last {TITLES_SHOWN_DAYS} days):"]
     since = (datetime.fromisoformat(db.now(conn)) - timedelta(days=TITLES_SHOWN_DAYS)).isoformat()
     rows = conn.execute(
         "SELECT text, queued_at FROM notification WHERE kind = 'title' AND queued_at >= %s ORDER BY id DESC", (since,)

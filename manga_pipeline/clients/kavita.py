@@ -169,7 +169,19 @@ class Kavita:
         """POST /api/Series/metadata: Kavita applies the whole series metadata as sent (read it fresh first)."""
         self._call("POST", "/api/Series/metadata", {"seriesMetadata": metadata})
 
-    def update_series(self, series: Series, **changes: int) -> None:
+    def rename_series(self, series_id: int, name: str, localized: str) -> Series | None:
+        """Give the series name and localized name, both locked, and return it read back (None: Kavita lost it).
+
+        The series is read just before and resent whole (update_series), only those 4 fields changed: its sort name
+        and every other field as read.
+        """
+        series = self.series(series_id)
+        if series is None:
+            return None
+        self.update_series(series, name=name, nameLocked=True, localizedName=localized, localizedNameLocked=True)
+        return self.series(series_id)
+
+    def update_series(self, series: Series, **changes: int | str) -> None:
         """POST /api/Series/update: the series as just read, resent whole with the changes.
 
         Kavita applies every field it is sent and resets those left out (an omitted aniListId becomes 0, an omitted

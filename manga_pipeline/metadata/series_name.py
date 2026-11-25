@@ -1,4 +1,4 @@
-"""A series' name and romanized name, the free-name test and what a rename must do (SPEC "Series names").
+"""A series' name and romanized name, the free-name test, what a rename must do (SPEC "Retroactive updates").
 
 Pure: callers read the records, Kavita's names and the folders. The rule is the old metadata tool's (kavita_enrich):
 a person's name first (the override file's `name`, then `series new --name`); else AniList's English title less
