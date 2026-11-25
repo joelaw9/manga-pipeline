@@ -27,7 +27,7 @@ CHECK_FAILURES = (
     sources.SourceError,
     suwayomi_client.GraphQLError,
 )
-BASELINE_PASS_AT = "intake.baseline_pass_at"  # meta: when the last baseline pass completed
+BASELINE_PASS_AT = "intake.baseline_pass_at"  # noqa: S105  # a meta key's name, not a secret: when the last baseline pass completed
 
 
 def run(ctx: workflow.Context, clients: sources.Sources) -> None:

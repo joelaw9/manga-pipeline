@@ -103,7 +103,7 @@ def test_claudes_environment_needs_the_token():
     """A run without junk.claude_token (preflight refuses one) fails before Claude starts: it could not log in."""
     with pytest.raises(review_run.ReviewError, match="claude_token"):
         review_run.child_env(None, "r1", {})
-    assert review_run.child_env("t", "r1", {})["CLAUDE_CODE_OAUTH_TOKEN"] == "t", "the token is passed on"
+    assert review_run.child_env("t", "r1", {})["CLAUDE_CODE_OAUTH_TOKEN"] == "t", "the token is passed on"  # noqa: S105  # a fake test token
 
 
 @budget(load="pure")
@@ -215,7 +215,7 @@ def _review_hiding_the_token(world: World, tmp_path, capsys, monkeypatch, reply)
     Asserts the token is in neither the log nor the output.
     """
     monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "DEBUG")
-    token = "tok-SECRET-4711"
+    token = "tok-SECRET-4711"  # noqa: S105  # a fake test token
     cfg: config.Config = {**world.cfg, "junk": {**world.cfg["junk"], "claude_token": token}}
     exe = fake_claude(tmp_path / "claude", cfg, ["list", "decide:keep"], reply=reply)
     code, cfg = review_cmd(tmp_path, cfg, exe)

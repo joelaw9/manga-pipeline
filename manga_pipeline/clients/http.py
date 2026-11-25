@@ -156,7 +156,10 @@ class Service:
             failed = None  # (status, body) of an HTTP failure; None for a network one
             try:
                 return _send(
-                    self.name, urllib.request.Request(url, data=data, headers=headers, method=method), shown, timeout
+                    self.name,
+                    urllib.request.Request(url, data=data, headers=headers, method=method),  # noqa: S310  # request refused a URL that is not http or https above
+                    shown,
+                    timeout,
                 )
             except urllib.error.HTTPError as e:
                 failed = (e.code, _error_body(e))
@@ -216,7 +219,7 @@ def _send(service: str, request: urllib.request.Request, shown: str, timeout: fl
     start = time.monotonic()
     outcome, size = None, 0
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as reply:
+        with urllib.request.urlopen(request, timeout=timeout) as reply:  # noqa: S310  # reached only from request, which checked the URL's scheme
             body = reply.read()
             outcome, size = reply.status, len(body)
             return Response(service, reply.status, reply.headers, body)

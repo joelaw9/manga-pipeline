@@ -102,7 +102,7 @@ def _read_pages(z: zipfile.ZipFile, names: list[str], rec: Staged, x_dir: Path) 
         page = pages.Page(data)
         try:
             page.raw()
-        except Exception as e:  # any Pillow error on an output page is an undecodable page
+        except Exception as e:  # noqa: BLE001  # any Pillow error on an output page is an undecodable page
             read.fails.append(f"undecodable-page: {name}: {type(e).__name__}")
             continue
         if name in rec["lossless"]:

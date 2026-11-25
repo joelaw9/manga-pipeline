@@ -195,7 +195,7 @@ def test_2_runs_opening_a_new_database_at_once_apply_each_step_once(tmp_path):
     def opener():
         try:
             db.connect(cfg).close()
-        except Exception as e:  # reported by the assert below
+        except Exception as e:  # noqa: BLE001  # reported by the assert below
             errors.append(e)
 
     threads = [threading.Thread(target=opener) for _ in range(2)]

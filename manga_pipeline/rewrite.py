@@ -583,7 +583,7 @@ def finish_all(ctx: workflow.Context) -> None:
                 finish(ctx, row)
         except workflow.Unreachable:
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # this row's problem: recorded on its row as 1 attempt; the run goes on
             with db.transaction(ctx.conn):
                 ctx.conn.execute(
                     """UPDATE published_file SET pending_error = %s, pending_attempts = pending_attempts + 1
@@ -789,7 +789,7 @@ def restore_all(ctx: workflow.Context) -> None:
                 listed[row["kid"]] = {f["path"]: f for f in ctx.kavita.series_files(row["kid"])}
             except workflow.Unreachable:
                 raise
-            except Exception as e:  # e.g. a series Kavita no longer holds: its rows wait; the run goes on
+            except Exception as e:  # noqa: BLE001  # e.g. a series Kavita no longer holds: its rows wait; the run goes on
                 log.warning("%s: Kavita series %s: files not read: %s", ctx.part, row["kid"], e)
                 listed[row["kid"]] = {}
         seen = listed[row["kid"]].get(config.to_local(ctx.cfg, row["library_path"]))
@@ -799,7 +799,7 @@ def restore_all(ctx: workflow.Context) -> None:
             _restore(ctx, row, seen)
         except workflow.Unreachable:
             raise
-        except Exception as e:  # this row's problem: logged, tried again next run; the run goes on
+        except Exception as e:  # noqa: BLE001  # this row's problem: logged, tried again next run; the run goes on
             log.warning("%s: %s: progress not restored: %s", ctx.part, row["library_path"], e)
             continue
         with db.transaction(ctx.conn):  # carry_cover stays: refresh_covers ends it
@@ -828,7 +828,7 @@ def refresh_covers(ctx: workflow.Context) -> None:
             ctx.kavita.refresh_covers(ctx.cfg["kavita"]["library_id"], row["kid"])
         except workflow.Unreachable:
             raise
-        except Exception as e:  # this series' problem: asked again next run; the run goes on
+        except Exception as e:  # noqa: BLE001  # this series' problem: asked again next run; the run goes on
             log.warning("%s: Kavita series %s: cover images not refreshed: %s", ctx.part, row["kid"], e)
             continue
         with db.transaction(ctx.conn):
