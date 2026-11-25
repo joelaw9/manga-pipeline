@@ -269,6 +269,29 @@ def test_an_override_range_gives_a_new_chapter_its_volume_whatever_the_basis(bas
 
 
 @budget(load="pure")
+def test_volume_starts_give_a_new_chapter_its_volume_over_mangadex():
+    rows = [settled(1, 1, "mangadex"), new(4.5)]
+    got = volume_of("mangadex", rows, 4.5, {"volume_starts": {1: 0, 2: 5}}, {"1": "1", "4.5": "2"})
+    assert got == (1, "override"), "volume 1 runs up to volume 2's start: 4.5 is in it, whatever MangaDex says"
+
+
+@budget(load="pure")
+def test_volume_starts_make_a_new_series_an_override_series():
+    rows = [new(1), new(4.5), new(6)]
+    assert naming.choose(rows, {"volume_starts": {1: 1, 2: 5}}, {}) == volumes.OVERRIDE, (
+        "a file that volumes a main chapter is the basis when nothing before it in the order does"
+    )
+
+
+@budget(load="pure")
+def test_volume_starts_cover_as_the_same_ranges_do():
+    rows = [settled(1, 1, "override"), settled(2, 1, "override"), settled(3, 2, "override")]
+    starts = naming.covered_volumes("override", rows, {"volume_starts": {1: 1, 2: 3}}, {})
+    ranges = naming.covered_volumes("override", rows, {"volumes": {1: "1-2", 2: "3-"}}, {})
+    assert starts == ranges == {1, 2}, "a volume start's volume is covered as an override range's is"
+
+
+@budget(load="pure")
 def test_a_filler_out_of_order_among_its_own_fills_is_not_used():
     rows = [settled(1, 1, "filename"), new(2), new(3)]
     got = named("filename", rows, None, {"2": "3", "3": "2"})

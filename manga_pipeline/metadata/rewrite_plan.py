@@ -1,8 +1,8 @@
 """Which published files' volumes should change (SPEC "Retroactive updates"): pure over the resolver's rows.
 
 A published main chapter's volume changes only from none to a volume (the gap fill, or the series' basis newly giving
-one) or to its override range's volume. A source moving or dropping a published volume changes nothing; `differences`
-lists it for `naming diff`.
+one) or to the volume its override file's range or start gives. A source moving or dropping a published volume
+changes nothing; `differences` lists it for `naming diff`.
 """
 
 import dataclasses
@@ -29,7 +29,7 @@ def changes(
     rows: the resolver's rows of the series (published rows keyed ("published", id)). VolumeError as naming.resolve
     raises it.
     """
-    override = (overrides or {}).get("volumes") or {}
+    override = overrides or {}
     published = {i: fid for i, r in enumerate(rows) if (fid := _file_id(r)) is not None and r.kind == names.MAIN}
     out: dict[int, tuple[float, str]] = {}
     for i, v in naming.override_volumes(override, rows, published).items():
@@ -141,7 +141,7 @@ def differences(
     sources would move or drop, which 7e never applies (SPEC "Retroactive updates"). A volume from the files themselves
     cannot be read again: the record keeps no download.
     """
-    override = (overrides or {}).get("volumes") or {}
+    override = overrides or {}
     published = {i: fid for i, r in enumerate(rows) if (fid := _file_id(r)) is not None and r.kind == names.MAIN}
     ranged = naming.override_volumes(override, rows, published)
     rereadable = (naming.MANGADEX, *naming.platforms.BASES)

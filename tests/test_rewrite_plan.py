@@ -87,6 +87,13 @@ def test_an_override_range_moves_a_published_volume():
 
 
 @budget(load="pure")
+def test_volume_starts_move_a_published_part_chapter_into_its_volume():
+    rows = [pub(1, 4, 1, "mangadex"), pub(2, 4.5, None, "none"), pub(3, 5, 2, "mangadex")]
+    got = rewrite_plan.changes("mangadex", rows, {"volume_starts": {1: 0, 2: 5}}, {"4": "1", "5": "2"})
+    assert got == {2: (1, "override")}, "4.5 lies between volume 1's start and volume 2's: volume 1"
+
+
+@budget(load="pure")
 def test_an_override_range_does_not_reach_a_season_chapter():
     rows = [dataclasses.replace(pub(n, n, 1, "season tags"), season=1) for n in (1, 2)]
     assert rewrite_plan.changes("season tags", rows, {"volumes": {2: "2"}}, {}) == {}, "a season's numbers restart"
