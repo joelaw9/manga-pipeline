@@ -906,3 +906,44 @@ def test_an_override_naming_the_same_layout_resets_no_chapter(site):
     with closing(db.connect(site.cfg)) as conn:
         chapter = present(conn.execute("SELECT * FROM chapter WHERE id = 1").fetchone())
         assert junk_stage.current_scan(conn, chapter) is not None, "its scan is still current"
+
+
+def refill(site):
+    """Return each chapter's junk refill record (junk_candidates, junk_new_series), in id order."""
+    return site.rows("SELECT junk_candidates, junk_new_series FROM chapter ORDER BY id")
+
+
+@budget(load="db", seconds=10)
+def test_the_first_decide_after_a_scan_records_its_candidates_and_a_later_one_keeps_them(site):
+    site.download("Alpha", 2, cbz(credit=True))
+    site.parts()
+    assert refill(site) == [(1, True)], "the first decide waits on 1 candidate; the series has no decision of its own"
+    decide_junk(site.cfg, "keep")
+    run_part(site.cfg, process)
+    assert site.chapters()[0][0] != "junk", "decided, the chapter goes on"
+    assert refill(site) == [(1, True)], "the decide that ends Done keeps the first decide's record"
+
+
+@budget(load="db", seconds=10)
+def test_a_new_scan_clears_the_record(site):
+    site.download("Alpha", 2, cbz(credit=True))
+    site.parts()
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE chapter SET junk_candidates = 99")
+        conn.execute("DELETE FROM junk_scan")  # the scan is gone: the chapter is scanned again
+        conn.execute("UPDATE chapter SET status = 'ready', waiting_on = NULL")
+    run_part(site.cfg, process)
+    assert refill(site) == [(1, True)], "a new scan clears the record; its first decide records it anew"
+
+
+@budget(load="db", seconds=20)
+def test_a_first_decide_held_on_unsure_candidates_records_them(site):
+    site.download("Alpha", 2, cbz(credit=True))
+    site.parts()
+    (cand,) = open_candidates(site)
+    with closing(db.connect(site.cfg)) as conn:
+        review.decide(conn, [cand["id"]], "unsure", None, workflow.now(conn))
+    site.download("Alpha", 3, cbz(credit=True))
+    site.parts()
+    got = site.rows("SELECT status, junk_candidates FROM chapter ORDER BY id")
+    assert got[1] == ("needs_human", 1), "a first decide held on an unsure candidate records the candidates it held on"
