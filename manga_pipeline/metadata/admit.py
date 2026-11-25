@@ -19,7 +19,7 @@ from pathlib import Path
 
 from manga_pipeline import config, db, errors, names, workflow
 from manga_pipeline.clients import suwayomi
-from manga_pipeline.clients.kavita_match import normalize, series_names
+from manga_pipeline.clients.kavita_match import series_names
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import ids, merge, series_name
 from manga_pipeline.replies.kavita import Series
@@ -102,17 +102,18 @@ class _Library:
 
 
 def kavita_index(listing: Iterable[Series]) -> series_name.Holders:
-    """Return the names of the listed Kavita series (holder "kavita:<id>")."""
+    """Return the names of the listed Kavita series (holder: series_name.kavita_key)."""
     return series_name.index(
-        (f"kavita:{s['id']}", series_names(s), f"Kavita series {s['id']} ({s['name']}) has that name") for s in listing
+        (series_name.kavita_key(s["id"]), series_names(s), f"Kavita series {s['id']} ({s['name']}) has that name")
+        for s in listing
     )
 
 
 def new_series_index(conn: db.Connection) -> series_name.Holders:
-    """Return the ComicInfo and localized names of the new series Kavita does not hold yet (holder "series:<id>")."""
+    """Return the ComicInfo and localized names of the new series Kavita does not hold yet (series_name.series_key)."""
     return series_name.index(
         (
-            f"series:{r['id']}",
+            series_name.series_key(r["id"]),
             (r["comicinfo_series"], r["localized_name"]),
             f"new series {r['id']} ({r['comicinfo_series']}) has that name",
         )
@@ -134,8 +135,7 @@ def name_for(conn: db.Connection, series: db.Row) -> series_name.Chosen:
     if chosen.name:
         return chosen
     name = series["alt_name"] or series["name"]
-    romaji = "" if normalize(chosen.romaji) == normalize(name) else chosen.romaji
-    return series_name.Chosen(name, romaji, "arrived")
+    return series_name.Chosen(name, series_name.romaji_beside(name, chosen.romaji), "arrived")
 
 
 def _admit(ctx: workflow.Context, series: db.Row, library: _Library, sources: Sequence[Source]) -> None:
@@ -231,4 +231,4 @@ def _clash(conn: db.Connection, series: db.Row, name: str, library: _Library, so
 
 def _held(conn: db.Connection, series: db.Row, name: str, library: _Library) -> str | None:
     """Why a Kavita series, or another new series Kavita does not hold yet, has the name; or None."""
-    return series_name.taken(name, (new_series_index(conn), library.holders), {f"series:{series['id']}"})
+    return series_name.taken(name, (new_series_index(conn), library.holders), {series_name.series_key(series["id"])})

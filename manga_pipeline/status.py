@@ -24,7 +24,7 @@ def run(cfg: config.Config) -> list[str]:
     with closing(db.read_only(cfg)) as conn:
         lines = report(conn)
         with conn.transaction():
-            run = rename.read_db(cfg, conn, None, files=False)
+            run = rename.read_db(cfg, conn, None, for_status=True)
         names = rename.waiting(cfg, run)  # override files: a share read, outside the snapshot
     return [*lines, "Series names waiting for series rename:", *(names or ["  none"])]
 

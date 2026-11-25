@@ -4,6 +4,8 @@ Kavita first, then the files, the folder, the rows.
 """
 
 import copy
+import errno
+import sys
 from contextlib import closing
 
 import pytest
@@ -281,12 +283,13 @@ def test_recorded_sizes_follow_the_rewritten_files(world):
 
 
 @budget(load="db", seconds=10)
-def test_a_cbz_in_the_folder_without_a_row_leaves_the_series(world):
+@pytest.mark.parametrize("stray", ["Stray.cbz", "Stray.CBR", "Stray.tar.gz"])
+def test_an_archive_in_the_folder_without_a_row_leaves_the_series(world, stray):
     sid = checked(world, "Solo Leveling")
-    (world.library / "Ore Dake" / "Stray.cbz").write_bytes(b"")
+    (world.library / "Ore Dake" / stray).write_bytes(b"")
     done, left = renamed(world, sid)
     assert done == []
-    assert "has no row for: Stray.cbz" in left[0], "it would keep the old name"
+    assert f"has no row for: {stray}" in left[0], "any archive Kavita reads, in any case, would keep the old name"
 
 
 @budget(load="db", seconds=10)
@@ -409,7 +412,7 @@ def test_a_renamed_series_series_only_named_by_its_old_name_is_listed(world):
 
 
 @budget(load="db", seconds=20)
-def test_series_rename_renames_prints_done_and_exits_0(world, tmp_path, monkeypatch, capsys):
+def test_series_rename_exits_1_when_kavita_has_not_followed_within_the_wait(world, tmp_path, monkeypatch, capsys):
     sid = checked(world, "Solo Leveling")
     monkeypatch.setattr(workflow, "context", lambda _cfg, conn, part: world.context(conn, part))
     argv = ["--config", str(config_file(tmp_path, world.cfg)), "series", "rename", str(sid), "--wait", "0"]
@@ -418,3 +421,77 @@ def test_series_rename_renames_prints_done_and_exits_0(world, tmp_path, monkeypa
     assert f"series {sid} (Ore Dake): name -> 'Solo Leveling'" in captured.out, captured.out
     assert "Kavita has not followed its folder to library/Solo Leveling" in captured.err
     assert [w for w in world.kavita.writes if w[0] == "scan_library"], "the scan is requested"
+
+
+@budget(load="db", seconds=20)
+def test_series_rename_exits_0_once_kavita_follows(world, tmp_path, monkeypatch, capsys):
+    sid = checked(world, "Solo Leveling")
+    monkeypatch.setattr(workflow, "context", lambda _cfg, conn, part: world.context(conn, part))
+    monkeypatch.setattr(rename, "POLL_SECONDS", 0)
+    request = world.kavita.scan_library
+
+    def scan_runs_at_once(library_id):
+        request(library_id)
+        world.kavita.run_scans()
+
+    monkeypatch.setattr(world.kavita, "scan_library", scan_runs_at_once)
+    argv = ["--config", str(config_file(tmp_path, world.cfg)), "series", "rename", "--all"]
+    assert cli.main(argv) == 0, "renamed and followed: exit 0"
+    assert f"series {sid} (Ore Dake): name -> 'Solo Leveling'" in capsys.readouterr().out
+
+
+@budget(load="db", seconds=10)
+def test_a_dropped_share_in_an_override_read_is_1_status_line_and_ends_a_rename(world, monkeypatch):
+    sid = checked(world, "Solo Leveling")
+
+    def dropped(_overrides, _key):
+        msg = "I/O error"
+        raise OSError(errno.EIO, msg)
+
+    monkeypatch.setattr(rename.volumes, "override_name", dropped)
+    lines = status.run(world.cfg)
+    section = lines[lines.index("Series names waiting for series rename:") + 1 :]
+    assert section == ["  override files cannot be read: [Errno 5] I/O error"], "1 line, not 1 per series"
+    with pytest.raises(OSError, match="I/O error"):
+        renamed(world, sid)
+
+
+@budget(load="db", seconds=10)
+def test_a_case_only_rename_renames_the_folder(world):
+    sid = checked(world, "Solo Leveling", name="solo leveling")
+    (rules_key,) = world.rows("SELECT rules_key FROM series WHERE id = %s", sid)[0]
+    overrides = config.abs_path(world.cfg["paths"]["naming_overrides"])
+    overrides.mkdir(parents=True, exist_ok=True)
+    (overrides / f"{rules_key}.yaml").write_bytes(b"name: Solo Leveling\n")  # a person's spelling: case-only
+    done, left = renamed(world, sid)
+    assert ([p.series["id"] for p in done], left) == ([sid], [])
+    assert sorted(p.name for p in world.library.iterdir() if p.is_dir()) == ["Solo Leveling"], "renamed in place"
+    assert world.rows("SELECT folder, comicinfo_series FROM series") == [("library/Solo Leveling", "Solo Leveling")]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="2 folders differing only in case need a case-sensitive file system"
+)
+@budget(load="db", seconds=10)
+def test_a_folder_differing_only_in_case_is_taken(world):
+    sid = checked(world, "Solo Leveling", name="solo leveling")
+    (rules_key,) = world.rows("SELECT rules_key FROM series WHERE id = %s", sid)[0]
+    overrides = config.abs_path(world.cfg["paths"]["naming_overrides"])
+    overrides.mkdir(parents=True, exist_ok=True)
+    (overrides / f"{rules_key}.yaml").write_bytes(b"name: Solo Leveling\n")
+    (world.library / "Solo Leveling").mkdir()
+    done, left = renamed(world, sid)
+    assert done == []
+    assert "the folder name is taken by library/Solo Leveling" in left[0]
+
+
+@budget(load="db", seconds=10)
+def test_status_tests_a_romaji_against_series_out_of_series_only(world):
+    world.kavita_series("Ore-Dake Level Up")
+    sid = checked(world, "Solo Leveling", romaji="Ore Dake Level Up")
+    renamed(world, sid)
+    cfg = copy.deepcopy(world.cfg)
+    cfg["series"]["only"] = ["Solo Leveling"]
+    lines = status.run(cfg)
+    section = lines[lines.index("Series names waiting for series rename:") + 1 :]
+    assert section == ["  none"], "the romaji another series of the library holds is left out, as series rename does"

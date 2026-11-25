@@ -3,8 +3,9 @@
 `read_db` reads the run's series from the database (in the caller's snapshot); `check` then reads Kavita, the override
 files and every file and decides each series' plan, writing nothing. `apply` renames each planned series in turn:
 Kavita's name first (the files' old name kept as its localized name, so both match 1 series), the files, the folder,
-Kavita's localized name, then 1 transaction. `wait_for_kavita` requests 1 library scan and waits until Kavita follows
-each moved folder. `waiting` is status' list, from the stored names.
+Kavita's localized name, then 1 transaction (when no file changes, Kavita's names come before the folder).
+`wait_for_kavita` requests 1 library scan and waits until Kavita follows each moved folder. `waiting` is status' list,
+from the stored names.
 """
 
 import logging
@@ -30,8 +31,9 @@ POLL_SECONDS = 30
 ELIGIBLE = sql.SQL("""(s.status = 'ok' AND s.kavita_series_id IS NOT NULL AND s.folder IS NOT NULL
     AND (s.baseline_at IS NOT NULL OR s.origin = 'new')
     AND EXISTS (SELECT 1 FROM series_check k WHERE k.series_id = s.id AND k.data_version > 0))""")
-# Archive kinds Kavita reads as chapters: a file of these in a series folder must have its row (it is rewritten)
-ARCHIVES = (".cbz", ".cbr", ".cb7", ".cbt", ".zip", ".rar", ".7z")
+# Archive kinds Kavita reads as chapters (name endings, any case): a file of these in a series folder must have its
+# row, as it is rewritten
+ARCHIVES = (".cbz", ".cbr", ".cb7", ".cbt", ".zip", ".rar", ".7z", ".7zip", ".tar.gz")
 # What a Kavita write can raise for 1 series: the series is listed and the run goes on.
 KAVITA_ERRORS = (http.HttpError, ReplyError, workflow.Unreachable)
 NO_CHOICE = series_name.Chosen("", "", "")  # a series not decided yet
@@ -126,8 +128,12 @@ class Outcome:
         self.left.append(line)
 
 
-def read_db(cfg: config.Config, conn: db.Connection, series_ids: Sequence[int] | None, *, files: bool = True) -> Run:
-    """Read the run's series (series_ids; None: every eligible series in scope): rows, records, files (when asked).
+def read_db(
+    cfg: config.Config, conn: db.Connection, series_ids: Sequence[int] | None, *, for_status: bool = False
+) -> Run:
+    """Read the run's series (series_ids; None: every eligible series in scope): rows, records, files.
+
+    for_status: no files; the library's stored names instead (status' clash test).
 
     workflow.Refused for an id of no series in scope; an asked-for series that may not be renamed gets its problem.
     """
@@ -145,7 +151,7 @@ def read_db(cfg: config.Config, conn: db.Connection, series_ids: Sequence[int] |
         msg = f"no such series in scope: {', '.join(map(str, missing))}"
         raise workflow.Refused(msg)
     by_series: dict[int, list[File]] = {}
-    if files:
+    if not for_status:
         for f in conn.execute(
             sql.SQL("""SELECT p.series_id, p.library_path, p.size IS NOT NULL AS sized FROM published_file p
             JOIN series s ON s.id = p.series_id WHERE {where} AND {scope} ORDER BY p.library_path""").format(
@@ -171,17 +177,21 @@ def read_db(cfg: config.Config, conn: db.Connection, series_ids: Sequence[int] |
         elif row["busy"]:
             one = replace(one, problem="busy: a chapter claimed or at publish or confirm, or a file with a change due")
         planned.append(one)
-    stored = conn.execute(
-        """SELECT kavita_series_id, name, localized_name, original_name FROM series
-        WHERE kavita_series_id IS NOT NULL AND kavita_library_id = %(scope_library)s""",
-        params,
-    ).fetchall()
+    stored = (
+        conn.execute(
+            """SELECT kavita_series_id, name, localized_name, original_name FROM series
+            WHERE kavita_series_id IS NOT NULL AND kavita_library_id = %(scope_library)s""",
+            params,
+        ).fetchall()
+        if for_status
+        else []
+    )
     return Run(
         planned,
         admit.new_series_index(conn),
         series_name.index(
             (
-                f"kavita:{r['kavita_series_id']}",
+                series_name.kavita_key(r["kavita_series_id"]),
                 (r["name"], r["localized_name"], r["original_name"]),
                 f"Kavita series {r['kavita_series_id']} ({r['name']}) has that name",
             )
@@ -209,7 +219,7 @@ def with_override(cfg: config.Config, one: Planned) -> Planned:
 
 def _own_keys(series: db.Row) -> set[str]:
     """Return the holder keys of the series itself."""
-    return {f"series:{series['id']}", f"kavita:{series['kavita_series_id']}"}
+    return {series_name.series_key(series["id"]), series_name.kavita_key(series["kavita_series_id"])}
 
 
 def _names(
@@ -263,7 +273,13 @@ def check(ctx: workflow.Context, run: Run) -> list[Planned]:
         if not one.problem:
             sid = one.series["id"]
             mine = series_name.index(
-                [(f"series:{sid}", (one.chosen.name, one.chosen.romaji), f"series {sid} of this run gets that name")]
+                [
+                    (
+                        series_name.series_key(sid),
+                        (one.chosen.name, one.chosen.romaji),
+                        f"series {sid} of this run gets that name",
+                    )
+                ]
             )
             for key, more in mine.items():
                 taken_in_run.setdefault(key, []).extend(more)
@@ -303,7 +319,8 @@ def _folders(cfg: config.Config, one: Planned) -> Planned:
 
     The parent folder is listed once and names compared exactly, so a case-only rename is seen on a share that ignores
     case too. After a stop past the folder rename, the old folder is gone and the target holds every published name.
-    When files are rewritten, the folder must hold no CBZ the series has no row for (it would keep the old name).
+    When files are rewritten, the folder must hold no archive (ARCHIVES) the series has no row for: it would keep the
+    old name.
     """
     stored = one.series["folder"]
     parent = PurePosixPath(stored).parent
@@ -330,7 +347,7 @@ def _folders(cfg: config.Config, one: Planned) -> Planned:
         one = replace(one, target=target)
     if one.due.files:
         now = config.to_local(cfg, one.folder)
-        stray = sorted(p.name for p in now.iterdir() if p.suffix.lower() in ARCHIVES and p.name not in published)
+        stray = sorted(p.name for p in now.iterdir() if p.name.lower().endswith(ARCHIVES) and p.name not in published)
         if stray:
             msg = f"{one.folder} holds files the series has no row for: {', '.join(stray[:3])}"
             raise _LeftError(msg)

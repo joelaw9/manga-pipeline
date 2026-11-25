@@ -319,9 +319,10 @@ def series_rename(cfg: config.Config, args: argparse.Namespace, conn: db.Connect
     _lines(f"{p.line()}: done" for p in outcome.renamed)
     _lines(rename.only_lines(cfg, outcome.renamed))
     behind = rename.wait_for_kavita(ctx, outcome.moved, args.wait) if outcome.renamed or outcome.moved else []
-    left = outcome.left + [f"series {p.series['id']}: Kavita has not followed its folder to {p.target}" for p in behind]
-    if left:
-        msg = "not done:\n" + "\n".join(left)
+    for p in behind:
+        outcome.leave(f"series {p.series['id']}: Kavita has not followed its folder to {p.target}")
+    if outcome.left:
+        msg = f"{len(outcome.left)} series not done (listed above)"
         raise rename.RenameError(msg)
 
 

@@ -119,13 +119,26 @@ def chosen(own: Own, records: SeriesRecords, person: str | None) -> Chosen:
     romaji = al_romaji or next(
         (n for n in (own.name, own.localized, own.original) if n and normalize(n) in romanized), ""
     )
-    if normalize(romaji) == normalize(name):
-        romaji = ""
-    return Chosen(name, romaji, source)
+    return Chosen(name, romaji_beside(name, romaji), source)
 
 
-# {normalised name: [(holder key, who holds it)]}; a holder key is "kavita:<Kavita id>" or "series:<series id>"
+def romaji_beside(name: str, romaji: str) -> str:
+    """Return the romanized name a series named name has: none when it equals the name under Kavita's normalising."""
+    return "" if normalize(romaji) == normalize(name) else romaji
+
+
+# {normalised name: [(holder key, who holds it)]}; a holder key is kavita_key's or series_key's
 type Holders = dict[str, list[tuple[str, str]]]
+
+
+def kavita_key(kavita_series_id: int) -> str:
+    """Return the holder key of a Kavita series."""
+    return f"kavita:{kavita_series_id}"
+
+
+def series_key(series_id: int) -> str:
+    """Return the holder key of a series row (a new series Kavita does not hold yet, or a series of the run)."""
+    return f"series:{series_id}"
 
 
 def index(holders: Iterable[tuple[str, Iterable[str | None], str]]) -> Holders:
