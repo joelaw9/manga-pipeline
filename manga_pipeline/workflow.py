@@ -453,7 +453,7 @@ def work(ctx: Context, chapter: db.Row, stage: Stage) -> OUTCOMES | ClaimLost | 
             chapter["stage"],
         )
         return e
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # the stage boundary: whatever a stage raises is its chapter's failure
         outcome = Failed(f"{type(e).__name__}: {e}")
     if not isinstance(outcome, OUTCOMES):
         msg = f"stage {stage.__module__}.{stage.__name__} returned {outcome!r}, not an outcome"

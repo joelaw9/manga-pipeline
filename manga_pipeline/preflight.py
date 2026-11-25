@@ -374,7 +374,7 @@ def fleet_version(cfg: config.Config) -> str | None:
     try:
         with closing(db.open_database(cfg, builds=False)) as conn:
             return fleet.problem(conn, cfg)
-    except Exception as e:  # a check turns its own errors into its problem text
+    except Exception as e:  # noqa: BLE001  # a check turns its own errors into its problem text
         return f"cannot compare this machine with the fleet's version: {type(e).__name__}: {e}"
 
 

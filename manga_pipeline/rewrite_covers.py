@@ -171,7 +171,7 @@ def _cover_page(ctx: workflow.Context, published: db.Row) -> bytes | None:
         return None
     try:
         images.open_image(data)  # decoded whole, as validation decodes: a sound header on a broken body fails too
-    except Exception as e:  # Pillow raises many types on a page it cannot decode
+    except Exception as e:  # noqa: BLE001  # Pillow raises many types on a page it cannot decode
         log.warning("%s: its cover page cannot be decoded, its replacement goes without: %s", path, e)
         return None
     return data
@@ -206,7 +206,7 @@ def fill_states(ctx: workflow.Context, series: db.Row) -> bool:
             states = _read_states(cfg, series, rows)
     except workflow.Unreachable:
         raise
-    except Exception as e:  # this series' file or record: not compared this run; the run goes on
+    except Exception as e:  # noqa: BLE001  # this series' file or record: not compared this run; the run goes on
         log.warning("%s: series %s (%s): covers not read: %s", ctx.part, series["id"], series["name"], e)
         return False
     with db.transaction(conn):

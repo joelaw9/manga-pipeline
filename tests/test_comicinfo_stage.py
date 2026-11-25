@@ -91,7 +91,7 @@ def test_a_published_file_holds_the_series_fields_its_source_and_its_pages(world
         "the series' links, then the chapter's page at its source"
     )
     assert got["Manga"] == "YesAndRightToLeft", "a page series with no left-to-right genre reads right to left"
-    root = ET.fromstring(xml)
+    root = ET.fromstring(xml)  # noqa: S314  # XML the program under test wrote
     pages = present(root.find("Pages")).findall("Page")
     assert got["PageCount"] == str(len(pages)) == "3"
     assert got["BlackAndWhite"] in ("Yes", "No")

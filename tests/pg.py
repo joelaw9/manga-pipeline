@@ -191,7 +191,7 @@ class Process:
             try:
                 leaks += self._end_leaks(name)
                 self.reset(name, rebuild=name in unbuilt)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # whatever a reset raises retires that database; the first failure is raised after the loop
                 set_print(self.owner, name, "")
                 self.slots[n] = self._take()
                 failed = failed or e
