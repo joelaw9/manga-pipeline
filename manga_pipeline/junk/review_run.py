@@ -21,7 +21,7 @@ import sys
 import uuid
 from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePath
-from typing import Literal, TypedDict
+from typing import Literal, NamedTuple, TypedDict
 
 import yaml
 
@@ -167,8 +167,22 @@ def _meta(conn: db.Connection, values: Iterable[tuple[str, str]]) -> None:
         )
 
 
+class Outcome(NamedTuple):
+    """A Claude run's result ("ok: ..." or "error: ..."), and whether it counts a review for its listed candidates.
+
+    A run with a refused tool call counts none: the refusal is the run's (a command written in a refused form), not
+    the candidates'.
+    """
+
+    result: str
+    counts: bool
+
+
 def run(cfg: config.Config, conn: db.Connection) -> None:
-    """Run 1 review. Raises ReviewError when Claude's run failed; the reviews are counted either way."""
+    """Run 1 review. Raises ReviewError when Claude's run failed.
+
+    The reviews are counted either way, but for a run with a refused tool call (Outcome).
+    """
     _meta(conn, [("last_start", workflow.now(conn))])
     with db.transaction(conn):
         conn.execute("UPDATE junk_candidate SET review_open = 0 WHERE review_open = 1")  # left by a killed review
@@ -190,23 +204,25 @@ def run(cfg: config.Config, conn: db.Connection) -> None:
         _meta(conn, [("last_end", end), ("last_result", "ok: nothing to review"), ("last_success", end)])
         return
     review_id = uuid.uuid4().hex
-    result = "error: not run"
+    outcome = Outcome("error: not run", counts=True)
     try:
         folder.mkdir(parents=True)
         child = folder / f"{review_id}.yaml"
         child.write_bytes(yaml.safe_dump(child_config(cfg), sort_keys=False).encode("utf-8"))
         prefix = join_command([sys.executable, "-m", "manga_pipeline.cli", "--config", str(child), "junk"])
         try:
-            result = _claude(cfg, prefix, review_id)
+            outcome = _claude(cfg, prefix, review_id)
         except ReviewError as e:  # Claude could not start: recorded as the result
-            result = f"error: {e}"
+            outcome = Outcome(f"error: {e}", counts=True)
     finally:
         with db.transaction(conn):
-            counted = conn.execute(
-                """UPDATE junk_candidate SET reviews = reviews + 1, review_open = 0
+            listed = conn.execute(
+                """UPDATE junk_candidate SET reviews = reviews + %s, review_open = 0
                 WHERE review_id = %s AND review_open = 1""",
-                (review_id,),
+                (int(outcome.counts), review_id),
             ).rowcount
+        counted = listed if outcome.counts else 0
+        result = outcome.result
         shutil.rmtree(folder, ignore_errors=True)
         groups.remove_all(cfg)
         end = workflow.now(conn)
@@ -217,8 +233,8 @@ def run(cfg: config.Config, conn: db.Connection) -> None:
         raise ReviewError(result)
 
 
-def _claude(cfg: config.Config, prefix: str, review_id: str) -> str:
-    """Run Claude; returns "ok: ..." or "error: ..."."""
+def _claude(cfg: config.Config, prefix: str, review_id: str) -> Outcome:
+    """Run Claude; return its Outcome: "ok: ..." or "error: ...", counting reviews unless a tool call was refused."""
     prompt = PROMPT.read_text(encoding="utf-8").replace("{prefix}", prefix)
     env = child_env(cfg["junk"]["claude_token"], review_id)
     cwd = config.abs_path(cfg["paths"]["candidates"])
@@ -238,21 +254,24 @@ def _claude(cfg: config.Config, prefix: str, review_id: str) -> str:
                 check=False,  # the exit is judged below
             )
     except subprocess.TimeoutExpired:
-        return f"error: claude was killed after {TIMEOUT_S} s; {contexts(_reply(out))}"
+        return Outcome(f"error: claude was killed after {TIMEOUT_S} s; {contexts(_reply(out))}", counts=True)
     lines = _reply(out)
     results = [line for line in lines if line.get("type") == "result"]
     reply = results[-1] if results else None
     if reply is None:
         why = f"claude exited {done.returncode}" if done.returncode else "claude printed no JSON result"
-        return f"error: {why}; {contexts(lines)}"
+        return Outcome(f"error: {why}; {contexts(lines)}", counts=True)
+    used = usage(lines, reply)
     if denials := reply.get("permission_denials"):
         log.warning("junk review %s: claude was refused %s", review_id, denials)
-    used = usage(lines, reply)
+        return Outcome(
+            f"error: claude was refused {len(denials)} tool call(s), no review counted; {used}", counts=False
+        )
     if done.returncode != 0:
-        return f"error: claude exited {done.returncode}; {used}"
+        return Outcome(f"error: claude exited {done.returncode}; {used}", counts=True)
     if reply.get("is_error"):
-        return f"error: claude reported an error ({reply.get('subtype')}); {used}"
-    return f"ok: {reply.get('num_turns')} turn(s), {used}"
+        return Outcome(f"error: claude reported an error ({reply.get('subtype')}); {used}", counts=True)
+    return Outcome(f"ok: {reply.get('num_turns')} turn(s), {used}", counts=True)
 
 
 def context(u: Usage) -> int:
