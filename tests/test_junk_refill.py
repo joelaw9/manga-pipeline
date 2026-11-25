@@ -101,3 +101,9 @@ def test_step_0075_backfills_the_chapters_with_a_stored_scan(site):
     assert [tuple(r) for r in got] == [(2, True), (None, None)], (
         "a chapter waiting on candidates is recorded from its scan; one scanned, not yet decided, is left to its decide"
     )
+
+
+@budget(load="db")
+def test_status_reports_none_when_no_chapter_and_no_decision_is_in_the_window(site):
+    _cfg, conn = site
+    assert section(status.report(conn))[0] == "  none", "an empty refill section reads none, as the others do"

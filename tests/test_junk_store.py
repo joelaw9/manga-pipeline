@@ -556,11 +556,15 @@ def unit_of(key) -> strip_units.BlockUnit:
     return {"kind": "block", "sig": key, "start": 0, "end": 300, "where": "head", "probes": []}
 
 
-def schema_without(tmp_path, monkeypatch, step):
-    """db.SCHEMA replaced by a copy without `step` (monkeypatch.undo() brings the program's back)."""
+def schema_without(tmp_path, monkeypatch, *steps):
+    """db.SCHEMA replaced by a copy without `steps` (monkeypatch.undo() brings the program's back).
+
+    A later step that reads what the tested step adds is left out with it: a real database never holds it without.
+    """
     before = tmp_path / "schema"
     shutil.copytree(db.SCHEMA, before)
-    (before / step).unlink()
+    for step in steps:
+        (before / step).unlink()
     monkeypatch.setattr(db, "SCHEMA", before)
 
 
@@ -597,7 +601,7 @@ def test_step_0042_deletes_decisions_and_candidates_on_unsignable_keys(tmp_path,
 @budget(3.0, load="db")
 def test_step_0040_names_each_series_by_its_first_folder_and_a_later_folder_leaves_it(tmp_path, monkeypatch):
     cfg = site_cfg(tmp_path, built=False)
-    schema_without(tmp_path, monkeypatch, "0040_series_rules_key.sql")
+    schema_without(tmp_path, monkeypatch, "0040_series_rules_key.sql", "0075_junk_refill.sql")  # 0075 reads rules_key
     old = db.connect(cfg)
     for name, folder in (("win", r"C:\lib\Solo Leveling"), ("posix", "/lib/Top/Omniscient Reader/"), ("held", None)):
         old.execute("INSERT INTO series (name, origin, folder) VALUES (%s, 'new', %s)", (name, folder))

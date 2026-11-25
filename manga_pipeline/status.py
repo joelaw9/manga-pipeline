@@ -240,6 +240,8 @@ def _junk_refill(conn: db.Connection) -> list[str]:
         (since,),
     ).fetchall()
     held = db.one_row(conn, "SELECT count(*) FROM chapter WHERE stage = 'junk' AND status = 'needs_human'", ())[0]
+    if not (groups or open_now or days or held):
+        return [*lines, "  none"]
     per_day = ", ".join(f"{day} {n}" for day, n in days) or "none"
     return [
         *lines,
