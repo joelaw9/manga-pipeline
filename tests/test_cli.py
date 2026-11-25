@@ -41,6 +41,8 @@ ARGV = {
     "state reset": ["state", "reset", "--yes"],
     "state adopt": ["state", "adopt", "--yes"],
     "state version": ["state", "version", "--yes"],
+    "state pause": ["state", "pause"],
+    "state resume": ["state", "resume"],
 }
 PARTS = ("intake", "process", "export", "junk-review")
 LOCKED = ["runtime version", "free disk space", "folder layout", "share folders"]
@@ -82,12 +84,19 @@ SPEC = {
         None,
         ["runtime version", "free disk space", "image tools", "scorer"],
     ),
+    "state pause": (set(), None, []),
+    "state resume": (set(), None, []),
 }
 
 
 @pytest.fixture(autouse=True)
 def reset_logging():
     yield
+    close_logs()
+
+
+def close_logs():
+    """Remove and close the handlers a run's logs.setup added to the program's logger."""
     for handler in logging.getLogger("manga_pipeline").handlers[:]:
         logging.getLogger("manga_pipeline").removeHandler(handler)
         handler.close()
@@ -95,7 +104,12 @@ def reset_logging():
 
 @pytest.fixture
 def site(tmp_path):
-    """Provide --set items giving a run its own folders under tmp_path.
+    """Provide --set items giving a run its own folders under tmp_path (make_site)."""
+    return make_site(tmp_path)
+
+
+def make_site(tmp_path):
+    """Return --set items giving a run its own folders under tmp_path.
 
     The staging folder is present (the share is mounted) and there is no owner file yet.
     """

@@ -464,3 +464,6 @@ def test_status_sections_come_from_1_snapshot(tmp_path, monkeypatch):
 class _Rows(list):
     def fetchall(self):
         return list(self)
+
+    def fetchone(self):
+        return self[0] if self else None

@@ -8,7 +8,7 @@ Read-only: it never creates, migrates or writes the database.
 from contextlib import closing
 from datetime import datetime, timedelta
 
-from manga_pipeline import config, db, kavita_link, notify, rewrite, workflow
+from manga_pipeline import config, db, kavita_link, notify, pause, rewrite, workflow
 from manga_pipeline.db import sql
 
 TITLES_SHOWN_DAYS = 30  # status lists the series titles changed at the sources this many days back
@@ -29,6 +29,12 @@ def report(conn: db.Connection) -> list[str]:
         return _report(conn)
 
 
+def _pause(conn: db.Connection) -> list[str]:
+    """Return the automation's pause line, first in the report, when it is paused (SPEC "Parts"); else none."""
+    since = pause.paused(conn)
+    return [] if since is None else [f"Automation paused since {since}: state resume ends it"]
+
+
 def _redownload(row: db.Row) -> str:
     state = workflow.read_redownload(row["redownload"])
     expected = state.get("expected")
@@ -43,6 +49,7 @@ def _redownload(row: db.Row) -> str:
 
 def _report(conn: db.Connection) -> list[str]:
     return [
+        *_pause(conn),
         *_chapters(conn),
         *_runs(conn),
         *_claims(conn),
