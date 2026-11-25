@@ -4,19 +4,20 @@ The program queues conversions by series id, then number; this script, run by ha
 the backfill, fills the room the cap has first with the series of the API key's user's Kavita collection titled
 "Reading" (case ignored), then with the in-scope series that have an open download (needs_human included), through
 the program's own queue (conversions.queue). It takes no lock and never touches the share: the queue's transactions
-re-check each file and the cap.
+re-check each file and the cap. With --scheduled (the intake unit's drop-in), it queues nothing while the automation
+is paused (SPEC "Parts"), reading the pause without applying a schema step.
 
 Exit 1 when Kavita cannot be reached or refuses the key, or when not exactly 1 collection is titled "Reading"; exit 2
 with no database built.
 
-Usage, from the project root: python -m scripts.queue_first [--config PATH]
+Usage, from the project root: python -m scripts.queue_first [--scheduled] [--config PATH]
 """
 
 import argparse
 import sys
 from contextlib import closing
 
-from manga_pipeline import config, conversions, db, logs, workflow
+from manga_pipeline import config, conversions, db, logs, pause, workflow
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.db import sql
 from manga_pipeline.errors import Unreachable
@@ -79,12 +80,19 @@ def main(argv: list[str] | None = None) -> int:
     """Front-load the conversions on the configured database and Kavita; print what was queued."""
     parser = argparse.ArgumentParser(description="Queue the Reading and open-download series' conversions first.")
     parser.add_argument("--config", help="config file (default: config.yaml)")
+    parser.add_argument("--scheduled", action="store_true", help="started by the intake unit: nothing while paused")
     args = parser.parse_args(argv)
     cfg = config.init(args.config)
     logs.setup(cfg, None)
     if not db.built(cfg):
         sys.stderr.write(f"no database {cfg['database']['name']} built yet: nothing to queue\n")
         return 2
+    if args.scheduled:
+        with closing(db.open_database(cfg, builds=False)) as conn:
+            since = pause.paused(conn)
+        if since is not None:
+            sys.stdout.write(f"automation paused since {since}: nothing queued\n")
+            return 0
     try:
         with closing(db.connect(cfg)) as conn:
             lines = front_load(cfg, conn, kavita_client.from_config(cfg))

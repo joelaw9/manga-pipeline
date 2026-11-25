@@ -8,7 +8,7 @@ from contextlib import closing
 
 import pytest
 
-from manga_pipeline import conversions, db, intake
+from manga_pipeline import conversions, db, intake, pause
 from scripts import queue_first
 
 from tests.builders import config_file
@@ -125,3 +125,18 @@ def test_the_reading_collection_is_matched_without_case(world, tmp_path, monkeyp
     assert main(world, tmp_path, monkeypatch) == 0
     assert queued(world) == {"A": 2}
     assert capsys.readouterr().out.endswith("2 queued over 2 series; 2 left (the cap is full)\n")
+
+
+@budget(load="db", seconds=8)
+def test_a_scheduled_run_queues_nothing_while_paused_and_a_run_by_hand_does(world, tmp_path, monkeypatch, capsys):
+    reading(world, "C")
+    cap(world, 3)
+    with closing(db.connect(world.cfg)) as conn:
+        pause.set_pause(conn)
+    monkeypatch.setattr(queue_first.kavita_client, "from_config", lambda _cfg: world.kavita)
+    path = str(config_file(tmp_path, world.cfg))
+    assert queue_first.main(["--scheduled", "--config", path]) == 0
+    assert "automation paused since" in capsys.readouterr().out
+    assert queued(world) == {}, "the intake drop-in's run does nothing while the automation is paused"
+    assert queue_first.main(["--config", path]) == 0
+    assert queued(world) == {"C": 2, "B": 1}, "a run by hand works during a pause"

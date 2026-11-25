@@ -4,6 +4,7 @@ The queue gives a chapter to each confirmed adopted file of an ok series in scop
 number, under the cap; discover links the download to the library file; the conversion then runs as a better copy.
 """
 
+import argparse
 import errno
 import hashlib
 import io
@@ -17,6 +18,7 @@ from PIL import Image
 
 from manga_pipeline import (
     archive,
+    cli,
     config,
     conversions,
     db,
@@ -500,10 +502,11 @@ def test_a_conversion_replaces_its_file_end_to_end_with_origin_pipeline_and_its_
 
 
 @budget(load="db", seconds=10)
-def test_a_bad_adopted_file_is_downloaded_again_and_stays_conversion_work(world):
+@pytest.mark.parametrize("broken", ["005.png", "000_cover.png"], ids=["content-page", "cover-page"])
+def test_a_bad_adopted_file_is_downloaded_again_and_stays_conversion_work(world, broken):
     layout_override(world)
     pages = {f"{i:03}.png": png((40 * i, 90, 120)) for i in range(1, 5)}
-    adopt(world, {"Ch.1.cbz": cbz(seed="a1", pages=4), "Ch.2.cbz": archive_of({**pages, "005.png": b""})})
+    adopt(world, {"Ch.1.cbz": cbz(seed="a1", pages=4), "Ch.2.cbz": archive_of({**pages, broken: b""})})
     manga = world.manga(SERIES)
     world.download(manga, "Chapter 9")  # links the manga to the series
     other = world.suwayomi.add_manga(SERIES, world.suwayomi.add_source("Other"), in_library=False)
@@ -521,7 +524,7 @@ def test_a_bad_adopted_file_is_downloaded_again_and_stays_conversion_work(world)
     world.suwayomi.finish_downloads(cbz(seed="good", pages=4))
     world.run(intake)
     ((stage_, path),) = world.rows("SELECT stage, download_path FROM chapter WHERE id = %s", chapter_id)
-    assert stage_ == "junk", "the new download takes its place"
+    assert stage_ == "junk", "the new download takes its place, an unreadable cover page giving no cover"
     assert not path.startswith("staging/"), "its download is the new one"
     adopted = workflow.REPLACES_ADOPTED.format(c=db.sql.Identifier("c"))
     with closing(db.connect(world.cfg)) as conn:
@@ -540,10 +543,10 @@ def test_a_dropped_conversion_leaves_its_file_and_status_lists_it(world):
     (link_of(world, "Ch.1.cbz") / "x").mkdir(parents=True)  # a link error: needs_human at discover
     world.run(intake)
     chapter_id = chapter_of(world, "Ch.1.cbz")
-    with closing(db.connect(world.cfg)) as conn:
-        workflow.drop_chapter(conn, chapter_id, lambda _c: None)
+    cli.chapter_drop(world.cfg, argparse.Namespace(chapter=chapter_id))
     world.run(intake)
     assert (world.library / SERIES / "Ch.1.cbz").exists(), "the file stays"
+    assert not link_of(world, "Ch.1.cbz").parent.exists(), "its link folder goes once the chapter is done"
     assert world.rows("SELECT count(*) FROM chapter") == [(1,)], "only state reset queues it again"
     file_id = file_ids(world)["Ch.1.cbz"]
     assert f"  file {file_id} (library/{SERIES}/Ch.1.cbz) left as it is: chapter {chapter_id}, dropped by a person" in (

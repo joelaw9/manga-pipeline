@@ -11,6 +11,7 @@ chapter's download is in. Only `intake` runs them, on the LXC, where staging and
 
 import logging
 import os
+import shutil
 import stat
 from collections import Counter
 from collections.abc import Sequence
@@ -58,9 +59,11 @@ def queue(cfg: config.Config, conn: db.Connection, series: Sequence[int] | None 
         params,
     ).fetchall()
     done = Queued()
+    opened = 0
     for i, file in enumerate(files):
         with db.transaction(conn):
-            full = db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(OPEN))[0] >= cap
+            opened = db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(OPEN))[0]
+            full = opened >= cap
             if not full:
                 done.queued[file["series_id"]] += _insert(cfg, conn, file["id"], params)
         if full:
@@ -68,10 +71,11 @@ def queue(cfg: config.Config, conn: db.Connection, series: Sequence[int] | None 
             break
     if done.queued or done.left:
         log.info(
-            "conversions: %d queued; %d adopted file(s) left while %d chapters replacing adopted files are open "
-            "(export.rewrites_open)",
+            "conversions: %d queued; %d adopted file(s) left: %d chapters replacing adopted files are open, the cap "
+            "is %d (export.rewrites_open)",
             done.queued.total(),
             done.left.total(),
+            opened,
             cap,
         )
     return done
@@ -147,7 +151,7 @@ def _link(ctx: workflow.Context, chapter: db.Row, source: Path, target: Path) ->
 def clean_links(cfg: config.Config, conn: db.Connection) -> None:
     """Remove the link folders that no open chapter's download is in, outside any transaction.
 
-    The files inside a folder, then the folder; an entry that cannot be removed is logged and left for the next run. A
+    A folder is removed with what it holds; an entry that cannot be removed is logged and left for the next run. A
     dropped share raises Unreachable("share").
     """
     root = config.abs_path(cfg["paths"]["staging"]) / FOLDER
@@ -163,9 +167,7 @@ def clean_links(cfg: config.Config, conn: db.Connection) -> None:
         try:
             with workflow.share_errors():
                 if entry.is_dir() and not entry.is_symlink():
-                    for item in entry.iterdir():
-                        item.unlink()
-                    entry.rmdir()
+                    shutil.rmtree(entry)  # a link is a name: removing it leaves the library file
                 else:
                     entry.unlink()
         except OSError as e:

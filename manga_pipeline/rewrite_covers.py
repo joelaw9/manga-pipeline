@@ -127,10 +127,8 @@ def held_cover(ctx: workflow.Context, published: db.Row) -> tuple[str, str, str]
     volume = cover_volume(published["cover_state"])  # an old image too: the replacement takes the new one
     if volume is not None and names.to_volume(volume) != names.to_volume(published["comicinfo_volume"]):
         volume = None
-    if published["cover_state"] is None:  # not read yet (export reads it): the file's own cover page says
-        with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
-            if any(is_cover(n) for n in archive.archive_pages(z.namelist())):
-                volume = published["comicinfo_volume"] or ""
+    if published["cover_state"] is None and _cover_page(ctx, published) is not None:  # not read yet (export reads it)
+        volume = published["comicinfo_volume"] or ""
     if volume is None:
         return None
     cover = _held_image(ctx, published, volume)
@@ -152,12 +150,27 @@ def _held_image(ctx: workflow.Context, published: db.Row, volume: str) -> tuple[
         ).fetchone()
     if row is not None:
         return row["path"], row["sha256"]
-    with zipfile.ZipFile(config.to_local(ctx.cfg, published["library_path"])) as z:
-        page = next((n for n in archive.archive_pages(z.namelist()) if is_cover(n)), None)
-        if page is None:  # the record said it holds one; the file does not: the replacement goes without
-            return None
-        data = z.read(page)
-    return cover_images.store_volume_image(ctx.cfg, data)
+    data = _cover_page(ctx, published)  # None: the record said it holds one, the file does not
+    return None if data is None else cover_images.store_volume_image(ctx.cfg, data)
+
+
+def _cover_page(ctx: workflow.Context, published: db.Row) -> bytes | None:
+    """Return the file's own 000_cover page, else None: it has none, or one that cannot be read (a bad adopted file).
+
+    Its replacement then goes without.
+    """
+    path = config.to_local(ctx.cfg, published["library_path"])
+    try:
+        with zipfile.ZipFile(path) as z:
+            page = next((n for n in archive.archive_pages(z.namelist()) if is_cover(n)), None)
+            data = None if page is None else z.read(page)
+    except archive.UNREADABLE as e:
+        log.warning("%s: its cover page cannot be read, its replacement goes without: %s", path, e)
+        return None
+    if data is not None and images.detect(data) == images.UNKNOWN:
+        log.warning("%s: its cover page is no image, its replacement goes without", path)
+        return None
+    return data
 
 
 def member_state(members: list[str], volume: str | None) -> str:

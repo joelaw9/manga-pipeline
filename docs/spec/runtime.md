@@ -46,7 +46,7 @@ Each key comes from, in rising priority: `config.yaml`, an environment variable,
 | `metadata.recent_months`, `metadata.complete_months` | months since the last published update below which a series is checked every `metadata.recent_days`, and from which a complete series is checked every `metadata.complete_days`; between, every `metadata.quiet_days` |
 | `metadata.recent_days`, `metadata.quiet_days`, `metadata.complete_days` | the 3 check intervals, in days |
 | `export.retention_days` | days a removed download (or a rewritten library file) stays in `paths.retention`; 0 deletes it at once |
-| `export.rewrites_open` | at most this many file rewrites open at a time, and, counted apart, at most this many chapters replacing adopted files (SPEC "Retroactive updates", "State") |
+| `export.rewrites_open` | at most this many file rewrites open at a time, and, counted apart, at most this many chapters replacing adopted files; 0 queues neither (SPEC "Retroactive updates", "State") |
 | `notify.discord_webhook` | the Discord webhook the reports go to (SPEC "Needs human"); null = Discord off (secret: null in the example; set `MANGA_PIPELINE_NOTIFY_DISCORD_WEBHOOK`) |
 | `tools.avifenc`, `tools.avifdec`, `tools.jpegtran`, `tools.oxipng` | the image tools' executables, per machine (relative = project root); nothing is searched on `PATH` (SPEC "Conversion") |
 | `tools.vship` | the Vship scorer library (`libvship.so`, or the Windows DLL), per machine |

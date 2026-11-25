@@ -21,7 +21,8 @@ NAME = "Na Honjaman Level Up"  # the Series the library files carry: Kavita's or
 
 @pytest.fixture
 def world(tmp_path):
-    return World(tmp_path / "world")
+    no_conversions = {**config.cached()["export"], "rewrites_open": 0}  # no conversion replaces an adopted file
+    return World(tmp_path / "world", export=no_conversions)
 
 
 def adopted(world, chapters=()):

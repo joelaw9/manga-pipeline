@@ -41,7 +41,7 @@ A command by hand runs from the checkout (the program is not packaged) with the 
 
 ## Front-load adopted files' conversions (backfill only)
 
-The drop-in `deploy/systemd/manga-pipeline-intake.service.d/queue-first.conf` runs `scripts/queue_first.py` before each `intake` run: it queues the conversions of the "Reading" collection's series, then of the series with an open download (SPEC "State"). Its failure is in the journal and never stops `intake` (`ExecStartPre=-`). `systemctl link` takes unit files only, so the drop-in is linked by hand.
+The drop-in `deploy/systemd/manga-pipeline-intake.service.d/queue-first.conf` runs `scripts/queue_first.py --scheduled` before each `intake` run (nothing while the automation is paused): it queues the conversions of the "Reading" collection's series, then of the series with an open download (SPEC "State"). Its failure is in the journal and never stops `intake` (`ExecStartPre=-`). `systemctl link` takes unit files only, so the drop-in is linked by hand.
 
 Install, at the backfill's start:
 

@@ -174,7 +174,8 @@ def _conversions(conn: db.Connection) -> list[str]:
     opened = db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(conversions.OPEN))[0]
     rows = conn.execute(
         sql.SQL("""SELECT p.id, p.library_path, c.id AS chapter_id, c.stage, c.last_error FROM published_file p
-        JOIN LATERAL (SELECT * FROM chapter n WHERE n.published_file_id = p.id ORDER BY n.id DESC LIMIT 1) c ON true
+        JOIN (SELECT DISTINCT ON (published_file_id) * FROM chapter WHERE published_file_id IS NOT NULL
+            ORDER BY published_file_id, id DESC) c ON c.published_file_id = p.id
         WHERE p.origin = 'library' AND NOT {busy} ORDER BY p.id""").format(
             busy=rewrite.BUSY.format(p=sql.Identifier("p"))
         )
