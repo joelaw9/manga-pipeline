@@ -288,16 +288,17 @@ def test_a_deleted_library_file_is_replaced_and_its_record_with_it(world, solo):
 
 @budget(load="db", seconds=2)
 @pytest.mark.parametrize("layout", [{}, {"layout": "scroll"}])
-def test_a_record_without_a_known_layout_keeps_the_chapter_waiting(world, layout):
+def test_a_record_without_a_known_layout_holds_the_series(world, layout):
     kavita_id = world.series_without_record("Solo Leveling")
     record = bulk_record("Solo Leveling", kavita_id, [])
     record["series"]["layout"] = layout
     world.write_record("Solo Leveling", record)
     world.download(world.manga("Solo Leveling"), "Chapter 2")
     through(world, intake, intake)
-    assert world.rows("SELECT stage, status, waiting_on, attempts FROM chapter") == [
-        ("validate", "waiting", "bulk_conversion", 0)
-    ], "a record the baseline cannot use is a record that does not parse yet"
+    ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
+    assert status == "needs_human", "a record the baseline cannot use is a record that does not parse"
+    assert "series.layout.layout" in reason, "it names the flaw"
+    assert world.rows("SELECT stage, status FROM chapter") == [("discover", "ready")], "its chapter is held"
 
 
 @budget(load="db", seconds=2)

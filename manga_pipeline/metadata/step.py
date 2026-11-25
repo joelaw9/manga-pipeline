@@ -87,7 +87,7 @@ def baseline_pass(ctx: workflow.Context, listed_series: Sequence[kavita_replies.
     (adoption.waiting), so a series no download reaches has published files to compare. A series whose folder Kavita
     gives no usable form is, when it is adoptable (no baseline, a completed check, no chapter at discover), adopted
     through baseline.take all the same, which holds it (needs_human); else it is left as it is, as is one that is not
-    adopted yet and holds no record; a record that does not parse is logged (validate holds the series' downloads).
+    adopted yet and holds no record; a record that does not parse makes the series needs_human (baseline.take).
     """
     conn = ctx.conn
     last = workflow.get_meta(conn, BASELINE_PASS_AT)

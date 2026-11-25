@@ -17,7 +17,7 @@ from manga_pipeline import cli, config, db, errors, export, identify, intake, pr
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import plan
-from manga_pipeline.junk import candidates, importing, logo_units, ocr, review, store
+from manga_pipeline.junk import candidates, logo_units, ocr, review, store
 from manga_pipeline.metadata import sources
 from manga_pipeline.stages import convert as convert_stage
 from manga_pipeline.stages import junk as junk_stage
@@ -681,13 +681,20 @@ def panels_cbz(panels):
     return data.getvalue()
 
 
+def imported(cfg, decision):
+    """Write decision anew as an imported one (any import row deleted first: a new id); a pipeline row is kept."""
+    with closing(db.connect(cfg)) as conn, db.transaction(conn):
+        conn.execute("DELETE FROM junk_decision WHERE decider = 'import'")
+        store.upsert(conn, [decision])
+
+
 @budget(load="pool", seconds=60)
 def test_a_watermark_1_chapter_shows_is_known_to_the_series_next_chapters(site, monkeypatch):
     """Chapter 2 ends with the band twice: a watermark.
 
     Chapter 3 has it once at its tail, before a story panel: known as a watermark it starts no credit block, so the
-    panel after it is no tail piece. The memory is by key: an import that rebuilds the decision under a new id changes
-    nothing. Without the memory the panel is a tail piece.
+    panel after it is no tail piece. The memory is by key: the decision rebuilt under a new id changes nothing.
+    Without the memory the panel is a tail piece.
     """
     monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
     site.world.kavita_series("Long", layout="strip")
@@ -705,17 +712,14 @@ def test_a_watermark_1_chapter_shows_is_known_to_the_series_next_chapters(site, 
         "decided_at": "2026-11-01T00:00:00+00:00",
         "source": "test",
     }
-    source: importing.Source = ([decision], {}, None)
-    with closing(db.connect(site.cfg)) as conn:
-        importing.run(conn, source)
+    imported(site.cfg, decision)
     run_part(site.cfg, process)
     assert site.chapters() == [("junk", "waiting", "junk_decision")], "its other blocks are still undecided"
     assert site.rows("SELECT series_key, key FROM junk_watermark") == [("Long", mark)], "remembered while it waits"
     decide_junk(site.cfg, "keep")
     run_part(site.cfg, process)
     assert site.rows("SELECT series_key, key FROM junk_watermark") == [("Long", mark)], "twice at 1 tail: a watermark"
-    with closing(db.connect(site.cfg)) as conn:
-        importing.run(conn, source)
+    imported(site.cfg, decision)
     site.download("Long", 3, panels_cbz(["a3", "b3", "c3", "d3", "mark", "f3"]))
     site.parts()
     assert "piece" not in {c["kind"] for c in open_candidates(site)}, "a known watermark starts no credit block"

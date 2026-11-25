@@ -193,7 +193,6 @@ ignore_names = [
     "create_system",  # zipfile.ZipInfo attributes ZipFile.writestr reads (archive.py)
     "external_attr",
     "MAX_IMAGE_PIXELS",  # Pillow's module setting (images.py)
-    "row_factory",  # sqlite3.Connection's attribute (junk/importing.py)
     "collections",  # Kavita.collections and collection_series: used only by scripts/queue_first.py
     "collection_series",
 ]

@@ -23,7 +23,7 @@ from manga_pipeline.stages import comicinfo as comicinfo_stage
 from manga_pipeline.stages import validate
 
 from tests import builders
-from tests.builders import WinFileNotFoundError, add_chapter, db_row
+from tests.builders import WinFileNotFoundError, add_chapter, db_row, one
 from tests.fakes.suwayomi import page as fake_page
 from tests.timing import budget
 from tests.world import LIBRARY_ID, World, bulk_record, cbz, comicinfo
@@ -34,38 +34,40 @@ def world(tmp_path):
     return World(tmp_path)
 
 
-PARTIAL = {"schema": 4, "stages": ["structure"]}  # a record the bulk converter is still writing
+PARTIAL = {"schema": 4, "stages": ["structure"]}  # a record that does not parse (one left partial)
 
 
-def at_junk(world, *, record=True, name="Chapter 2", data=None, **series):
+def at_junk(world, *, record=None, name="Chapter 2", data=None, **series):
     """Add a Kavita series with 2 bulk chapters and 1 download of it taken through intake.
 
-    Its record whole, or (record=False) partial: one the bulk converter is still writing. Intake takes the baseline at
-    validate.
+    Its record whole, or record(kavita id): the record written in its place. Intake takes the baseline at validate.
     """
     bulk = (("Ch.1.cbz", "Grp_Chapter 1", "1"), ("Ch.1.5 - Extra.cbz", "Grp_Chapter 1.5 - Extra", "1.5"))
-    if record:
+    if record is None:
         kavita_id = world.kavita_series("Solo Leveling", bulk=bulk, **series)
     else:
         kavita_id = world.series_without_record("Solo Leveling", bulk=bulk, **series)
-        world.write_record("Solo Leveling", PARTIAL)
+        world.write_record("Solo Leveling", record(kavita_id))
     _, path = world.download(world.manga("Solo Leveling"), name, scanlator="Grp", data=data)
     world.run(intake)
     return kavita_id, path
 
 
 @budget(load="db")
-def test_a_partial_record_holds_its_chapters_until_the_record_parses(world):
-    kavita_id, _ = at_junk(world, record=False)
-    ((stage, status, waiting_on, data),) = world.rows("SELECT stage, status, waiting_on, wait_data FROM chapter")
-    assert (stage, status, waiting_on) == ("validate", "waiting", "bulk_conversion"), "nothing goes on blind"
-    assert json.loads(data)["why"] == "record: 'kavita' missing or not a dict", "the wait says why: its flaw"
-    world.run(intake)
-    assert world.rows("SELECT status FROM chapter") == [("waiting",)], "the wait holds while the record is partial"
+def test_a_record_that_does_not_parse_makes_the_series_need_a_human(world):
+    kavita_id, _ = at_junk(world, record=lambda _kid: PARTIAL)
+    ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
+    assert status == "needs_human", "nothing writes a record any more: no wait would end"
+    assert reason == "record: 'kavita' missing or not a dict -> fix or remove the record, then retry --series", (
+        "it names the flaw and the fix"
+    )
+    assert world.rows("SELECT stage FROM chapter") == [("discover",)], "held by the baseline pass: nothing goes on"
     assert world.rows("SELECT count(*) FROM published_file") == [(0,)], "a series with a record is never adopted"
     world.write_record("Solo Leveling", bulk_record("Solo Leveling", kavita_id, []))
+    with closing(db.connect(world.cfg)) as conn:
+        workflow.retry_series(conn, one(conn, "SELECT id FROM series"))
     world.run(intake)
-    assert world.rows("SELECT stage, status FROM chapter") == [("junk", "ready")], "the record ends the wait"
+    assert world.rows("SELECT stage, status FROM chapter") == [("junk", "ready")], "the fixed record, retried, ends it"
 
 
 @budget(load="db")
@@ -101,21 +103,17 @@ def test_a_download_with_the_pages_of_a_bulk_source_is_put_aside_once_the_baseli
 
 @budget(load="db")
 def test_a_record_naming_another_series_records_nothing_and_needs_a_human(world):
-    kavita_id, _ = at_junk(world, record=False)
-    world.write_record("Solo Leveling", bulk_record("Some Other Name", kavita_id, []))
-    world.run(intake)
+    at_junk(world, record=lambda kid: bulk_record("Some Other Name", kid, []))
     ((status, reason),) = world.rows("SELECT status, status_reason FROM series")
     assert status == "needs_human"
     assert "Some Other Name" in reason
     assert world.rows("SELECT count(*) FROM published_file") == [(0,)], "nothing of the baseline is written"
-    assert world.rows("SELECT waiting_on FROM chapter") == [("bulk_conversion",)], "its chapter stays held"
+    assert world.rows("SELECT stage FROM chapter") == [("discover",)], "its chapter stays held"
 
 
 @budget(load="db")
 def test_the_record_name_may_be_a_localized_kavita_name(world):
-    kavita_id, _ = at_junk(world, record=False, localized="Na Honjaman Level Up")
-    world.write_record("Solo Leveling", bulk_record("na honjaman level-up", kavita_id, []))
-    world.run(intake)
+    at_junk(world, record=lambda kid: bulk_record("na honjaman level-up", kid, []), localized="Na Honjaman Level Up")
     assert world.rows("SELECT comicinfo_series FROM series") == [("na honjaman level-up",)], (
         "the record's name is written exactly, once it normalizes to a Kavita name"
     )
@@ -404,6 +402,7 @@ def test_adoption_waits_for_a_completed_check_and_no_chapter_at_discover_reading
             assert ("metadata check" if wait == "check" else "discover") in str(outcome.data["why"]), "it says why"
     assert world.rows("SELECT count(*) FROM published_file") == [(0,)]
     assert world.rows("SELECT baseline_at FROM series") == [(None,)]
+    assert world.rows("SELECT status FROM series") == [("ok",)], "a wait for adoption is no needs_human"
 
 
 BAD_FILES = {

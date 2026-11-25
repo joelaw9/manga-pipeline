@@ -292,7 +292,7 @@ def test_a_command_with_locks_on_an_empty_database_exits_4_and_builds_nothing(tm
     cfg = site_cfg(tmp_path, built=False)
     assert main(tmp_path, cfg, *argv) == 4
     assert f"no database {cfg['database']['name']}" in capsys.readouterr().err, "an empty database is no database"
-    assert not db.built(cfg), "only state adopt and junk import build a database"
+    assert not db.built(cfg), "only state adopt builds a database"
 
 
 @budget(load="db", seconds=3)  # a build from no schema
