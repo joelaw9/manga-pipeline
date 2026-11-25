@@ -1,0 +1,38 @@
+{
+ "strip": {
+  "width": 800,
+  "height": 129220
+ },
+ "crop": [
+  128014,
+  128330
+ ],
+ "blank_rows": [
+  {
+   "page": "033.webp",
+   "top": 128000,
+   "th": 1220,
+   "n": 610,
+   "bits": "/gAADwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD8A="
+  }
+ ],
+ "removed": [],
+ "kept": [
+  [
+   711,
+   128773
+  ]
+ ],
+ "gaps": [],
+ "blocks": [
+  {
+   "start": 128014,
+   "end": 128773,
+   "sig": "c1bf8b413e94953c|0.94875",
+   "text": "GLLIM TOON\n\u8bb0\u666f\u5c45\nPD.\n.\nPD.0\nIZO\nREAD AT VALIRSCANS.COM\nFOR THE FASTEST RELEASES",
+   "where": "tail",
+   "probes": []
+  }
+ ],
+ "pieces": []
+}

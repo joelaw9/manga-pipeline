@@ -189,7 +189,8 @@ def _junk(s: Sampling, paths: list[Path], pages: list[images.MeasuredPage]) -> c
         return decisions.decide(kind, store.parse_key(kind, text))
 
     known = conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
-    return chapter_scan.apply(sc, decide_unit, [r["key"] for r in known])
+    render = chapter_scan.renderer(extracted) if sc["layout"] == "strip" else None
+    return chapter_scan.apply(sc, decide_unit, [r["key"] for r in known], decisions.cuts(), render)
 
 
 def _outcome(verdict: library_copy.Better | library_copy.Duplicate | library_copy.NotSameChapter) -> str:

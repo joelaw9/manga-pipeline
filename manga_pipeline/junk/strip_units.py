@@ -8,13 +8,16 @@ reshaped to 1 chapter:
   spans, every edge block with its hard-join pieces and their remainders (signature, OCR text when given), the
   measurements of every content block of the tail region and every remainder (the tail pieces are cut from them),
   and the signatures of the middle blocks (the watermark rule).
-- `decide(scan, decide_unit, known)` applies decisions with no decode: what is removed (edge blocks, pieces,
-  remainders, tail pieces, join-rule blank rows), what is left undecided (edge blocks with their probes, tail
-  pieces), and the keys of the decisions that acted as watermarks (the series remembers them: `known`).
+- `decide(scan, decide_unit, known, cuts, render)` applies decisions: what is removed (edge blocks, pieces,
+  remainders, chains' card and cut ranges, tail pieces, join-rule blank rows), what is left undecided (edge blocks
+  with their probes, tail pieces), the keys of the decisions that acted as watermarks (the series remembers them:
+  `known`) and the chains that should have matched and did not. It decodes nothing unless a chain or a cut decision
+  is tried (`render`).
 
-Not ported (SPEC "Junk decisions", D5.1): chains, cut rows and card holes; the rest-of-card bundles (each tail piece
-is its own unit). The watermark rule reads this chapter and the watermark keys the series' earlier chapters showed
-(the old one read every chapter of the series at once).
+Chains, cut decisions and card holes are junk.anchored's; decide applies them in the old order (plan_review
+tail_review / finish_strip): with them it reads the strip's pixels through `render`. Not ported (SPEC "Junk
+decisions", D5.1): the rest-of-card bundles (each tail piece is its own unit). The watermark rule reads this chapter
+and the watermark keys the series' earlier chapters showed (the old one read every chapter of the series at once).
 Constants are the bulk converter's, frozen: the stored decisions were made with them.
 """
 
@@ -29,6 +32,7 @@ from PIL import Image
 
 from manga_pipeline import db, images, strip
 from manga_pipeline.convert import plan
+from manga_pipeline.junk import anchored as an
 from manga_pipeline.junk import store
 
 EDGE_PX = 6000  # edge region: the first and last rows of a strip whose blocks are junk units (old junk_edge_px)
@@ -152,7 +156,10 @@ class PieceUnit(TypedDict):
 
 
 class Removed(TypedDict):
-    """A range a junk decision removed: rows, edge, the decision's id, why ("match"), its key and the unit's sig."""
+    """A range a block or probe decision removed: rows, edge, the decision's id, why ("match"), its key, the unit's sig.
+
+    chain and added: the decision's chain text (None: none) and decided_at (junk.anchored's unit pool).
+    """
 
     start: int
     end: int
@@ -161,6 +168,8 @@ class Removed(TypedDict):
     why: str
     key: str
     sig: str
+    chain: str | None
+    added: str
 
 
 class Drop(TypedDict):
@@ -212,22 +221,16 @@ type ClassedPiece = BlankPiece | UnsignedPiece | SignedPiece
 class StripDecision(TypedDict):
     """What decisions make of a strip scan (decide).
 
-    The final removed ranges (after the join rule), the undecided units, why the removal is refused (None: it is not)
-    and the keys of the decisions that removed a watermark.
+    The final removed ranges (after the join rule), the undecided units, why the removal is refused (None: it is not),
+    the keys of the decisions that removed a watermark, and the texts of the chains that should have matched and did
+    not (each holds the chapter for a person).
     """
 
     removed: list[plan.RemovedRange]
     undecided: list[PieceUnit | BlockUnit]
     kept_problem: str | None
     watermarks: list[str]
-
-
-def signable(im: Image.Image) -> str | None:
-    """Return the signature text of an image, or None when it is uniform or unsignable."""
-    if images.is_uniform(im):
-        return None
-    sig = images.signature(im)
-    return None if images.unsignable(sig) else images.sig_to_str(sig)
+    misses: list[str]
 
 
 def measure_piece(im: Image.Image) -> PieceMeasure:
@@ -384,48 +387,6 @@ def scan(
 # ---------------------------------------------------------------- decide (no decode)
 
 
-class Layout:
-    """The rows of a scanned strip: height, width, spans and gaps (sorted)."""
-
-    def __init__(self, sc: StripScan) -> None:
-        """Read the layout from scan sc: its height, width, spans and gaps, sorted."""
-        self.height, self.width = sc["height"], sc["width"]
-        self.spans = sorted(tuple(s) for s in sc["spans"])
-        self.gaps = sorted(tuple(g) for g in sc["gaps"])
-
-    def runs(self) -> list[strip.Rows]:
-        """[(start, end)] of the walkable runs between and around the spans (0-row ones included)."""
-        out: list[strip.Rows]
-        out, pos = [], 0
-        for s, e in self.spans:
-            out.append((pos, s))
-            pos = e
-        return [*out, (pos, self.height)]
-
-    def blank(self, a: int, b: int) -> bool:
-        """Return whether rows [a, b) hold no span row."""
-        return not any(s < b and a < e for s, e in self.spans)
-
-
-def uncovered(a: int, b: int, taken: Iterable[strip.Rows]) -> list[strip.Rows]:
-    """Return the parts of [a, b) outside every (start, end) in taken, in order."""
-    out: list[strip.Rows]
-    out, pos = [], a
-    for s, e in sorted(taken):
-        if e <= pos or s >= b:
-            continue
-        if s > pos:
-            out.append((pos, s))
-        pos = max(pos, e)
-    if pos < b:
-        out.append((pos, b))
-    return out
-
-
-def _hits(a: int, b: int, taken: Iterable[strip.Rows]) -> bool:
-    return any(s < b and a < e for s, e in taken)
-
-
 def match_blocks[R](
     blocks: Iterable[EdgeBlock], approve: Callable[[str, str], R | None]
 ) -> tuple[list[Matched[R]], list[LeftBlock]]:
@@ -477,15 +438,22 @@ def _piece(u: Piece) -> Piece:
     return out
 
 
-def watermarks(removed: Iterable[Removed], middle: Iterable[str], known: Iterable[images.Signature] = ()) -> set[int]:
-    """Return the decision ids of this chapter's removed tail bands that are watermarks, not credits.
+def watermarks(
+    removed: Iterable[Removed],
+    middle: Iterable[str],
+    known: Iterable[images.Signature] = (),
+    chained: Iterable[int] = (),
+) -> set[int]:
+    """Return the decision ids of this chapter's tail bands that are watermarks, not credits.
 
-    Removed as >= 2 tail bands, or whose key matches a middle block of the chapter (an unsignable one matches nothing)
-    or one of `known`, the keys (parsed) the series' earlier chapters showed to be watermarks. removed: [{"where",
-    "decision" (id), "key"}].
+    Removed as >= 2 tail bands (each block or probe match 1; chained: the decision of each chain match that removed a
+    credit cut's tail band, 1 per match), or, for a block or probe decision, whose key matches a middle block of the
+    chapter (an unsignable one matches nothing) or one of `known`, the keys (parsed) the series' earlier chapters
+    showed to be watermarks; a cut decision's key is never compared. removed: [{"where", "decision" (id), "key"}].
     """
     bands = [r for r in removed if r["where"] == "tail"]
-    marks = {d for d, n in Counter(r["decision"] for r in bands).items() if n >= MARK_MIN_BANDS}
+    counts = Counter([r["decision"] for r in bands] + list(chained))
+    marks = {d for d, n in counts.items() if n >= MARK_MIN_BANDS}
     sigs = [s for s in map(images.sig_from_str, middle) if not images.unsignable(s)] + list(known)
     for r in bands:
         if r["decision"] not in marks and any(images.matches(images.sig_from_str(r["key"]), s) for s in sigs):
@@ -493,13 +461,14 @@ def watermarks(removed: Iterable[Removed], middle: Iterable[str], known: Iterabl
     return marks
 
 
-def tail_pieces(layout: Layout, removed: Iterable[strip.RowRange], start: int) -> list[TailPiece]:
+def tail_pieces(layout: an.Layout, taken: Iterable[strip.Rows], start: int) -> list[TailPiece]:
     """Return the tail pieces from the credit start.
 
-    The kept rows from `start` to the strip end split at every gap, [{"start", "end", "gap"}] in order.
+    The rows from `start` to the strip end outside `taken` (the removed ranges and the card holes' kept rows), split at
+    every gap, [{"start", "end", "gap"}] in order.
     """
     out: list[TailPiece] = []
-    for s, e in uncovered(start, layout.height, [(r["start"], r["end"]) for r in removed]):
+    for s, e in an.uncovered(start, layout.height, taken):
         pos = s
         for gs, ge in layout.gaps:
             x, y = max(gs, s), min(ge, e)
@@ -564,22 +533,12 @@ def tail_classes(
     return out
 
 
-def _merge(rows: Iterable[strip.Rows]) -> list[strip.Rows]:
-    out: list[strip.Rows] = []
-    for s, e in sorted(rows):
-        if out and s <= out[-1][1]:
-            out[-1] = (out[-1][0], max(out[-1][1], e))
-        else:
-            out.append((s, e))
-    return out
-
-
-def soft(layout: Layout, r: Range) -> bool:
+def soft(layout: an.Layout, r: Range) -> bool:
     """Return whether r is a W1 drop of a gap piece (its rows within 1 gap): the join rule counts its rows as blank."""
     return r["why"] == "blank" and any(s <= r["start"] and r["end"] <= e for s, e in layout.gaps)
 
 
-def join_rule(layout: Layout, removed: Iterable[Range], gutter: int) -> list[Drop]:
+def join_rule(layout: an.Layout, removed: Iterable[Range], gutter: int) -> list[Drop]:
     """Return the ranges of blank rows the join rule removes beside a chapter's removals.
 
     The blank rows a chapter's removals leave adjacent: at each join (removed ranges separated only by blank rows) the
@@ -592,7 +551,7 @@ def join_rule(layout: Layout, removed: Iterable[Range], gutter: int) -> list[Dro
     for s, e, w, f in rs:
         hard: list[strip.Rows] = [] if f else [(s, e)]
         if merged and s <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], e), merged[-1][2], _merge(merged[-1][3] + hard))
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e), merged[-1][2], an.merged(merged[-1][3] + hard))
         else:
             merged.append((s, e, w, hard))
     groups: list[list[tuple[int, int, str, list[strip.Rows]]]] = []
@@ -608,10 +567,10 @@ def join_rule(layout: Layout, removed: Iterable[Range], gutter: int) -> list[Dro
         before = next(((rs_, start) for rs_, re_ in runs if rs_ < start <= re_), None)
         after = next(((end, re_) for rs_, re_ in runs if rs_ <= end < re_), None)
         hard = [x for m in g for x in m[3]]
-        c = _merge(
+        c = an.merged(
             ([before] if before else [])
             + [(x[1], y[0]) for x, y in itertools.pairwise(g) if y[0] > x[1]]
-            + [x for m in g for x in uncovered(m[0], m[1], hard)]
+            + [x for m in g for x in an.uncovered(m[0], m[1], hard)]
             + ([after] if after else [])
         )
         total = sum(y - x for x, y in c)
@@ -626,7 +585,7 @@ def join_rule(layout: Layout, removed: Iterable[Range], gutter: int) -> list[Dro
             keep = (k0, k0 + gutter)
         off = 0
         for x, y in c:
-            parts = [(x, y)] if keep is None else uncovered(x, y, [(x + keep[0] - off, x + keep[1] - off)])
+            parts = [(x, y)] if keep is None else an.uncovered(x, y, [(x + keep[0] - off, x + keep[1] - off)])
             out.extend(
                 {"start": s, "end": t, "where": where, "decision": None, "why": "join", "sig": None}
                 for s, t in parts
@@ -636,7 +595,7 @@ def join_rule(layout: Layout, removed: Iterable[Range], gutter: int) -> list[Dro
     return sorted(out, key=lambda r: r["start"])
 
 
-def settle(layout: Layout, removed: Sequence[Range], gutter_px: int) -> list[Range]:
+def settle(layout: an.Layout, removed: Sequence[Range], gutter_px: int) -> list[Range]:
     """Return the removed set after the join rule: the removed ranges but the soft ones, plus join_rule's, sorted."""
     return sorted(
         [r for r in removed if not soft(layout, r)] + join_rule(layout, removed, gutter_px), key=lambda r: r["start"]
@@ -648,12 +607,12 @@ def gutter(width: int) -> int:
     return max(1, round(strip.RESTITCH["gap_min_rows"] * width / 1000))
 
 
-def kept_problem(layout: Layout, removed: Iterable[strip.RowRange]) -> str | None:
+def kept_problem(layout: an.Layout, removed: Iterable[strip.RowRange]) -> str | None:
     """Return why cutting `removed` out is refused, or None.
 
     Refused when only blank rows are kept, or under MIN_PAGE from a strip at least that long.
     """
-    kept = uncovered(0, layout.height, [(r["start"], r["end"]) for r in removed])
+    kept = an.uncovered(0, layout.height, [(r["start"], r["end"]) for r in removed])
     length = sum(e - s for s, e in kept)
     blank = all(layout.blank(s, e) for s, e in kept)
     if (length < MIN_PAGE <= layout.height) or blank:
@@ -665,22 +624,29 @@ def kept_problem(layout: Layout, removed: Iterable[strip.RowRange]) -> str | Non
 
 
 def _measured_pieces(
-    layout: Layout, removed: Iterable[strip.RowRange], start: int, measured: Mapping[str, PieceMeasure]
+    layout: an.Layout,
+    taken: Iterable[strip.Rows],
+    start: int,
+    measured: Mapping[str, PieceMeasure],
+    render: an.Render | None,
 ) -> list[ClassedPiece]:
     """Return the tail pieces from `start` (tail_pieces), each with its blank flag and measurements.
 
-    Each with "blank" (a gap, or no span row) and, when not blank, the scan's measurements of its rows (measured: the
-    scan's "measured"); a piece the scan did not measure is an error.
+    Each with "blank" (a gap, or no span row) and, when not blank, the measurements of its rows: the scan's (measured:
+    the scan's "measured"), else rendered and measured (a chain, a cut or a hole cut the piece inside a block); a piece
+    the scan did not measure with no render is an error.
     """
     pieces: list[ClassedPiece] = []
-    for p in tail_pieces(layout, removed, start):
+    for p in tail_pieces(layout, taken, start):
         if p["gap"] or layout.blank(p["start"], p["end"]):
             pieces.append({**p, "blank": True})
             continue
         m = measured.get(f"{p['start']}:{p['end']}")
         if m is None:
-            msg = f"tail piece {p['start']}-{p['end']} was not measured by the scan"
-            raise ValueError(msg)
+            if render is None:
+                msg = f"tail piece {p['start']}-{p['end']} was not measured by the scan"
+                raise ValueError(msg)
+            m = measure_piece(render(p["start"], p["end"]))
         match m:  # a piece takes its measure's shape: signed, or uniform or unsignable
             case {"sig": None}:
                 pieces.append({**p, "blank": False, **m})
@@ -698,24 +664,15 @@ class _Tail(NamedTuple):
 
 
 def _tail_pass(
-    layout: Layout,
-    removed: list[Removed],
-    bands: list[Removed],
-    measured: Mapping[str, PieceMeasure],
-    decide_unit: store.DecideUnit,
+    pieces: list[ClassedPiece], bands: Sequence[strip.Rows], others: Sequence[strip.Rows], decide_unit: store.DecideUnit
 ) -> _Tail:
-    """Class and decide the tail pieces from the first credit band.
+    """Class and decide the tail pieces (from the first credit band).
 
-    `bands`: the removed tail bands that are no watermark. The pieces are classed (tail_classes) and decided: blank and
-    wedge pieces drop, a review piece drops on a junk piece decision and is left for review when none covers it. No
-    bands: no tail pass.
+    bands, others: the rows of the tail bands that are no watermark, and of every other removed range and card hole.
+    The pieces are classed (tail_classes) and decided: blank and wedge pieces drop, a review piece drops on a junk piece
+    decision and is left for review when none covers it.
     """
-    if not bands:
-        return _Tail([], [], [])
-    pieces = _measured_pieces(layout, removed, min(r["start"] for r in bands), measured)
-    classes = tail_classes(
-        pieces, [(r["start"], r["end"]) for r in bands], [(r["start"], r["end"]) for r in removed if r not in bands]
-    )
+    classes = tail_classes(pieces, bands, others)
     drops: list[Drop]
     review: list[PieceUnit]
     drops, review = [], []
@@ -754,7 +711,7 @@ def _undecided_blocks(
     """
     out: list[BlockUnit] = []
     for b in left:
-        if _hits(b["start"], b["end"], owned):
+        if an.hits(b["start"], b["end"], owned):
             continue
         if decide_unit("block", b["sig"]) is None:
             probes = [p for p in b["probes"] if decide_unit("probe", p["sig"]) is None]
@@ -772,22 +729,9 @@ def _entry(r: Range) -> plan.RemovedRange:
     return out
 
 
-def decide(sc: StripScan, decide_unit: store.DecideUnit, known: Iterable[images.Signature] = ()) -> StripDecision:
-    """Apply decisions to a strip scan.
-
-    decide_unit(kind, sig text) -> the deciding row (dict-like with "id", "verdict", "key") or None; known: the series'
-    watermark keys (parsed). Returns {"removed": final ranges (after the join rule), "undecided": [{"kind", "start",
-    "end", "where", "sig", "text"?, "probes"?}], "kept_problem": text or None, "watermarks": the keys of the decisions
-    that removed a watermark here}.
-    """
-    layout = Layout(sc)
-
-    def approve(kind: str, sig: str) -> db.Row | None:
-        row = decide_unit(kind, sig)
-        return row if row is not None and row["verdict"] == "junk" else None
-
-    found, left = match_blocks(sc["blocks"], approve)
-    removed: list[Removed] = [
+def _removed(found: Iterable[Matched[db.Row]]) -> list[Removed]:
+    """Return step 1's ranges with their deciding row's id, key, chain and decided_at."""
+    return [
         {
             "start": r["start"],
             "end": r["end"],
@@ -796,19 +740,141 @@ def decide(sc: StripScan, decide_unit: store.DecideUnit, known: Iterable[images.
             "why": r["why"],
             "key": r["decision"]["key"],
             "sig": r["sig"],
+            "chain": r["decision"]["chain"],
+            "added": r["decision"]["decided_at"],
         }
         for r in found
     ]
-    marks = watermarks(removed, sc["middle"], known)
-    bands = [r for r in removed if r["where"] == "tail" and r["decision"] not in marks]
-    tail = _tail_pass(layout, removed, bands, sc["measured"], decide_unit)
-    everything = sorted(removed + tail.drops, key=lambda r: r["start"])
-    owned = [(r["start"], r["end"]) for r in everything] + [(p["start"], p["end"]) for p in tail.pieces]
-    undecided = tail.review + _undecided_blocks(left, owned, decide_unit)
-    final = settle(layout, everything, gutter(layout.width))
+
+
+def _drop(a: an.Added) -> Drop:
+    """Return a range a chain added (card or cut) as the tail rules and the join rule read it: no unit signature."""
+    return {
+        "start": a["start"],
+        "end": a["end"],
+        "where": a["where"],
+        "decision": a["decision"],
+        "why": a["why"],
+        "sig": None,
+    }
+
+
+def _no_match() -> an.Anchored:
+    return {"added": [], "matched": [], "matches": [], "holes": [], "misses": []}
+
+
+def _anchor(
+    layout: an.Layout, removed: list[Removed], cuts: Sequence[an.Entry], render: an.Render | None
+) -> tuple[an.View | None, an.Anchored]:
+    """Apply steps 2-3: the chains of the removed units at their edges and the cut decisions at every seed.
+
+    Returns the strip as the matcher reads it (None: nothing to try, no pixels read) and what the matcher added. A
+    chain or cut decision to try with no render is an error.
+    """
+    pool = [*cuts, *an.unit_pool(removed)]
+    if not pool:
+        return None, _no_match()
+    if render is None:
+        msg = "a chained or cut junk decision is tried, but decide was given no render of the strip"
+        raise ValueError(msg)
+    view = an.View(layout, an.span_sigs(render), an.extender(layout, render), EDGE_PX)
+    return view, an.anchored_ranges(view, removed, an.seeds(layout, removed, EDGE_PX), pool)
+
+
+def _tail_bands(
+    removed: Sequence[Removed], got: an.Anchored, middle: Iterable[str], known: Iterable[images.Signature]
+) -> tuple[set[int], list[strip.Rows]]:
+    """Step 4's tail bands: (the watermark decision ids, the rows of the bands that are no watermark, sorted).
+
+    A tail band is a tail range a block or probe decision removed, or a credit cut decision's; a card range or a cut
+    without credit is none. A chain match that removed a credit band counts 1 band (watermarks' `chained`).
+    """
+    cut_bands = [a for a in got["added"] if a["where"] == "tail" and a["why"] == "cut" and a["credit"]]
+    rows = {(a["start"], a["end"]) for a in cut_bands}
+    chained = [m["decision"] for m in got["matches"] if rows & set(m["ranges"])]
+    marks = watermarks(removed, middle, known, chained)
+    bands = [(r["start"], r["end"]) for r in removed if r["where"] == "tail" and r["decision"] not in marks]
+    bands += [(a["start"], a["end"]) for a in cut_bands if a["decision"] not in marks]
+    return marks, sorted(bands)
+
+
+def _late_cuts(
+    view: an.View | None, taken: Sequence[an.Ranged], drops: Sequence[Drop], cuts: Sequence[an.Entry]
+) -> an.Anchored:
+    """Step 5: the cut decisions again, seeded only by the tail pass's drops (their edges in an edge region)."""
+    if view is None or not drops or not cuts:
+        return _no_match()
+    start = [s for s in an.seeds(view.layout, drops, EDGE_PX) if s["kind"] == "removed"]
+    return an.anchored_ranges(view, taken, start, cuts)
+
+
+def miss_text(m: an.Miss) -> str:
+    """Return the text of a chain that should have matched and did not (SPEC "Junk decisions": chains and cuts)."""
+    what = "card" if m["unit"] is not None else "cut"
+    if m["why"] == "cap" and m["segment"] is not None:
+        a, b = m["segment"]
+        return (
+            f"junk decision {m['decision']}'s {what} grows past its segment at rows {a}-{b}: fix or undo the decision"
+        )
+    if m["unit"] is None:
+        msg = f"junk decision {m['decision']}: a {m['why']} miss names no unit"
+        raise ValueError(msg)
+    a, b = m["unit"]
+    return (
+        f"junk decision {m['decision']}'s card ({m['side']}) does not match beside rows {a}-{b}: "
+        "fix or undo the decision"
+    )
+
+
+def decide(
+    sc: StripScan,
+    decide_unit: store.DecideUnit,
+    known: Iterable[images.Signature] = (),
+    cuts: Iterable[an.CutRow] = (),
+    render: an.Render | None = None,
+) -> StripDecision:
+    """Apply decisions to a strip scan, in the old order (SPEC "Junk decisions": chains and cuts).
+
+    decide_unit(kind, sig text) -> the deciding row (dict-like with "id", "verdict", "key", "chain", "decided_at") or
+    None; known: the series' watermark keys (parsed); cuts: the series' active cut decisions, oldest first; render(a,
+    b): the image of strip rows [a, b), called only when a chain or a cut decision is tried (None: none may be).
+    Returns {"removed": final ranges (after the join rule), "undecided": [{"kind", "start", "end", "where", "sig",
+    "text"?, "probes"?}], "kept_problem": text or None, "watermarks": the keys of the block or probe decisions that
+    removed a watermark here, "misses": the texts of the chains that should have matched and did not}.
+    """
+    layout = an.Layout(sc["height"], sc["width"], sc["spans"], sc["gaps"])
+
+    def approve(kind: str, sig: str) -> db.Row | None:
+        row = decide_unit(kind, sig)
+        return row if row is not None and row["verdict"] == "junk" else None
+
+    found, left = match_blocks(sc["blocks"], approve)  # 1
+    removed = _removed(found)
+    cut_entries = an.cut_pool(cuts)
+    view, got = _anchor(layout, removed, cut_entries, render)  # 2-3
+    ranged: list[Range] = sorted([*removed, *map(_drop, got["added"])], key=lambda r: r["start"])
+    marks, bands = _tail_bands(removed, got, sc["middle"], known)  # 4
+    holes = an.card_holes(layout.height, ranged, got["holes"], EDGE_PX)
+    taken = [(r["start"], r["end"]) for r in ranged]
+    pieces = _measured_pieces(layout, taken + holes, bands[0][0], sc["measured"], render) if bands else []
+    tail = _tail_pass(pieces, bands, [r for r in taken if r not in bands] + holes, decide_unit)
+    late = _late_cuts(view, [*ranged, *tail.drops], tail.drops, cut_entries)  # 5
+    late_ranges = [_drop(a) for a in late["added"]]
+    late_rows = [(r["start"], r["end"]) for r in late_ranges]
+    review = [p for p in tail.review if an.uncovered(p["start"], p["end"], late_rows)]  # wholly cut: withdrawn
+    everything = sorted([*ranged, *tail.drops, *late_ranges], key=lambda r: r["start"])
+    owned = (
+        [(r["start"], r["end"]) for r in everything]
+        + [(p["start"], p["end"]) for p in pieces]
+        + got["matched"]
+        + late["matched"]
+    )
+    undecided = review + _undecided_blocks(left, owned, decide_unit)  # 6
+    final = settle(layout, everything, gutter(layout.width))  # 7
     return {
         "removed": [_entry(r) for r in final],
         "undecided": sorted(undecided, key=lambda u: u["start"]),
         "kept_problem": kept_problem(layout, final) if final else None,
         "watermarks": sorted({r["key"] for r in removed if r["decision"] in marks}),
+        "misses": sorted({miss_text(m) for m in got["misses"] + late["misses"]}),
     }

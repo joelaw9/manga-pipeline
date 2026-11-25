@@ -8,9 +8,11 @@ put-aside check and the notice judgement: its file's pages are already published
 
 A chapter with no current scan is scanned (pages extracted to its scratch folder, measured, its units keyed, OCR on
 the strip units no decision covers, every content page's logo measured) and stays ready (Ready), so every ready junk
-chapter of a series is scanned before any is decided. A chapter with a current scan is decided from it with no
-decode: done with its chapter edit, waiting on junk_decision with its candidates (their images written first), or
-needs_human (a removal that would leave too little; a candidate Claude was unsure of or past the review limit).
+chapter of a series is scanned before any is decided. A chapter with a current scan is decided from it, its download
+extracted again (once per decide, removed when it ends) only when a chain or a cut decision is tried or candidate
+images are written: done with its chapter edit, waiting on junk_decision with its candidates (their images written
+first), or needs_human (a chain or cut decision that should apply and does not; a removal that would leave too little;
+a candidate Claude was unsure of or past the review limit).
 """
 
 import dataclasses
@@ -18,7 +20,7 @@ import json
 import os
 import re
 import shutil
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 from PIL import Image
@@ -100,6 +102,33 @@ def current_scan(conn: db.Connection, chapter: db.Row) -> db.Row | None:
 
 def _scratch(ctx: workflow.Context, chapter: db.Row) -> Path:
     return config.abs_path(ctx.cfg["paths"]["scratch"]) / workflow.claim_name(chapter) / "junk"
+
+
+class Pages:
+    """A download's pages for 1 decide: extracted into the claim's scratch folder on first use, at most once.
+
+    The caller removes the claim's folder when the decide ends. render(a, b) draws strip rows [a, b) over the content
+    pages as the scan laid them (the matcher's pixels, SPEC "Junk decisions": chains and cuts).
+    """
+
+    def __init__(self, ctx: workflow.Context, chapter: db.Row) -> None:
+        """Hold the chapter whose download is extracted on first use."""
+        self._ctx, self._chapter = ctx, chapter
+        self._files: tuple[list[Path], list[str], list[strip.Size]] | None = None
+        self._render: Callable[[int, int], Image.Image] | None = None
+
+    def files(self) -> tuple[list[Path], list[str], list[strip.Size]]:
+        """Return the extracted pages' (paths, names, sizes), in archive order, extracting them the first time."""
+        if self._files is None:
+            paths, names, sizes, _ = extract(self._ctx, self._chapter, _scratch(self._ctx, self._chapter))
+            self._files = (paths, names, sizes)
+        return self._files
+
+    def render(self, start: int, end: int) -> Image.Image:
+        """Return the image of strip rows [start, end) over the download's content pages."""
+        if self._render is None:
+            self._render = chapter_scan.renderer(chapter_scan.Extracted(*self.files()))
+        return self._render(start, end)
 
 
 def extract(
@@ -331,11 +360,24 @@ def _finished(
 
 
 def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> workflow.OUTCOMES:
-    """Decide the chapter from its current scan, with no decode.
+    """Decide the chapter from its current scan; its download is extracted only when pixels are needed (Pages).
+
+    The claim's scratch folder is removed when the decide ends.
+    """
+    pages = Pages(ctx, chapter)
+    try:
+        return _decided(ctx, chapter, key, row, pages)
+    finally:
+        shutil.rmtree(_scratch(ctx, chapter).parent, ignore_errors=True)  # the claim's folder: nothing of it is kept
+
+
+def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, pages: Pages) -> workflow.OUTCOMES:
+    """Decide the chapter from its current scan (decide).
 
     Done with its chapter edit when no candidate is left (or the library copy check's outcome, when it has one);
-    waiting on junk_decision with its candidates (their images written first); or needs_human (a removal that would
-    leave too little; a candidate Claude was unsure of or past the review limit).
+    waiting on junk_decision with its candidates (their images written first); or needs_human (a chain or cut decision
+    that should apply and does not; a removal that would leave too little; a candidate Claude was unsure of or past
+    the review limit). A strip's chains and cut decisions read its pixels through `pages`.
     """
     sc = read_scan(row["scan"])
     decisions = store.Decisions(ctx.conn, key)
@@ -344,12 +386,13 @@ def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> wor
         return decisions.decide(kind, store.parse_key(kind, text))
 
     known = ctx.conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
-    applied = chapter_scan.apply(sc, decide_unit, [r["key"] for r in known])
+    render = pages.render if sc["layout"] == "strip" else None
+    applied = chapter_scan.apply(sc, decide_unit, [r["key"] for r in known], decisions.cuts(), render)
     watermarks = [(key, k) for k in applied.watermarks]
     if applied.problem:
 
         def too_much(conn: db.Connection) -> None:
-            _refill(conn, chapter, key, 0)  # no candidate: the removal itself needs a person
+            _refill(conn, chapter, key, 0)  # no candidate: the edit itself needs a person
 
         return workflow.NeedsHuman(applied.problem, record=too_much)
     picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, ocr.word_lists(ctx.cfg["junk"]))
@@ -369,7 +412,7 @@ def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> wor
         return workflow.NeedsHuman(held_reason(held, limit), record=hold)
     new = [p for p, r in zip(picks, rows, strict=True) if r is None]
     if new:
-        write_images(ctx, chapter, key, new)
+        write_images(ctx, chapter, key, new, pages)
     at = workflow.now(ctx.conn)
 
     def wait(conn: db.Connection) -> None:
@@ -426,38 +469,36 @@ def open_copy_over(ctx: workflow.Context, chapter: db.Row) -> bool:
 # ---------------------------------------------------------------- candidate images
 
 
-def write_images(ctx: workflow.Context, chapter: db.Row, key: str, picks: Sequence[candidates.Candidate]) -> None:
+def write_images(
+    ctx: workflow.Context, chapter: db.Row, key: str, picks: Sequence[candidates.Candidate], pages: Pages
+) -> None:
     """Write the images of new candidates (SPEC "Junk decisions", candidates).
 
-    The download's pages are extracted again to the scratch folder, which is removed afterwards. A strip unit is
-    rendered over the download's content pages (strip.content_indexes of its page names), as the scan laid them.
+    From the decide's pages (extracted once per decide; the decide removes them). A strip unit is rendered over the
+    download's content pages (strip.content_indexes of its page names), as the scan laid them.
     """
-    work = _scratch(ctx, chapter)
-    try:
-        paths, names, sizes, _ = extract(ctx, chapter, work)
-        content = strip.content_indexes(names)
-        for p in picks:
-            unit = p["unit"]
-            if "logo" in unit:  # a logo variant
-                page = images.open_flat(paths[unit["page"]])[0].convert("RGB")
-                unit_im, context_im = logo_units.review_images(page, unit["logo"])
-            elif "start" in unit:  # a strip unit: an edge block, its probe or a tail piece
-                unit_im, context_im = _strip_images(content, paths, sizes, unit)
-            else:  # a page unit: an edge page or frame, or a band
-                unit_im, context_im = _page_images(paths, unit)
-            info: candidates.CandidateInfo = {
-                "series": key,
-                "kind": p["kind"],
-                "reason": p["reason"],
-                "text": p["unit"].get("text", ""),
-                "chapters": candidates.chapters_showing(ctx.conn, key, seen_kind(p["kind"]), p["key"]),
-            }
-            name = candidates.folder_name(key, p["kind"], p["key"], chapter)
-            workflow.holds_claim(ctx, chapter)  # after rendering, immediately before the folder is written
-            candidates.write_images(ctx.cfg, name, unit_im, context_im, info)
-            p["folder"] = name  # the row join opens names it
-    finally:
-        shutil.rmtree(work.parent, ignore_errors=True)
+    paths, names, sizes = pages.files()
+    content = strip.content_indexes(names)
+    for p in picks:
+        unit = p["unit"]
+        if "logo" in unit:  # a logo variant
+            page = images.open_flat(paths[unit["page"]])[0].convert("RGB")
+            unit_im, context_im = logo_units.review_images(page, unit["logo"])
+        elif "start" in unit:  # a strip unit: an edge block, its probe or a tail piece
+            unit_im, context_im = _strip_images(content, paths, sizes, unit)
+        else:  # a page unit: an edge page or frame, or a band
+            unit_im, context_im = _page_images(paths, unit)
+        info: candidates.CandidateInfo = {
+            "series": key,
+            "kind": p["kind"],
+            "reason": p["reason"],
+            "text": p["unit"].get("text", ""),
+            "chapters": candidates.chapters_showing(ctx.conn, key, seen_kind(p["kind"]), p["key"]),
+        }
+        name = candidates.folder_name(key, p["kind"], p["key"], chapter)
+        workflow.holds_claim(ctx, chapter)  # after rendering, immediately before the folder is written
+        candidates.write_images(ctx.cfg, name, unit_im, context_im, info)
+        p["folder"] = name  # the row join opens names it
 
 
 def seen_kind(kind: str) -> str:

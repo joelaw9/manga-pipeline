@@ -16,6 +16,7 @@ import pytest
 from PIL import Image
 
 from manga_pipeline import images, strip
+from manga_pipeline.junk import anchored as an
 from manga_pipeline.junk import store as junk_store
 from manga_pipeline.junk import strip_units as su
 
@@ -23,7 +24,8 @@ from tests import pages as fx
 from tests.builders import db_row, problem_text
 from tests.timing import budget
 
-JUNK_FIX = Path(__file__).with_name("fixtures_junk")
+JUNK_FIX = Path(__file__).parent / "fixtures_pages" / "junk"
+DECIDED = "2026-01-01T00:00:00+00:00"  # a test decision's decided_at
 BANNER = fx.PAGE_FIX / "strip_bring_the_love_ch87_p001_head.png"  # banner glued onto the cover at row 166
 
 
@@ -72,7 +74,7 @@ def store(*rows) -> junk_store.DecideUnit:
     def decide_unit(kind, sig):
         for k, key, verdict, i in rows:
             if k == kind and images.matches(images.sig_from_str(key), images.sig_from_str(sig)):
-                return db_row(id=i, verdict=verdict, key=key)
+                return db_row(id=i, verdict=verdict, key=key, chain=None, decided_at=DECIDED)
         return None
 
     return decide_unit
@@ -295,7 +297,7 @@ def test_a_keep_decision_removes_nothing_and_leaves_nothing_undecided():
     """A keep on the cover block: nothing removed, and the decided block is no undecided unit."""
     cover = sig_of(Image.open(BANNER).convert("RGB"))
     got = su.decide(su.scan(strip_of([BANNER])), store(("block", cover, "keep", 2)))
-    assert got == {"removed": [], "undecided": [], "kept_problem": None, "watermarks": []}, got
+    assert got == {"removed": [], "undecided": [], "kept_problem": None, "watermarks": [], "misses": []}, got
 
 
 # ---------------------------------------------------------------- the real strip head (fixtures_junk)
@@ -340,7 +342,17 @@ def tsig(n):
 
 def removed_band(decision, where="tail") -> su.Removed:
     key = tsig(decision)
-    return {"start": 0, "end": 0, "where": where, "decision": decision, "why": "match", "key": key, "sig": key}
+    return {
+        "start": 0,
+        "end": 0,
+        "where": where,
+        "decision": decision,
+        "why": "match",
+        "key": key,
+        "sig": key,
+        "chain": None,
+        "added": DECIDED,
+    }
 
 
 @budget(load="pure")
@@ -579,7 +591,8 @@ def test_a_piece_decision_removes_a_tail_piece():
 
     def with_piece(verdict):
         return lambda kind, sig: (
-            decide_unit(kind, sig) or (db_row(id=8, verdict=verdict, key=sig) if kind == "piece" else None)
+            decide_unit(kind, sig)
+            or (db_row(id=8, verdict=verdict, key=sig, chain=None, decided_at=DECIDED) if kind == "piece" else None)
         )
 
     junk = su.decide(sc, with_piece("junk"))
@@ -636,9 +649,9 @@ def test_pieces_after_the_first_tail_band_measured(tmp_path):
 
 def layout(height, spans, width=1000):
     """Return a Layout whose gaps are the walkable runs of at least 1 gutter between and around the spans."""
-    lay = su.Layout(scan_of(height, spans, [], width))
+    lay = an.Layout(height, width, spans, [])
     gaps = [r for r in lay.runs() if r[1] - r[0] >= su.gutter(width)]
-    return su.Layout(scan_of(height, spans, gaps, width))
+    return an.Layout(height, width, spans, gaps)
 
 
 def scan_of(height, spans, gaps, width) -> su.StripScan:
@@ -663,7 +676,7 @@ def band(start, end, decision: int | None = 1, where="tail", why="match") -> su.
 def test_tail_pieces_split_at_every_gap():
     lay = layout(20000, [(0, 18000), (18100, 18200), (18300, 18310), (18320, 18400), (18600, 18700), (19000, 20000)])
     removed = [band(18100, 18200), band(18600, 18700, 2), band(19000, 20000, 3)]
-    pieces = su.tail_pieces(lay, removed, 18100)
+    pieces = su.tail_pieces(lay, span(removed), 18100)
     assert [(p["start"], p["end"], p["gap"]) for p in pieces] == [
         (18200, 18300, True),
         (18300, 18400, False),
@@ -808,7 +821,7 @@ def test_kept_tail_pieces_keep_one_gutter_between_them_after_w1_drops_the_gap():
     taken = span(final)
 
     def left(a, b):
-        return sum(e - s for s, e in su.uncovered(a, b, taken))
+        return sum(e - s for s, e in an.uncovered(a, b, taken))
 
     assert (left(17900, 18200), left(18300, 18400), left(18500, 20000)) == (g, g, 0), final
     assert not [r for r in final if r["why"] == "blank"], "a gap's drop is settled by the join rule"
@@ -820,8 +833,8 @@ def test_kept_tail_pieces_keep_one_gutter_between_them_after_w1_drops_the_gap():
 
 @budget(load="pure")
 def test_uncovered_lists_the_parts_outside_every_range():
-    assert su.uncovered(0, 100, [(50, 60), (10, 20), (55, 70)]) == [(0, 10), (20, 50), (70, 100)]
-    assert su.uncovered(0, 100, [(0, 100)]) == []
+    assert an.uncovered(0, 100, [(50, 60), (10, 20), (55, 70)]) == [(0, 10), (20, 50), (70, 100)]
+    assert an.uncovered(0, 100, [(0, 100)]) == []
 
 
 # ---------------------------------------------------------------- the kept check
@@ -852,8 +865,8 @@ def test_the_kept_check_spares_a_chapter_already_shorter_than_min_page():
 
 @budget(load="pure")
 def test_uniform_and_unsignable_images_have_no_signature():
-    assert su.signable(Image.new("RGB", (100, 100), (90, 90, 90))) is None, "uniform: no signature"
-    assert su.signable(fx.blob(1, (200, 150))) == sig_of(fx.blob(1, (200, 150)))
+    assert an.signable(Image.new("RGB", (100, 100), (90, 90, 90))) is None, "uniform: no signature"
+    assert an.signable(fx.blob(1, (200, 150))) == sig_of(fx.blob(1, (200, 150)))
 
 
 # ---------------------------------------------------------------- watermarks the series knows
@@ -880,6 +893,8 @@ def test_an_unsignable_middle_block_makes_no_watermark():
         "decision": 9,
         "why": "match",
         "key": near_flat,
+        "chain": None,
+        "added": DECIDED,
         "sig": near_flat,
     }
     assert su.watermarks([band], [flat]) == set(), "a flat middle block matches nothing"

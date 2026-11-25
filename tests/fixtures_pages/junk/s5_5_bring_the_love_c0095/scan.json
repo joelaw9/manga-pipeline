@@ -1,0 +1,99 @@
+{
+ "strip": {
+  "width": 750,
+  "height": 99307
+ },
+ "crop": [
+  97200,
+  97640
+ ],
+ "blank_rows": [
+  {
+   "page": "010.webp",
+   "top": 88803,
+   "th": 10504,
+   "n": 5602,
+   "bits": "///////////////////////////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//////////////////////////////////////4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAeAAf///////////////////////////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////////gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//////////////////////////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA///////////////////////////////////////////gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//////////////////////////////////////////////////////////////////////+AAAA////AAPAAHgAH/+AAAAAP//gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH/+AAAAAAD/4AAAAAAAP+AAAAAAAAHwAAH/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  }
+ ],
+ "removed": [
+  {
+   "start": 97353,
+   "end": 97449,
+   "where": "tail",
+   "junk_id": 9374,
+   "sig": "fb1e69183b3590c9|0.128"
+  },
+  {
+   "start": 97618,
+   "end": 97910,
+   "where": "tail",
+   "junk_id": 9471,
+   "sig": "b71fccf031878cc8|0.3893333333333333"
+  }
+ ],
+ "kept": [
+  [
+   1139,
+   97353
+  ],
+  [
+   97449,
+   97618
+  ]
+ ],
+ "gaps": [
+  [
+   96463,
+   97261
+  ],
+  [
+   97308,
+   97353
+  ],
+  [
+   97449,
+   97475
+  ],
+  [
+   97537,
+   97569
+  ]
+ ],
+ "blocks": [
+  {
+   "start": 97261,
+   "end": 97308,
+   "sig": "e59e9b649264989b|0.06266666666666666",
+   "text": "to be continued",
+   "where": "tail",
+   "probes": []
+  },
+  {
+   "start": 97475,
+   "end": 97537,
+   "sig": "e02c9a9b6666cb66|0.08266666666666667",
+   "text": "\u039b\u039bV\nComics\nEOULMEDIACOMICS",
+   "where": "tail",
+   "probes": []
+  },
+  {
+   "start": 97569,
+   "end": 97618,
+   "sig": "eb34140b3663771e|0.06533333333333333",
+   "text": "Spoilers for the next chapter:",
+   "where": "tail",
+   "probes": []
+  }
+ ],
+ "pieces": [
+  {
+   "start": 97449,
+   "end": 97618,
+   "where": "tail",
+   "std": 48.39235512456292,
+   "ink": 253,
+   "sig": "e8b44a9b9b6165e4|0.22533333333333333"
+  }
+ ]
+}
