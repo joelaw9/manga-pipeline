@@ -1155,3 +1155,64 @@ def test_44_a_credit_cut_on_the_real_card_removes_its_notice_lines_through_the_s
     got = [(r["start"] + o, r["end"] + o) for r in edit["strip_removed"] if r["why"] == "cut"]
     assert got == [(111612, 111630), (111638, 111657), (111665, 111684)], edit["strip_removed"]
     assert all(r.get("decision") == cut_id and "hash" not in r for r in edit["strip_removed"] if r["why"] == "cut")
+
+
+@budget(load="db", seconds=30)
+def test_a_decide_that_renders_and_writes_candidate_images_extracts_once(site, monkeypatch):
+    """A cut decision known before the scan: the decide renders for it and writes candidate images, 1 extraction."""
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    data = panels_cbz(CHAIN_PANELS)
+    last = (2400 + 700, 2400 + 1100)  # panel f: page 3's second panel
+    cut = chain_text("below", span_segment(strip_rows(data), last), src={"file": "c.cbz", "sha256": "a" * 64})
+    import_decision(site, "cut", chains.key_span(chains.parse(cut)), cut)
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    site.download("Long", 2, data)
+    calls = counted_extracts(monkeypatch)
+    site.parts()
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "its blocks are offered"
+    assert open_candidates(site), "their images are written"
+    assert len(calls) == 2, "1 extraction to scan, 1 to decide: rendering and the images share it"
+    assert not list(config.abs_path(site.cfg["paths"]["scratch"]).rglob("junk")), "no scratch folder is left"
+
+
+@budget(load="db", seconds=30)
+def test_a_decide_failing_after_its_extraction_leaves_no_scratch_folder(site, monkeypatch):
+    data, sc = chained_strip(site, monkeypatch)
+    last = tuple(sc["spans"][-1])
+    cut = chain_text("below", span_segment(strip_rows(data), last), src={"file": "c.cbz", "sha256": "a" * 64})
+    import_decision(site, "cut", chains.key_span(chains.parse(cut)), cut)
+    decide_junk(site.cfg, "keep")
+
+    def broken(render):
+        render(0, 10)  # the download is extracted
+        msg = "a fault while matching"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(anchored, "span_sigs", broken)
+    run_part(site.cfg, process)
+    ((attempts, reason),) = site.rows("SELECT attempts, last_error FROM chapter")
+    assert attempts == 1, "the chapter fails"
+    assert "a fault while matching" in reason, reason
+    assert not list(config.abs_path(site.cfg["paths"]["scratch"]).rglob("junk")), "the decide's folder is removed"
+
+
+@budget(load="db", seconds=60)
+def test_a_held_card_decides_again_after_its_fix_and_holds_again_after_junk_undo(site, monkeypatch, tmp_path):
+    data, sc = chained_strip(site, monkeypatch)
+    band = sc["blocks"][-2]
+    first = tuple(sc["spans"][0])
+    card = chain_text("below", {**span_segment(strip_rows(data), first), "h": round(400 / 300, 4)}, src=None)
+    block_id = import_decision(site, "block", band["sig"], card)
+    decide_junk(site.cfg, "keep")
+    run_part(site.cfg, process)
+    ((chapter_id, status),) = site.rows("SELECT id, status FROM chapter")
+    assert status == "needs_human"
+    path = str(config_file(tmp_path, site.cfg))
+    assert cli.main(["--config", path, "junk", "redecide", str(block_id), "keep"]) == 0, "the fix: a plain keep"
+    ((act,),) = site.rows("SELECT max(id) FROM junk_act")
+    assert cli.main(["--config", path, "retry", str(chapter_id)]) == 0
+    run_part(site.cfg, process)
+    assert site.chapters()[0][0] != "junk", "decided again, the chapter goes on"
+    assert cli.main(["--config", path, "junk", "undo", str(act)]) == 0, "the chained decision is back"
+    assert site.rows("SELECT chain FROM junk_decision WHERE id = %s", block_id) == [(card,)]

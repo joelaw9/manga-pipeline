@@ -2,9 +2,9 @@
 
 Edge blocks and their probes, stored decisions on them (match_blocks), the watermark rule, the tail pass (tail pieces,
 W1 blank, W3 wedge), the join rule and the kept check, on synthetic strips and layouts and on 1 real strip head
-(tests/fixtures_junk/s5_2_real_head_c0003). Ported from the bulk converter's tests/test_restitch.py,
-test_anchored.py and test_junk_single.py (chains, cut rows, card holes and the cross-chapter watermark rule are not
-ported: strip_units has none of them).
+(tests/fixtures_pages/junk/s5_2_real_head_c0003). Ported from the bulk converter's tests/test_restitch.py,
+test_anchored.py and test_junk_single.py. Chains, cut decisions and card holes: test_junk_anchored.py and
+test_junk_decide_chains.py; the cross-chapter watermark rule is not ported.
 """
 
 import hashlib
@@ -300,7 +300,7 @@ def test_a_keep_decision_removes_nothing_and_leaves_nothing_undecided():
     assert got == {"removed": [], "undecided": [], "kept_problem": None, "watermarks": [], "misses": []}, got
 
 
-# ---------------------------------------------------------------- the real strip head (fixtures_junk)
+# ---------------------------------------------------------------- the real strip head (fixtures_pages/junk)
 
 
 @budget(2.0, load="fs")
@@ -606,11 +606,17 @@ def test_a_piece_decision_removes_a_tail_piece():
 
 @budget(load="pure")
 def test_an_unmeasured_tail_piece_fails_fast():
-    """A tail piece the scan never measured is refused, never classified."""
+    """A tail piece the scan never measured is refused, never classified: with no chain or cut, never rendered."""
     sc, decide_unit = tail_chapter([(1000, 1300, 1)], [piece(1300, 1500)])
     sc["measured"] = {}
     with pytest.raises(ValueError, match="1300-1500 was not measured"):
         su.decide(sc, decide_unit)
+
+    def render(a, b):
+        pytest.fail(f"rows {a}-{b} rendered: no chain or cut acted, so every piece edge is the scan's")
+
+    with pytest.raises(ValueError, match="1300-1500 was not measured"):
+        su.decide(sc, decide_unit, render=render)
 
 
 @budget(2.0, load="fs")

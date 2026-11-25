@@ -856,7 +856,9 @@ def decide(
     marks, bands = _tail_bands(removed, got, sc["middle"], known)  # 4
     holes = an.card_holes(layout.height, ranged, got["holes"], EDGE_PX)
     taken = [(r["start"], r["end"]) for r in ranged]
-    pieces = _measured_pieces(layout, taken + holes, bands[0][0], sc["measured"], render) if bands else []
+    # only a chain or a cut makes a piece edge the scan never measured: without one, a missing measure fails fast
+    measure = render if view is not None else None
+    pieces = _measured_pieces(layout, taken + holes, bands[0][0], sc["measured"], measure) if bands else []
     tail = _tail_pass(pieces, bands, [r for r in taken if r not in bands] + holes, decide_unit)
     late = _late_cuts(view, [*ranged, *tail.drops], tail.drops, cut_entries)  # 5
     late_ranges = [_drop(a) for a in late["added"]]

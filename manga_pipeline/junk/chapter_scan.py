@@ -79,7 +79,7 @@ def scan_strip(pages: Extracted, decisions: store.Decisions, device: str) -> Sto
 def renderer(pages: Extracted) -> Callable[[int, int], Image.Image]:
     """Return render(start, end): strip rows [start, end) over the content pages, laid as scan_strip lays them.
 
-    The matcher's pixels (SPEC "Junk decisions": chains and cuts); each page is decoded at most once per renderer.
+    The matcher's pixels (SPEC "Junk decisions": chains and cuts); decoded pages are cached as render_rows keeps them.
     """
     content = strip.content_indexes(pages.names)
     width, laid, _ = strip.strip_layout([pages.sizes[i] for i in content])

@@ -30,11 +30,11 @@ BUILT["s5b"] = (2871, 3060)
 HEIGHT = 3120
 
 
-def strip_image(*, short_line2=False):
+def strip_image(*, short_line2=False, same_lines=False):
     a = np.full((HEIGHT, W, 3), 255, np.uint8)
     for seed, (name, (s, built_end)) in enumerate(BUILT.items(), 1):
         e = s + 30 if short_line2 and name == "line2" else built_end  # 30 px: under the gap rule's 40
-        a[s:e] = np.asarray(fx.blob(seed, (W, e - s)))
+        a[s:e] = np.asarray(fx.blob(3 if same_lines and name == "line2" else seed, (W, e - s)))
     return Image.fromarray(a)
 
 
@@ -46,9 +46,9 @@ class Scanned(NamedTuple):
     rows: dict[str, strip.Rows]
 
 
-def scanned(tmp_path, *, short_line2=False) -> Scanned:
+def scanned(tmp_path, *, short_line2=False, same_lines=False) -> Scanned:
     """Return the strip scanned as the junk stage scans it (each blob 1 span, a few edge rows wider than built)."""
-    st = save_one(tmp_path, strip_image(short_line2=short_line2))
+    st = save_one(tmp_path, strip_image(short_line2=short_line2, same_lines=same_lines))
     sc = su.scan(st)
     assert len(sc["spans"]) == len(BUILT), sc["spans"]
     rows = {name: (s, e) for name, (s, e) in zip(BUILT, sc["spans"], strict=True)}
@@ -232,3 +232,16 @@ def test_a_chain_or_cut_with_no_render_fails_fast(tmp_path):
     with pytest.raises(ValueError, match="no render"):
         su.decide(x.sc, deciding(x.sc, [(r["panel"], 1, card)]))
     assert su.decide(x.sc, deciding(x.sc, [(r["panel"], 1, None)]))["misses"] == [], "no chain, no cut: no pixels"
+
+
+@budget(5.0, load="fs")
+def test_a_credit_cut_matching_twice_in_1_chapter_is_a_watermark(tmp_path):
+    """#53 per chapter: LINE2 is LINE1's art; 1 cut of it matches at both: 2 bands, a watermark, no credit start."""
+    x = scanned(tmp_path, same_lines=True)
+    r = x.rows
+    cut = cut_row(9, chain("below", seg("cut", r["line1"], x.render)), credit=True)
+    got = su.decide(x.sc, deciding(x.sc), cuts=[cut], render=x.render)
+    assert (*r["line1"], "cut", 9, False) in removed(got)
+    assert (*r["line2"], "cut", 9, False) in removed(got), "the same cut, matched a second time"
+    assert not [u for u in got["undecided"] if u["kind"] == "piece"], "a watermark starts no credit"
+    assert got["watermarks"] == [], "a cut decision's key is never remembered"
