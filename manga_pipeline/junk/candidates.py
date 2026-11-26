@@ -6,7 +6,8 @@ the cleanup of closed ones.
 A candidate is open while a chapter at the junk stage that is not done waits on it (its id is in the chapter's
 junk_scan.candidates) and no decision covers it. Its folder in paths.candidates (on the share) is named by its series
 key, kind and key and by the chapter claim that wrote it, and its row stores that name, so no 2 rows share a folder.
-junk review cleans up (SPEC "Junk decisions"): candidates closed for an hour go, with their folders.
+junk review cleans up (SPEC "Junk decisions"): candidates closed for an hour go, with their folders. A strip chapter's
+rest-of-card bundle (W5) is recorded beside its candidates (junk_scan.bundles: their ids and its member count).
 """
 
 import hashlib
@@ -14,7 +15,7 @@ import json
 import logging
 import shutil
 import time
-from collections.abc import Callable, Container, Iterable
+from collections.abc import Callable, Container, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -25,6 +26,7 @@ from PIL import Image
 from manga_pipeline import config, db, images, names, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.junk import logo_units, ocr, page_units, store, strip_units
+from manga_pipeline.replies import Json
 
 log = logging.getLogger(__name__)
 
@@ -268,7 +270,7 @@ def join(conn: db.Connection, series_key: str, picks: Iterable[Candidate], at: s
     """Join each pick to its matching candidate, or open one, inside the caller's transaction.
 
     A new candidate opens in the folder its images were written to (p["folder"]). Gone for a pick that found a candidate
-    when its images were not written and now finds none. Returns the ids.
+    when its images were not written and now finds none. Returns each pick's id, in pick order (picks may share one).
     """
     ids: list[int] = []
     decisions = store.Decisions(conn, series_key)
@@ -287,7 +289,7 @@ def join(conn: db.Connection, series_key: str, picks: Iterable[Candidate], at: s
             ids.append(new[0])
         else:
             ids.append(row["id"])
-    return sorted(set(ids))
+    return ids
 
 
 def stuck(row: db.Row, limit: int) -> bool:
@@ -299,6 +301,49 @@ def stuck(row: db.Row, limit: int) -> bool:
 WAITING_SCANS = sql.SQL(
     "junk_scan js JOIN chapter c ON c.id = js.chapter_id WHERE c.stage = 'junk' AND c.status != 'done'"
 )
+
+
+class Bundle(TypedDict):
+    """A chapter's rest-of-card bundle as junk_scan.bundles records it: its candidates' ids and its member count.
+
+    size counts every member, decided ones and those sharing a candidate included.
+    """
+
+    ids: list[int]
+    size: int
+
+
+def read_bundles(text: str) -> list[Bundle]:
+    """Return a chapter's recorded bundles (junk_scan.bundles, JSON text), checked: ValueError for another shape."""
+    value: Json = json.loads(text)
+    if not isinstance(value, Sequence) or isinstance(value, str):
+        msg = f"junk_scan.bundles is no list: {text[:200]}"
+        raise ValueError(msg)
+    return [_bundle(b) for b in value]
+
+
+def _bundle(b: Json) -> Bundle:
+    """Return 1 recorded bundle: exactly ids (integers) and size (an integer, at least the ids' count)."""
+    if isinstance(b, Mapping) and set(b) == {"ids", "size"}:
+        ids, size = b["ids"], b["size"]
+        if isinstance(ids, Sequence) and not isinstance(ids, str) and type(size) is int:
+            ints = [i for i in ids if type(i) is int]
+            if len(ints) == len(ids) and size >= len(ints):
+                return {"ids": ints, "size": size}
+    msg = f"junk_scan.bundles holds no bundle {{ids, size}}: {b!r}"
+    raise ValueError(msg)
+
+
+def bundles(conn: db.Connection) -> list[list[int]]:
+    """Return the waiting chapters' bundles of more than 1 member: their candidate id sets, identical sets once.
+
+    Waiting: a not-done junk-stage chapter (WAITING_SCANS), needs_human ones included. Sorted by their ids.
+    """
+    query = sql.SQL("SELECT js.bundles FROM {} AND js.bundles <> '[]'").format(WAITING_SCANS)
+    found = {
+        tuple(sorted(set(b["ids"]))) for (text,) in conn.execute(query) for b in read_bundles(text) if b["size"] > 1
+    }
+    return [list(ids) for ids in sorted(found)]
 
 
 def covering(decisions: Callable[[str], store.Decisions], row: db.Row) -> db.Row | None:

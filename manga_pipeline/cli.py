@@ -455,7 +455,8 @@ def _folder(cfg: config.Config, row: db.Row) -> Path:
 def junk_list(cfg: config.Config, args: argparse.Namespace) -> None:
     """Print the open junk candidates to decide, 1 line each with its image paths (`junk list`; --all: every one).
 
-    Inside a review, then 1 line per group of near candidates: its ids and its sheets.
+    A candidate's line names its rest-of-card bundles (`bundle N`, each listed bundle of more than 1 member). Inside a
+    review, then 1 line per group of near candidates and 1 per bundle: its ids and its sheets.
     """
     review_id = os.environ.get(review.REVIEW_ID_VARIABLE)
     with _junk_db(cfg) as conn:
@@ -464,19 +465,28 @@ def junk_list(cfg: config.Config, args: argparse.Namespace) -> None:
         except review.Refused as e:
             raise workflow.Refused(str(e)) from None
         near = groups.near_groups(rows) if review_id else []
-        group_of = {r["id"]: n for n, members in enumerate(near, 1) for r in members}
+        bundled = review.listed_bundles(rows, candidates.bundles(conn))
+        labels: dict[int, list[str]] = {}
+        for n, members in enumerate(near, 1):
+            for r in members:
+                labels.setdefault(r["id"], []).append(f"group {n}")
+        for n, members in enumerate(bundled, 1):
+            for r in members:
+                labels.setdefault(r["id"], []).append(f"bundle {n}")
         for r in rows:
             folder = _folder(cfg, r)
             fields: list[str] = [str(r["id"]), r["series_key"], r["kind"], f"chapters {review.chapters(conn, r['id'])}"]
             if args.all:
                 fields += [f"reviews {r['reviews']}", f"verdict {r['verdict'] or '-'}"]
-            if r["id"] in group_of:
-                fields.append(f"group {group_of[r['id']]}")
+            fields += labels.get(r["id"], [])
             print("	".join([*fields, str(folder / "unit.png"), str(folder / "context.png")]))
     if review_id:
-        for n, (members, sheets) in enumerate(groups.write_sheets(cfg, review_id, near), 1):
+        named = [(f"group-{n}", g) for n, g in enumerate(near, 1)] + [
+            (f"bundle-{n}", b) for n, b in enumerate(bundled, 1)
+        ]
+        for (name, _), (members, sheets) in zip(named, groups.write_sheets(cfg, review_id, named), strict=True):
             ids = ",".join(str(r["id"]) for r in members)
-            print("	".join([f"group {n}", f"ids {ids}", *(str(s) for s in sheets)]))
+            print("	".join([name.replace("-", " "), f"ids {ids}", *(str(s) for s in sheets)]))
 
 
 def junk_show(cfg: config.Config, args: argparse.Namespace) -> None:

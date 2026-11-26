@@ -121,17 +121,19 @@ def _strip_logo(logo: logo_units.Logo, page: strip.LaidPage) -> logo_units.Strip
 
 
 class Applied(NamedTuple):
-    """What decisions make of a chapter's scan: its edit, watermarks to remember, undecided units, refusal.
+    """What decisions make of a chapter's scan: its edit, watermarks to remember, undecided units, refusal, W5 gaps.
 
     Its chapter edit, the watermark keys to remember, the units left undecided (the layout's, then the logos'; the ones
-    candidates.select would offer are the review's candidates), and why the edit is refused (the chains that should
-    have matched and did not, else strip_units' kept_problem; None when it is not).
+    candidates.select would offer are the review's candidates), why the edit is refused (the chains that should have
+    matched and did not, else strip_units' kept_problem; None when it is not), and a strip's remnant gaps
+    (strip_units.rest_members' input; none for pages or a refused edit).
     """
 
     edit: plan.ChapterEdit
     watermarks: list[str]
     undecided: Sequence[candidates.Unit]
     problem: str | None
+    rest: list[strip_units.RestGap]
 
 
 def apply(
@@ -157,20 +159,22 @@ def apply(
     }
     found: list[str] = []
     undecided: list[candidates.Unit]
+    rest: list[strip_units.RestGap] = []
     if sc["layout"] == "strip":
         got = strip_units.decide(sc, decide_unit, [images.sig_from_str(k) for k in watermarks], cuts, render)
         if got["misses"]:
-            return Applied(edit, [], [], "; ".join(got["misses"]))
+            return Applied(edit, [], [], "; ".join(got["misses"]), [])
         if got["kept_problem"]:
-            return Applied(edit, [], [], got["kept_problem"])
+            return Applied(edit, [], [], got["kept_problem"], [])
         edit["strip_removed"] = got["removed"]
         found = list(got["watermarks"])
         logos = logo_units.decide(sc["marks"], logo_units.strip_survives(edit["strip_removed"]), decide_unit)
         undecided = [*got["undecided"], *logos["undecided"]]
+        rest = got["rest"]
     else:
         got = page_units.decide(sc, decide_unit)
         edit = {**edit, **got["edit"]}
         logos = logo_units.decide(sc["marks"], logo_units.page_survives(edit), decide_unit)
         undecided = [*got["undecided"], *logos["undecided"]]
     edit["blank"] = logos["blank"]
-    return Applied(edit, found, undecided, None)
+    return Applied(edit, found, undecided, None, rest)

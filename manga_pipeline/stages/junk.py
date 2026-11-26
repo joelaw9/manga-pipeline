@@ -12,7 +12,9 @@ chapter of a series is scanned before any is decided. A chapter with a current s
 extracted again (once per decide, removed when it ends) only when a chain or a cut decision is tried or candidate
 images are written: done with its chapter edit, waiting on junk_decision with its candidates (their images written
 first), or needs_human (a chain or cut decision that should apply and does not; a removal that would leave too little;
-a candidate Claude was unsure of or past the review limit).
+a candidate Claude was unsure of or past the review limit). A strip chapter's rest-of-card bundle (W5,
+strip_units.rest_members) is recorded with the candidates it waits on (junk_scan.bundles); a bundle whose members'
+decisions differ gives the chapter a note at Done.
 """
 
 import dataclasses
@@ -37,7 +39,6 @@ from manga_pipeline import (
     volumes,
     workflow,
 )
-from manga_pipeline.convert import plan
 from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates, chapter_scan, logo_units, ocr, page_units, store, strip_units
 
@@ -289,7 +290,7 @@ def scan(ctx: workflow.Context, chapter: db.Row, series: db.Row, key: str) -> wo
             VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (chapter_id) DO UPDATE SET series_id = excluded.series_id,
                 content_digest = excluded.content_digest, scan = excluded.scan, scanned_at = excluded.scanned_at,
-                candidates = '[]'""",
+                candidates = '[]', bundles = '[]'""",
             (chapter["id"], chapter["series_id"], chapter["content_digest"], json.dumps(sc), at),
         )
         conn.execute(  # a new scan: its first decide records the refill anew
@@ -336,14 +337,19 @@ def _remember(conn: db.Connection, watermarks: Iterable[tuple[str, str]]) -> Non
 
 
 def _finished(
-    ctx: workflow.Context, chapter: db.Row, key: str, edit: plan.ChapterEdit, watermarks: list[tuple[str, str]]
+    ctx: workflow.Context,
+    chapter: db.Row,
+    key: str,
+    applied: chapter_scan.Applied,
+    members: list[strip_units.RestPiece],
 ) -> workflow.OUTCOMES:
     """Return the outcome of a chapter that offers no candidate.
 
     The library copy check's (library_copy.after_junk: a duplicate dropped, or held needs_human for 2 published files,
     a volume that cannot be read, another chapter or a better copy of a busy file: no edit kept), else Done with its
-    chapter edit.
+    chapter edit and its rest-of-card note (rest_note) in place of an earlier one.
     """
+    edit, watermarks = applied.edit, [(key, k) for k in applied.watermarks]
     copy = library_copy.after_junk(ctx, chapter, edit)
     if copy is not None:
 
@@ -367,8 +373,34 @@ def _finished(
             values,
         )
         conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
+        text = db.one_row(conn, "SELECT notes FROM chapter WHERE id = %s", (chapter["id"],))[0]
+        before = workflow.read_notes(text or "[]")
+        notes = with_rest_note(before, rest_note(members))
+        if notes != before:
+            conn.execute(
+                "UPDATE chapter SET notes = %s WHERE id = %s", (json.dumps(notes) if notes else None, chapter["id"])
+            )
 
     return workflow.Done(record=done)
+
+
+MIXED_NOTE = "rest of card mixed:"  # a chapter note's start: its bundle's members' decisions differ
+
+
+def rest_note(members: Sequence[strip_units.RestPiece]) -> str | None:
+    """Return a chapter's rest-of-card note naming its bundle's members' rows, when every one is decided, not alike.
+
+    None for no bundle, an undecided member, or members all junk or all kept.
+    """
+    verdicts = {m["verdict"] for m in members}
+    if not members or None in verdicts or len(verdicts) == 1:
+        return None
+    return f"{MIXED_NOTE} rows " + ", ".join(f"{m['start']}-{m['end']}" for m in members)
+
+
+def with_rest_note(notes: Sequence[str], note: str | None) -> list[str]:
+    """Return a chapter's notes with its earlier rest-of-card note replaced by note (None: removed)."""
+    return [*(n for n in notes if not n.startswith(MIXED_NOTE)), *([note] if note else [])]
 
 
 def decide(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row) -> workflow.OUTCOMES:
@@ -400,6 +432,7 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
     known = ctx.conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
     render = pages.render if sc["layout"] == "strip" else None
     applied = chapter_scan.apply(sc, decide_unit, [r["key"] for r in known], decisions.cuts(), render)
+    members = strip_units.rest_members(applied.rest, lambda sig: decisions.judged_keep(images.sig_from_str(sig)))
     watermarks = [(key, k) for k in applied.watermarks]
     if applied.problem:
 
@@ -409,19 +442,21 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
         return workflow.NeedsHuman(applied.problem, record=too_much)
     picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, ocr.word_lists(ctx.cfg["junk"]))
     if not picks:
-        return _finished(ctx, chapter, key, applied.edit, watermarks)
+        return _finished(ctx, chapter, key, applied, members)
     limit = ctx.cfg["junk"]["review_limit"]
     rows = [candidates.find(ctx.conn, decisions, p["kind"], p["key"]) for p in picks]
     held = [r for r in rows if r is not None and (r["verdict"] == "unsure" or candidates.stuck(r, limit))]
     if held:
         # the chapter keeps the candidates it waits on open, so junk decide can name them
+        found = [None if r is None else int(r["id"]) for r in rows]
+        bundle = bundle_record(picks, found, members)
+
         def hold(conn: db.Connection) -> None:
             _remember(conn, watermarks)
-            ids = sorted(r["id"] for r in rows if r is not None)
-            conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
+            _record_candidates(conn, chapter, [i for i in found if i is not None], bundle)
             _refill(conn, chapter, key, len(picks))
 
-        return workflow.NeedsHuman(held_reason(held, limit), record=hold)
+        return workflow.NeedsHuman(held_reason(held, limit, bundle), record=hold)
     new = [p for p, r in zip(picks, rows, strict=True) if r is None]
     if new:
         write_images(ctx, chapter, key, new, pages)
@@ -430,19 +465,56 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
     def wait(conn: db.Connection) -> None:
         _remember(conn, watermarks)
         ids = candidates.join(conn, key, picks, at)
-        conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps(ids), chapter["id"]))
+        _record_candidates(conn, chapter, ids, bundle_record(picks, ids, members))
         _refill(conn, chapter, key, len(picks))
 
     return workflow.Waiting("junk_decision", {"candidates": len(picks)}, record=wait)
 
 
-def held_reason(rows: Iterable[db.Row], limit: int) -> str:
-    """Return the needs_human reason naming each held candidate: Claude was unsure, or undecided after limit reviews."""
+def _record_candidates(
+    conn: db.Connection, chapter: db.Row, ids: Iterable[int], bundles: Sequence[candidates.Bundle]
+) -> None:
+    """Record the candidates a chapter waits on (each once, sorted) and its rest-of-card bundle."""
+    conn.execute(
+        "UPDATE junk_scan SET candidates = %s, bundles = %s WHERE chapter_id = %s",
+        (json.dumps(sorted(set(ids))), json.dumps(bundles), chapter["id"]),
+    )
+
+
+def bundle_record(
+    picks: Sequence[candidates.Candidate], ids: Sequence[int | None], members: Sequence[strip_units.RestPiece]
+) -> list[candidates.Bundle]:
+    """Return a chapter's bundle as junk_scan.bundles records it: its members' candidate ids and its member count.
+
+    ids: each pick's candidate id (None: it has none). [] when no member is a candidate (no bundle, or all decided).
+    """
+    rows = {(m["start"], m["end"]) for m in members}
+    found: set[int] = set()
+    for p, i in zip(picks, ids, strict=True):
+        unit = p["unit"]
+        if i is not None and p["kind"] == "piece" and "start" in unit and (unit["start"], unit["end"]) in rows:
+            found.add(i)
+    return [{"ids": sorted(found), "size": len(members)}] if found else []
+
+
+def held_reason(rows: Sequence[db.Row], limit: int, bundles: Iterable[candidates.Bundle]) -> str:
+    """Return the needs_human reason naming each held candidate: Claude was unsure, or undecided after limit reviews.
+
+    For a held candidate of a bundle of more than 1 member, also that bundle's candidates, to be judged together.
+    """
     parts = [
         f"candidate {r['id']} ({r['kind']}): "
         + ("Claude was unsure" if r["verdict"] == "unsure" else f"undecided after {limit} reviews")
         for r in rows
     ]
+    held = {r["id"] for r in rows}
+    for b in bundles:
+        if b["size"] > 1 and held & set(b["ids"]):
+            ids = " ".join(map(str, b["ids"]))
+            parts.append(
+                f"rest of card {ids}: judge them together (junk decide {ids} junk|keep), or for junk among content"
+                " junk cut CHAPTER:A:B --record DIGEST and keep the content members"
+            )
     return "junk " + "; ".join(parts) + " -> junk decide ID junk|keep, then retry"
 
 
@@ -469,7 +541,7 @@ def junk_decision_over(ctx: workflow.Context, chapter: db.Row) -> bool | workflo
         if c["verdict"] == "unsure" or candidates.stuck(c, limit):
             held.append(c)
     if held:
-        return workflow.NeedsHuman(held_reason(held, limit))
+        return workflow.NeedsHuman(held_reason(held, limit, candidates.read_bundles(row["bundles"])))
     return not ids
 
 

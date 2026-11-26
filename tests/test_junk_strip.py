@@ -303,6 +303,7 @@ def test_a_keep_decision_removes_nothing_and_leaves_nothing_undecided():
         "kept_problem": None,
         "watermarks": [],
         "misses": [],
+        "rest": [],
     }, got
     assert [s["kind"] for s in got["seeds"]] == ["strip", "strip"], "no pool: the seeds it would take are still listed"
 

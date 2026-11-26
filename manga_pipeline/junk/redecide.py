@@ -68,6 +68,7 @@ def _written(row: db.Row, series_key: str, verdict: str, at: str) -> store.Decis
         "decided_at": at,
         "source": f"redecided decision {row['id']}",
         "images": row["images"],
+        "bundle": row["bundle"],  # the mark carries over to the decision written in its place
     }
 
 

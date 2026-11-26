@@ -1,0 +1,1025 @@
+{
+ "series": "My Beloved Baby Sister",
+ "run": "20261114-035349-d077",
+ "checked_at": "2026-11-14 09:08:28",
+ "keeps": [
+  {
+   "id": 8106,
+   "series": null,
+   "review_id": "j9346ddee",
+   "key": "cc6666669b999926|0.08"
+  },
+  {
+   "id": 8108,
+   "series": null,
+   "review_id": "jcf712b51",
+   "key": "c99ec68ccece3131|0.026595744680851064"
+  },
+  {
+   "id": 8109,
+   "series": null,
+   "review_id": "jd3078380",
+   "key": "cb3c30c338cecf31|0.029787234042553193"
+  },
+  {
+   "id": 12490,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j5e1e59ba",
+   "key": "d254adaaa9a5aaa5|0.0325"
+  },
+  {
+   "id": 12491,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j5e1e59ba",
+   "key": "d252adaaaba5a8a9|0.03194444444444444"
+  },
+  {
+   "id": 12492,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j5e1e59ba",
+   "key": "d252adaaaba5a8a9|0.0325"
+  },
+  {
+   "id": 12493,
+   "series": "My Beloved Baby Sister",
+   "review_id": "jf10406e1",
+   "key": "ce62b593a59292b5|0.0325"
+  },
+  {
+   "id": 12494,
+   "series": "My Beloved Baby Sister",
+   "review_id": "jf10406e1",
+   "key": "ce66b552a59292b5|0.03194444444444444"
+  },
+  {
+   "id": 12495,
+   "series": "My Beloved Baby Sister",
+   "review_id": "jf10406e1",
+   "key": "ce62b553a59292b5|0.0325"
+  },
+  {
+   "id": 12499,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j47c0bf38",
+   "key": "a9ab54ad52565e52|0.0325"
+  },
+  {
+   "id": 12500,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j47c0bf38",
+   "key": "a9ab54ad52575652|0.0325"
+  },
+  {
+   "id": 12508,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j47b30c89",
+   "key": "abad545254ad56aa|0.0675"
+  },
+  {
+   "id": 12510,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j136966bb",
+   "key": "d655a950ada9a9a9|0.03333333333333333"
+  },
+  {
+   "id": 12511,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j136966bb",
+   "key": "d685ab40ada9ada9|0.0325"
+  },
+  {
+   "id": 12512,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j83caffd3",
+   "key": "d25aad05ada9aaa5|0.03333333333333333"
+  },
+  {
+   "id": 12513,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j83caffd3",
+   "key": "d25aad55ada8a8a5|0.0325"
+  },
+  {
+   "id": 12515,
+   "series": "My Beloved Baby Sister",
+   "review_id": "jfcb4d67e",
+   "key": "d456ab55ab50a955|0.0675"
+  },
+  {
+   "id": 12516,
+   "series": "My Beloved Baby Sister",
+   "review_id": "jf131db91",
+   "key": "b19ac96ca6ccf126|0.7275"
+  },
+  {
+   "id": 18275,
+   "series": "My Beloved Baby Sister",
+   "review_id": "jaf867554",
+   "key": "ce6d65663292316b|0.4125"
+  },
+  {
+   "id": 18276,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j8ee69e4b",
+   "key": "a5b65aaa5a55525a|0.03194444444444444"
+  },
+  {
+   "id": 18277,
+   "series": "My Beloved Baby Sister",
+   "review_id": "jb96a0579",
+   "key": "adad5255546a5555|0.03194444444444444"
+  },
+  {
+   "id": 18278,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j5fe1e248",
+   "key": "b1954a2e4a6d6d5a|0.03611111111111111"
+  },
+  {
+   "id": 20305,
+   "series": "My Beloved Baby Sister",
+   "review_id": "j98e39fb5",
+   "key": "d45aaba9ab54a915|0.07083333333333333"
+  }
+ ],
+ "chapters": [
+  {
+   "chapter": "Chapter 1.cbz",
+   "pieces": [
+    {
+     "start": 167256,
+     "end": 167298,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 167418,
+     "end": 167498,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 167498,
+     "end": 167703,
+     "gap": false,
+     "blank": false,
+     "std": 55.872296986096075,
+     "ink": 176,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "f007d4e22b8f6a0f|0.2847222222222222"
+    },
+    {
+     "start": 167892,
+     "end": 167917,
+     "gap": true,
+     "blank": true
+    }
+   ],
+   "removed": [
+    {
+     "start": 0,
+     "end": 255,
+     "why": "match"
+    },
+    {
+     "start": 255,
+     "end": 516,
+     "why": "join"
+    },
+    {
+     "start": 1352,
+     "end": 1366,
+     "why": "join"
+    },
+    {
+     "start": 1366,
+     "end": 1467,
+     "why": "match"
+    },
+    {
+     "start": 1467,
+     "end": 1567,
+     "why": "join"
+    },
+    {
+     "start": 1576,
+     "end": 1690,
+     "why": "join"
+    },
+    {
+     "start": 166660,
+     "end": 167256,
+     "why": "match"
+    },
+    {
+     "start": 167256,
+     "end": 167298,
+     "why": "join"
+    },
+    {
+     "start": 167298,
+     "end": 167418,
+     "why": "match"
+    },
+    {
+     "start": 167418,
+     "end": 167498,
+     "why": "join"
+    },
+    {
+     "start": 167498,
+     "end": 167703,
+     "why": "piece"
+    },
+    {
+     "start": 167703,
+     "end": 167892,
+     "why": "match"
+    },
+    {
+     "start": 167892,
+     "end": 167917,
+     "why": "join"
+    }
+   ],
+   "members": [
+    [
+     167498,
+     167703
+    ]
+   ]
+  },
+  {
+   "chapter": "Chapter 3.cbz",
+   "pieces": [
+    {
+     "start": 134469,
+     "end": 134880,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 134880,
+     "end": 135177,
+     "gap": false,
+     "blank": false,
+     "std": 48.36978490526726,
+     "ink": 254,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "ce6d65663292316b|0.4125"
+    },
+    {
+     "start": 135177,
+     "end": 135312,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 135312,
+     "end": 135335,
+     "gap": false,
+     "blank": false,
+     "std": 36.198025205898006,
+     "ink": 255,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "a9ab55ad52565a52|0.03194444444444444"
+    },
+    {
+     "start": 135335,
+     "end": 135346,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 135346,
+     "end": 135369,
+     "gap": false,
+     "blank": false,
+     "std": 53.7603092976719,
+     "ink": 255,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "a5b65aaa5a55525a|0.03194444444444444"
+    },
+    {
+     "start": 135369,
+     "end": 135380,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 135380,
+     "end": 135403,
+     "gap": false,
+     "blank": false,
+     "std": 41.933020197555564,
+     "ink": 255,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "adad5255546a5555|0.03194444444444444"
+    },
+    {
+     "start": 135403,
+     "end": 135412,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 135412,
+     "end": 135438,
+     "gap": false,
+     "blank": false,
+     "std": 63.2816912708312,
+     "ink": 255,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "b1954a2e4a6d6d5a|0.03611111111111111"
+    },
+    {
+     "start": 135438,
+     "end": 135454,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 135454,
+     "end": 135504,
+     "gap": false,
+     "blank": false,
+     "std": 22.539011887964442,
+     "ink": 147,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "abad545254ad56aa|0.06944444444444445"
+    },
+    {
+     "start": 135504,
+     "end": 135520,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 135589,
+     "end": 135632,
+     "gap": true,
+     "blank": true
+    }
+   ],
+   "removed": [
+    {
+     "start": 0,
+     "end": 40,
+     "why": "match"
+    },
+    {
+     "start": 40,
+     "end": 373,
+     "why": "join"
+    },
+    {
+     "start": 133954,
+     "end": 134358,
+     "why": "join"
+    },
+    {
+     "start": 134361,
+     "end": 134469,
+     "why": "match"
+    },
+    {
+     "start": 134475,
+     "end": 134880,
+     "why": "join"
+    },
+    {
+     "start": 135177,
+     "end": 135240,
+     "why": "join"
+    },
+    {
+     "start": 135249,
+     "end": 135312,
+     "why": "join"
+    },
+    {
+     "start": 135335,
+     "end": 135336,
+     "why": "join"
+    },
+    {
+     "start": 135345,
+     "end": 135346,
+     "why": "join"
+    },
+    {
+     "start": 135369,
+     "end": 135370,
+     "why": "join"
+    },
+    {
+     "start": 135379,
+     "end": 135380,
+     "why": "join"
+    },
+    {
+     "start": 135438,
+     "end": 135441,
+     "why": "join"
+    },
+    {
+     "start": 135450,
+     "end": 135454,
+     "why": "join"
+    },
+    {
+     "start": 135504,
+     "end": 135520,
+     "why": "join"
+    },
+    {
+     "start": 135520,
+     "end": 135589,
+     "why": "match"
+    },
+    {
+     "start": 135589,
+     "end": 135632,
+     "why": "join"
+    }
+   ],
+   "members": [
+    [
+     134880,
+     135177
+    ],
+    [
+     135312,
+     135335
+    ],
+    [
+     135346,
+     135369
+    ],
+    [
+     135380,
+     135403
+    ],
+    [
+     135412,
+     135438
+    ],
+    [
+     135454,
+     135504
+    ]
+   ]
+  },
+  {
+   "chapter": "Chapter 54.cbz",
+   "pieces": [
+    {
+     "start": 125233,
+     "end": 125346,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 125346,
+     "end": 125370,
+     "gap": false,
+     "blank": false,
+     "std": 34.89587965143224,
+     "ink": 254,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "d655a950ada9a9a9|0.03333333333333333"
+    },
+    {
+     "start": 125370,
+     "end": 125380,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 125380,
+     "end": 125404,
+     "gap": false,
+     "blank": false,
+     "std": 40.22979194484903,
+     "ink": 254,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "d25aad05ada9aaa5|0.03333333333333333"
+    },
+    {
+     "start": 125404,
+     "end": 125415,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 125415,
+     "end": 125438,
+     "gap": false,
+     "blank": false,
+     "std": 40.48234144180278,
+     "ink": 254,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "d252adaaaba5a8a9|0.03194444444444444"
+    },
+    {
+     "start": 125438,
+     "end": 125449,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 125449,
+     "end": 125472,
+     "gap": false,
+     "blank": false,
+     "std": 64.70891398047935,
+     "ink": 254,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "ce66b552a59292b5|0.03194444444444444"
+    },
+    {
+     "start": 125472,
+     "end": 125488,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 125488,
+     "end": 125539,
+     "gap": false,
+     "blank": false,
+     "std": 26.80637532647465,
+     "ink": 180,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "d45aaba9ab54a915|0.07083333333333333"
+    },
+    {
+     "start": 125539,
+     "end": 125557,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 125557,
+     "end": 125623,
+     "gap": false,
+     "blank": false,
+     "std": 64.87294098277138,
+     "ink": 253,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "ea3c327c4c639497|0.09166666666666666"
+    },
+    {
+     "start": 125623,
+     "end": 125924,
+     "gap": true,
+     "blank": true
+    }
+   ],
+   "removed": [
+    {
+     "start": 124376,
+     "end": 124611,
+     "why": "join"
+    },
+    {
+     "start": 124620,
+     "end": 124743,
+     "why": "join"
+    },
+    {
+     "start": 124743,
+     "end": 125233,
+     "why": "match"
+    },
+    {
+     "start": 125233,
+     "end": 125346,
+     "why": "join"
+    },
+    {
+     "start": 125379,
+     "end": 125380,
+     "why": "join"
+    },
+    {
+     "start": 125404,
+     "end": 125405,
+     "why": "join"
+    },
+    {
+     "start": 125414,
+     "end": 125415,
+     "why": "join"
+    },
+    {
+     "start": 125438,
+     "end": 125439,
+     "why": "join"
+    },
+    {
+     "start": 125448,
+     "end": 125449,
+     "why": "join"
+    },
+    {
+     "start": 125472,
+     "end": 125475,
+     "why": "join"
+    },
+    {
+     "start": 125484,
+     "end": 125488,
+     "why": "join"
+    },
+    {
+     "start": 125539,
+     "end": 125557,
+     "why": "join"
+    },
+    {
+     "start": 125557,
+     "end": 125623,
+     "why": "piece"
+    },
+    {
+     "start": 125623,
+     "end": 125924,
+     "why": "join"
+    }
+   ],
+   "members": []
+  },
+  {
+   "chapter": "Chapter 59.cbz",
+   "pieces": [
+    {
+     "start": 168777,
+     "end": 168843,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 168843,
+     "end": 168869,
+     "gap": false,
+     "blank": false,
+     "std": 36.0610234665115,
+     "ink": 255,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "d685ab40ada9ada9|0.0325"
+    },
+    {
+     "start": 168869,
+     "end": 168881,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 168881,
+     "end": 168907,
+     "gap": false,
+     "blank": false,
+     "std": 41.3580245499535,
+     "ink": 255,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "d25aad55ada8a8a5|0.0325"
+    },
+    {
+     "start": 168907,
+     "end": 168919,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 168919,
+     "end": 168945,
+     "gap": false,
+     "blank": false,
+     "std": 41.07442718281482,
+     "ink": 255,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "d252adaaaba5a8a9|0.0325"
+    },
+    {
+     "start": 168945,
+     "end": 168957,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 168957,
+     "end": 168983,
+     "gap": false,
+     "blank": false,
+     "std": 65.73124241962321,
+     "ink": 255,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "ce62b553a59292b5|0.0325"
+    },
+    {
+     "start": 168983,
+     "end": 169003,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 169003,
+     "end": 169057,
+     "gap": false,
+     "blank": false,
+     "std": 27.53016063727145,
+     "ink": 195,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "d456ab55ab50a955|0.0675"
+    },
+    {
+     "start": 169057,
+     "end": 169077,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 169151,
+     "end": 169713,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 169713,
+     "end": 170295,
+     "gap": false,
+     "blank": false,
+     "std": 62.314404467954105,
+     "ink": 245,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "b19ac96ca6ccf126|0.7275"
+    },
+    {
+     "start": 170295,
+     "end": 170559,
+     "gap": true,
+     "blank": true
+    }
+   ],
+   "removed": [
+    {
+     "start": 167685,
+     "end": 167988,
+     "why": "join"
+    },
+    {
+     "start": 167998,
+     "end": 168235,
+     "why": "join"
+    },
+    {
+     "start": 168235,
+     "end": 168777,
+     "why": "match"
+    },
+    {
+     "start": 168777,
+     "end": 168843,
+     "why": "join"
+    },
+    {
+     "start": 168869,
+     "end": 168870,
+     "why": "join"
+    },
+    {
+     "start": 168880,
+     "end": 168881,
+     "why": "join"
+    },
+    {
+     "start": 168907,
+     "end": 168908,
+     "why": "join"
+    },
+    {
+     "start": 168918,
+     "end": 168919,
+     "why": "join"
+    },
+    {
+     "start": 168945,
+     "end": 168946,
+     "why": "join"
+    },
+    {
+     "start": 168956,
+     "end": 168957,
+     "why": "join"
+    },
+    {
+     "start": 168983,
+     "end": 168988,
+     "why": "join"
+    },
+    {
+     "start": 168998,
+     "end": 169003,
+     "why": "join"
+    },
+    {
+     "start": 169057,
+     "end": 169077,
+     "why": "join"
+    },
+    {
+     "start": 169077,
+     "end": 169151,
+     "why": "match"
+    },
+    {
+     "start": 169151,
+     "end": 169417,
+     "why": "join"
+    },
+    {
+     "start": 169427,
+     "end": 169713,
+     "why": "join"
+    },
+    {
+     "start": 170295,
+     "end": 170559,
+     "why": "join"
+    }
+   ],
+   "members": [
+    [
+     168843,
+     168869
+    ],
+    [
+     168881,
+     168907
+    ],
+    [
+     168919,
+     168945
+    ],
+    [
+     168957,
+     168983
+    ],
+    [
+     169003,
+     169057
+    ],
+    [
+     169713,
+     170295
+    ]
+   ]
+  },
+  {
+   "chapter": "Chapter 79.cbz",
+   "pieces": [
+    {
+     "start": 220628,
+     "end": 220673,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 220673,
+     "end": 220701,
+     "gap": false,
+     "blank": false,
+     "std": 49.622465547280754,
+     "ink": 181,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "cb3c30c338cecf31|0.029787234042553193"
+    },
+    {
+     "start": 220701,
+     "end": 220762,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 220762,
+     "end": 220837,
+     "gap": false,
+     "blank": false,
+     "std": 44.020917134045135,
+     "ink": 181,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "cc6666669b999926|0.0797872340425532"
+    },
+    {
+     "start": 220837,
+     "end": 220866,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 220866,
+     "end": 220891,
+     "gap": false,
+     "blank": false,
+     "std": 54.993468594632304,
+     "ink": 181,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "c99ec6cccec63131|0.026595744680851064"
+    },
+    {
+     "start": 220891,
+     "end": 221016,
+     "gap": true,
+     "blank": true
+    },
+    {
+     "start": 221016,
+     "end": 222237,
+     "gap": false,
+     "blank": false,
+     "std": 32.72561761395927,
+     "ink": 199,
+     "uniform": false,
+     "unsignable": false,
+     "sig": "9d22726766accd52|1.298936170212766"
+    }
+   ],
+   "removed": [
+    {
+     "start": 220250,
+     "end": 220381,
+     "why": "join"
+    },
+    {
+     "start": 220392,
+     "end": 220478,
+     "why": "join"
+    },
+    {
+     "start": 220478,
+     "end": 220628,
+     "why": "match"
+    },
+    {
+     "start": 220628,
+     "end": 220673,
+     "why": "join"
+    },
+    {
+     "start": 220701,
+     "end": 220726,
+     "why": "join"
+    },
+    {
+     "start": 220737,
+     "end": 220762,
+     "why": "join"
+    },
+    {
+     "start": 220837,
+     "end": 220846,
+     "why": "join"
+    },
+    {
+     "start": 220857,
+     "end": 220866,
+     "why": "join"
+    },
+    {
+     "start": 220891,
+     "end": 221016,
+     "why": "join"
+    },
+    {
+     "start": 221016,
+     "end": 222237,
+     "why": "piece"
+    }
+   ],
+   "members": []
+  }
+ ]
+}

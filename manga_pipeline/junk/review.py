@@ -21,24 +21,62 @@ def listable(conn: db.Connection, cfg: config.Config) -> list[db.Row]:
     """Return the open candidates Claude may be shown, a series at a time, at most junk.review_batch.
 
     Neither unsure nor stuck, in open_rows order, grouped by series in the order of each series' first candidate. A
-    series that fits the room left is taken whole; one larger than the whole batch is cut to the room left; one that
-    does not fit but is not larger than the batch waits for a later review, and the listing goes on.
+    series that fits the room left is taken whole; one larger than the whole batch is cut to the room left (_cut:
+    never inside a bundle); one that does not fit but is not larger than the batch waits for a later review, and the
+    listing goes on until the batch is full.
     """
     limit, batch = cfg["junk"]["review_limit"], cfg["junk"]["review_batch"]
     by_series: dict[str, list[db.Row]] = {}
     for r in candidates.open_rows(conn):
         if r["verdict"] is None and r["reviews"] < limit:
             by_series.setdefault(r["series_key"], []).append(r)
+    bundles = candidates.bundles(conn)
     out: list[db.Row] = []
     for rows in by_series.values():
         room = batch - len(out)
-        if room == 0:
+        if room <= 0:
             break
         if len(rows) <= room:
             out += rows
-        elif len(rows) > batch:
-            out += rows[:room]
+        elif len(rows) > batch and _cut(rows, bundles, out, batch):
+            break
     return out
+
+
+def _cut(rows: Sequence[db.Row], bundles: Sequence[Sequence[int]], out: list[db.Row], batch: int) -> bool:
+    """List a series larger than the batch into out up to the batch, its bundles kept whole; return whether to stop.
+
+    Its rows are taken in order, each with the other rows of every bundle it belongs to (its bundles' own ids, no
+    closure over the members they share with other bundles). The series is cut before a set that does not fit the
+    room left, which waits for a later review; but when nothing is listed yet that set alone exceeds the batch: it is
+    listed whole and the listing stops.
+    """
+    taken: set[int] = set()
+    for r in rows:
+        if r["id"] in taken:
+            continue
+        ids = {r["id"]}.union(*(b for b in bundles if r["id"] in b))
+        chunk = [x for x in rows if x["id"] in ids and x["id"] not in taken]
+        taken.update(x["id"] for x in chunk)
+        if len(chunk) <= batch - len(out):
+            out += chunk
+        elif not out:
+            out += chunk
+            return True
+        else:
+            return False
+    return False
+
+
+def listed_bundles(rows: Sequence[db.Row], bundles: Sequence[Sequence[int]]) -> list[list[db.Row]]:
+    """Return the bundles (candidates.bundles) a listing shows, each as its listed members in listing order.
+
+    A bundle shown in part (its other members unsure, stuck or past the batch) holds only those listed; one with none
+    listed is left out. In order of each bundle's first listed member.
+    """
+    order = {r["id"]: n for n, r in enumerate(rows)}
+    shown = [[r for r in rows if r["id"] in b] for b in bundles]
+    return sorted((s for s in shown if s), key=lambda s: order[s[0]["id"]])
 
 
 def listing(
@@ -128,12 +166,22 @@ def _open_all(conn: db.Connection, candidate_ids: Sequence[int], review_id: str 
 
 
 def _record(conn: db.Connection, rows: Sequence[db.Row], verdict: str, review_id: str | None, at: str) -> None:
-    """Record verdict on rows in the caller's transaction: a decision on each key, or the unsure mark."""
+    """Record verdict on rows in the caller's transaction: a decision on each key, or the unsure mark.
+
+    A decision on a candidate of a waiting chapter's bundle of more than 1 member (candidates.bundles) carries the
+    bundle mark (SPEC "Junk decisions": a marked keep protects no gap).
+    """
     if verdict == "unsure":
         db.executemany(conn, "UPDATE junk_candidate SET verdict = 'unsure' WHERE id = %s", [(r["id"],) for r in rows])
         return
     decider = "claude" if review_id else "human"
-    store.upsert(conn, [decision(r, verdict, decider, at) for r in rows])
+    bundled = {i for ids in candidates.bundles(conn) for i in ids}
+    written: list[store.Decision] = []
+    for r in rows:
+        d = decision(r, verdict, decider, at)
+        d["bundle"] = r["id"] in bundled
+        written.append(d)
+    store.upsert(conn, written)
 
 
 def decide(

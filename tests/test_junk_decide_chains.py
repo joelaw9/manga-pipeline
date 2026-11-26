@@ -205,6 +205,25 @@ def test_step_5_a_cut_seeded_by_a_tail_drop_withdraws_the_piece_it_covers(tmp_pa
 
 
 @budget(5.0, load="fs")
+def test_step_5_a_piece_the_cut_covers_leaves_the_rest_of_card_and_a_decided_one_stays(tmp_path):
+    """W5: a piece wholly removed by a step-5 cut is no rest-of-card piece; the piece decision's dropped one is."""
+    x = scanned(tmp_path, short_line2=True)
+    r = x.rows
+    block = (r["s5a"][0], r["s5b"][1])
+    tail = present(x.sc["measured"].get("{}:{}".format(*block)))["sig"]
+    decide_unit = deciding(x.sc, [(r["panel"], 1, None)], [(tail, 7)])
+    cut = cut_row(9, chain("above", seg("cut", r["line2"], x.render)), credit=False)
+
+    def rest(got):
+        return [(p["start"], p["end"]) for g in got["rest"] for p in g["pieces"]]
+
+    assert r["line2"] in rest(su.decide(x.sc, decide_unit, render=x.render)), "without the cut: a W5 piece"
+    got = rest(su.decide(x.sc, decide_unit, cuts=[cut], render=x.render))
+    assert r["line2"] not in got, "wholly cut at step 5: it leaves the pieces"
+    assert block in got, "the tail block a piece decision drops is still a W5 piece"
+
+
+@budget(5.0, load="fs")
 def test_a_card_that_does_not_match_is_a_miss(tmp_path):
     x = scanned(tmp_path)
     r = x.rows

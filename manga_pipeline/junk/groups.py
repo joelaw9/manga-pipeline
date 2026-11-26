@@ -3,7 +3,8 @@
 Within 1 series and 1 signature kind, candidates whose keys are near (images.matches at GROUP_DISTANCE and
 GROUP_ASPECT) are linked, and the chains form groups (single link). A group of 2 or more is shown on sheets: grids of
 its members' unit images, each labelled with its candidate id, every sheet within the model's image bounds
-(SHEET_LONG_EDGE, SHEET_PIXELS) so it is read without being scaled down. Frames and logos are never grouped.
+(SHEET_LONG_EDGE, SHEET_PIXELS) so it is read without being scaled down. Frames and logos are never grouped. A
+rest-of-card bundle's listed members (review.listed_bundles) are shown on sheets the same way, written with the groups'.
 """
 
 import shutil
@@ -61,8 +62,8 @@ def _cell(cfg: config.Config, row: db.Row, width: int, height: int) -> Image.Ima
     return unit.resize((max(1, round(unit.width * scale)), max(1, round(unit.height * scale))))
 
 
-def sheets(cfg: config.Config, review_id: str, number: int, members: Sequence[db.Row]) -> list[Path]:
-    """Write group `number`'s sheets, group-<number>-<m>.png, and return their paths in order.
+def sheets(cfg: config.Config, review_id: str, name: str, members: Sequence[db.Row]) -> list[Path]:
+    """Write the sheets of members named `name` (group-<n>, bundle-<n>), <name>-<m>.png; return their paths in order.
 
     Each sheet holds up to PER_ROW members a row, each under SHEET_LONG_EDGE / PER_ROW px wide and labelled with its
     id; a new sheet starts when the next row would pass SHEET_LONG_EDGE or SHEET_PIXELS.
@@ -96,18 +97,21 @@ def sheets(cfg: config.Config, review_id: str, number: int, members: Sequence[db
                 sheet.paste(cells[i], (col * cell_w, top))
                 draw.text((col * cell_w + 4, top + h - LABEL_PX + 4), f"id {members[i]['id']}", fill="red", font=font)
             top += h
-        path = dest / f"group-{number}-{m}.png"
+        path = dest / f"{name}-{m}.png"
         images.save_png(sheet, path)
         out.append(path)
     return out
 
 
 def write_sheets(
-    cfg: config.Config, review_id: str, groups: Sequence[Sequence[db.Row]]
+    cfg: config.Config, review_id: str, named: Sequence[tuple[str, Sequence[db.Row]]]
 ) -> list[tuple[Sequence[db.Row], list[Path]]]:
-    """Write every group's sheets for a review, its folder emptied first; return each group with its sheets."""
+    """Write the sheets of every named member set (group-<n>, bundle-<n>) for a review, its folder emptied first.
+
+    Returns each set's members with its sheets, in order.
+    """
     shutil.rmtree(folder(cfg, review_id), ignore_errors=True)  # a second list in 1 review writes them anew
-    return [(members, sheets(cfg, review_id, n, members)) for n, members in enumerate(groups, 1)]
+    return [(members, sheets(cfg, review_id, name, members)) for name, members in named]
 
 
 def remove_all(cfg: config.Config) -> None:

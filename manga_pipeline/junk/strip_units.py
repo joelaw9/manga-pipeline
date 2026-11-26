@@ -15,12 +15,15 @@ reshaped to 1 chapter:
   is tried (`render`).
 
 Chains, cut decisions and card holes are junk.anchored's; decide applies them in the old order (plan_review
-tail_review / finish_strip): with them it reads the strip's pixels through `render`. Not ported (SPEC "Junk
-decisions", D5.1): the rest-of-card bundles (each tail piece is its own unit). The watermark rule reads this chapter
-and the watermark keys the series' earlier chapters showed (the old one read every chapter of the series at once).
+tail_review / finish_strip): with them it reads the strip's pixels through `render`. The rest of card (W5, SPEC "Junk
+decisions": units; strip_junk.remnant_gaps / rest_members): decide returns the chapter's remnant gaps, rest_members
+their members, 1 bundle per chapter (the old one grouped chapters' matching sets into 1 item). The watermark rule
+reads this chapter and the watermark keys the series' earlier chapters showed (the old one read every chapter of the
+series at once).
 Constants are the bulk converter's, frozen: the stored decisions were made with them.
 """
 
+import bisect
 import functools
 import itertools
 from collections import Counter
@@ -189,6 +192,22 @@ class Drop(TypedDict):
 type Range = Removed | Drop
 
 
+class RestPiece(TypedDict):
+    """A tail piece the tail pass reviews or decides by a piece decision: rows, signature text, verdict (None: none)."""
+
+    start: int
+    end: int
+    sig: str
+    verdict: str | None
+
+
+class RestGap(TypedDict):
+    """A remnant gap (W5): its pieces in strip order, and whether it holds a card hole's kept rows."""
+
+    pieces: list[RestPiece]
+    hole: bool
+
+
 class TailPiece(TypedDict):
     """A tail piece (tail_pieces): kept rows [start, end) from the credit start, and whether they are a gap."""
 
@@ -223,8 +242,8 @@ class StripDecision(TypedDict):
 
     The final removed ranges (after the join rule), the undecided units, why the removal is refused (None: it is not),
     the keys of the decisions that removed a watermark, the texts of the chains that should have matched and did
-    not (each holds the chapter for a person), and the strip's seeds as it leaves it (seeds_left: where junk cut
-    anchors a proposal).
+    not (each holds the chapter for a person), the strip's seeds as it leaves it (seeds_left: where junk cut
+    anchors a proposal), and its remnant gaps (remnant_gaps: rest_members' input).
     """
 
     removed: list[plan.RemovedRange]
@@ -233,6 +252,7 @@ class StripDecision(TypedDict):
     watermarks: list[str]
     misses: list[str]
     seeds: list[an.Seed]
+    rest: list[RestGap]
 
 
 def measure_piece(im: Image.Image) -> PieceMeasure:
@@ -658,11 +678,15 @@ def _measured_pieces(
 
 
 class _Tail(NamedTuple):
-    """The tail pass: its pieces, what it drops (W1, W3, piece decisions) and the pieces left for review."""
+    """The tail pass: its pieces, what it drops (W1, W3, piece decisions) and the pieces left for review.
+
+    signed: every piece it reviewed or decided by a piece decision, with that decision's verdict (W5's pieces).
+    """
 
     pieces: list[ClassedPiece]
     drops: list[Drop]
     review: list[PieceUnit]
+    signed: list[RestPiece]
 
 
 def _tail_pass(
@@ -677,7 +701,8 @@ def _tail_pass(
     classes = tail_classes(pieces, bands, others)
     drops: list[Drop]
     review: list[PieceUnit]
-    drops, review = [], []
+    signed: list[RestPiece]
+    drops, review, signed = [], [], []
     for i, c in sorted(classes.items(), key=lambda item: item[0]):
         if isinstance(c, str):
             p = pieces[i]
@@ -687,6 +712,8 @@ def _tail_pass(
             continue
         p = c
         row = decide_unit("piece", p["sig"])
+        verdict = None if row is None else str(row["verdict"])
+        signed.append({"start": p["start"], "end": p["end"], "sig": p["sig"], "verdict": verdict})
         if row is None:
             review.append({"kind": "piece", "start": p["start"], "end": p["end"], "where": "tail", "sig": p["sig"]})
         elif row["verdict"] == "junk":
@@ -700,7 +727,41 @@ def _tail_pass(
                     "sig": p["sig"],
                 }
             )
-    return _Tail(pieces, drops, review)
+    return _Tail(pieces, drops, review, signed)
+
+
+def remnant_gaps(
+    pieces: Iterable[RestPiece], bounds: Iterable[strip.Rows], holes: Iterable[strip.Rows]
+) -> list[RestGap]:
+    """Return a chapter's remnant gaps (W5; the bulk converter's strip_junk.remnant_gaps).
+
+    The runs between 2 consecutive bounds, or after the last, that hold a piece or a card hole's kept rows, in strip
+    order. pieces: the tail pieces the tail pass reviews or decides, in strip order; bounds: the ranges steps 1-3
+    removed (the tail pass's own drops never bound: they lie inside a gap); holes: card holes' kept rows. A piece's
+    or a hole's gap is the count of bound ends at or before its start.
+    """
+    ends = sorted(e for _, e in bounds)
+    gaps: dict[int, RestGap] = {}
+    for p in pieces:
+        gaps.setdefault(bisect.bisect_right(ends, p["start"]), {"pieces": [], "hole": False})["pieces"].append(p)
+    for s, _ in holes:
+        gaps.setdefault(bisect.bisect_right(ends, s), {"pieces": [], "hole": False})["hole"] = True
+    return [gaps[k] for k in sorted(gaps)]
+
+
+def rest_members(gaps: Iterable[RestGap], judged: Callable[[str], bool]) -> list[RestPiece]:
+    """Return the members of a chapter's rest-of-card bundle (W5; the bulk converter's strip_junk.rest_members).
+
+    The pieces of every gap that is not protected, in strip order: a gap is protected when it holds a card hole's kept
+    rows, or a piece judged kept (judged(sig text): an active matching piece keep with no bundle mark) beside a piece
+    that is not (a gap whose every piece is judged kept has nothing to protect).
+    """
+    out: list[RestPiece] = []
+    for g in gaps:
+        kept = [judged(p["sig"]) for p in g["pieces"]]
+        if not g["hole"] and (all(kept) or not any(kept)):
+            out += g["pieces"]
+    return sorted(out, key=lambda p: p["start"])
 
 
 def _undecided_blocks(
@@ -856,7 +917,8 @@ def decide(
     b): the image of strip rows [a, b), called only when a chain or a cut decision is tried (None: none may be).
     Returns {"removed": final ranges (after the join rule), "undecided": [{"kind", "start", "end", "where", "sig",
     "text"?, "probes"?}], "kept_problem": text or None, "watermarks": the keys of the block or probe decisions that
-    removed a watermark here, "misses": the texts of the chains that should have matched and did not}.
+    removed a watermark here, "misses": the texts of the chains that should have matched and did not, "seeds", "rest":
+    the remnant gaps (W5) of the pieces the tail pass reviewed or decided, bounded by the ranges steps 1-3 removed}.
     """
     layout = an.Layout(sc["height"], sc["width"], sc["spans"], sc["gaps"])
 
@@ -880,6 +942,7 @@ def decide(
     late_ranges = [_drop(a) for a in late["added"]]
     late_rows = [(r["start"], r["end"]) for r in late_ranges]
     review = [p for p in tail.review if an.uncovered(p["start"], p["end"], late_rows)]  # wholly cut: withdrawn
+    signed = [p for p in tail.signed if an.uncovered(p["start"], p["end"], late_rows)]  # nor a W5 piece
     everything = sorted([*ranged, *tail.drops, *late_ranges], key=lambda r: r["start"])
     owned = (
         [(r["start"], r["end"]) for r in everything]
@@ -896,4 +959,5 @@ def decide(
         "watermarks": sorted({r["key"] for r in removed if r["decision"] in marks}),
         "misses": sorted({miss_text(m) for m in got["misses"] + late["misses"]}),
         "seeds": seeds_left(layout, everything, got["matches"] + late["matches"]),
+        "rest": remnant_gaps(signed, taken, holes),
     }
