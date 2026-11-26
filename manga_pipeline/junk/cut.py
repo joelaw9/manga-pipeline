@@ -273,12 +273,8 @@ def _loaded(conn: db.Connection, ids: Sequence[int], scanned: set[int]) -> dict[
     }
 
 
-def _series_of(conn: db.Connection, chapters: Sequence[int], review_id: str | None) -> db.Row:
-    """Return the 1 series of the named chapters; Refused for an unknown chapter or chapters of 2 series.
-
-    Under a review id, Refused too unless that review listed a candidate of the series and still holds it open (as
-    review.get_open refuses an unlisted candidate).
-    """
+def _series_of(conn: db.Connection, chapters: Sequence[int]) -> db.Row:
+    """Return the 1 series of the named chapters; Refused for an unknown chapter or chapters of 2 series."""
     rows = conn.execute("SELECT id, series_id FROM chapter WHERE id = ANY(%s)", (list(chapters),)).fetchall()
     missing = sorted(set(chapters) - {r["id"] for r in rows})
     if missing:
@@ -288,25 +284,25 @@ def _series_of(conn: db.Connection, chapters: Sequence[int], review_id: str | No
     if len(series) != 1:
         msg = f"the named chapters are of {len(series)} series ({', '.join(map(str, series))}): a cut is 1 series'"
         raise workflow.Refused(msg)
-    row = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series[0],))
-    if review_id and not _listed(conn, review_id, row["rules_key"]):
-        msg = (
-            f"chapter {', '.join(map(str, chapters))}: this review listed no candidate of its series"
-            f" ({row['rules_key']})"
-        )
+    return db.one_row(conn, "SELECT * FROM series WHERE id = %s", (series[0],))
+
+
+def _in_review_scope(conn: db.Connection, series: db.Row, chapters: Sequence[int], review_id: str | None) -> db.Row:
+    """Return series; under a review id, Refused unless that review listed a candidate of it and still holds it open.
+
+    As review.get_open refuses a candidate the review did not list; outside a review nothing is checked.
+    """
+    if review_id is None:
+        return series
+    key = store.series_key(series)
+    listed = conn.execute(
+        "SELECT 1 FROM junk_candidate WHERE review_id = %s AND review_open = 1 AND series_key = %s",
+        (review_id, key),
+    ).fetchone()
+    if listed is None:
+        msg = f"chapter {', '.join(map(str, chapters))}: this review listed no candidate of its series ({key})"
         raise workflow.Refused(msg)
-    return row
-
-
-def _listed(conn: db.Connection, review_id: str, series_key: str) -> bool:
-    """Return whether review review_id listed a candidate of series_key and still holds it open (review_open = 1)."""
-    return (
-        conn.execute(
-            "SELECT 1 FROM junk_candidate WHERE review_id = %s AND review_open = 1 AND series_key = %s",
-            (review_id, series_key),
-        ).fetchone()
-        is not None
-    )
+    return series
 
 
 def _open_candidate(conn: db.Connection, candidate: int, review_id: str | None) -> db.Row:
@@ -788,7 +784,7 @@ def _cut_plan(cfg: config.Config, args: CutArgs, review_id: str | None, work: Pa
         raise workflow.Refused(msg)
     by = _by_chapter(args.ranges)
     with _snapshot(cfg) as conn:
-        inp = _inputs(conn, _series_of(conn, list(by), review_id), list(by))
+        inp = _inputs(conn, _in_review_scope(conn, _series_of(conn, list(by)), list(by), review_id), list(by))
     hand = [_hand(_named_strip(cfg, inp, c, work), inp) for c in by]
     versions = [_version(h, by[h.strip.row["id"]], inp.key, inside=args.inside) for h in hand]
     side = versions[0].side
@@ -1203,7 +1199,7 @@ def _candidate_spans(cfg: config.Config, candidate: int, review_id: str | None, 
 def _region_spans(cfg: config.Config, chapter: int, region: str, review_id: str | None, work: Path) -> list[str]:
     """Draw a chapter's first or last EDGE_PX rows (an.region_bounds), its seeds there marked."""
     with _snapshot(cfg) as conn:
-        inp = _inputs(conn, _series_of(conn, [chapter], review_id), [chapter])
+        inp = _inputs(conn, _in_review_scope(conn, _series_of(conn, [chapter]), [chapter], review_id), [chapter])
     s = _named_strip(cfg, inp, chapter, work)
     window = an.region_bounds(s.layout.height, region, strip_units.EDGE_PX)
     dest = _sheet_folder(cfg, review_id, work)

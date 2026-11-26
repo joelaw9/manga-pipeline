@@ -399,3 +399,16 @@ def test_a_review_records_2_cuts_in_turn(site, tmp_path):
     rows = cut_rows(cfg)
     assert [d for d, _ in rows] == ["claude", "claude"], "both cuts active"
     assert len({a for _, a in rows}) == 2, "each in its own act"
+
+
+@budget(load="subprocess", seconds=30)
+def test_a_refused_cut_is_no_refused_tool_call_and_the_review_ends_ok(site, tmp_path):
+    """A cut naming a chapter that does not exist is refused by junk cut (exit 2), not by the permission rules."""
+    chapter = real_head(site)
+    plan = ["list", f"cut:{chapter + 1000}:0:100", "decide:unsure"]
+    exe = fake_claude(tmp_path / "claude", site.cfg, plan)
+    code, cfg = review_cmd(tmp_path, site.cfg, exe)
+    (log,) = dumps(tmp_path / "claude", "log")
+    assert [(e[0], e[1]) for e in log] == [("list", 0), ("cut", 2), ("decide", 0)], log
+    assert code == 0, f"the command's refusal is no refused tool call: the review ends ok: {log}"
+    assert cut_rows(cfg) == [], "nothing is recorded"
