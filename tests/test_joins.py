@@ -307,3 +307,13 @@ def test_a_later_parts_volume_cover_and_its_page_entry_are_left_out(world):
     assert names == sorted(names), "pages named in reading order"
     assert len(got) == 8, "1 Page entry per page"
     assert not any(e.get("Type") == "FrontCover" for e in got), "the cover's Page entry goes too"
+
+
+@budget(load="db", seconds=60)
+def test_a_missing_part_holds_the_join_for_a_person(world):
+    published(world, "Chapter 3.1", "Chapter 3.2")
+    (world.library / SERIES / "Ch.3.2.cbz").unlink()
+    world.run(export)
+    assert world.rows("SELECT status, attempts FROM chapter WHERE join_parts IS NOT NULL") == [("needs_human", 0)], (
+        "held at once, not retried"
+    )

@@ -185,7 +185,7 @@ def comicinfo_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | wor
     first_xml, pages, entries = built
     try:
         fields = rewrite.file_fields(ctx, series, first_xml, chapter["comicinfo_volume"])
-    except (volumes.VolumeError, ET.ParseError) as e:
+    except volumes.VolumeError as e:
         return workflow.NeedsHuman(str(e))
     whole = chapter["comicinfo_number"]
     fields["Number"] = whole
@@ -230,7 +230,7 @@ def _read(cfg: config.Config, files: Sequence[db.Row]) -> tuple[bytes, list[_Pag
                     taken.append((n, i, name, z.read(infos[name]), infos[name].CRC))
         except FileNotFoundError:
             return f"{f['library_path']} is missing"
-        except (*archive.UNREADABLE, ET.ParseError) as e:
+        except archive.UNREADABLE as e:
             return f"{f['library_path']} cannot be read: {e}"
         if not page_names:
             return f"{f['library_path']} holds no page"
