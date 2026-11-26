@@ -83,10 +83,14 @@ class RecordDecisionRow(TypedDict):
 
 
 class RecordJunkRow(RecordDecisionRow):
-    """A junk table row: its origin and its key, (tiles text, aspect), built from its JSON array."""
+    """A junk table row: its origin, its key (tiles text, aspect), built from its JSON array, and its review id.
+
+    review_id: the bulk converter's review item id (None: none); "rn..." names a rest-of-card bundle's row.
+    """
 
     origin: str
     key: tuple[str, float]
+    review_id: str | None
 
 
 class FrameVector(TypedDict):
@@ -272,6 +276,7 @@ def decisions(record: Record) -> DecisionBlock:
                 "added": r["added"],
                 "origin": r["origin"],
                 "key": (tiles, aspect),
+                "review_id": r["review_id"],
             }
         )
     for r in block["rows"]["frames"]:

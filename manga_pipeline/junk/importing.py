@@ -12,6 +12,7 @@ from manga_pipeline.convert import record_reader
 from manga_pipeline.junk import frames, marks, store
 
 VERDICT = {"approve": "junk", "keep": "keep"}  # the bulk converter's decision -> ours
+BUNDLE_PREFIX = "rn"  # a bulk-converter review id of a rest-of-card bundle of more than 1 piece (junk.bundle)
 UNIT_ORIGINS = ("block", "probe", "piece", "page", "band")  # the bulk converter's origins imported (not cut)
 
 
@@ -80,7 +81,8 @@ def record_rows(record: record_reader.Record) -> list[store.Decision]:
 
     Schema 4 carries the decision rows its runs used (series.decisions.rows; a marks row names its template in
     series.decisions.templates); a schema-3 record carries none it can give. Cut rows
-    are left out and chains dropped. RecordError on a malformed row.
+    are left out and chains dropped. A junk row of a bundle's review id ("rn...") carries the bundle mark. RecordError
+    on a malformed row.
     """
     if record["schema"] != record_reader.SCHEMA:
         return []
@@ -94,7 +96,9 @@ def record_rows(record: record_reader.Record) -> list[store.Decision]:
                 raise SourceError(msg)
             tiles, aspect = r["key"]
             sig = images.sig_to_str((tuple(int(t, 16) for t in tiles.split(":")), float(aspect)))
-            out.append(_row(r["series"], r["origin"], sig, r, f"record junk row {r['row']}"))
+            row = _row(r["series"], r["origin"], sig, r, f"record junk row {r['row']}")
+            row["bundle"] = r["review_id"] is not None and r["review_id"].startswith(BUNDLE_PREFIX)
+            out.append(row)
         for r in frame_rows:
             vec, aspect = r["key"]
             key = frames.key_text(frames.from_bytes(base64.b64decode(vec["b64"]), aspect))

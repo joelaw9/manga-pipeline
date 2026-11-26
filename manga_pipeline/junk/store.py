@@ -52,7 +52,7 @@ class Decision(TypedDict):
     """A junk decision as upsert writes it: its series key, kind, key text, verdict, decider, time and source.
 
     A block or probe junk decision may carry its card's extent (chain), a cut decision carries its chain and may carry
-    credit (junk.chains).
+    credit (junk.chains). The bundle mark (default unset): a keep so marked protects no gap (Decisions.judged_keep).
     """
 
     series_key: str
@@ -65,6 +65,7 @@ class Decision(TypedDict):
     images: NotRequired[str | None]  # the candidate folder of a decision made from a candidate
     chain: NotRequired[str | None]  # canonical chain text (junk.chains), None for none
     credit: NotRequired[bool]  # a cut decision whose tail ranges are tail bands
+    bundle: NotRequired[bool]  # the bundle mark: made on a member of a many-piece rest-of-card bundle (W5)
 
 
 def series_key(series: db.Row) -> str:
@@ -190,6 +191,17 @@ class Decisions:
                 return row
         return None
 
+    def judged_keep(self, sig: images.Signature) -> bool:
+        """Return whether a tail piece is judged kept (W5, the bulk converter's Library.judged_keep).
+
+        Some active piece keep with no bundle mark matches it, the series' or global: every matching row counts, not
+        only the one that decides it.
+        """
+        return any(
+            row["kind"] == "piece" and row["verdict"] == "keep" and not row["bundle"] and matches(stored, sig)
+            for row, stored in self._rows
+        )
+
 
 def near(
     conn: db.Connection,
@@ -273,10 +285,10 @@ def _insert(conn: db.Connection, r: Decision, act: int | None = None) -> int:
     return db.one_row(
         conn,
         """INSERT INTO junk_decision
-            (series_key, kind, key, verdict, decider, decided_at, source, images, chain, credit, written_by)
+            (series_key, kind, key, verdict, decider, decided_at, source, images, chain, credit, bundle, written_by)
         VALUES (%(series_key)s, %(kind)s, %(key)s, %(verdict)s, %(decider)s, %(decided_at)s, %(source)s, %(images)s,
-            %(chain)s, %(credit)s, %(act)s) RETURNING id""",
-        {"images": None, "chain": None, "credit": False, **r, "act": act},
+            %(chain)s, %(credit)s, %(bundle)s, %(act)s) RETURNING id""",
+        {"images": None, "chain": None, "credit": False, "bundle": False, **r, "act": act},
     )[0]
 
 
@@ -307,7 +319,9 @@ def _keeps(old: db.Row, r: Decision) -> bool:
     if old["decider"] != "import" or old["written_by"] is not None or old["retired_by"] is not None:
         return True  # the pipeline's own, or a key an act wrote or retired
     same = all(old[c] == r[c] for c in ("verdict", "decider", "decided_at", "source")) and (
-        old["chain"] == r.get("chain") and old["credit"] == r.get("credit", False)
+        old["chain"] == r.get("chain")
+        and old["credit"] == r.get("credit", False)
+        and old["bundle"] == r.get("bundle", False)
     )
     return same or r["decided_at"] < old["decided_at"]
 

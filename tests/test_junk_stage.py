@@ -1216,3 +1216,73 @@ def test_a_held_card_decides_again_after_its_fix_and_holds_again_after_junk_undo
     assert site.chapters()[0][0] != "junk", "decided again, the chapter goes on"
     assert cli.main(["--config", path, "junk", "undo", str(act)]) == 0, "the chained decision is back"
     assert site.rows("SELECT chain FROM junk_decision WHERE id = %s", block_id) == [(card,)]
+
+
+# ---------------------------------------------------------------- rest of card (W5, SPEC "Junk decisions")
+
+
+def bundled_strip(site, monkeypatch):
+    """Wait chapter 2 of strip series Long on its 3 head blocks and its rest of card: 2 tail pieces.
+
+    Its 4th panel, an imported junk block decision, starts the credit; the 2 panels after it are the bundle. Returns
+    the 2 pieces' candidate ids, in strip order.
+    """
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    site.download("Long", 2, panels_cbz(["a2", "b2", "c2", "credit", "p1", "p2"]))
+    site.parts()
+    ((scan,),) = site.rows("SELECT scan FROM junk_scan")
+    credit = next(b["sig"] for b in json.loads(scan)["blocks"] if 1850 <= b["start"] <= 1950)
+    decision: store.Decision = {
+        "series_key": "Long",
+        "kind": "block",
+        "key": credit,
+        "verdict": "junk",
+        "decider": "import",
+        "decided_at": "2026-11-01T00:00:00+00:00",
+        "source": "test",
+    }
+    imported(site.cfg, decision)
+    run_part(site.cfg, process)
+    assert site.chapters() == [("junk", "waiting", "junk_decision")]
+    return [r[0] for r in site.rows("SELECT id FROM junk_candidate WHERE kind = 'piece' ORDER BY id")]
+
+
+@budget(load="pool", seconds=60)
+def test_a_split_bundle_is_recorded_marked_and_noted_mixed_in_status(site, monkeypatch, capsys, tmp_path):
+    p1, p2 = bundled_strip(site, monkeypatch)
+    ((bundles,),) = site.rows("SELECT bundles FROM junk_scan")
+    assert json.loads(bundles) == [{"ids": [p1, p2], "size": 2}], "the wait records the bundle with its candidates"
+    with closing(db.connect(site.cfg)) as conn:
+        review.decide(conn, [p1], "junk", None, workflow.now(conn))
+        review.decide(conn, [p2], "keep", None, workflow.now(conn))
+    assert site.rows("SELECT DISTINCT bundle FROM junk_decision WHERE kind = 'piece'") == [(True,)], "both marked"
+    decide_kinds(site.cfg, {"block": "keep"})
+    run_part(site.cfg, process)
+    assert site.chapters()[0][0] != "junk", "a mixed bundle holds nothing"
+    ((notes,),) = site.rows("SELECT notes FROM chapter")
+    (note,) = json.loads(notes)
+    assert note.startswith("rest of card mixed: rows "), note
+    assert cli.main(["--config", str(config_file(tmp_path, site.cfg)), "status"]) == 0
+    assert note in capsys.readouterr().out, "status shows the chapter's note"
+
+
+@budget(load="pool", seconds=60)
+def test_a_held_bundle_member_records_the_bundle_names_it_and_a_rescan_drops_a_stale_record(site, monkeypatch):
+    p1, p2 = bundled_strip(site, monkeypatch)
+    with closing(db.connect(site.cfg)) as conn:
+        review.decide(conn, [p1], "unsure", None, workflow.now(conn))
+    run_part(site.cfg, process)
+    ((reason,),) = site.rows("SELECT last_error FROM chapter")
+    assert f"rest of card {p1} {p2}: judge them together (junk decide {p1} {p2} junk|keep)" in reason, reason
+    ((bundles,),) = site.rows("SELECT bundles FROM junk_scan")
+    assert json.loads(bundles) == [{"ids": [p1, p2], "size": 2}], "the hold records the bundle too"
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("""UPDATE junk_scan SET content_digest = 'stale', bundles = '[{"ids": [999], "size": 5}]'""")
+        conn.execute("UPDATE junk_candidate SET verdict = NULL")
+    with closing(db.connect(site.cfg)) as conn:
+        workflow.retry_chapter(conn, site.rows("SELECT id FROM chapter")[0][0])
+    run_part(site.cfg, process)
+    ((bundles,),) = site.rows("SELECT bundles FROM junk_scan")
+    assert json.loads(bundles) == [{"ids": [p1, p2], "size": 2}], "rescanned: the stale record is gone"

@@ -54,6 +54,7 @@ READERS = {
     ("convert/record_reader.py", "load"),
     ("fleet.py", "_read_digest"),
     ("hand_edits.py", "load"),
+    ("junk/candidates.py", "read_bundles"),
     ("junk/candidates.py", "read_info"),
     ("junk/chains.py", "parse"),
     ("junk/review_run.py", "_reply"),

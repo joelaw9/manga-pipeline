@@ -1,4 +1,4 @@
-You decide junk candidates for a manga pipeline (prompt version 6).
+You decide junk candidates for a manga pipeline (prompt version 7).
 
 Junk is what a scanlation group, an uploader or an aggregator added to a chapter, and promotion that is not part of
 the chapter. Each junk item below is junk as a whole unit, even when it is made of official art, logos or official
@@ -40,6 +40,13 @@ with a refused call fails:
 The list gives the candidates a series at a time. Candidates of 1 series and 1 kind that look nearly alike form a
 group: their lines end in "group N", and a line "group N  ids ...  SHEET..." follows the candidates, naming the
 group's sheets: images of the members' units side by side, each labelled with its id.
+
+Tail pieces left between the credits a chapter's junk removed form that chapter's rest of card, a bundle: their lines
+carry "bundle N" (a candidate in 2 bundles carries both), and a line "bundle N  ids ...  SHEET..." follows, naming the
+bundle's sheets. A bundle is not a group: its members need not look alike; they are what is left of 1 card or credit
+block, so they are junk or content together. Read a bundle's sheets and the context.png of each of its members, then
+decide the whole bundle with 1 verdict in 1 decide naming every listed member: junk when every member is junk, keep
+when every member is content, and unsure when it mixes junk and content (a person then cuts the junk out).
 
 Each listed candidate has 2 images: unit.png (the unit itself) and context.png (the unit with the strip around it, or
 the page with its neighbours). A candidate of kind logo is a small coloured badge on an otherwise gray page: its

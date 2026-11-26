@@ -249,7 +249,7 @@ def test_near_candidates_of_1_kind_form_a_group_with_sheets_within_the_bounds(si
     rows = review.listing(conn, cfg, "r1")
     near = groups.near_groups(rows)
     assert [[r["id"] for r in g] for g in near] == [tall, wide], "2 groups of near blocks; the far one in none"
-    written = groups.write_sheets(cfg, "r1", near)
+    written = groups.write_sheets(cfg, "r1", [(f"group-{n}", g) for n, g in enumerate(near, 1)])
     assert [len(members) for members, _ in written] == [6, 5], "every member is on its group's sheets"
     for _, sheets in written:
         for sheet in sheets:
