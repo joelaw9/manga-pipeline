@@ -83,7 +83,11 @@ def _drift(rec: image.ChapterRecord, *, inserted: bool) -> list[str]:
 
 def _irregular(chapter_plan: plan.ChapterPlan) -> list[str]:
     split = chapter_plan.edits["split"]
-    if split is None or not split["irregular"]:
+    if split is None:
+        return []
+    if split["resliced"] is not None:
+        return [f"split: re-sliced into {split['resliced']} pages"]
+    if not split["irregular"]:
         return []
     return [f"split: {len(split['irregular'])} irregular image(s): {', '.join(split['irregular'])}"]
 

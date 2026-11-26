@@ -27,14 +27,16 @@ QUALITY_GROUPS = ("gray", "colour")  # encode groups: 1 AVIF quality each
 CLASS_RANK = {images.GRAY: 0, images.TINTED: 1, images.GRAY_MARK: 2, images.COLOUR: 3}  # rendered page = max
 CHROMA_RANK = {"420": 0, "422": 1, "444": 2}  # rendered page = max
 TURNED = range(2, 9)  # EXIF orientations readers apply: a rotation or mirror
-EDIT_KEYS: dict[str, type[object]] = {
-    "drop_pages": list,
-    "strip_removed": list,
-    "bands": list,
-    "join": list,
-    "split": bool,
-    "blank": list,
+EDIT_KEYS: dict[str, tuple[type[object], ...]] = {
+    "drop_pages": (list,),
+    "strip_removed": (list,),
+    "bands": (list,),
+    "join": (list,),
+    "split": (bool,),
+    "split_pages": (int, type(None)),
+    "blank": (list,),
 }
+MIN_SPLIT_PAGES = 2  # a re-sliced chapter's recorded page count is at least this
 BOX_SIDES = 4  # a box: [left, top, right, bottom]
 PAIR_LEN = 2  # a join entry: [page, sliver]
 
@@ -67,9 +69,13 @@ class Blank(TypedDict):
 
 
 class PageLayoutEdit(TypedDict):
-    """The page-layout keys of a chapter edit: split, the dropped pages, the band crops and the [page, sliver] joins."""
+    """The page-layout keys of a chapter edit: split, the dropped pages, the band crops and the [page, sliver] joins.
+
+    split_pages: a re-sliced chapter's page count (junk's record; convert cuts its stack into that many), else None.
+    """
 
     split: bool
+    split_pages: int | None
     drop_pages: list[int]
     bands: list[BandCrop]
     join: list[list[int]]
@@ -132,11 +138,12 @@ class StripSpec(strip.RenderStrip):
     """A strip or split spec: the render strip, its cuts and a split's irregular images.
 
     cuts: where its output pages are cut (kept coordinates); irregular: the split images not within the snap window of
-    a whole number of pages (a strip has none).
+    a whole number of pages (a strip has none); resliced: a re-sliced chapter's page count, else None.
     """
 
     cuts: list[int]
     irregular: list[str]
+    resliced: int | None
 
 
 class PlannedEdits(TypedDict):
@@ -351,10 +358,14 @@ def _check_keys(edit: Json) -> None:
     if not isinstance(edit, dict) or set(edit) != set(EDIT_KEYS):
         msg = f"chapter_edit keys must be {sorted(EDIT_KEYS)}, got {sorted(edit) if isinstance(edit, dict) else edit!r}"
         raise EditError(msg)
-    for key, kind in EDIT_KEYS.items():
-        if type(edit[key]) is not kind:
-            msg = f"chapter_edit {key} must be a {kind.__name__}, got {edit[key]!r}"
+    for key, kinds in EDIT_KEYS.items():
+        if type(edit[key]) not in kinds:
+            msg = f"chapter_edit {key} must be a {' or '.join(k.__name__ for k in kinds)}, got {edit[key]!r}"
             raise EditError(msg)
+    n = edit["split_pages"]
+    if type(n) is int and (n < MIN_SPLIT_PAGES or edit["split"] is not True):
+        msg = f"chapter_edit split_pages must be null, or {MIN_SPLIT_PAGES} or more with split true, got {n!r}"
+        raise EditError(msg)
 
 
 def _check_drops(drops: list[Json]) -> None:
@@ -568,7 +579,14 @@ def _strip_spec(content: list[PlanPage], edit: ChapterEdit, x_dir: Path) -> Stri
     pages: list[strip.NamedRows] = [
         {"name": q["name"], "top": p["top"], "th": p["th"]} for q, p in zip(content, st.pages, strict=True)
     ]
-    return {"width": st.width, "pages": pages, "kept": cut["kept"], "cuts": cut["cuts"], "irregular": []}
+    return {
+        "width": st.width,
+        "pages": pages,
+        "kept": cut["kept"],
+        "cuts": cut["cuts"],
+        "irregular": [],
+        "resliced": None,
+    }
 
 
 def _check_banded(entries: list[PlanPage], edit: ChapterEdit, by_index: dict[int, PlanPage]) -> None:
@@ -614,23 +632,25 @@ def _check_joined(entries: list[PlanPage], edit: ChapterEdit) -> None:
 def _split_spec(
     content: list[PlanPage], edit: ChapterEdit, drops: list[Drop], page_aspect: list[float] | None
 ) -> StripSpec:
-    """Return a split chapter's spec ({"width", "pages", "kept", "cuts", "irregular"}).
+    """Return a split chapter's spec ({"width", "pages", "kept", "cuts", "irregular", "resliced"}).
 
-    Its non-cover pages not dropped, cut at the series' page aspect. Raises EditError when the edit holds another
-    page-layout edit.
+    Its non-cover pages not dropped: a re-sliced chapter's stack into its recorded page count (split_pages), else each
+    image at the series' page aspect. Raises EditError when the edit holds another page-layout edit.
     """
     if edit["drop_pages"] or edit["bands"] or edit["join"]:
         msg = "chapter_edit of a split chapter holds another page-layout edit"
         raise EditError(msg)
     dropped = {d["page"] for d in drops}
     kept = [q for q in content if q["name"] not in dropped]
-    pl = strip.plan_pages([q["name"] for q in kept], [q["size"] for q in kept], page_aspect)
+    names, sizes = [q["name"] for q in kept], [q["size"] for q in kept]
+    pl = strip.plan_pages(names, sizes, page_aspect, pages_n=edit["split_pages"])
     return {
         "width": pl["width"],
         "pages": [{"name": p["name"], "top": p["top"], "th": p["th"]} for p in pl["pages"]],
         "kept": [[0, pl["height"]]],
         "cuts": list(pl["cuts"]),
         "irregular": [i["page"] for i in pl["irregular"]],
+        "resliced": edit["split_pages"],
     }
 
 

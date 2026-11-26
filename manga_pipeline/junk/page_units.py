@@ -130,11 +130,39 @@ class PageScan(TypedDict):
 
 
 class SplitScan(TypedDict):
-    """A stitched page-format chapter's scan: only that it is split (no logos)."""
+    """A split page-format chapter's scan (stitched or re-sliced): that it is split, and how (no logos).
+
+    pages: a re-sliced chapter's page count (split_of), None for a stitched one.
+    """
 
     layout: Literal["pages"]
     split: Literal[True]
+    pages: int | None
     marks: list[logo_units.Logo]
+
+
+class Split(NamedTuple):
+    """How a page chapter is split (split_of): pages, a re-sliced chapter's page count, or None when it is stitched."""
+
+    pages: int | None
+
+
+def split_of(
+    image: Callable[[int], Image.Image], sizes: Sequence[strip.Size], aspects: Sequence[float] | None
+) -> Split | None:
+    """Return how a page chapter is split, or None when it is not (SPEC "Junk decisions", Pages).
+
+    image(k), sizes: its content pages (not cover-named), in order; aspects: the series' page aspect candidates.
+    Stitched (strip.is_stitched): cut per image. Re-sliced (strip.reslice_pages by its sizes, then
+    strip.cuts_on_boundaries by its pixels): its stack cut into the recorded page count. The 1 owner of the split
+    decision: junk's scan and the calibration spread call it.
+    """
+    if strip.is_stitched(sizes, aspects):
+        return Split(None)
+    n = strip.reslice_pages(sizes, aspects)
+    if n is not None and strip.cuts_on_boundaries(image, sizes, n):
+        return Split(n)
+    return None
 
 
 class PageUnit(TypedDict):
@@ -500,10 +528,11 @@ def scan(
     """
     content = strip.content_indexes(names)
     csizes = [sizes[i] for i in content]
-    if strip.is_stitched(csizes, aspects):
-        return {"layout": "pages", "split": True, "marks": []}
-    shape = strip.series_shape(aspects)
     page = _OnePage(paths)
+    split = split_of(lambda k: page(content[k]), csizes, aspects)
+    if split is not None:
+        return {"layout": "pages", "split": True, "pages": split.pages, "marks": []}
+    shape = strip.series_shape(aspects)
     tail_k = range(max(0, len(content) - strip.END_TAIL), len(content))
     edges = [
         _edge_unit(content[k], page(content[k]), uniform=uniform[content[k]], tail=k in tail_k)
@@ -712,7 +741,14 @@ def decide(sc: PageScan | SplitScan, decide_unit: store.DecideUnit) -> PageDecis
     "undecided": [{"kind", "key", "page", "where"?, "reasons"}]}.
     """
     if sc["split"] is True:
-        return {"edit": {"split": True, "drop_pages": [], "bands": [], "join": []}, "undecided": []}
+        edit: plan.PageLayoutEdit = {
+            "split": True,
+            "split_pages": sc["pages"],
+            "drop_pages": [],
+            "bands": [],
+            "join": [],
+        }
+        return {"edit": edit, "undecided": []}
     content, sizes = sc["content"], [(w, h) for w, h in sc["sizes"]]
     edge = _edge_pass(sc["edges"], decide_unit)
     drops = edge.drops | _white_ends([i for i in content if i not in edge.drops], set(sc["white"]))
@@ -732,6 +768,7 @@ def decide(sc: PageScan | SplitScan, decide_unit: store.DecideUnit) -> PageDecis
     return {
         "edit": {
             "split": False,
+            "split_pages": None,
             "drop_pages": sorted(drops),
             "bands": [{"page": i, "box": band.crops[i]} for i in sorted(band.crops)],
             "join": joins,

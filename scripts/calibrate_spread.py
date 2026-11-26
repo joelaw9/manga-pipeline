@@ -37,6 +37,7 @@ from pathlib import Path
 from manga_pipeline import archive, config, conversions, db, images, lock, preflight, strip, workflow
 from manga_pipeline.convert import calibrate, image, pages, plan, tools, vship
 from manga_pipeline.db import sql
+from manga_pipeline.junk import page_units
 from manga_pipeline.stages import convert
 
 PICKED = 3  # files picked per series (the bulk converter's calibration_max_chapters)
@@ -45,6 +46,7 @@ WHY = "spread: "  # the why of every group this script fixes; a series holding o
 FOLDER = "calibrate-spread"  # below paths.scratch: 1 folder per run (its pid)
 NO_EDIT: plan.ChapterEdit = {
     "split": False,
+    "split_pages": None,
     "drop_pages": [],
     "bands": [],
     "join": [],
@@ -158,17 +160,37 @@ def _content_sizes(measured: Sequence[images.MeasuredPage]) -> list[strip.Size]:
     return [(measured[i]["width"], measured[i]["height"]) for i in content]
 
 
+def _split(
+    measured: Sequence[images.MeasuredPage], files: Sequence[Path], layout: plan.SeriesLayout
+) -> page_units.Split | None:
+    """Return how junk would split a page file (page_units.split_of over its content pages), None for a strip file."""
+    if layout.kind != "pages":
+        return None
+    content = strip.content_indexes([p["name"] for p in measured])
+    return page_units.split_of(
+        lambda k: images.open_flat(files[content[k]])[0], _content_sizes(measured), layout.page_aspect
+    )
+
+
 def _planned(
     cbz: Path, measured: Sequence[images.MeasuredPage], x_dir: Path, layout: plan.SeriesLayout
 ) -> plan.RoutedPlan | Bad:
-    """Return the file's plan as convert plans it with no junk edit (a stitched page file split), or why not."""
-    stitched = layout.kind == "pages" and strip.is_stitched(_content_sizes(measured), layout.page_aspect)
+    """Return the file's plan as convert plans it with no junk edit, or why not.
+
+    A page file is split as junk would split it (page_units.split_of: stitched, or re-sliced into its page count).
+    """
     try:
         with workflow.share_errors():
             files, problems = pages.extract(cbz, x_dir)
             if problems:
                 return Bad(cbz.name, f"cannot be extracted: {'; '.join(problems)}")
-            return plan.routes(plan.build(cbz.name, measured, files, {**NO_EDIT, "split": stitched}, layout))
+            split = _split(measured, files, layout)
+            edit: plan.ChapterEdit = {
+                **NO_EDIT,
+                "split": split is not None,
+                "split_pages": None if split is None else split.pages,
+            }
+            return plan.routes(plan.build(cbz.name, measured, files, edit, layout))
     except UNREADABLE as e:
         return Bad(cbz.name, f"cannot be planned: {_file_fault(e)}")
 

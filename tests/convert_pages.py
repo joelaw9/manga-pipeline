@@ -20,6 +20,7 @@ NO_EDIT: plan.ChapterEdit = {
     "bands": [],
     "join": [],
     "split": False,
+    "split_pages": None,
     "blank": [],
 }
 QUALITY = {"gray": 80, "colour": 80}

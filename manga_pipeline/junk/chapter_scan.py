@@ -154,6 +154,7 @@ def apply(
         "bands": [],
         "join": [],
         "split": False,
+        "split_pages": None,
         "strip_removed": [],
         "blank": [],
     }

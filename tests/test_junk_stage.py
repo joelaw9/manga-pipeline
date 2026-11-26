@@ -438,6 +438,7 @@ def test_a_chapter_leaving_junk_has_its_chapter_edit_with_every_key(site):
         "bands": [],
         "join": [],
         "split": False,
+        "split_pages": None,
         "strip_removed": [],
         "blank": [],
     }, "the credit page (download index 3) is dropped; every key is present"
