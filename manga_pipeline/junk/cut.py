@@ -6,12 +6,12 @@ Ported from the bulk converter's optimizer/junk_cut.py, forms `new` and `edge` o
 sheets (`_sheet`, `_sheets`, CONTEXT, SHEET_W, its colours); its argument forms from optimizer/junk.py (:2673-2766).
 
 A proposal reads the database once, in 1 read-only snapshot, before its checks. Each chapter whose pixels it reads is
-extracted (stages.junk.extract) into <paths.scratch>/junk-cut/<pid>/x/ (removed when the call ends); a named chapter
-holding no current scan is scanned again from its pages (OCR on), the scan kept in memory only. Every checked chapter
-is decided with and without the proposed decision by strip_units.decide (the 1 owner of the decide order). A proposal
-writes only sheets; `--record DIGEST` builds the decision again from the same arguments, before its transaction, and
-inside it writes the decision in 1 act when the inputs digest (`state`, then `digest`: the database, the arguments and
-the decision built) is unchanged.
+extracted (archive.pages, then stages.junk.write_pages) into <paths.scratch>/junk-cut/<pid>/x/ (removed when the call
+ends); a named chapter holding no current scan is scanned again from its pages (OCR on), the scan kept in memory only.
+Every checked chapter is decided with and without the proposed decision by strip_units.decide (the 1 owner of the decide
+order). A proposal writes only sheets; `--record DIGEST` builds the decision again from the same arguments, before its
+transaction, and inside it writes the decision in 1 act when the inputs digest (`state`, then `digest`: the database,
+the arguments and the decision built) is unchanged.
 """
 
 import contextlib
@@ -348,13 +348,13 @@ def _pages_folder(work: Path, chapter: int) -> Path:
 def _read(cbz: Path) -> list[tuple[str, bytes]] | None:
     """Return a CBZ's pages (archive.pages), or None when the archive cannot be read.
 
-    Only the zip's open and read are caught (archive.UNREADABLE, and OSError but a dropped share's); measuring the
-    pages, writing them and decoding them raise.
+    Only the zip's open and read are caught (archive.UNREADABLE, and OSError but a share's: a dropped share or a
+    SHARE_ERRNOS error); measuring the pages, writing them and decoding them raise.
     """
     try:
         return archive.pages(cbz)
     except (*archive.UNREADABLE, OSError) as e:
-        if errors.dropped_share(e):
+        if isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS):
             raise
         return None
 
@@ -417,7 +417,7 @@ def _workspace(cfg: config.Config) -> Generator[Path]:
         for old in root.iterdir():
             try:
                 aged = old != own and time.time() - old.stat().st_mtime > SCRATCH_AGE
-            except FileNotFoundError:  # another junk cut removed it meanwhile
+            except OSError:  # another junk cut removed it meanwhile (Windows: PermissionError while delete-pending)
                 continue
             if aged:
                 shutil.rmtree(old, ignore_errors=True)

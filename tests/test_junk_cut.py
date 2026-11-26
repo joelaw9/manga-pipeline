@@ -10,6 +10,7 @@ The 10 FIND tests 10.4 handed over (the bulk converter's tests/test_anchored.py 
 cut source check (#55): none tests `new` or `edge`, so none is ported (plan phase-10-21, "Not in this plan").
 """
 
+import errno
 import io
 import json
 import os
@@ -670,6 +671,19 @@ def test_an_edge_side_takes_the_first_chapter_where_its_unit_lies_in_the_half_to
     assert f"an edge from chapter {tail}'s unit at 2500:2900" in out, "the first chapter has x in its head half"
 
 
+@budget(load="db", seconds=120)
+def test_an_edge_side_picked_among_the_newest_checks_the_next_newest(site, run, monkeypatch):
+    older = panel_strip(site, ["a2", "b2", "c2", "d2", "e2", "f2"], 2)
+    newer = panel_strip(site, ["a3", "b3", "c3", "d3", "e3", "f3"], 3)
+    picked = panel_strip(site, PANELS, 4)
+    cid, _ = candidate_for(site, picked, 2500)
+    monkeypatch.setattr(cut, "CHECKED_RECENT", 1)
+    code, out, err = run("junk", "cut", "--edge", str(cid), "below")
+    assert code == 0, err
+    checked = sorted(int(ln.split()[1].rstrip(":")) for ln in out.splitlines() if ln.startswith("chapter "))
+    assert checked == [newer, picked], f"the picked chapter, then the 1 newest other; not {older}: {out}"
+
+
 @budget(load="db", seconds=60)
 def test_an_edge_side_off_its_half_everywhere_is_refused(site, run):
     chapter = panel_strip(site, PANELS)
@@ -794,3 +808,27 @@ def test_a_call_leaves_no_pages_and_removes_an_old_scratch_folder(site, run):
     assert not list(root.rglob("x")), "the pages extracted for the call are removed"
     assert sheets_of(out), "its sheets stay"
     shutil.rmtree(root)
+
+
+@budget(load="db", seconds=60)
+@pytest.mark.parametrize(
+    ("error", "refused"),
+    [
+        (zipfile.BadZipFile("bad"), True),
+        (OSError(errno.EACCES, "denied"), True),
+        (OSError(errno.EIO, "share"), False),
+        (OSError(errno.ESTALE, "share"), False),
+    ],
+)
+def test_an_unreadable_archive_is_refused_and_a_share_error_is_not_1(site, run, monkeypatch, error, refused):
+    chapter = real_head(site)
+
+    def fail(_cbz):
+        raise error
+
+    monkeypatch.setattr(cut.archive, "pages", fail)
+    code, _, err = run("junk", "cut", *oracle(chapter))
+    assert ("its pages cannot be read" in err) == refused, (
+        f"an unreadable archive is refused; a share error ({error}) ends the command as the share's: {err}"
+    )
+    assert code != 0, err
