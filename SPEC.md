@@ -33,7 +33,7 @@ The convert stage re-encodes a chapter with the bulk converter's tools, route an
 
 ## Calibration
 
-AVIF quality per series and encode group: taken from the bulk-converter record, or computed from samples of the first chapters converted, 20 samples fixing a group. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#calibration)
+AVIF quality per series and encode group: taken from the bulk-converter record, from a spread of an adopted series' files (as the bulk converter took it), or computed from samples of the first chapters converted, 20 samples fixing a group. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#calibration)
 
 ## Needs human
 
