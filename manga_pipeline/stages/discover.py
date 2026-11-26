@@ -10,7 +10,19 @@ An adopted file's conversion (it names its published file: SPEC "State") first g
 file (conversions.link), and is never put aside as a handled chapter: its pages are already published.
 """
 
-from manga_pipeline import archive, comicinfo, config, conversions, db, errors, handled, names, notices, workflow
+from manga_pipeline import (
+    archive,
+    comicinfo,
+    config,
+    conversions,
+    db,
+    errors,
+    handled,
+    library_copy,
+    names,
+    notices,
+    workflow,
+)
 
 
 def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
@@ -41,9 +53,9 @@ def _settle(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     why = digest and chapter["published_file_id"] is None and handled.put_aside(ctx, chapter, digest)
     if why:
         return workflow.Dropped(why)
-    unclear = names.two_readings(item.number)
-    if unclear:
-        return workflow.NeedsHuman(f"{download.name}: {unclear}")
+    stop = _stop(ctx, chapter, item, digest, download.name)
+    if stop is not None:
+        return stop
 
     def record(conn: db.Connection) -> None:
         conn.execute(
@@ -52,3 +64,16 @@ def _settle(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
         )
 
     return workflow.Done(record)
+
+
+def _stop(
+    ctx: workflow.Context, chapter: db.Row, item: names.Item, digest: str | None, name: str
+) -> workflow.NeedsHuman | workflow.Dropped | None:
+    """Return what holds or drops a numbered download before it is recorded, else None.
+
+    A number with 2 readings is held for a person; a part a joined file holds is dropped (SPEC "Split chapters").
+    """
+    unclear = names.two_readings(item.number)
+    if unclear:
+        return workflow.NeedsHuman(f"{name}: {unclear}")
+    return library_copy.held_part(ctx, chapter, names.identity(item), digest)

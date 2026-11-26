@@ -194,3 +194,56 @@ def test_an_unreadable_part_holds_the_join_for_a_person(world):
     world.run(export)
     assert world.rows("SELECT status FROM chapter WHERE join_parts IS NOT NULL") == [("needs_human",)]
     assert {"Ch.3.1.cbz", "Ch.3.2.cbz"} <= set(files(world)), "nothing changed in the library"
+
+
+def joined(world):
+    """Publish parts 3.1 and 3.2 and join them; Kavita re-reads the joined file. Returns the Suwayomi manga id."""
+    published(world, "Chapter 3.1", "Chapter 3.2")
+    world.run(export)
+    scan(world)
+    world.run(export)
+    assert "Ch.3.cbz" in files(world), "set up"
+    return next(iter(world.suwayomi.manga_rows))
+
+
+@budget(load="db", seconds=60)
+def test_a_download_of_a_part_the_joined_file_holds_is_dropped_at_discover(world):
+    manga = joined(world)
+    world.download(manga, "Chapter 3.2", "Other", data=cbz(pages=4, seed="other 3.2"))
+    world.run(intake)
+    rows = world.rows(
+        "SELECT stage, status FROM chapter WHERE identity::jsonb ->> 3 = '3.2' AND status = 'done' ORDER BY id"
+    )
+    assert rows[-1] == ("discover", "done"), "dropped at discover, before validate"
+    assert world.rows(
+        "SELECT outcome FROM handled_chapter WHERE identity::jsonb ->> 3 = '3.2' ORDER BY id DESC LIMIT 1"
+    ) == [("duplicate",)], "recorded handled, so a refresh does not queue it again"
+    kept = {p.name for p in config.abs_path(world.cfg["paths"]["retention"]).rglob("*.cbz")}
+    assert any("3.2" in n for n in kept), "the download is put aside the retention way"
+    assert "Ch.3.2.cbz" not in files(world)
+
+
+@budget(load="db", seconds=60)
+def test_a_part_the_joined_file_does_not_hold_is_not_dropped(world):
+    manga = joined(world)
+    world.download(manga, "Chapter 3.3", data=cbz(pages=4, seed="3.3"))
+    world.run(intake)
+    assert world.rows("SELECT status FROM chapter WHERE identity::jsonb ->> 3 = '3.3'") != [("done",)], "it goes on"
+
+
+@budget(load="db", seconds=60)
+def test_a_part_past_discover_when_its_join_finished_is_dropped_at_junk(world):
+    published(world, "Chapter 3.1", "Chapter 3.2")
+    with closing(db.connect(world.cfg)) as conn:
+        joins.queue(world.context(conn, "export"))  # queued before the download below is discovered
+    manga = next(iter(world.suwayomi.manga_rows))
+    world.download(manga, "Chapter 3.2", "Other", data=cbz(pages=4, seed="other 3.2"))
+    world.run(intake)  # discover finds no joined file yet: the download goes on to junk
+    world.run(export)  # the join finishes
+    assert "Ch.3.cbz" in files(world), "set up: joined"
+    world.run(process)
+    assert world.rows(
+        """SELECT stage, status FROM chapter WHERE kind = 'download' AND identity::jsonb ->> 3 = '3.2'
+        ORDER BY id DESC LIMIT 1"""
+    ) == [("junk", "done")], "dropped at junk's start"
+    assert "Ch.3.2.cbz" not in files(world)
