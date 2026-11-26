@@ -53,7 +53,7 @@ def test_a_scan_and_decision_of_a_cbz_in_hand_writes_nothing(tmp_path, monkeypat
         decisions = store.Decisions(conn, "Series")
         if layout == "strip":
             pages = extracted(tmp_path, strip_cbz("s1"))
-            sc = chapter_scan.scan_strip(pages, decisions, "cpu")
+            sc = chapter_scan.scan_strip(pages, decisions, "cpu", 2)
         else:
             pages = extracted(tmp_path, cbz(8, seed="s1", credit=True))
             aspects = present(strip.page_aspect([pages.sizes]))  # as the stage computes them for a new series

@@ -183,6 +183,7 @@ class JunkConfig(TypedDict):
     review_limit: int
     review_batch: int
     ocr_device: str
+    ocr_workers: int
     keywords: list[str]
     weak: list[str]
     paired: list[str]

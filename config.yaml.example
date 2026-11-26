@@ -87,6 +87,7 @@ junk:
   review_limit: 2      # reviews listing a candidate before it is stuck (needs_human)
   review_batch: 20     # candidates junk list gives Claude per review
   ocr_device: "cpu"    # cpu | dml (DirectML, Windows) | cuda (NVIDIA, Linux)
+  ocr_workers: 4       # OCR engines reading a chapter's units at once; 1 reads serially; 1 on dml
   keywords: [repost, discord, scans, scanlat, translat, typeset, proofread, clean, redraw, read on, support us, patreon, ko-fi, paypal, gg/, join us, join our, raw provider, recruit, official domain, fastest, uploading, protected by copyright, protected under copyright, copyright law, unauthorized reproduction, unauthorized distribution, .com, .net, .org, .io]   # OCR keyword hits: case-insensitive substrings
   weak: [.com, .net, .org, .io, scans]   # keywords that count only on a unit at most 800 px tall
   paired: [clean]      # keywords that count only beside another keyword

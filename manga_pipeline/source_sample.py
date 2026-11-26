@@ -180,7 +180,8 @@ def _junk(s: Sampling, paths: list[Path], pages: list[images.MeasuredPage]) -> c
     extracted = chapter_scan.Extracted(paths, [p.name for p in paths], [(m["width"], m["height"]) for m in pages])
     sc: chapter_scan.Scan
     if s.layout == "strip":
-        sc = chapter_scan.scan_strip(extracted, decisions, s.ctx.cfg["junk"]["ocr_device"])
+        junk = s.ctx.cfg["junk"]
+        sc = chapter_scan.scan_strip(extracted, decisions, junk["ocr_device"], junk["ocr_workers"])
     else:
         aspects, _ = chapter_scan.page_aspects(conn, s.series["id"], extracted.sizes)
         sc = chapter_scan.scan_pages(extracted, [m["junk_signature"] is None for m in pages], aspects)

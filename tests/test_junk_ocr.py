@@ -1,14 +1,21 @@
 """OCR of strip units and the keyword test (SPEC "Junk decisions", candidates; "Preflight", OCR device)."""
 
+import threading
+import time
+from pathlib import Path
+
 import onnxruntime
 import pytest
 from PIL import Image, ImageDraw, ImageFont
 
-from manga_pipeline import cli, config, preflight
+from manga_pipeline import cli, config, images, preflight, strip
 from manga_pipeline.junk import ocr
+from manga_pipeline.junk import strip_units as su
 
 from tests.builders import problem_text
 from tests.timing import budget
+
+JUNK_FIX = Path(__file__).parent / "fixtures_pages" / "junk"
 
 
 def words() -> ocr.WordLists:
@@ -81,3 +88,116 @@ def test_ocr_device_check_fails_when_the_session_falls_back(monkeypatch):
 def test_process_runs_the_ocr_device_check():
     assert preflight.OCR_DEVICE in cli.COMMANDS["process"].checks, "process checks its OCR device"
     assert preflight.OCR_DEVICE not in cli.COMMANDS["intake"].checks, "intake runs no OCR"
+
+
+def numbered(n):
+    """Return n images whose height is their index + 1, so a patched reader knows which it reads."""
+    return [Image.new("RGB", (10, i + 1)) for i in range(n)]
+
+
+def fresh_engines(monkeypatch, reader):
+    """Start the process's engines anew; every engine made reads with `reader`. Returns the list of devices made."""
+    made = []
+
+    def new_reader(device):
+        made.append(device)
+        return reader
+
+    monkeypatch.setattr(ocr, "_engines", {})
+    monkeypatch.setattr(ocr, "_new_reader", new_reader)
+    return made
+
+
+@budget(load="fs", seconds=30.0)
+@pytest.mark.parametrize("chapter", ["s5_5_bring_the_love_c0095", "s5_2_i_stole_c0006"])
+def test_pooled_reads_of_a_real_strip_equal_serial_reads(chapter):
+    """A guard, not a red test: units read 4 at once get the text 1 engine reads, on the real cpu engine."""
+    path = JUNK_FIX / chapter / "strip.png"
+    st = strip.make_strip([path], [images.page_size(path)], [strip.page_rows(images.open_image(path)[0])])
+    serial = su.scan(st, lambda ims: ocr.texts(ims, "cpu", 1))
+    pooled = su.scan(st, lambda ims: ocr.texts(ims, "cpu", 4))
+    assert sum("text" in u for b in serial["blocks"] for u in [b, *b["joins"]]) > 1, "several units are read"
+    assert pooled == serial, "the pool reads each unit's text as 1 engine does"
+
+
+@budget()
+def test_texts_come_back_in_input_order_when_reads_finish_out_of_order(monkeypatch):
+    def slow_first(im, _device):
+        time.sleep(0.01 * (5 - im.height))  # the first image's read ends last
+        return f"unit {im.height}"
+
+    monkeypatch.setattr(ocr, "text", slow_first)
+    assert ocr.texts(numbered(5), "cpu", 4) == [f"unit {i}" for i in range(1, 6)], "texts follow the images' order"
+
+
+@budget()
+def test_engines_are_made_once_per_process_up_to_the_most_workers_asked(monkeypatch):
+    both = threading.Barrier(2, timeout=5)
+
+    def read(_array):
+        both.wait()  # passes only while 2 engines read at once
+        return ["x"]
+
+    made = fresh_engines(monkeypatch, read)
+    assert ocr.texts(numbered(4), "cpu", 2) == ["x"] * 4
+    assert made == ["cpu", "cpu"], "2 workers read on 2 engines at once"
+    assert ocr.texts(numbered(4), "cpu", 2) == ["x"] * 4
+    assert made == ["cpu", "cpu"], "a later call reuses the process's engines"
+
+
+@budget()
+def test_a_failed_read_returns_its_engine(monkeypatch):
+    calls = []
+
+    def read(_array):
+        calls.append(1)
+        if len(calls) == 1:
+            msg = "out of memory"
+            raise RuntimeError(msg)
+        return ["x"]
+
+    made = fresh_engines(monkeypatch, read)
+    with pytest.raises(RuntimeError, match="out of memory"):
+        ocr.text(Image.new("RGB", (10, 10)), "cpu")
+    assert ocr.text(Image.new("RGB", (10, 10)), "cpu") == "x", "the engine is free again after a failed read"
+    assert made == ["cpu"], "no engine is lost to a failed read"
+
+
+@budget()
+def test_a_failed_read_names_its_image_and_cancels_the_reads_not_started(monkeypatch):
+    read = []
+
+    def fail_second(im, _device):
+        read.append(im.height)
+        if im.height == 2:
+            msg = "bad tile"
+            raise RuntimeError(msg)
+        time.sleep(0.05)
+        return ""
+
+    monkeypatch.setattr(ocr, "text", fail_second)
+    with pytest.raises(ocr.OcrError, match="image 1 failed: RuntimeError: bad tile") as e:
+        ocr.texts(numbered(20), "cpu", 2)
+    assert e.value.index == 1, "the failed image's index"
+    assert len(read) < 20, f"reads not started are cancelled: {read}"
+
+
+@budget()
+@pytest.mark.parametrize(("device", "workers"), [("cpu", 0), ("dml", 2)])
+def test_texts_refuse_workers_below_1_and_above_1_on_dml(device, workers):
+    with pytest.raises(ValueError, match="at least 1, and 1 on dml"):
+        ocr.texts([], device, workers)
+
+
+@budget(load="fs")
+def test_a_failed_read_fails_the_strip_scan_naming_the_units_rows():
+    path = JUNK_FIX / "s5_2_i_stole_c0006" / "strip.png"
+    st = strip.make_strip([path], [images.page_size(path)], [strip.page_rows(images.open_image(path)[0])])
+    last = su.scan(st)["blocks"][-1]  # a block is read after its joins: the last image read is the last block
+
+    def fail_last(ims):
+        msg = "bad tile"
+        raise ocr.OcrError(len(ims) - 1, RuntimeError(msg))
+
+    with pytest.raises(RuntimeError, match=f"strip rows {last['start']}-{last['end']} failed: RuntimeError: bad tile"):
+        su.scan(st, fail_last)
