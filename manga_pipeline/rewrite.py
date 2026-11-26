@@ -571,7 +571,7 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
                 files[0]["pages"] if not joined else old_pages,
                 new_pages,
                 shift,
-                max(f["modified"] for f in files),
+                max((f["modified"] for f in files), key=datetime.fromisoformat),
                 copy or (bool(converted) and converted["cover_state"] != file["cover_state"]),  # a copy's page 1 is new
                 pending_copy,
                 chapter["comicinfo_title"],

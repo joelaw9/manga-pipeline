@@ -79,7 +79,7 @@ def test_a_published_run_ends_as_1_file_holding_every_page_in_order_with_progres
         fields = comicinfo.read_all(z.read(archive.COMICINFO))
         entries = comicinfo.read_pages(z.read(archive.COMICINFO))
     assert (fields["Number"], fields["Title"], fields["PageCount"]) == ("3", "Chapter 3", "8")
-    assert entries == [] or len(entries) == 8, "Page entries name every page, or there are none"
+    assert [e["Image"] for e in entries] == [str(i) for i in range(8)], "1 Page entry per page, re-indexed"
     rows = world.rows(
         """SELECT library_path, comicinfo_number, joined_parts, identity::jsonb ->> 3 FROM published_file
         WHERE library_path LIKE %s""",
@@ -247,3 +247,63 @@ def test_a_part_past_discover_when_its_join_finished_is_dropped_at_junk(world):
         ORDER BY id DESC LIMIT 1"""
     ) == [("junk", "done")], "dropped at junk's start"
     assert "Ch.3.2.cbz" not in files(world)
+
+
+@budget(load="db", seconds=60)
+def test_a_run_of_3_read_in_full_is_1_file_marked_read(world):
+    kid = published(world, "Chapter 3.1", "Chapter 3.2", "Chapter 3.3")
+    for name in ("Ch.3.1.cbz", "Ch.3.2.cbz", "Ch.3.3.cbz"):
+        read(world, kid, name, 4)
+    world.run(export)
+    assert world.rows("SELECT joined_parts, pages_in FROM published_file WHERE comicinfo_number = '3'") == [(3, 12)], (
+        "3 parts, their page counts summed"
+    )
+    scan(world)
+    world.run(export)
+    assert progress(world, kid)["Ch.3.cbz"] == (12, 12), "every part read: the joined chapter is read"
+
+
+@budget(load="db", seconds=60)
+def test_no_join_while_the_cap_is_full_or_for_a_series_out_of_scope(world):
+    published(world, "Chapter 3.1", "Chapter 3.2")
+    world.cfg["export"]["rewrites_open"] = 0
+    world.run(export)
+    assert world.rows("SELECT count(*) FROM chapter WHERE join_parts IS NOT NULL") == [(0,)], "the cap counts joins"
+    world.cfg["export"]["rewrites_open"] = 50
+    world.cfg["series"]["only"] = ["Another Series"]
+    world.run(export)
+    assert world.rows("SELECT count(*) FROM chapter WHERE join_parts IS NOT NULL") == [(0,)], "out of scope"
+
+
+@budget(load="db", seconds=60)
+def test_a_later_parts_volume_cover_and_its_page_entry_are_left_out(world):
+    published(world, "Chapter 3.1", "Chapter 3.2")
+    path = world.library / SERIES / "Ch.3.2.cbz"
+    with zipfile.ZipFile(path) as z:
+        names = archive.archive_pages(z.namelist())
+        members = [(n, z.read(n)) for n in names]
+        xml = z.read(archive.COMICINFO)
+    entries = comicinfo.read_pages(xml)
+    fields = comicinfo.read_all(xml)
+    cover_entry = {"Image": "0", "Type": "FrontCover"}
+    shifted = [cover_entry, *({**e, "Image": str(int(e["Image"]) + 1)} for e in entries)]
+    fields["PageCount"] = str(len(members) + 1)
+    archive.write(
+        path,
+        [("000_cover.png", members[0][1]), *members, (archive.COMICINFO, comicinfo.build(fields, shifted))],
+    )
+    world.rows(
+        "UPDATE published_file SET size = %s WHERE library_path LIKE %s RETURNING id",
+        path.stat().st_size,
+        "%Ch.3.2.cbz",
+    )
+    world.run(export)
+    joined = world.library / SERIES / "Ch.3.cbz"
+    with zipfile.ZipFile(joined) as z:
+        names = archive.archive_pages(z.namelist())
+        got = comicinfo.read_pages(z.read(archive.COMICINFO))
+    assert len(names) == 8, "4 pages of each part"
+    assert not any("cover" in n for n in names), "part 2's volume cover is left out"
+    assert names == sorted(names), "pages named in reading order"
+    assert len(got) == 8, "1 Page entry per page"
+    assert not any(e.get("Type") == "FrontCover" for e in got), "the cover's Page entry goes too"

@@ -8,6 +8,7 @@ them (the census uses it too).
 """
 
 import logging
+import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
@@ -57,6 +58,8 @@ def queue(ctx: workflow.Context) -> None:
     (logged; the comparison holds it).
     """
     conn, cap = ctx.conn, ctx.cfg["export"]["rewrites_open"]
+    if _open(conn) >= cap:  # nothing read while the cap is full (at 0 until the pilot)
+        return
     overrides = config.abs_path(ctx.cfg["paths"]["naming_overrides"])
     made = 0
     for series in conn.execute(SERIES, workflow.scope_params(ctx.cfg)).fetchall():
@@ -71,14 +74,18 @@ def queue(ctx: workflow.Context) -> None:
             log.warning("%s: series %s: no join: %s", ctx.part, series["id"], e)
             continue
         for run in runs:
-            open_ = db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(rewrite.OPEN_REWRITES))[0]
-            if open_ >= cap:
+            if _open(conn) >= cap:
                 if made:
                     log.info("%s: %d join(s) queued; the rewrite cap is full", ctx.part, made)
                 return
             made += _queue_run(ctx, series, run)
     if made:
         log.info("%s: %d join(s) queued", ctx.part, made)
+
+
+def _open(conn: db.Connection) -> int:
+    """Return how many chapters the rewrite cap counts (rewrite.OPEN_REWRITES)."""
+    return db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(rewrite.OPEN_REWRITES))[0]
 
 
 def _queue_run(ctx: workflow.Context, series: db.Row, run: parts.Run) -> int:
@@ -178,7 +185,7 @@ def comicinfo_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | wor
     first_xml, pages, entries = built
     try:
         fields = rewrite.file_fields(ctx, series, first_xml, chapter["comicinfo_volume"])
-    except volumes.VolumeError as e:
+    except (volumes.VolumeError, ET.ParseError) as e:
         return workflow.NeedsHuman(str(e))
     whole = chapter["comicinfo_number"]
     fields["Number"] = whole
@@ -221,7 +228,9 @@ def _read(cfg: config.Config, files: Sequence[db.Row]) -> tuple[bytes, list[_Pag
                     if n and rewrite_covers.is_cover(name):
                         continue  # a later file's volume cover
                     taken.append((n, i, name, z.read(infos[name]), infos[name].CRC))
-        except archive.UNREADABLE as e:
+        except FileNotFoundError:
+            return f"{f['library_path']} is missing"
+        except (*archive.UNREADABLE, ET.ParseError) as e:
             return f"{f['library_path']} cannot be read: {e}"
         if not page_names:
             return f"{f['library_path']} holds no page"
@@ -229,7 +238,11 @@ def _read(cfg: config.Config, files: Sequence[db.Row]) -> tuple[bytes, list[_Pag
     if first_xml is None:
         return f"{files[0]['library_path']} holds no ComicInfo.xml"
     pages = _numbered(taken)
-    entries = _entries(taken, [comicinfo.read_pages(x) if x else None for x in xmls])
+    try:
+        entries = _entries(taken, [comicinfo.read_pages(x) if x else None for x in xmls])
+    except ET.ParseError as e:
+        return f"a ComicInfo.xml of the run cannot be read: {e}"
+
     return first_xml, pages, entries
 
 
