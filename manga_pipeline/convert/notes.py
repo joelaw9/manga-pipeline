@@ -34,8 +34,9 @@ def notes(
 ) -> list[str]:
     """Return the chapter's convert notes, each starting with PREFIX ([] when nothing is unusual).
 
-    odd_chroma: the kept colour JPEG pages whose chroma subsampling avifenc cannot keep (4:4:0, 4:1:1: an AVIF encodes
-    them 4:4:4); a page an inserted volume cover replaced is left out of every note;
+    odd_chroma: the kept colour JPEG pages an AVIF outcome encoded 4:4:4 because avifenc cannot keep their chroma
+    subsampling (4:4:0, 4:1:1; the caller passes none for another outcome); a page an inserted volume cover replaced
+    is left out of every note;
     calibrated: the lines of the calibration groups this chapter's samples fixed.
     """
     inserted = bool(rec["cover"])
@@ -47,7 +48,7 @@ def notes(
         *_irregular(chapter_plan),
         *_small(sizes),
         *_untouched_flag(rec),
-        *_odd_chroma(rec, odd_chroma),
+        *_odd_chroma(odd_chroma),
         *_mixed_lossless(rec, kept),
         *_animated(rec, kept),
         *calibrated,
@@ -99,15 +100,15 @@ def _untouched_flag(rec: image.ChapterRecord) -> list[str]:
     return [f"untouched-flag: formats {'+'.join(sorted(rec['formats']))} mixed"]
 
 
-def _odd_chroma(rec: image.ChapterRecord, names: Sequence[str]) -> list[str]:
-    if rec["outcome"] != "avif" or not names:  # lossless and untouched pages keep their own subsampling
+def _odd_chroma(names: Sequence[str]) -> list[str]:
+    if not names:
         return []
     return [f"JPEG chroma subsampling encoded as 4:4:4: {', '.join(names)}"]
 
 
 def _mixed_lossless(rec: image.ChapterRecord, kept: Sequence[plan.PlanPage]) -> list[str]:
     fmts = {q["format"] for q in kept}
-    if rec["outcome"] != "lossless" or rec["edits"] == "all" or len(fmts) == 1:  # rendered pages: PNGs
+    if rec["outcome"] != "lossless" or rec["edits"] == "all" or len(fmts) <= 1:  # rendered pages: PNGs
         return []
     return [f"lossless chapter stays mixed-format: {'+'.join(sorted(fmts))}"]
 

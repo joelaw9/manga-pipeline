@@ -1267,13 +1267,13 @@ def test_a_retried_chapter_that_fixed_its_group_is_still_noted(site, monkeypatch
     assert "calibration: colour fixed at q" in line, "the retry of the fixing chapter writes its note"
 
 
-def specks(offset=0):
+def specks():
     """Return a gray page with 2 faint colour specks, each split across the 8 px colour tiles: it classes gray.
 
     A crop of 1 to 7 rows lines them up with the tiles: the cropped page classes colour (2 marks are no badge).
     """
     a = np.full((256, 96, 3), 200, np.uint8)
-    for y in (4 + offset, 204 + offset):
+    for y in (4, 204):
         a[y : y + 8, 4:12] = (240, 160, 200)  # spread 80: 20 per tile when split 4 ways
     return a
 
@@ -1289,6 +1289,7 @@ def test_a_gray_rendered_page_that_classes_colour_after_its_crop_is_kept_exact(s
     edit = {**NO_EDIT, "bands": [{"page": 0, "box": [0, 4, 96, 256]}]}  # the region kept: 4 rows cut
     result, out = staged_result(site, site.chapter(site.series(), members, edit))
     assert result["outcome"] == "lossless", "the post-check passes: the page is kept colour, compared exactly"
+    assert result["gray"] is False, "BlackAndWhite: a page kept in colour is not gray"
     assert out[0]["height"] == 252
 
 

@@ -429,10 +429,10 @@ def grays_losslessly(cls: str, entry: plan.PlanPage) -> bool:
 def lossless_page(task: LosslessJob) -> LosslessPage:
     """Store 1 page on the lossless path with jpegtran / oxipng.
 
-    A grayable JPEG / PNG page loses its colour channels (a JPEG only when jpeg_gray; the caller decides grayable from
-    the page's class), a lossless WebP passes through. Verifies pixels; an output not smaller than its source keeps the
-    source bytes. task: {"src", "out", "tmp", "fmt", "cls", "jpeg_gray", "grayable", "tools"}. Returns the record,
-    "grayed" telling whether the page lost colour.
+    A grayable JPEG / PNG page loses its colour channels (a JPEG only when jpeg_gray; the caller decides grayable: from
+    a kept page's class, from a rendered page's class and its own pixels), a lossless WebP passes through. Verifies
+    pixels; an output not smaller than its source keeps the source bytes. task: {"src", "out", "tmp", "fmt", "cls",
+    "jpeg_gray", "grayable", "tools"}. Returns the record, "grayed" telling whether the page lost colour.
     """
     src, out, tmp = Path(task["src"]), Path(task["out"]), Path(task["tmp"])
     im, alpha = images.open_image(src)
@@ -744,22 +744,24 @@ def _clear(d: Path) -> None:
         p.unlink()
 
 
-def output_gray(chapter_plan: plan.ChapterPlan, outcome: plan.Outcome) -> bool:
-    """Return whether every page the outcome stores is gray, from the plan's page classes (no decode).
+def output_gray(chapter_plan: plan.ChapterPlan, outcome: plan.Outcome, lossless_pages: Sequence[LosslessPage]) -> bool:
+    """Return whether every page the outcome stores is gray.
 
     ComicInfo BlackAndWhite. An AVIF page of a gray / tinted / gray-mark class is 4:0:0; the lossless path grays gray
-    and gray-mark JPEG / PNG pages, and of a rendered chapter's PNGs only the gray ones; untouched pages are stored as
+    and gray-mark JPEG / PNG pages; a rendered chapter's lossless pages are gray when the path grayed them
+    (lossless_pages' "grayed": rendered_lossless decides it on each page's own pixels); untouched pages are stored as
     they are (only a gray page is gray). An inserted volume cover is not counted, nor the page it replaces
-    (BlackAndWhite describes the chapter's own pages).
+    (BlackAndWhite describes the chapter's own pages). lossless_pages: the lossless outcome's records ([] for another).
     """
     kind = outcome["outcome"]
 
     def replaced(name: str) -> bool:
         return replaced_by_cover(name, inserted=bool(outcome["cover"]))
 
+    if outcome["edits"] == "all" and kind == "avif":
+        return all(r["class"] in plan.GRAYISH for r in chapter_plan.render if not replaced(r["name"]))
     if outcome["edits"] == "all":
-        grayish = plan.GRAYISH if kind == "avif" else (images.GRAY,)  # rendered_lossless grays a gray page only
-        return all(r["class"] in grayish for r in chapter_plan.render if not replaced(r["name"]))
+        return all(p["grayed"] for p in lossless_pages if not replaced(p["name"]))
     kept = [(chapter_plan.classes[q["name"]], q) for q in chapter_plan.kept() if not replaced(q["name"])]
     if kind == "avif":
         return all(cls in plan.GRAYISH for cls, _ in kept)
@@ -810,7 +812,7 @@ def process_chapter(
         "blanked": sorted(pages.blanked, key=archive.natural_key) if blanks_applied(o) else [],
         "mean_score": round(sum(r["score"] for r in avif) / len(avif), 2) if avif else None,
         "min_score": min((r["score"] for r in avif), default=None),
-        "gray": output_gray(ch, o),
+        "gray": output_gray(ch, o, lossless_pages),
         "cover": inserted,
         "bytes_out": sum(p.stat().st_size for p in outputs),
         "output": [{"name": p.name, "sha1": archive.sha1(p.read_bytes())} for p in outputs],
@@ -822,10 +824,7 @@ def process_chapter(
 
 
 def replaced_by_cover(name: str, *, inserted: bool) -> bool:
-    """Return whether an inserted volume cover replaced the page of this name: the page named 000_cover, if any.
-
-    The 1 rule BlackAndWhite (output_gray), the output checks and convert's notes share.
-    """
+    """Return whether an inserted volume cover replaced the page of this name: the page named 000_cover, if any."""
     return inserted and Path(name).stem == archive.COVER_STEM
 
 

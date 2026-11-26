@@ -484,7 +484,9 @@ def test_a_rendered_lossless_page_is_grayed_only_when_its_class_is_gray(tmp_path
     ch = Chapter(tmp_path, [("001.jpg", jpeg(gray().convert("RGB"))), ("002.jpg", jpeg(gray(seed=4).convert("RGB")))])
     p = ch.plan({**NO_EDIT, "bands": [{"page": 0, "box": [0, 0, 96, 64]}]})
     p = dataclasses.replace(p, render=[{**r, "class": cls} for r in p.render])
-    assert image.output_gray(p, present(p.outcomes.avif)), "an AVIF page of a gray, gray-mark or tinted class is 4:0:0"
+    assert image.output_gray(p, present(p.outcomes.avif), []), (
+        "an AVIF page of a gray, gray-mark or tinted class: 4:0:0"
+    )
     rec = ch.run(p)
     assert rec["outcome"] == "lossless"
     with Image.open(ch.out / "001.png") as im:
