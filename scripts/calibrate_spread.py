@@ -10,14 +10,15 @@ units. Per group, 40 units are shared among the 3, the file with fewest first, e
 is probed once and counted each time; 20 or more are probed and the fix rule (calibrate.choose) applied, fewer fix the
 group at q80. Every group but a record's is written fixed, its why starting `spread:`, in 1 transaction per series.
 
-A file whose pages cannot be decoded or planned is left out and the 3 are picked again over the rest; the share failing
-or an encode error leaves the series as it was and the run goes on. Series with an open conversion chapter go first.
-Under lock.IDLE exclusive: no part runs meanwhile. --series takes the listed series that pass the rest, whatever their
-groups; --dry-run writes nothing.
+A file that cannot be read, decoded, planned or rendered is left out; a picked one that gives no unit too, and the 3
+are picked again over the rest. The share failing or an encode error leaves the series as it was and the run goes on.
+Series with an open conversion chapter go first. The preflight checks of the share folders, the image tools, scratch
+space and long paths run first. Under lock.IDLE exclusive: no part runs meanwhile. --series takes the listed series that
+pass the rest, whatever their groups; --dry-run writes nothing.
 
 Usage, from the project root:
 python -m scripts.calibrate_spread [--series ID ...] [--dry-run] [--config PATH]
-Exit 0; 1 when the scorer cannot be loaded; 3 when a part runs.
+Exit 0; 1 when the scorer cannot be loaded; 3 when a part runs; 4 when a preflight check fails.
 """
 
 import argparse
@@ -25,14 +26,13 @@ import math
 import os
 import shutil
 import sys
-import zipfile
-from collections.abc import Iterator, Sequence
-from concurrent.futures import Executor
+from collections.abc import Iterator, Mapping, Sequence
+from concurrent.futures import Executor, Future, wait
 from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from manga_pipeline import archive, config, conversions, db, images, lock, strip, workflow
+from manga_pipeline import archive, config, conversions, db, images, lock, preflight, strip, workflow
 from manga_pipeline.convert import calibrate, image, pages, plan, tools, vship
 from manga_pipeline.db import sql
 from manga_pipeline.stages import convert
@@ -49,6 +49,10 @@ NO_EDIT: plan.ChapterEdit = {
     "strip_removed": [],
     "blank": [],
 }
+# A file that cannot be read, decoded, planned or rendered (plan.NeedsHuman and plan.EditError are ValueErrors); a share
+# error is not one: workflow.share_errors makes it Unreachable first.
+UNREADABLE = (OSError, *archive.UNREADABLE)
+CHECKS = (preflight.SHARE_FOLDERS_PRESENT, preflight.IMAGE_TOOLS, preflight.SCRATCH_SPACE, preflight.LONG_PATHS)
 
 SERIES = sql.SQL("""SELECT s.id, s.name, c.layout, c.page_aspect FROM series s
     JOIN series_conversion c ON c.series_id = s.id
@@ -62,6 +66,8 @@ SERIES = sql.SQL("""SELECT s.id, s.name, c.layout, c.page_aspect FROM series s
 )
 FILES = """SELECT id, library_path FROM published_file WHERE series_id = %s AND origin = 'library'
     AND state = 'confirmed' ORDER BY comicinfo_number::double precision, id"""
+
+type Units = dict[str, list[calibrate.Unit]]  # a file's units by group
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,15 @@ class Result:
     groups: dict[str, tuple[int, str]] = field(default_factory=dict[str, tuple[int, str]])
     picked: list[str] = field(default_factory=list[str])
     left_out: list[Bad] = field(default_factory=list[Bad])
+
+
+@dataclass
+class Usable:
+    """A series' usable files in number order, its layout with the page aspects, and the pages measured so far."""
+
+    files: list[Path]
+    layout: plan.SeriesLayout
+    measured: dict[Path, list[images.MeasuredPage]] = field(default_factory=dict[Path, list[images.MeasuredPage]])
 
 
 def spread(n: int, m: int = PICKED) -> list[int]:
@@ -100,6 +115,17 @@ def share[T](per: Sequence[Sequence[T]], total: int = PAGES) -> list[list[T]]:
     return [chosen[k] for k in range(len(per))]
 
 
+def _results[T](jobs: Sequence[Future[T]]) -> list[T]:
+    """Return the jobs' results in order; on an error, cancel the queued ones, wait for the running ones, raise."""
+    try:
+        return [j.result() for j in jobs]
+    except BaseException:
+        for j in jobs:
+            j.cancel()
+        wait(jobs)
+        raise
+
+
 # ---------------------------------------------------------------- 1 file, in a page worker
 
 
@@ -108,13 +134,14 @@ def _measure(cbz: Path) -> list[images.MeasuredPage] | Bad:
     try:
         with workflow.share_errors():
             return images.measure_pages(cbz)
-    except (OSError, ValueError, zipfile.BadZipFile) as e:
+    except UNREADABLE as e:
         return Bad(cbz.name, f"cannot be measured: {e}")
 
 
 def _content_sizes(measured: Sequence[images.MeasuredPage]) -> list[strip.Size]:
-    """Return the (w, h) of the file's pages that are not cover-named."""
-    return [(p["width"], p["height"]) for p in measured if not archive.is_cover_name(p["name"])]
+    """Return the (w, h) of the file's content pages (strip.content_indexes: not cover-named)."""
+    content = strip.content_indexes([p["name"] for p in measured])
+    return [(measured[i]["width"], measured[i]["height"]) for i in content]
 
 
 def _planned(
@@ -128,7 +155,7 @@ def _planned(
             if problems:
                 return Bad(cbz.name, f"cannot be extracted: {'; '.join(problems)}")
             return plan.routes(plan.build(cbz.name, measured, files, {**NO_EDIT, "split": stitched}, layout))
-    except (OSError, ValueError, zipfile.BadZipFile) as e:  # plan.NeedsHuman and plan.EditError are ValueErrors
+    except UNREADABLE as e:
         return Bad(cbz.name, f"cannot be planned: {e}")
 
 
@@ -143,75 +170,84 @@ def usable(cbz: Path, measured: Sequence[images.MeasuredPage], x_dir: Path, layo
         shutil.rmtree(x_dir, ignore_errors=True)
 
 
-def units(cbz: Path, x_dir: Path, layout: plan.SeriesLayout) -> dict[str, list[calibrate.Unit]] | Bad:
-    """Return the file's units by group (rendered when its plan renders), or why it has none to give."""
-    measured = _measure(cbz)
-    if isinstance(measured, Bad):
-        return measured
+def units(cbz: Path, measured: list[images.MeasuredPage] | None, x_dir: Path, layout: plan.SeriesLayout) -> Units | Bad:
+    """Return the file's units by group (rendered when its plan renders), or why it has none to give.
+
+    measured: its pages as measured before, or None to measure them.
+    """
+    if measured is None:
+        got_measured = _measure(cbz)
+        if isinstance(got_measured, Bad):
+            return got_measured
+        measured = got_measured
     routed = _planned(cbz, measured, x_dir, layout)
     if isinstance(routed, Bad):
         return routed
-    rendered = image.render(routed, x_dir, x_dir.with_name(f"{x_dir.name}-render")) if routed.render else []
-    got = calibrate.units(routed, x_dir, rendered)
+    try:
+        with workflow.share_errors():
+            rendered = image.render(routed, x_dir, x_dir.with_name(f"{x_dir.name}-render")) if routed.render else []
+            got = calibrate.units(routed, x_dir, rendered)
+    except UNREADABLE as e:
+        return Bad(cbz.name, f"cannot be rendered: {e}")
     return got if any(got.values()) else Bad(cbz.name, "no AVIF page")
 
 
 # ---------------------------------------------------------------- 1 series
 
 
-def _usable_pages(
-    files: Sequence[Path], stored: list[float] | None, pool: Executor, work: Path, out: Result
-) -> tuple[list[Path], plan.SeriesLayout]:
-    """Return a page series' usable files in order and its layout with the page aspects; files left out go to out.
+def _usable_pages(files: Sequence[Path], stored: list[float] | None, pool: Executor, work: Path, out: Result) -> Usable:
+    """Return a page series' usable files, layout and measured pages; files left out go to out.
 
-    The aspects: the stored ones, else the files' own (strip.page_aspect over their content pages).
+    The page aspects: the stored ones, else the files' own (strip.page_aspect over their content pages).
     """
-    measured = dict(zip(files, pool.map(_measure, files), strict=True))
+    measured = dict(zip(files, _results([pool.submit(_measure, f) for f in files]), strict=True))
     out.left_out += [m for m in measured.values() if isinstance(m, Bad)]
     good = {f: m for f, m in measured.items() if not isinstance(m, Bad)}
     aspects = stored if stored is not None else strip.page_aspect([_content_sizes(m) for m in good.values()])
-    series_layout = plan.SeriesLayout("pages", aspects)
-    jobs = [(f, pool.submit(usable, f, m, work / f"u{i}", series_layout)) for i, (f, m) in enumerate(good.items())]
-    found = [(f, j.result()) for f, j in jobs]
+    layout = plan.SeriesLayout("pages", aspects)
+    jobs = [pool.submit(usable, f, m, work / f"u{i}", layout) for i, (f, m) in enumerate(good.items())]
+    found = list(zip(good, _results(jobs), strict=True))
     out.left_out += [u for _, u in found if isinstance(u, Bad)]
-    return [f for f, u in found if u is True], series_layout
+    return Usable([f for f, u in found if u is True], layout, good)
 
 
-def _pick(
-    usable_files: list[Path], layout: plan.SeriesLayout, pool: Executor, work: Path, out: Result
-) -> dict[Path, dict[str, list[calibrate.Unit]]]:
+def _pick(found: Usable, pool: Executor, work: Path, out: Result) -> dict[Path, Units]:
     """Return the 3 picked files' units, picking again over the rest while a picked file gives none."""
-    prepared: dict[Path, dict[str, list[calibrate.Unit]]] = {}
+    prepared: dict[Path, Units] = {}
     while True:
-        picked = [usable_files[i] for i in spread(len(usable_files))]
+        picked = [found.files[i] for i in spread(len(found.files))]
         todo = [f for f in picked if f not in prepared]
         if not todo:
             return {f: prepared[f] for f in picked}
-        jobs = [(f, pool.submit(units, f, work / "picked" / f.name, layout)) for f in todo]  # 1 folder: unique names
-        for f, job in jobs:
-            got = job.result()
+        jobs = [pool.submit(units, f, found.measured.get(f), work / "picked" / f.name, found.layout) for f in todo]
+        for f, got in zip(todo, _results(jobs), strict=True):  # 1 folder: a series' files have unique names
             if isinstance(got, Bad):
                 out.left_out.append(got)
-                usable_files.remove(f)
+                found.files.remove(f)
             else:
                 prepared[f] = got
 
 
-def _probe_group(
-    encoder: image.Encoder,
-    per_file: Sequence[Sequence[calibrate.Unit]],
-    work: Path,
-    scores: dict[str, calibrate.Scores],
-) -> tuple[int, str]:
-    """Return (q, why) of 1 group from the units shared among the picked files; scores: probed so far, by sha1."""
-    chosen = share(per_file)
+def _probe(
+    encoder: image.Encoder, per_file: Sequence[Sequence[calibrate.Unit]], work: Path
+) -> dict[str, calibrate.Scores]:
+    """Probe the units of each file once (by sha1), 1 probe per file; return the scores by sha1.
+
+    1 probe per file: probe names its work files by the unit's stem, which repeats across files.
+    """
+    scores: dict[str, calibrate.Scores] = {}
+    for k, file_units in enumerate(per_file):
+        fresh = list({u["sha1"]: u for u in file_units if u["sha1"] not in scores}.values())
+        if fresh:
+            scores.update(calibrate.probe(encoder, fresh, work / f"probe-f{k}"))
+    return scores
+
+
+def _decide(chosen: Sequence[Sequence[calibrate.Unit]], scores: Mapping[str, calibrate.Scores]) -> tuple[int, str]:
+    """Return (q, why) of 1 group from its units shared among the picked files: q80 under 20, else the fix rule."""
     n = sum(len(c) for c in chosen)
     if n < calibrate.MIN_SAMPLES:
         return calibrate.CEILING, f"q{calibrate.CEILING}: {n} sample pages < {calibrate.MIN_SAMPLES}"
-    for k, file_units in enumerate(chosen):
-        fresh = list({u["sha1"]: u for u in file_units if u["sha1"] not in scores}.values())
-        if fresh:  # 1 probe per file: probe names its work files by the unit's stem, which repeats across files
-            scores.update(calibrate.probe(encoder, fresh, work / f"probe-f{k}"))
     samples: list[calibrate.NewSample] = [
         {
             "sha1": u["sha1"],
@@ -234,22 +270,23 @@ def calibrate_series(
 ) -> Result:
     """Return 1 series' spread over its files (local CBZ paths in number order); writes only below work.
 
-    layout: "pages" or "strip"; aspects: its stored page aspects or None. A share error raises Unreachable; an encode
-    error raises tools.ToolError or vship.VshipError.
+    layout: "pages" or "strip"; aspects: its stored page aspects or None. No groups when no file is usable. A share
+    error raises Unreachable; an encode error raises tools.ToolError or vship.VshipError.
     """
     out = Result()
     if layout == "strip":  # a strip plan always renders, so has an AVIF outcome: every file is usable
-        usable_files, series_layout = list(files), plan.SeriesLayout("strip", aspects)
+        found = Usable(list(files), plan.SeriesLayout("strip", aspects))
     else:
-        usable_files, series_layout = _usable_pages(files, aspects, encoder.pool, work, out)
-    if not usable_files:
+        found = _usable_pages(files, aspects, encoder.pool, work, out)
+    picked = _pick(found, encoder.pool, work, out) if found.files else {}
+    if not picked:
         return out
-    picked = _pick(usable_files, series_layout, encoder.pool, work, out)
     out.picked = [f.name for f in picked]
-    scores: dict[str, calibrate.Scores] = {}
-    for group in plan.QUALITY_GROUPS:
-        per_file = [got.get(group, []) for got in picked.values()]
-        out.groups[group] = _probe_group(encoder, per_file, work / group, scores)
+    chosen = {g: share([got.get(g, []) for got in picked.values()]) for g in plan.QUALITY_GROUPS}
+    probed = [g for g in plan.QUALITY_GROUPS if sum(len(c) for c in chosen[g]) >= calibrate.MIN_SAMPLES]
+    per_file = [[u for g in probed for u in chosen[g][k]] for k in range(len(picked))]
+    scores = _probe(encoder, per_file, work)
+    out.groups = {g: _decide(chosen[g], scores) for g in plan.QUALITY_GROUPS}
     return out
 
 
@@ -312,8 +349,12 @@ def run(
     """Spread every series the run takes, yielding 1 line each as it is done, then the summary."""
     params = {**workflow.scope_params(cfg), "series": None if series is None else list(series)}
     rows = conn.execute(SERIES, params).fetchall()
+    taken = {r["id"] for r in rows}
+    for series_id in series or []:
+        if series_id not in taken:
+            yield f"series {series_id}: not taken (not an adopted series in scope, ok, of layout pages or strip)"
     work = _scratch(cfg)
-    spread_n = 0
+    counts = {"spread": 0, "failed": 0, "no usable file": 0}
     for row in rows:
         series_work = work / f"s{row['id']}"
         try:
@@ -321,6 +362,7 @@ def run(
                 _files(cfg, conn, row["id"]), row["layout"], _stored_aspects(row), encoder, series_work
             )
         except (workflow.Unreachable, tools.ToolError, vship.VshipError) as e:  # nothing written
+            counts["failed"] += 1
             yield f"series {row['id']} ({row['name']}, {row['layout']}): failed, nothing written: {e}"
             continue
         finally:
@@ -328,11 +370,14 @@ def run(
         before = calibrate.rows(conn, row["id"])
         if result.picked and not dry_run:
             _write(conn, row["id"], result)
-        spread_n += bool(result.picked)
+        counts["spread" if result.picked else "no usable file"] += 1
         yield _line(row, result, before)
     shutil.rmtree(work, ignore_errors=True)
     done = "spread (dry run: nothing written)" if dry_run else "spread and written"
-    yield f"series: {len(rows)}; {done}: {spread_n}; not spread: {len(rows) - spread_n}"
+    yield (
+        f"series: {len(rows)}; {done}: {counts['spread']}; failed (run again): {counts['failed']}; "
+        f"no usable file: {counts['no usable file']}"
+    )
 
 
 def parse(argv: list[str] | None) -> argparse.Namespace:
@@ -348,6 +393,11 @@ def main(argv: list[str] | None = None) -> int:
     """Spread the series on the configured database; print 1 line per series and a summary."""
     args = parse(argv)
     cfg = config.init(args.config)
+    try:
+        preflight.run(cfg, CHECKS)
+    except preflight.PreflightError as e:
+        sys.stderr.write(f"error: {e}\n")
+        return 4
     with closing(db.open_database(cfg, builds=False)) as conn:
         try:
             with lock.held(conn, cfg, (), lock.EXCLUSIVE), convert.encoder(cfg) as encoder:

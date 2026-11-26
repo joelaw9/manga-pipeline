@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from manga_pipeline import archive, config, db, images
-from manga_pipeline.convert import calibrate, tools, vship
+from manga_pipeline import archive, config, db, images, preflight
+from manga_pipeline.convert import calibrate, image, tools, vship
 from manga_pipeline.stages import convert
 from scripts import calibrate_spread
 
@@ -57,10 +57,13 @@ class Site:
         return series_id
 
     def file(self, series_id, n, members):
-        """Add adopted file `Ch <n>.cbz` of the series holding `members`; return its published_file id."""
+        """Add adopted file `Ch <n>.cbz` of the series holding `members` (bytes: the file's own); return its id."""
         path = config.abs_path(self.cfg["paths"]["library"]) / f"S{series_id}" / f"Ch {n}.cbz"
         path.parent.mkdir(parents=True, exist_ok=True)
-        archive.write(path, members)
+        if isinstance(members, bytes):
+            path.write_bytes(members)
+        else:
+            archive.write(path, members)
         with db.transaction(self.conn):
             return self.conn.execute(
                 """INSERT INTO published_file (library_path, series_id, identity, state, origin, comicinfo_number)
@@ -121,7 +124,28 @@ def test_a_page_series_is_fixed_from_3_of_its_usable_files_and_every_group_gets_
     ), "3 of the 4 usable files, first, middle and last; the open conversion's file is read"
     assert (rows["gray"]["q"], rows["gray"]["fixed"]) == (80, 1), "a group with no unit in the 3 files: q80, fixed"
     assert rows["gray"]["why"].startswith("spread: q80: 0 sample pages < 20")
-    assert "series: 1; spread and written: 1" in capsys.readouterr().out
+    assert "series: 1; spread and written: 1; failed (run again): 0; no usable file: 0" in capsys.readouterr().out
+
+
+@budget(load="pool", seconds=20)
+def test_exactly_20_units_in_the_3_files_are_probed(site):
+    series_id = site.series()
+    for n, count in ((1, 7), (2, 7), (3, 6)):
+        site.file(series_id, n, pages(count, seed=n))
+    assert site.main() == 0
+    assert site.groups(series_id)["colour"]["q"] == 60, "20 sample pages fix the group by the rule, not at q80"
+
+
+@budget(load="pool", seconds=20)
+def test_a_series_with_no_usable_file_writes_nothing(site, capsys):
+    series_id = site.series()
+    site.file(series_id, 1, lossy_webp(4, seed=1))
+    site.file(series_id, 2, b"not a zip archive")  # zipfile's own error, archive.UNREADABLE
+    assert site.main() == 0
+    assert site.groups(series_id) == {}
+    out = capsys.readouterr().out
+    assert f"series {series_id} (S, pages): no usable file; nothing written; Ch 2.cbz cannot be measured" in out
+    assert "no usable file: 1" in out
 
 
 @budget(load="pool", seconds=20)
@@ -197,6 +221,25 @@ def test_a_picked_strip_file_that_gives_no_unit_is_replaced_by_another(site, cap
     assert "left out Ch 3.cbz: cannot be" in out
 
 
+@budget(load="pool", seconds=20)
+def test_a_picked_file_that_cannot_be_rendered_is_replaced_by_another(site, monkeypatch, capsys):
+    series_id = site.series(layout="strip")
+    for n in range(1, 5):
+        site.file(series_id, n, pages(8, seed=n))
+    render = image.render
+
+    def render_or_fail(chapter_plan, x_dir, out_dir):
+        if chapter_plan.name == "Ch 1.cbz":
+            msg = "cannot write the render"
+            raise OSError(errno.EACCES, msg)
+        return render(chapter_plan, x_dir, out_dir)
+
+    monkeypatch.setattr(image, "render", render_or_fail)
+    assert site.main() == 0
+    assert site.groups(series_id)["colour"]["why"].endswith("files Ch 2.cbz, Ch 3.cbz, Ch 4.cbz")
+    assert "left out Ch 1.cbz: cannot be rendered" in capsys.readouterr().out
+
+
 # ---------------------------------------------------------------- which series, and what is written
 
 
@@ -260,6 +303,23 @@ def test_a_dry_run_writes_nothing_and_series_narrows_the_run(site, capsys):
     assert "colour q60 (q55 fails" in out
     assert f"series {other}" not in out
     assert "series: 1; spread (dry run: nothing written): 1" in out
+
+
+@budget(load="pool")
+def test_a_listed_series_that_is_not_taken_is_named(site, capsys):
+    series_id = site.series(layout="strip")  # no adopted file
+    assert site.main("--series", str(series_id)) == 0
+    assert f"series {series_id}: not taken" in capsys.readouterr().out
+
+
+@budget(load="pool")
+def test_a_failed_preflight_check_exits_4_before_anything(site, monkeypatch):
+    series_id = site.series()
+    site.file(series_id, 1, pages(8, seed=1))
+    full = preflight.Check("scratch space", preflight.HARD, lambda _cfg: "no space")
+    monkeypatch.setattr(calibrate_spread, "CHECKS", (full,))
+    assert site.main() == 4
+    assert site.groups(series_id) == {}
 
 
 @budget(load="pool")
