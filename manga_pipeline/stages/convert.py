@@ -198,7 +198,10 @@ def _cover_skipped(chapter_plan: plan.ChapterPlan, rec: image.ChapterRecord, cov
     """Why a chapter that takes a volume cover went out without it (None when it has it, or takes none)."""
     if cover is None or rec["cover"]:
         return None
-    fmts = sorted({q["format"] for q in chapter_plan.kept() if not q["cover"]})
+    if rec["edits"] == "all":  # rendered pages: AVIF or PNG
+        fmts = [images.AVIF if rec["outcome"] == "avif" else images.PNG]
+    else:
+        fmts = sorted({q["format"] for q in chapter_plan.kept() if not q["cover"]})
     wanted = images.AVIF if rec["outcome"] == "avif" else plan.cover_format(fmts)
     if wanted == images.AVIF:
         return f"its AVIF cover scored {cover.cover['avif']['score']}, below the floor"
@@ -215,9 +218,9 @@ def _output_pages(out_dir: Path, rec: image.ChapterRecord) -> list[StagedPage]:
     return out
 
 
-def _post_check(staged: Path, rec: image.ChapterRecord, x_dir: Path, chapter_plan: plan.ChapterPlan) -> None:
+def _post_check(staged: Path, rec: image.ChapterRecord, chapter_plan: plan.ChapterPlan) -> None:
     """RuntimeError naming every failed post-check of the staged file."""
-    fails = check.check(staged, rec, x_dir, chapter_plan.kept())
+    fails = check.check(staged, rec, chapter_plan.kept())
     if fails:
         msg = f"post-check failed: {'; '.join(fails)}"
         raise RuntimeError(msg)
@@ -256,7 +259,7 @@ def _convert(
         return workflow.NeedsHuman(str(e))
     rec, cover = _encode(ctx, chapter, chapter_plan, _volume_cover(ctx, chapter, chapter_plan), scratch)
     staged = config.abs_path(ctx.cfg["paths"]["staging"]) / staged_name(ctx.conn, chapter)
-    size = _write_staged(staged, rec, out_dir, x_dir, chapter_plan)
+    size = _write_staged(staged, rec, out_dir, chapter_plan)
     result = _result(chapter_plan, rec, cover)
     output_pages = _output_pages(out_dir, rec)
     if result["cover_skipped"]:
@@ -407,16 +410,14 @@ def _pages(chapter_plan: plan.RoutedPlan, scratch: Path, *, sampling: bool) -> _
     return _Pages(blanked, encoded, calibrate.units(chapter_plan, x_dir, rendered) if sampling else {})
 
 
-def _write_staged(
-    staged: Path, rec: image.ChapterRecord, out_dir: Path, x_dir: Path, chapter_plan: plan.ChapterPlan
-) -> int:
+def _write_staged(staged: Path, rec: image.ChapterRecord, out_dir: Path, chapter_plan: plan.ChapterPlan) -> int:
     """Write the output pages as the staged CBZ and post-check it; return its size.
 
     A staged file that fails is deleted: none is left behind without its chapter's record.
     """
     try:
         size = archive.write(staged, [(p["name"], (out_dir / p["name"]).read_bytes()) for p in rec["output"]])
-        _post_check(staged, rec, x_dir, chapter_plan)
+        _post_check(staged, rec, chapter_plan)
     except BaseException:
         staged.unlink(missing_ok=True)
         raise

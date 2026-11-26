@@ -231,21 +231,22 @@ def test_the_post_check_names_what_is_wrong(tmp_path):
     rec: check.Staged = {
         "outcome": "untouched",
         "gate": None,
+        "edits": "drops",
         "cover": None,
         "lossless": {},
         "scores": {},
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}, {"name": "002.jpg", "sha1": archive.sha1(b)}],
     }
     kept: list[check.SourceBytes] = [{"bytes": len(a)}, {"bytes": len(b)}]
-    assert check.check(staged(tmp_path, [("001.jpg", a), ("002.jpg", b)]), rec, tmp_path, kept) == []
-    assert any("page-count" in f for f in check.check(staged(tmp_path, [("001.jpg", a)]), rec, tmp_path, kept))
-    swapped = check.check(staged(tmp_path, [("001.jpg", b), ("002.jpg", a)]), rec, tmp_path, kept)
+    assert check.check(staged(tmp_path, [("001.jpg", a), ("002.jpg", b)]), rec, kept) == []
+    assert any("page-count" in f for f in check.check(staged(tmp_path, [("001.jpg", a)]), rec, kept))
+    swapped = check.check(staged(tmp_path, [("001.jpg", b), ("002.jpg", a)]), rec, kept)
     assert "page-content-mismatch" in swapped
-    extra = check.check(staged(tmp_path, [("001.jpg", a), ("002.jpg", b), ("notes.txt", b"x")]), rec, tmp_path, kept)
+    extra = check.check(staged(tmp_path, [("001.jpg", a), ("002.jpg", b), ("notes.txt", b"x")]), rec, kept)
     assert any(f.startswith("unexpected-files") for f in extra)
-    wrong_ext = check.check(staged(tmp_path, [("001.png", a), ("002.jpg", b)]), rec, tmp_path, kept)
+    wrong_ext = check.check(staged(tmp_path, [("001.png", a), ("002.jpg", b)]), rec, kept)
     assert any("extension-mismatch: 001.png" in f for f in wrong_ext)
-    broken = check.check(staged(tmp_path, [("001.jpg", a[:40]), ("002.jpg", b)]), rec, tmp_path, kept)
+    broken = check.check(staged(tmp_path, [("001.jpg", a[:40]), ("002.jpg", b)]), rec, kept)
     assert any("undecodable-page: 001.jpg" in f for f in broken)
 
 
@@ -255,12 +256,13 @@ def test_the_post_check_holds_avif_scores_lossless_pixels_and_size(tmp_path):
     avif: check.Staged = {
         "outcome": "avif",
         "gate": "floor+size",
+        "edits": "drops",
         "lossless": {},
         "scores": {},
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    fails = check.check(staged(tmp_path, [("001.jpg", a)]), avif, tmp_path, [{"bytes": 1}])
+    fails = check.check(staged(tmp_path, [("001.jpg", a)]), avif, [{"bytes": 1}])
     assert "score-missing: 001.jpg" in fails
     assert "mixed-formats: JPEG" in fails
     assert any(f.startswith("output-larger-than-input") for f in fails), "page bytes above the source pages'"
@@ -268,13 +270,35 @@ def test_the_post_check_holds_avif_scores_lossless_pixels_and_size(tmp_path):
     lossless: check.Staged = {
         "outcome": "lossless",
         "gate": None,
-        "lossless": {"001.jpg": {"source": "001.jpg", "mode": "exact"}},
+        "edits": "drops",
+        "lossless": {"001.jpg": {"source": str(tmp_path / "001.jpg"), "mode": "exact"}},
         "scores": {},
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    fails = check.check(staged(tmp_path, [("001.jpg", a)]), lossless, tmp_path, [{"bytes": 10**6}])
+    fails = check.check(staged(tmp_path, [("001.jpg", a)]), lossless, [{"bytes": 10**6}])
     assert fails == ["lossless-mismatch (exact): 001.jpg"]
+
+
+@budget(load="pool")
+def test_the_post_check_compares_a_rendered_lossless_page_with_its_render_and_skips_the_size_rule(tmp_path):
+    render = tmp_path / "render"
+    render.mkdir()
+    (render / "001.png").write_bytes(png(colour()))
+    altered = colour()
+    altered.putpixel((0, 0), (0, 0, 0))
+    data = png(altered)
+    rec: check.Staged = {
+        "outcome": "lossless",
+        "gate": None,
+        "edits": "all",
+        "lossless": {"001.png": {"source": str(render / "001.png"), "mode": "exact"}},
+        "scores": {},
+        "cover": None,
+        "output": [{"name": "001.png", "sha1": archive.sha1(data)}],
+    }
+    fails = check.check(staged(tmp_path, [("001.png", data)]), rec, [{"bytes": 1}])
+    assert fails == ["lossless-mismatch (exact): 001.png"], "checked against the render; no size rule on rendered pages"
 
 
 @budget(load="pool")
@@ -286,12 +310,13 @@ def test_the_post_check_refuses_a_deflated_archive(tmp_path):
     rec: check.Staged = {
         "outcome": "untouched",
         "gate": None,
+        "edits": "drops",
         "lossless": {},
         "scores": {},
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    assert check.check(path, rec, tmp_path, [{"bytes": len(a)}]) == ["not-store-mode"]
+    assert check.check(path, rec, [{"bytes": len(a)}]) == ["not-store-mode"]
 
 
 # ---------------------------------------------------------------- calibration
@@ -432,6 +457,21 @@ def test_a_split_chapter_is_split_at_its_series_page_aspect(site):
     assert json.loads(chapter(site.conn, split_id)["convert_result"])["pages_out"] == 2
 
 
+@budget(load="pool")
+def test_a_strip_chapter_whose_avif_fails_is_published_restitched_and_lossless(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    tall = [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=i))) for i in range(1, 4)]
+    members = [("000_cover.jpg", jpeg(colour((200, 300), seed=9))), *tall]
+    edit = {**NO_EDIT, "strip_removed": [{"start": 3900, "end": 4200, "why": "credits"}]}
+    chapter_id = site.chapter(site.series(layout="strip"), members, edit=edit)
+    result, out = staged_result(site, chapter_id)
+    assert result["outcome"] == "lossless", "A4: never the original slices with their junk"
+    assert result["reshape"]["kind"] == "restitch"
+    assert result["avif_rejected"], "why the AVIF was rejected"
+    assert out[0]["name"] == "000_cover.png"
+    assert sum(p["height"] for p in out[1:]) == 3900, "the strip without its removed 300 rows"
+
+
 def unit(sha1) -> calibrate.Unit:
     """Return a calibration unit of this sha1; its other fields are placeholders."""
     return {
@@ -469,27 +509,27 @@ def test_the_post_check_names_a_low_score_folders_and_an_ambiguous_order(tmp_pat
     rec: check.Staged = {
         "outcome": "avif",
         "gate": "floor",
+        "edits": "drops",
         "cover": None,
         "lossless": {},
         "scores": {"001.avif": 79.5},
         "output": [{"name": "001.avif", "sha1": archive.sha1(avif)}],
     }
-    assert check.check(staged(tmp_path, [("001.avif", avif)]), rec, tmp_path, []) == ["score-below-min: 001.avif 79.50"]
-    nested = check.check(
-        staged(tmp_path, [("a/001.avif", avif)]), {**rec, "scores": {"a/001.avif": 90.0}}, tmp_path, []
-    )
+    assert check.check(staged(tmp_path, [("001.avif", avif)]), rec, []) == ["score-below-min: 001.avif 79.50"]
+    nested = check.check(staged(tmp_path, [("a/001.avif", avif)]), {**rec, "scores": {"a/001.avif": 90.0}}, [])
     assert "nested-entries" in nested
     a, b, c = (jpeg(colour(seed=s)) for s in (1, 2, 3))
     names = [("1.jpg", a), ("2.jpg", b), ("10.jpg", c)]
     rec = {
         "outcome": "untouched",
         "gate": None,
+        "edits": "drops",
         "cover": None,
         "lossless": {},
         "scores": {},
         "output": [{"name": n, "sha1": archive.sha1(d)} for n, d in names],
     }
-    fails = check.check(staged(tmp_path, names), rec, tmp_path, [])
+    fails = check.check(staged(tmp_path, names), rec, [])
     assert fails == ["page-order-ambiguous: natural and lexical order differ"]
 
 
@@ -519,12 +559,13 @@ def test_a_luma_check_on_a_colour_page_is_done_exactly(tmp_path):
     rec: check.Staged = {
         "outcome": "lossless",
         "gate": None,
-        "lossless": {"001.jpg": {"source": "001.jpg", "mode": "luma"}},
+        "edits": "drops",
+        "lossless": {"001.jpg": {"source": str(tmp_path / "001.jpg"), "mode": "luma"}},
         "scores": {},
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    fails = check.check(staged(tmp_path, [("001.jpg", a)]), rec, tmp_path, [{"bytes": len(a)}])
+    fails = check.check(staged(tmp_path, [("001.jpg", a)]), rec, [{"bytes": len(a)}])
     assert fails == ["luma-check-on-colour-page: 001.jpg"], "a colour page may not be compared in luma only"
 
 
@@ -779,6 +820,21 @@ def test_a_cover_page_already_there_is_replaced(site):
     assert [p["name"] for p in out] == ["000_cover.avif", "001.avif", "002.avif"]
     assert result["pages_out"] == 3
     assert (out[0]["width"], out[0]["height"]) == (96, 144), "the inserted cover, not the chapter's own"
+
+
+@budget(load="pool")
+def test_a_rendered_chapter_whose_avif_fails_takes_the_cover_as_png_in_place_of_its_cover_page(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0  # every AVIF fails: the cover's too
+    members = [("000_cover.jpg", jpeg(colour(seed=5))), *pages(2)]
+    edit = {**NO_EDIT, "bands": [{"page": 1, "box": [0, 0, 96, 64]}]}
+    chapter_id = site.chapter(site.series(), members, edit=edit)
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    assert result["outcome"] == "lossless"
+    assert [p["name"] for p in out] == ["000_cover.png", "001.png", "002.png"], "the cover replaces the cover page"
+    assert result["cover"]["format"] == "PNG", "the rendered pages' format"
+    assert result["pages_out"] == 3
+    assert result["cover_skipped"] is None
 
 
 @budget(load="pool")

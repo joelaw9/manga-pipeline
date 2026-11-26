@@ -229,14 +229,15 @@ class AvifOutcome(TypedDict):
 
 
 class LastOutcome(TypedDict):
-    """A plan's last outcome, lossless or untouched: it has no gate, so it always stands, and applies the drops only.
+    """A plan's last outcome, lossless or untouched: it has no gate, so it always stands.
 
-    cover the volume cover it inserts (None: it takes none); pages_out its expected pages, the cover included.
+    edits "drops" (the kept pages) or "all" (a rendered plan's rendered pages, lossless); cover the volume cover it
+    inserts (None: it takes none); pages_out its expected pages, the cover included.
     """
 
     outcome: Literal["lossless", "untouched"]
     gate: None
-    edits: Literal["drops"]
+    edits: Literal["all", "drops"]
     cover: OutcomeCover | None
     pages_out: int
 
@@ -748,9 +749,9 @@ def routes(plan: ChapterPlan, *, cover: VolumeCover | None = None) -> RoutedPlan
     Each outcome a measured attempt, a failure moving to the next, with the volume cover it inserts in it ("cover": its
     format and its passed AVIF or its data; None when it takes none) and its expected pages ("pages_out", the cover
     included). cover: None (the chapter takes no volume cover), else the volume cover with its AVIF encode. An AVIF
-    cover that failed the gate goes in no AVIF outcome. A rendered plan: AVIF under the floor, else the original pages
-    minus drops. A plan that is not rendered, whose AVIF cover passed and whose non-cover pages share no cover format:
-    AVIF under the floor, else untouched (force_avif).
+    cover that failed the gate goes in no AVIF outcome. A rendered plan: AVIF under the floor, else its rendered pages
+    lossless (the cover as PNG). A plan that is not rendered, whose AVIF cover passed and whose non-cover pages share no
+    cover format: AVIF under the floor, else untouched (force_avif).
     """
     kept = plan.kept()
     all_fmts = sorted({q["format"] for q in kept})
@@ -783,6 +784,15 @@ def routes(plan: ChapterPlan, *, cover: VolumeCover | None = None) -> RoutedPlan
         }
 
     def last(name: Literal["lossless", "untouched"]) -> LastOutcome:
+        if plan.render:  # its rendered pages, as PNGs
+            inserted = taken([images.PNG])
+            return {
+                "outcome": name,
+                "gate": None,
+                "edits": "all",
+                "cover": inserted,
+                "pages_out": pages_out(inserted, len(plan.render)),
+            }
         inserted = taken(src)
         return {"outcome": name, "gate": None, "edits": "drops", "cover": inserted, "pages_out": pages_out(inserted, n)}
 
@@ -810,12 +820,12 @@ def _outcome_kinds(
 ) -> tuple[_AvifKind | None, Literal["lossless", "untouched"]]:
     """Return the kind of a plan's AVIF outcome (None: it has none) and of its last one (routes).
 
-    A rendered plan: AVIF under the floor, else untouched; force_avif: the same, over the n kept pages; the avif route:
-    AVIF under the floor and the size gate, else lossless; avif-or-untouched: that AVIF, else untouched; any other
-    route: untouched.
+    A rendered plan: AVIF under the floor, else its rendered pages lossless; force_avif: AVIF under the floor over the
+    n kept pages, else untouched; the avif route: AVIF under the floor and the size gate, else lossless;
+    avif-or-untouched: that AVIF, else untouched; any other route: untouched.
     """
-    if plan.render:
-        return ("floor", "all", len(plan.render)), "untouched"
+    if plan.render:  # SPEC "Conversion", Route: never its original pages, which hold its junk
+        return ("floor", "all", len(plan.render)), "lossless"
     if force_avif:
         return ("floor", "drops", n), "untouched"
     if base == "avif":
