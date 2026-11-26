@@ -336,8 +336,7 @@ def _edge_blocks(
     """Return the edge blocks among a strip's content blocks [(start, end)].
 
     render(start, end) -> image, want(unit, image): each final unit dict (edge block or non-uniform join piece) with
-    its image. A block under strip.MIN_EDGE_BLOCK_PX or uniform is no unit (a tail one
-    is still measured).
+    its image. A block under strip.MIN_EDGE_BLOCK_PX or uniform is no unit (a tail one is still measured).
     """
     edge: list[EdgeBlock]
     measured: dict[str, PieceMeasure]

@@ -157,9 +157,10 @@ def test_more_workers_make_more_engines_while_one_is_idle(monkeypatch):
         return ["x"]
 
     class SlowQueue(queue.Queue):
-        def get(self, *args, **kwargs):
-            time.sleep(0.1)  # a waiting taker is slow to take: the other thread checks the queue meanwhile
-            return super().get(*args, **kwargs)
+        def get(self, *, block=True, timeout=None):
+            if block:  # a slow waiting take: the old code checked the queue, left the lock and waited here
+                time.sleep(0.1)
+            return super().get(block=block, timeout=timeout)
 
     made = fresh_engines(monkeypatch, read)
     engines = {}

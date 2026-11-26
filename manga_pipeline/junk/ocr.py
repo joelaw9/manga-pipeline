@@ -211,7 +211,9 @@ def texts(images: Sequence[Image.Image], device: str, workers: int) -> list[str]
         finally:
             for f in futures:
                 f.cancel()  # only reads not started: a done or running one stays as it is
-        failed = [(i, e) for i, f in enumerate(futures) if f.done() and not f.cancelled() and (e := f.exception())]
+        failed = [
+            (i, e) for i, f in enumerate(futures) if f.done() and not f.cancelled() and (e := f.exception()) is not None
+        ]
         if failed:
             i, cause = failed[0]
             raise OcrError(i, cause) from cause
