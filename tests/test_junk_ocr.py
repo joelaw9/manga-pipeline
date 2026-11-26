@@ -1,5 +1,6 @@
 """OCR of strip units and the keyword test (SPEC "Junk decisions", candidates; "Preflight", OCR device)."""
 
+import queue
 import threading
 import time
 from pathlib import Path
@@ -143,6 +144,52 @@ def test_engines_are_made_once_per_process_up_to_the_most_workers_asked(monkeypa
     assert made == ["cpu", "cpu"], "2 workers read on 2 engines at once"
     assert ocr.texts(numbered(4), "cpu", 2) == ["x"] * 4
     assert made == ["cpu", "cpu"], "a later call reuses the process's engines"
+
+
+@budget()
+def test_more_workers_make_more_engines_while_one_is_idle(monkeypatch):
+    both = threading.Barrier(2, timeout=5)
+    gate = []
+
+    def read(_array):
+        if gate:
+            both.wait()  # passes only while 2 engines read at once
+        return ["x"]
+
+    class SlowQueue(queue.Queue):
+        def get(self, *args, **kwargs):
+            time.sleep(0.1)  # a waiting taker is slow to take: the other thread checks the queue meanwhile
+            return super().get(*args, **kwargs)
+
+    made = fresh_engines(monkeypatch, read)
+    engines = {}
+    monkeypatch.setattr(ocr, "_engines", engines)
+    assert ocr.texts(numbered(1), "cpu", 1) == ["x"], "1 engine made and left idle"
+    slow = SlowQueue()
+    slow.put(engines["cpu"].idle.get())
+    engines["cpu"].idle = slow
+    gate.append(1)
+    assert ocr.texts(numbered(2), "cpu", 2) == ["x"] * 2
+    assert made == ["cpu", "cpu"], "the second engine is made beside the idle one"
+
+
+@budget()
+def test_an_interrupted_wait_cancels_the_reads_not_started(monkeypatch):
+    read = []
+
+    def slow(im, _device):
+        read.append(im.height)
+        time.sleep(0.02)
+        return ""
+
+    def interrupted(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ocr, "text", slow)
+    monkeypatch.setattr(ocr, "wait", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        ocr.texts(numbered(20), "cpu", 1)
+    assert len(read) < 20, f"reads not started are cancelled: {read}"
 
 
 @budget()

@@ -3,8 +3,7 @@
 The junk stage scans a chapter (scan_strip or page_units.scan by the series' layout) and later decides it from the
 stored scan (apply); a source review's sample (SPEC "Source review") runs both on a CBZ in hand. Every input is given:
 the pages, the series' decisions, known watermarks, page aspects (page_aspects reads them) and the OCR device and
-workers. The
-caller stores what it keeps.
+workers. The caller stores what it keeps.
 """
 
 from collections.abc import Callable, Sequence

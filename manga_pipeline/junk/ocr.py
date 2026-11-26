@@ -162,10 +162,13 @@ def _take(device: str) -> Reader:
     """Return an idle engine of `device`, making one while fewer than its cap exist, else waiting for one."""
     with _making:
         engines = _engines.setdefault(device, _Engines())
-        if engines.idle.empty() and engines.made < engines.cap:
-            read = _new_reader(device)
-            engines.made += 1
-            return read
+        try:
+            return engines.idle.get_nowait()
+        except queue.Empty:
+            if engines.made < engines.cap:
+                read = _new_reader(device)
+                engines.made += 1
+                return read
     return engines.idle.get()
 
 
@@ -191,8 +194,8 @@ def text(im: Image.Image, device: str) -> str:
 def texts(images: Sequence[Image.Image], device: str, workers: int) -> list[str]:
     """Return `text` of each image, in input order, read on `workers` threads at once (each with its own engine).
 
-    workers: at least 1, and 1 on dml. Once a read fails, the reads not started are cancelled and OcrError names the
-    first image (in input order) whose read had failed by then.
+    workers: at least 1, and 1 on dml. Once a read fails (or the wait is interrupted), the reads not started are
+    cancelled; OcrError names the first image (in input order) whose read had failed by then.
     """
     _check_device(device)
     if workers < 1 or (device == "dml" and workers > 1):
@@ -203,11 +206,13 @@ def texts(images: Sequence[Image.Image], device: str, workers: int) -> list[str]
         engines.cap = max(engines.cap, workers)
     with ThreadPoolExecutor(workers) as pool:
         futures = [pool.submit(text, im, device) for im in images]
-        wait(futures, return_when=FIRST_EXCEPTION)
-        failed = [(i, e) for i, f in enumerate(futures) if f.done() and (e := f.exception()) is not None]
-        if failed:
+        try:
+            wait(futures, return_when=FIRST_EXCEPTION)
+        finally:
             for f in futures:
-                f.cancel()
+                f.cancel()  # only reads not started: a done or running one stays as it is
+        failed = [(i, e) for i, f in enumerate(futures) if f.done() and not f.cancelled() and (e := f.exception())]
+        if failed:
             i, cause = failed[0]
             raise OcrError(i, cause) from cause
     return [f.result() for f in futures]

@@ -297,22 +297,21 @@ def _hard_join_pieces(im: Image.Image, s: int, e: int, where: str) -> Iterator[t
         yield _Part(a, b, piece), _Part(x, y, rest)
 
 
-def _join(piece: _Part, rest: _Part, unit: Callable[[int, int, Image.Image], Piece], want: _Want) -> Join:
-    """Return a hard join's entry, given to want(entry, image) unless uniform.
+def _unit(s: int, e: int, im: Image.Image) -> Piece:
+    """Return the unit of rows [s, e) with image im: its rows and signature (OCR text is added later)."""
+    return {"start": s, "end": e, "sig": images.sig_to_str(images.signature(im))}
 
-    The piece's unit (a uniform one's signature only, never OCR), "uniform", and "rest", its remainder's {"start",
-    "end", "sig"} (None when uniform).
+
+def _join(piece: _Part, rest: _Part, want: _Want) -> Join:
+    """Return a hard join's entry, given to want(entry, image) unless uniform (a uniform piece is never read).
+
+    The piece's unit, "uniform", and "rest", its remainder's {"start", "end", "sig"} (None when uniform).
     """
     uniform = images.is_uniform(piece.im)
-    join: Piece = (
-        {"start": piece.start, "end": piece.end, "sig": images.sig_to_str(images.signature(piece.im))}
-        if uniform
-        else unit(piece.start, piece.end, piece.im)
-    )
     r: Rest | None = None
     if not images.is_uniform(rest.im):
         r = {"start": rest.start, "end": rest.end, "sig": images.sig_to_str(images.signature(rest.im))}
-    entry: Join = {**join, "uniform": uniform, "rest": r}
+    entry: Join = {**_unit(piece.start, piece.end, piece.im), "uniform": uniform, "rest": r}
     if not uniform:
         want(entry, piece.im)
     return entry
@@ -332,13 +331,12 @@ def _edge_blocks(
     blocks: Iterable[strip.Rows],
     height: int,
     render: Callable[[int, int], Image.Image],
-    unit: Callable[[int, int, Image.Image], Piece],
     want: _Want,
 ) -> _Edges:
     """Return the edge blocks among a strip's content blocks [(start, end)].
 
-    render(start, end) -> image, unit(start, end, image) -> a unit, want(unit, image): each final unit dict (edge block
-    or non-uniform join piece) with its image. A block under strip.MIN_EDGE_BLOCK_PX or uniform is no unit (a tail one
+    render(start, end) -> image, want(unit, image): each final unit dict (edge block or non-uniform join piece) with
+    its image. A block under strip.MIN_EDGE_BLOCK_PX or uniform is no unit (a tail one
     is still measured).
     """
     edge: list[EdgeBlock]
@@ -355,10 +353,10 @@ def _edge_blocks(
             continue
         joins: list[Join] = []
         for piece, rest in _hard_join_pieces(im, s, e, where):
-            joins.append(_join(piece, rest, unit, want))
+            joins.append(_join(piece, rest, want))
             if where == "tail":
                 measured[f"{rest.start}:{rest.end}"] = measure_piece(rest.im)
-        block: EdgeBlock = {**unit(s, e, im), "where": where, "joins": joins}
+        block: EdgeBlock = {**_unit(s, e, im), "where": where, "joins": joins}
         want(block, im)
         edge.append(block)
     return _Edges(edge, measured)
@@ -398,14 +396,11 @@ def scan(
     render = functools.partial(strip.render_rows, st.pages, st.width, cache={})
     to_read: list[tuple[Piece, Image.Image]] = []
 
-    def unit(s: int, e: int, im: Image.Image) -> Piece:
-        return {"start": s, "end": e, "sig": images.sig_to_str(images.signature(im))}
-
     def want(u: Piece, im: Image.Image) -> None:
         if ocr_texts is not None and undecided(images.sig_from_str(u["sig"])):
             to_read.append((u, im))
 
-    edge = _edge_blocks(blocks_all, st.height, render, unit, want)
+    edge = _edge_blocks(blocks_all, st.height, render, want)
     if ocr_texts is not None:
         try:
             read = ocr_texts([im for _, im in to_read])
