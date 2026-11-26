@@ -1172,6 +1172,49 @@ def test_a_jpeg_of_another_chroma_subsampling_is_noted(site, monkeypatch):
     assert "convert: JPEG chroma subsampling encoded as 4:4:4: 001.jpg" in line
 
 
+@budget(load="pool")
+def test_a_cover_page_a_volume_cover_replaced_is_no_chroma_note(site, monkeypatch):
+    monkeypatch.setattr(images, "odd_jpeg_chroma", lambda _data: True)
+    full = {"quality": 92, "subsampling": 0}
+    members = [
+        ("000_cover.jpg", encoded(colour(seed=5), "JPEG", **full)),
+        ("001.jpg", encoded(colour(), "JPEG", **full)),
+    ]
+    chapter_id = site.chapter(site.series(), members)
+    add_cover(site, chapter_id, COVER)
+    (line,) = converted(site, chapter_id)
+    assert "convert: JPEG chroma subsampling encoded as 4:4:4: 001.jpg" in line, "the replaced 000_cover is not named"
+
+
+@budget(load="pool")
+def test_odd_chroma_is_noted_only_for_colour_pages_of_an_avif_outcome(site, monkeypatch):
+    monkeypatch.setattr(images, "odd_jpeg_chroma", lambda _data: True)
+    full = {"quality": 92, "subsampling": 0}
+    gray_rgb = [("001.jpg", encoded(gray().convert("RGB"), "JPEG", **full))]
+    found = converted(site, site.chapter(site.series("G"), gray_rgb))
+    assert not any("chroma" in n for n in found), "a gray page encodes 4:0:0"
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    colour_jpeg = [("001.jpg", encoded(colour(), "JPEG", **full))]
+    found = converted(site, site.chapter(site.series("L"), colour_jpeg))
+    assert not any("chroma" in n for n in found), "a lossless page keeps its own subsampling"
+
+
+@budget(load="pool")
+def test_a_cover_page_a_volume_cover_replaced_is_left_out_of_the_drift_mean(site):
+    series_id = site.series()
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples)"
+            " VALUES (%s, 'colour', 75, 1, 'computed', 'test', '[]')",
+            (series_id,),
+        )
+    fake.SCORE[0] = lambda ref, _dec: 80.0 if "000_cover" in Path(ref).name else 84.0  # the pages' mean is 84
+    members = [("000_cover.jpg", jpeg(colour(seed=5))), *pages(2)]
+    chapter_id = site.chapter(series_id, members)
+    add_cover(site, chapter_id, COVER)
+    assert not any("quality-drift" in n for n in converted(site, chapter_id)), "the replaced page is not the chapter's"
+
+
 @budget(load="pure")
 def test_a_4_4_0_jpeg_header_is_an_odd_chroma():
     data = bytearray(encoded(colour(), "JPEG", quality=92, subsampling=0))
@@ -1222,6 +1265,31 @@ def test_a_retried_chapter_that_fixed_its_group_is_still_noted(site, monkeypatch
     assert calibration(site, series_id)["colour"]["fixed"] == 1, "the failed attempt fixed the group"
     (line,) = converted(site, third)
     assert "calibration: colour fixed at q" in line, "the retry of the fixing chapter writes its note"
+
+
+def specks(offset=0):
+    """Return a gray page with 2 faint colour specks, each split across the 8 px colour tiles: it classes gray.
+
+    A crop of 1 to 7 rows lines them up with the tiles: the cropped page classes colour (2 marks are no badge).
+    """
+    a = np.full((256, 96, 3), 200, np.uint8)
+    for y in (4 + offset, 204 + offset):
+        a[y : y + 8, 4:12] = (240, 160, 200)  # spread 80: 20 per tile when split 4 ways
+    return a
+
+
+@budget(load="pool")
+def test_a_gray_rendered_page_that_classes_colour_after_its_crop_is_kept_exact(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    page = specks()
+    classify = images.classify
+    assert classify(page, images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)[0] == images.GRAY
+    assert classify(page[4:], images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)[0] == images.COLOUR
+    members = [("001.png", png(Image.fromarray(page, "RGB"))), ("002.png", png(gray(seed=4).convert("RGB")))]
+    edit = {**NO_EDIT, "bands": [{"page": 0, "box": [0, 4, 96, 256]}]}  # the region kept: 4 rows cut
+    result, out = staged_result(site, site.chapter(site.series(), members, edit))
+    assert result["outcome"] == "lossless", "the post-check passes: the page is kept colour, compared exactly"
+    assert out[0]["height"] == 252
 
 
 @budget(load="pool")

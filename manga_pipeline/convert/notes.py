@@ -5,12 +5,10 @@ optimizer/image.py, optimizer/plan.py, optimizer/pipeline.py), each as 1 note.
 """
 
 import statistics
-from collections import Counter
 from collections.abc import Sequence
-from pathlib import Path
 from typing import NamedTuple
 
-from manga_pipeline import archive, images
+from manga_pipeline import images
 from manga_pipeline.convert import calibrate, image, plan
 
 PREFIX = "convert: "  # every note of convert's starts so; a retried convert replaces its own (workflow.replace_notes)
@@ -40,10 +38,12 @@ def notes(
     them 4:4:4); a page an inserted volume cover replaced is left out of every note;
     calibrated: the lines of the calibration groups this chapter's samples fixed.
     """
-    kept = [q for q in chapter_plan.kept() if not (rec["cover"] and Path(q["name"]).stem == archive.COVER_STEM)]
+    inserted = bool(rec["cover"])
+    kept = [q for q in chapter_plan.kept() if not image.replaced_by_cover(q["name"], inserted=inserted)]
+    odd_chroma = [n for n in odd_chroma if not image.replaced_by_cover(n, inserted=inserted)]
     found = [
         *_rejected(rec),
-        *_drift(rec),
+        *_drift(rec, inserted=inserted),
         *_irregular(chapter_plan),
         *_small(sizes),
         *_untouched_flag(rec),
@@ -63,12 +63,14 @@ def _rejected(rec: image.ChapterRecord) -> list[str]:
     return [f"AVIF rejected ({why}): published {what}"]
 
 
-def _drift(rec: image.ChapterRecord) -> list[str]:
+def _drift(rec: image.ChapterRecord, *, inserted: bool) -> list[str]:
     """Note each group whose mean AVIF score is under MEAN_MIN - DRIFT_MARGIN at a quality under the ceiling."""
     if rec["outcome"] != "avif":
         return []
     by_group: dict[str, list[float]] = {}
     for p in rec.get("avif_pages", []):
+        if image.replaced_by_cover(p["name"], inserted=inserted):  # encoded, then replaced by the volume cover
+            continue
         by_group.setdefault(plan.quality_group(p["yuv"]), []).append(p["score"])
     out: list[str] = []
     for group, scores in sorted(by_group.items()):
@@ -104,7 +106,7 @@ def _odd_chroma(rec: image.ChapterRecord, names: Sequence[str]) -> list[str]:
 
 
 def _mixed_lossless(rec: image.ChapterRecord, kept: Sequence[plan.PlanPage]) -> list[str]:
-    fmts = Counter(q["format"] for q in kept)
+    fmts = {q["format"] for q in kept}
     if rec["outcome"] != "lossless" or rec["edits"] == "all" or len(fmts) == 1:  # rendered pages: PNGs
         return []
     return [f"lossless chapter stays mixed-format: {'+'.join(sorted(fmts))}"]

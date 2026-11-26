@@ -276,7 +276,7 @@ def _convert(
         chapter_plan,
         rec,
         sizes=notes.Sizes(size, config.to_local(ctx.cfg, chapter["download_path"]).stat().st_size),
-        odd_chroma=_odd_chroma(chapter_plan, x_dir),
+        odd_chroma=_odd_chroma(chapter_plan, x_dir) if rec["outcome"] == "avif" else [],  # only an AVIF re-encodes
         calibrated=calibrated,
     )
     output_pages = _output_pages(out_dir, rec)

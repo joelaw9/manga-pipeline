@@ -41,7 +41,7 @@ SPEED = 6
 SCORE_FLOOR = 80  # SSIMULACRA2, rounded to 2 decimals
 MAX_SIZE_RATIO = 0.90  # page route: AVIF total bytes at most this share of the source pages' bytes
 RENDERED_FMT = "RENDERED"  # task format of a rendered PNG page
-LOSSLESS_GRAY = (images.GRAY, images.GRAY_MARK)  # the lossless path drops their colour channels
+LOSSLESS_GRAY = (images.GRAY, images.GRAY_MARK)  # the lossless path drops their colour channels (kept pages only)
 
 
 class PageTask(TypedDict):
@@ -429,10 +429,10 @@ def grays_losslessly(cls: str, entry: plan.PlanPage) -> bool:
 def lossless_page(task: LosslessJob) -> LosslessPage:
     """Store 1 page on the lossless path with jpegtran / oxipng.
 
-    Gray and gray-mark JPEG / PNG pages lose their colour channels (a JPEG only when jpeg_gray), a lossless WebP passes
-    through. Verifies pixels; an output not smaller than its source keeps the source bytes.
-    task: {"src", "out", "tmp", "fmt", "cls", "jpeg_gray", "tools"}. Returns the record, "grayed" telling whether the
-    page lost colour.
+    A grayable JPEG / PNG page loses its colour channels (a JPEG only when jpeg_gray; the caller decides grayable from
+    the page's class), a lossless WebP passes through. Verifies pixels; an output not smaller than its source keeps the
+    source bytes. task: {"src", "out", "tmp", "fmt", "cls", "jpeg_gray", "grayable", "tools"}. Returns the record,
+    "grayed" telling whether the page lost colour.
     """
     src, out, tmp = Path(task["src"]), Path(task["out"]), Path(task["tmp"])
     im, alpha = images.open_image(src)
@@ -694,9 +694,10 @@ class _Chapter:
                 "fmt": images.PNG,
                 "cls": r["class"],
                 "jpeg_gray": False,
-                # a rendered page's class is its sources': a gray-mark's badge can be a larger share of a cropped or
-                # cut page, which the post-check then classes colour; only a gray page is grayed
-                "grayable": r["class"] == images.GRAY,
+                # a rendered page's class is its sources', and the post-check classes its own pixels: a crop moves the
+                # colour tiles, so a gray-mark's badge or faint specks can class colour there; only a gray page that
+                # the post-check also sees without colour is grayed
+                "grayable": r["class"] == images.GRAY and not pages.has_colour(pages.Page(p.read_bytes())),
             }
             for p, r in zip(self.pages.rendered, self.plan.render, strict=True)
         ]
@@ -748,13 +749,13 @@ def output_gray(chapter_plan: plan.ChapterPlan, outcome: plan.Outcome) -> bool:
 
     ComicInfo BlackAndWhite. An AVIF page of a gray / tinted / gray-mark class is 4:0:0; the lossless path grays gray
     and gray-mark JPEG / PNG pages, and of a rendered chapter's PNGs only the gray ones; untouched pages are stored as
-    they are (only a gray page is gray). An inserted
-    volume cover is not counted, nor the page it replaces (BlackAndWhite describes the chapter's own pages).
+    they are (only a gray page is gray). An inserted volume cover is not counted, nor the page it replaces
+    (BlackAndWhite describes the chapter's own pages).
     """
     kind = outcome["outcome"]
 
     def replaced(name: str) -> bool:
-        return bool(outcome["cover"]) and Path(name).stem == archive.COVER_STEM
+        return replaced_by_cover(name, inserted=bool(outcome["cover"]))
 
     if outcome["edits"] == "all":
         grayish = plan.GRAYISH if kind == "avif" else (images.GRAY,)  # rendered_lossless grays a gray page only
@@ -820,6 +821,14 @@ def process_chapter(
     return rec
 
 
+def replaced_by_cover(name: str, *, inserted: bool) -> bool:
+    """Return whether an inserted volume cover replaced the page of this name: the page named 000_cover, if any.
+
+    The 1 rule BlackAndWhite (output_gray), the output checks and convert's notes share.
+    """
+    return inserted and Path(name).stem == archive.COVER_STEM
+
+
 def blanks_applied(outcome: plan.Outcome) -> bool:
     """Return whether the outcome stores the plan's logo blanks: an AVIF one, or a rendered chapter's lossless one."""
     return outcome["outcome"] == "avif" or outcome["edits"] == "all"
@@ -856,9 +865,8 @@ def _output_checks(
         stems[Path(r["name"]).stem]: {"source": r["src"], "mode": r["verify"]} for r in lossless_pages
     }
     if inserted:
-        stem = archive.COVER_STEM
-        scores = {k: v for k, v in scores.items() if Path(k).stem != stem}
-        lossless = {k: v for k, v in lossless.items() if Path(k).stem != stem}
+        scores = {k: v for k, v in scores.items() if not replaced_by_cover(k, inserted=True)}
+        lossless = {k: v for k, v in lossless.items() if not replaced_by_cover(k, inserted=True)}
         if inserted["score"] is not None:
             scores[inserted["name"]] = inserted["score"]
     return scores, lossless
