@@ -1309,6 +1309,18 @@ def test_a_page_a_volume_cover_replaced_counts_in_no_note(site):
 
 
 @budget(load="pool")
+def test_a_chapter_whose_only_page_a_volume_cover_replaced_gets_no_mixed_format_note(site):
+    # the volume cover's AVIF passes (work/cover), the chapter's own page's fails (work/encode): it goes out lossless
+    fake.SCORE[0] = lambda ref, _dec: 50.0 if "encode" in Path(ref).parts else 90.0
+    chapter_id = site.chapter(site.series(), [("000_cover.png", png(colour(seed=5)))])
+    add_cover(site, chapter_id, COVER)
+    found = converted(site, chapter_id)
+    result = json.loads(chapter(site.conn, chapter_id)["convert_result"])
+    assert (result["outcome"], result["cover"]["format"]) == ("lossless", "AVIF"), "the cover replaced the only page"
+    assert not any("mixed-format" in line for line in found), "no page of its own is left: no format to list"
+
+
+@budget(load="pool")
 def test_an_animated_page_of_a_rendered_chapter_is_no_cover_note(site):
     edit = {**NO_EDIT, "bands": [{"page": 0, "box": [0, 0, 96, 64]}]}
     members = [("001.jpg", jpeg(colour())), ("002.gif", encoded(colour(seed=3), "GIF"))]
