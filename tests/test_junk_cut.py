@@ -266,15 +266,35 @@ def test_a_checked_chapters_also_removed_rows_get_a_sheet(site, run):
 def test_inside_a_review_claude_decides_and_the_sheets_go_to_its_cut_folder(site, run, monkeypatch):
     chapter = real_head(site)
     monkeypatch.setenv(review.REVIEW_ID_VARIABLE, "r1")
+    assert run("junk", "list")[0] == 0
     code, out, err = run("junk", "cut", *oracle(chapter))
     assert code == 0, err
     assert all(p.parent == groups.folder(site.cfg, "r1-cut") for p in sheets_of(out)), out
     assert run("junk", "cut", *oracle(chapter), "--record", digest_of(out))[0] == 0
     assert site.rows("SELECT decider FROM junk_decision WHERE kind = 'cut'") == [("claude",)]
     ((cid,),) = site.rows("SELECT id FROM junk_candidate")
+    monkeypatch.setenv(review.REVIEW_ID_VARIABLE, "r2")
     for argv in (["--spans", str(cid)], ["--edge", str(cid), "below"]):
         code, _, err = run("junk", "cut", *argv)
         assert (code, "not listed by this review" in err) == (2, True), err
+
+
+@budget(load="db", seconds=30)
+def test_inside_a_review_a_cut_takes_only_a_chapter_of_a_series_it_listed(site, run, monkeypatch):
+    listed = real_head(site, 2, "Long")
+    other = real_head(site, 2, "Other")
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):  # unsure: never listed
+        conn.execute("UPDATE junk_candidate SET verdict = 'unsure' WHERE series_key = 'Other'")
+    monkeypatch.setenv(review.REVIEW_ID_VARIABLE, "r1")
+    assert run("junk", "list")[0] == 0
+    code, _, err = run("junk", "cut", *oracle(listed))
+    assert code == 0, err
+    for argv in (oracle(other), [*oracle(other), "--record", "0" * cut.DIGEST_HEX], ["--spans", str(other), "tail"]):
+        code, _, err = run("junk", "cut", *argv)
+        assert (code, f"chapter {other}: this review listed no candidate of its series" in err) == (2, True), err
+    monkeypatch.delenv(review.REVIEW_ID_VARIABLE)
+    code, out, err = run("junk", "cut", *oracle(other))
+    assert (code, "digest: " in out) == (0, True), f"outside a review the same call proposes: {err}"
 
 
 @budget(load="db", seconds=60)
