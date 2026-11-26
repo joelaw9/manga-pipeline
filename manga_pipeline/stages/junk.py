@@ -250,7 +250,7 @@ def _aspects(ctx: workflow.Context, series: db.Row, sizes: Sequence[strip.Size])
         row = db.one_row(ctx.conn, "SELECT origin FROM series_conversion WHERE series_id = %s", (series["id"],))
         whole = None
         if not (stored and row["origin"] == "record"):
-            whole = strip.page_aspect(workflow.live_page_sizes(ctx.conn, series["id"]))
+            whole = strip.page_aspect([workflow.live_page_sizes(ctx.conn, series["id"])])
         if whole is not None and not (stored and strip.same_aspects(aspects, whole)):
             aspects, stored = whole, False
         if aspects and not stored:

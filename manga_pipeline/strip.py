@@ -281,7 +281,7 @@ def layout_claims(genres: Iterable[str] | None, source: str) -> list[tuple[str, 
     """Return [(what, claim, value)] of the layout claims of a series' genres (metadata check).
 
     A long-strip genre claims strip; exactly one origin genre claims pages (Manga) or strip (Manhwa / Manhua). source
-    names where the genres come from ("Kavita", "genre": what becomes "<source> genre", "<source> origin").
+    names where the genres come from ("Kavita", "stored": what becomes "<source> genre", "<source> origin").
     """
     titles = [g.strip() for g in genres or ()]
     out: list[tuple[str, str, str]] = []

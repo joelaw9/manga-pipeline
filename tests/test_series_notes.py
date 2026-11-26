@@ -49,7 +49,7 @@ def test_a_series_stored_as_pages_whose_genres_claim_a_long_strip_is_listed(conn
     series(conn, "Strip Manhwa", "strip", "Manhwa")
     series(conn, "No Records", "pages", None)
     assert notes(conn) == [
-        f"  series {manhwa} (Paged Manhwa): stored as pages, but its genre origin claims strip (Manhwa)"
+        f"  series {manhwa} (Paged Manhwa): stored as pages, but its stored origin claims strip (Manhwa)"
     ], "D8 (b): only a strip claim against a series stored as pages"
 
 

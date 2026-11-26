@@ -1415,3 +1415,22 @@ def test_a_chapter_with_no_page_like_page_leaves_the_stored_aspect(site):
     page_series(site, sized_cbz((100, 400), 4, seed=1), aspect=[1.42])  # 4.0: stitched, no page-like page
     run_part(site.cfg, process)
     assert stored_aspect(site) == [1.42]
+
+
+@pytest.mark.parametrize(
+    ("stage", "error", "counted"),
+    [("publish", None, True), ("confirm", None, True), ("confirm", workflow.DROPPED_BY_PERSON, False)],
+)
+@budget(load="db", seconds=20)
+def test_a_published_chapter_counts_at_publish_or_confirm_and_one_dropped_there_does_not(site, stage, error, counted):
+    page_series(site, sized_cbz((100, 150), 4, seed=1))
+    run_part(site.cfg, process)
+    # a conversion ends at publish, a download at confirm; the download has left either way
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE chapter SET status = 'done', stage = %s, last_error = %s", (stage, error))
+        ((path,),) = conn.execute("SELECT download_path FROM chapter").fetchall()
+    config.to_local(site.cfg, path).unlink()
+    for n in (2, 3):
+        site.download("Alpha", n, sized_cbz((100, 142), 6, seed=n))
+    site.parts()
+    assert (stored_aspect(site) == [1.42, 1.5]) is counted, "chapter 1's 4 pages at 1.5: a 2nd candidate when counted"

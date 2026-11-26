@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import archive, config, db, errors, images, page_store, process, status, workflow
+from manga_pipeline import archive, config, db, errors, images, page_store, process, status, strip, workflow
 from manga_pipeline.convert import calibrate, check, covers, image, record_reader
 from manga_pipeline.stages import convert
 
@@ -401,9 +401,25 @@ def test_an_open_group_stored_under_the_3_chapter_rule_fixes_at_the_next_convert
             " VALUES (%s, 'colour', 80, 0, 'computed', 'open', %s)",
             (series_id, json.dumps(stored_samples(series_id, n, chapters, counted=counted))),
         )
-    site.record(site.run(site.chapter(series_id, pages(3, seed=7))))
+    chapter_id = site.chapter(series_id, pages(3, seed=7))
+    (line,) = converted(site, chapter_id)
     row = calibration(site, series_id)["colour"]
-    assert (row["fixed"], row["q"]) == (1, q), "the new rule fixes it: a full group (40) without taking samples"
+    assert (row["fixed"], row["q"]) == (1, q), "the new rule fixes it before the chapter samples"
+    assert f"calibration: colour fixed at q{q}" in line, "the chapter that settled the group is noted"
+
+
+@budget(load="pool")
+def test_a_group_holding_20_samples_of_this_chapter_fixes_at_its_retry(site):
+    series_id = site.series()
+    chapter_id = site.chapter(series_id, pages(3, seed=7))
+    with db.transaction(site.conn):  # samples it added under the 3-chapter rule: it takes no more, picks nothing new
+        site.conn.execute(
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples)"
+            " VALUES (%s, 'colour', 80, 0, 'computed', 'open', %s)",
+            (series_id, json.dumps(stored_samples(series_id, 24, (chapter_id, 901), counted=24))),
+        )
+    site.record(site.run(chapter_id))
+    assert calibration(site, series_id)["colour"]["fixed"] == 1, "20 samples fix the group, whoever added them"
 
 
 def calibrated_record(calibration: record_reader.RecordCalibration) -> record_reader.Record:
@@ -1242,6 +1258,22 @@ def test_a_cover_page_a_volume_cover_replaced_is_left_out_of_the_drift_mean(site
     chapter_id = site.chapter(series_id, members)
     add_cover(site, chapter_id, COVER)
     assert not any("quality-drift" in n for n in converted(site, chapter_id)), "the replaced page is not the chapter's"
+
+
+@budget(load="pure")
+def test_layout_claims_name_their_source():
+    assert strip.layout_claims(["Long Strip", "Manga"], "stored") == [
+        ("stored genre", "strip", "Long Strip"),
+        ("stored origin", "pages", "Manga"),
+    ]
+    assert strip.layout_claims(["Manhwa", "Manhua"], "stored") == [], "2 origins: no origin claim"
+
+
+@budget(load="pure")
+def test_page_aspects_differ_to_2_decimals():
+    assert strip.same_aspects([1.421, 1.5], [1.424, 1.5]), "the same to 2 decimals"
+    assert not strip.same_aspects([1.42], [1.435]), "1.42 and 1.44"
+    assert not strip.same_aspects([1.42, 1.5], [1.5, 1.42]), "the order counts: the first is the split's"
 
 
 @budget(load="pure")

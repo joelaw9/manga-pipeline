@@ -897,23 +897,20 @@ def replace_notes(conn: db.Connection, chapter_id: int, prefix: str, notes: Iter
 DROPPED_BY_PERSON = "dropped by a person"  # the last_error of a chapter `chapter drop` ended
 
 
-def live_page_sizes(conn: db.Connection, series_id: int) -> list[list[tuple[int, int]]]:
-    """Return the page sizes ((width, height), from its page rows) of the series' live chapters, 1 list per chapter.
+def live_page_sizes(conn: db.Connection, series_id: int) -> list[tuple[int, int]]:
+    """Return the page sizes ((width, height), from the page rows, 1 per page) of the series' live chapters.
 
-    Live: open, or published (stage confirm, done) and not dropped by a person; a chapter dropped or closed before
-    publishing is not.
+    Live: open, or published and not dropped by a person: done at publish (a conversion or a better copy ends there)
+    or at confirm (a download). A chapter dropped or closed before publishing is not. Read as 1 row per size.
     """
     rows = conn.execute(
-        """SELECT p.chapter_id, p.width, p.height FROM page p JOIN chapter c ON c.id = p.chapter_id
+        """SELECT p.width, p.height, count(*) FROM page p JOIN chapter c ON c.id = p.chapter_id
         WHERE c.series_id = %s AND p.width > 0 AND p.height > 0
-        AND (c.status <> 'done' OR (c.stage = 'confirm' AND c.last_error IS DISTINCT FROM %s))
-        ORDER BY p.chapter_id, p.page_index""",
+        AND (c.status <> 'done' OR (c.stage IN ('publish', 'confirm') AND c.last_error IS DISTINCT FROM %s))
+        GROUP BY p.width, p.height""",
         (series_id, DROPPED_BY_PERSON),
     ).fetchall()
-    out: dict[int, list[tuple[int, int]]] = {}
-    for r in rows:
-        out.setdefault(r["chapter_id"], []).append((r["width"], r["height"]))
-    return list(out.values())
+    return [(r["width"], r["height"]) for r in rows for _ in range(r["count"])]
 
 
 # The stages at which a person may drop a needs_human chapter: nothing of it is staged or published yet.

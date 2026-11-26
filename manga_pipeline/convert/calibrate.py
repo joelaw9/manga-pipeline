@@ -196,8 +196,8 @@ def choose(samples: Sequence[Sample]) -> tuple[int, str] | None:
     """Return (q, why) once the samples can fix the group, else None.
 
     They can with MIN_SAMPLES samples, from any number of chapters (the bulk converter's rule). The samples scoring at
-    least the floor at CEILING are counted (the others are left out of every probe). Down the LADDER, a probe fails with
-    fewer than MIN_COUNTED
+    least the floor at CEILING are counted (the others are left out of every probe). Down the LADDER, a probe fails
+    with fewer than MIN_COUNTED
     counted samples, a mean below MEAN_MIN or a minimum below the floor; the quality is the last step before the first
     failure, else CEILING.
     """
@@ -230,9 +230,10 @@ def add(
 ) -> Group:
     """Store a chapter's samples of its series' open group and fix the group when choose allows.
 
-    new: [{"sha1", "rendered", "bytes_in", "scores"}]. In 1 transaction that reads the row again: nothing is added when
-    the group is fixed by now or the chapter has added samples before (a retried chapter, a second run). guard(conn)
-    runs first in it and raises to add nothing (the stage's claim check). Returns the group's row as stored.
+    new: [{"sha1", "rendered", "bytes_in", "scores"}]. In 1 transaction that reads the row again: nothing changes when
+    the group is fixed by now; nothing is added when the chapter has added samples before (a retried chapter, a second
+    run), but the fix rule still runs over what is stored. guard(conn) runs first in it and raises to add nothing (the
+    stage's claim check). Returns the group's row as stored.
     """
     series_id, chapter_id = chapter["series_id"], chapter["id"]
     with db.transaction(conn):
@@ -242,7 +243,7 @@ def add(
             (series_id, group),
         ).fetchone()
         samples = _samples(row["samples"]) if row else []
-        if row is not None and (row["fixed"] or any(s["chapter_id"] == chapter_id for s in samples)):
+        if row is not None and row["fixed"]:
             return {
                 "q": row["q"],
                 "fixed": row["fixed"],
@@ -250,8 +251,9 @@ def add(
                 "why": row["why"],
                 "samples": samples,
             }
-        known = {s["sha1"] for s in samples}
-        samples.extend({**s, "chapter_id": chapter_id} for s in new if s["sha1"] not in known)
+        if not any(s["chapter_id"] == chapter_id for s in samples):
+            known = {s["sha1"] for s in samples}
+            samples.extend({**s, "chapter_id": chapter_id} for s in new if s["sha1"] not in known)
         chosen = choose(samples)
         q, fixed, why = (chosen[0], 1, chosen[1]) if chosen else (CEILING, 0, f"open: {len(samples)} samples")
         conn.execute(

@@ -332,11 +332,17 @@ def _series_notes(conn: db.Connection) -> list[str]:
         """SELECT s.id, s.name FROM series s JOIN series_conversion c ON c.series_id = s.id
         WHERE c.layout = 'pages' ORDER BY s.id"""
     ).fetchall()
+    fetched: dict[int, list[db.Row]] = {}
+    for f in conn.execute(
+        """SELECT f.series_id, f.source, f.kind, f.payload FROM fetched f
+        JOIN series_conversion c ON c.series_id = f.series_id WHERE c.layout = 'pages'"""
+    ):
+        fetched.setdefault(f["series_id"], []).append(f)
     for r in rows:
-        records = merge.stored_records(conn, r["id"])
+        records = merge.records_of(fetched.get(r["id"], []))
         if not any(records.values()):
             continue
-        claims = strip.layout_claims(tags.compute(records, rules)[0], "genre")
+        claims = strip.layout_claims(tags.compute(records, rules)[0], "stored")
         lines += [
             f"  series {r['id']} ({r['name']}): stored as pages, but its {what} claims strip ({value})"
             for what, claim, value in claims

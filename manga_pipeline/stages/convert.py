@@ -159,12 +159,6 @@ def _calibrate(
     """
     stored = calibrate.rows(ctx.conn, chapter["series_id"])
     fixed: list[str] = []
-    for group, row in list(stored.items()):
-        if not row["fixed"] and row["origin"] == "computed" and len(row["samples"]) >= calibrate.MAX_SAMPLES:
-            # a full group samples no more; its stored samples meet the fix rule now (one stored under an older rule)
-            stored[group] = calibrate.add(
-                ctx.conn, chapter, group, [], guard=lambda _conn: workflow.holds_claim(ctx, chapter)
-            )
     for group, group_units in groups.items():
         row = stored.get(group)
         if not group_units or not _samples_wanted(row, chapter["id"]):
@@ -185,9 +179,30 @@ def _calibrate(
             and g["samples"]
             and g["samples"][-1]["chapter_id"] == chapter["id"]
         ):
-            chapters = ", ".join(str(c) for c in sorted({s["chapter_id"] for s in g["samples"]}))
-            fixed.append(f"calibration: {group} fixed at q{g['q']}: {g['why']}; samples of chapters {chapters}")
+            fixed.append(_fixed_line(group, g))
     return calibrate.quality(stored), fixed
+
+
+def _settle(ctx: workflow.Context, chapter: db.Row) -> list[str]:
+    """Fix each open computed group whose stored samples the fix rule already fixes; return a line per group fixed.
+
+    A group stored under an older rule (3 chapters) can hold 20 samples or more and take no more from this chapter;
+    the rule fixes it now, before the chapter's pages are prepared for sampling.
+    """
+    lines: list[str] = []
+    for group, row in sorted(calibrate.rows(ctx.conn, chapter["series_id"]).items()):
+        if row["fixed"] or row["origin"] != "computed" or len(row["samples"]) < calibrate.MIN_SAMPLES:
+            continue
+        g = calibrate.add(ctx.conn, chapter, group, [], guard=lambda _conn: workflow.holds_claim(ctx, chapter))
+        if g["fixed"]:
+            lines.append(_fixed_line(group, g))
+    return lines
+
+
+def _fixed_line(group: str, g: calibrate.Group) -> str:
+    """Return the calibration line of a group fixed: its quality, why and its samples' chapters."""
+    chapters = ", ".join(str(c) for c in sorted({s["chapter_id"] for s in g["samples"]}))
+    return f"calibration: {group} fixed at q{g['q']}: {g['why']}; samples of chapters {chapters}"
 
 
 def _samples(encoder: image.Encoder, picked: Sequence[calibrate.Unit], work_dir: Path) -> list[calibrate.NewSample]:
@@ -379,9 +394,11 @@ def _encode(
         # before the route: an AVIF cover that passed can make the chapter AVIF
         cover = None if cover_file is None else _cover(enc, cover_file, work / "cover")
         routed = _route(chapter, chapter_plan, None if cover is None else cover.cover)
+        settled = _settle(ctx, chapter)
         sampling = _sampling(calibrate.rows(ctx.conn, chapter["series_id"]), routed, chapter["id"])
         prepared = _pages(routed, scratch, sampling=sampling)
         routed.quality, calibrated = _calibrate(ctx, chapter, prepared.units, encoder=enc, work=work)
+        calibrated = settled + calibrated
         rec = image.process_chapter(
             image.PageFiles.of(scratch / EXTRACTED, prepared.encoded, prepared.blanked),
             scratch / OUTPUT,
