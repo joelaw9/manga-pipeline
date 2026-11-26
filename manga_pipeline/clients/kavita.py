@@ -172,14 +172,23 @@ class Kavita:
     def rename_series(self, series_id: int, name: str, localized: str) -> Series | None:
         """Give the series name and localized name, both locked, and return it read back (None: Kavita lost it).
 
-        The series is read just before and resent whole (update_series), only those 4 fields changed: its sort name
-        and every other field as read.
+        The localized name is written first, then the name: Kavita refuses to drop a name that names a folder of the
+        series unless its stored localized or original name holds it, so a rename keeping the old name as the
+        localized name passes only in that order. Each write reads the series just before and resends it whole
+        (update_series), only those fields changed: its sort name and every other field as read.
         """
         series = self.series(series_id)
         if series is None:
             return None
-        self.update_series(series, name=name, nameLocked=True, localizedName=localized, localizedNameLocked=True)
-        return self.series(series_id)
+        if (series.get("localizedName") or "") != localized:
+            self.update_series(series, localizedName=localized, localizedNameLocked=True)
+            series = self.series(series_id)
+            if series is None:
+                return None
+        if series["name"] != name or not series.get("nameLocked") or not series.get("localizedNameLocked"):
+            self.update_series(series, name=name, nameLocked=True, localizedName=localized, localizedNameLocked=True)
+            return self.series(series_id)
+        return series
 
     def update_series(self, series: Series, **changes: int | str) -> None:
         """POST /api/Series/update: the series as just read, resent whole with the changes.
