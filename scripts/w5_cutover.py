@@ -4,8 +4,9 @@ Before the rest of card (W5), every tail piece was its own candidate. A chapter 
 waiting or needs_human, whose recorded candidates include a piece candidate has its recorded candidates and bundles
 cleared: its old candidates close, and `process` ends its junk_decision wait (an empty record is a wait that is over)
 and decides it again, recording its bundle; a needs_human chapter decides again on its retry. Nothing else is written:
-no chapter status, no decision. Under lock.IDLE exclusive: no part runs meanwhile; 1 transaction. --dry-run counts and
-writes nothing.
+no chapter status, no decision. Run it after the deploy has applied schema step 0078 (after `state version --yes` or
+the first locked command): it needs the `bundles` column. Under lock.IDLE exclusive: no part runs meanwhile; 1
+transaction. --dry-run counts and writes nothing.
 
 Usage, from the project root:
 python -m scripts.w5_cutover [--dry-run] [--config PATH]

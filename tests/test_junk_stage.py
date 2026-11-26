@@ -18,10 +18,11 @@ from manga_pipeline import cli, config, db, errors, export, identify, intake, pr
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import plan
-from manga_pipeline.junk import anchored, candidates, chains, logo_units, ocr, review, store
+from manga_pipeline.junk import anchored, candidates, chains, logo_units, ocr, redecide, review, store
 from manga_pipeline.metadata import sources
 from manga_pipeline.stages import convert as convert_stage
 from manga_pipeline.stages import junk as junk_stage
+from scripts import w5_cutover
 
 from tests import pages as fx
 from tests.builders import config_file, one, present, run_part
@@ -1266,6 +1267,62 @@ def test_a_split_bundle_is_recorded_marked_and_noted_mixed_in_status(site, monke
     assert note.startswith("rest of card mixed: rows "), note
     assert cli.main(["--config", str(config_file(tmp_path, site.cfg)), "status"]) == 0
     assert note in capsys.readouterr().out, "status shows the chapter's note"
+    with closing(db.connect(site.cfg)) as conn:
+        kept = one(conn, "SELECT id FROM junk_decision WHERE kind = 'piece' AND verdict = 'keep'")
+        redecide.redecide(conn, [kept], "junk", workflow.now(conn))
+        with db.transaction(conn):  # the chapter is junk-checked again (as a layout change sends it back)
+            conn.execute("UPDATE chapter SET stage = 'junk', status = 'ready'")
+    run_part(site.cfg, process)
+    assert site.chapters()[0][0] != "junk", "decided again: both members junk now"
+    assert site.rows("SELECT notes FROM chapter") == [(None,)], "no longer mixed: its note is removed"
+
+
+def piece_keep(site, candidate_id, *, bundle):
+    """Write an imported piece keep on a candidate's key, marked or not, beside the imported credit decision."""
+    ((key,),) = site.rows("SELECT key FROM junk_candidate WHERE id = %s", candidate_id)
+    keep: store.Decision = {
+        "series_key": "Long",
+        "kind": "piece",
+        "key": key,
+        "verdict": "keep",
+        "decider": "import",
+        "decided_at": "2026-11-01T00:00:00+00:00",
+        "source": "test keep",
+        "bundle": bundle,
+    }
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        store.upsert(conn, [keep])
+
+
+@budget(load="pool", seconds=60)
+@pytest.mark.parametrize("marked", [False, True], ids=["unmarked-keep", "marked-keep"])
+def test_an_unmarked_piece_keep_protects_its_gap_and_a_marked_one_does_not(site, monkeypatch, marked):
+    """p1 kept, p2 undecided, 1 gap: an unmarked keep is a judgement beside an unjudged piece, so no bundle."""
+    p1, p2 = bundled_strip(site, monkeypatch)
+    piece_keep(site, p1, bundle=marked)
+    run_part(site.cfg, process)
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "it waits on p2 and the head blocks"
+    ((ids, bundles),) = site.rows("SELECT candidates, bundles FROM junk_scan")
+    assert p2 in json.loads(ids), "p2 is still a candidate"
+    want = [{"ids": [p2], "size": 2}] if marked else []
+    assert json.loads(bundles) == want, "a marked keep protects no gap; an unmarked one does"
+
+
+@budget(load="pool", seconds=60)
+def test_the_cutover_clears_a_chapters_record_and_process_decides_it_again_with_its_bundle(
+    site, monkeypatch, tmp_path, capsys
+):
+    p1, p2 = bundled_strip(site, monkeypatch)
+    before = site.rows("SELECT stage, status, waiting_on, updated_at FROM chapter")
+    assert w5_cutover.main(["--config", str(config_file(tmp_path, site.cfg))]) == 0
+    assert "chapters: 1 (waiting 1, needs_human 0) cleared" in capsys.readouterr().out
+    assert site.rows("SELECT candidates, bundles FROM junk_scan") == [("[]", "[]")], "both records cleared"
+    assert site.rows("SELECT stage, status, waiting_on, updated_at FROM chapter") == before, "no status written"
+    run_part(site.cfg, process)
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "decided again: it waits on its candidates"
+    ((ids, bundles),) = site.rows("SELECT candidates, bundles FROM junk_scan")
+    assert {p1, p2} <= set(json.loads(ids)), "its piece candidates again"
+    assert json.loads(bundles) == [{"ids": [p1, p2], "size": 2}], "now with its bundle record"
 
 
 @budget(load="pool", seconds=60)

@@ -195,8 +195,10 @@ class Decisions:
         """Return whether a tail piece is judged kept (W5, the bulk converter's Library.judged_keep).
 
         Some active piece keep with no bundle mark matches it, the series' or global: every matching row counts, not
-        only the one that decides it.
+        only the one that decides it. An unsignable signature is judged by none, as decide decides it by none.
         """
+        if images.unsignable(sig):
+            return False
         return any(
             row["kind"] == "piece" and row["verdict"] == "keep" and not row["bundle"] and matches(stored, sig)
             for row, stored in self._rows
@@ -249,6 +251,9 @@ def _check(r: Decision) -> None:
         raise ValueError(msg)
     if unsignable(r["kind"], r["key"]):
         msg = f"a decision on an unsignable key (it would match any blank or flat rows): {r}"
+        raise ValueError(msg)
+    if type(r.get("bundle", False)) is not bool:
+        msg = f"bundle {r.get('bundle')!r}: not a bool: {r}"
         raise ValueError(msg)
     _check_chain(r)
 

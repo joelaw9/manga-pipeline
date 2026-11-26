@@ -231,6 +231,20 @@ def test_identical_bundles_are_1_and_a_shared_candidate_carries_both_labels(site
 
 
 @budget(load="db")
+def test_a_bundle_whose_member_is_unsure_is_shown_in_part(site, tmp_path, capsys, monkeypatch):
+    cfg, conn = site
+    s = Series(cfg, conn, "A")
+    a, b, c = (s.candidate(f, kind="piece") for f in FAR[:3])
+    bundled_chapter(s, "c2", [a, b, c], 3)
+    review.decide(conn, [b], "unsure", None, AT)
+    monkeypatch.setenv(review.REVIEW_ID_VARIABLE, "r1")
+    assert cli.main(["--config", str(config_file(tmp_path, cfg)), "junk", "list"]) == 0
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert [int(line.split("\t")[0]) for line in lines[:2]] == [a, c], "the unsure member is not listed"
+    assert lines[2].split("\t")[:2] == ["bundle 1", f"ids {a},{c}"], "the bundle is shown with its listed members"
+
+
+@budget(load="db")
 def test_a_bundle_and_a_near_group_are_labelled_apart(site, tmp_path, capsys, monkeypatch):
     cfg, conn = site
     s = Series(cfg, conn, "A")
@@ -394,3 +408,36 @@ def test_the_rule_on_the_bulk_converters_cached_pieces_gives_its_members():
         "Chapter 59.cbz": 6,
         "Chapter 79.cbz": 0,
     }, "members and protected gaps both"
+
+
+@budget(load="pure")
+def test_judged_keep_judges_no_unsignable_piece():
+    """A keep within reach of a flat image's tile (0) judges a signable piece near it, never a flat one."""
+    near_flat = f"{0x7:016x}|1.0"  # 3 bits from the flat tile
+    row = db_row(
+        id=1, series_key="S", kind="piece", key=near_flat, verdict="keep", decider="import", decided_at=AT, bundle=False
+    )
+    decisions = store.Decisions.of_rows("S", [(row, store.parse_key("piece", near_flat))])
+    assert decisions.judged_keep(((0xF,), 1.0)), "a signable piece within reach is judged"
+    assert not decisions.judged_keep(((0,), 1.0)), "a flat piece is judged by none, as decide decides it by none"
+
+
+BAD_BUNDLE = {
+    "series_key": "S",
+    "kind": "piece",
+    "key": key(FAR[0]),
+    "verdict": "keep",
+    "decider": "human",
+    "decided_at": AT,
+    "source": None,
+    "bundle": 1,
+}
+
+
+@budget(load="db")
+@pytest.mark.parametrize("row", [BAD_BUNDLE], ids=["bundle-1"])
+def test_a_decision_whose_bundle_is_no_bool_is_refused(site, row):
+    _, conn = site
+    with pytest.raises(ValueError, match="bundle 1: not a bool"), db.transaction(conn):
+        store.upsert(conn, [row])
+    assert one(conn, "SELECT count(*) FROM junk_decision") == 0, "nothing is written"
