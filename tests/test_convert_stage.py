@@ -353,6 +353,20 @@ def test_a_new_series_arriving_3_chapters_at_a_time_is_calibrated_by_the_third(s
     assert "gray" not in rows, "a group no page encodes gathers nothing"
 
 
+@budget(load="pool", seconds=10)
+def test_a_series_of_2_full_chapters_fixes_the_group_at_the_second(site):
+    fake.SCORE[0] = q_scores(lambda q: 95 - (80 - q) * 0.5)
+    series_id = site.series()
+    results = []
+    for n in range(2):
+        chapter_id = site.chapter(series_id, pages(calibrate.PER_CHAPTER, seed=n))
+        site.record(site.run(chapter_id))
+        results.append(json.loads(chapter(site.conn, chapter_id)["convert_result"])["quality"]["colour"])
+    row = calibration(site, series_id)["colour"]
+    assert results == [80, 60], "D3 (f): 14 + 14 samples reach 20, so the second chapter fixes the group and uses it"
+    assert (row["fixed"], row["q"], len(row["samples"])) == (1, 60, 2 * calibrate.PER_CHAPTER)
+
+
 @budget(load="pool")
 def test_a_retried_chapter_adds_no_samples_twice(site):
     series_id = site.series()
@@ -405,7 +419,7 @@ def test_an_open_group_stored_under_the_3_chapter_rule_fixes_at_the_next_convert
     (line,) = converted(site, chapter_id)
     row = calibration(site, series_id)["colour"]
     assert (row["fixed"], row["q"]) == (1, q), "the new rule fixes it before the chapter samples"
-    assert f"calibration: colour fixed at q{q}" in line, "the chapter that settled the group is noted"
+    assert line.count(f"calibration: colour fixed at q{q}") == 1, "the chapter that settled the group is noted once"
 
 
 @budget(load="pool")
@@ -416,10 +430,11 @@ def test_a_group_holding_20_samples_of_this_chapter_fixes_at_its_retry(site):
         site.conn.execute(
             "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples)"
             " VALUES (%s, 'colour', 80, 0, 'computed', 'open', %s)",
-            (series_id, json.dumps(stored_samples(series_id, 24, (chapter_id, 901), counted=24))),
+            (series_id, json.dumps(stored_samples(series_id, 24, (901, chapter_id), counted=24))),
         )
-    site.record(site.run(chapter_id))
+    (line,) = converted(site, chapter_id)
     assert calibration(site, series_id)["colour"]["fixed"] == 1, "20 samples fix the group, whoever added them"
+    assert line.count("calibration: colour fixed") == 1, "settled by this chapter and holding its samples: 1 line"
 
 
 def calibrated_record(calibration: record_reader.RecordCalibration) -> record_reader.Record:
