@@ -14,12 +14,14 @@ import pathlib
 import re
 import zipfile
 from contextlib import closing
+from datetime import datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import archive, config, db, errors, images, page_store, process, workflow
+from manga_pipeline import archive, config, db, errors, images, page_store, process, status, workflow
 from manga_pipeline.convert import calibrate, check, covers, image, record_reader
 from manga_pipeline.stages import convert
 
@@ -1085,3 +1087,157 @@ def test_a_forced_avif_that_fails_goes_out_untouched_without_the_cover(site):
     assert (result["route"], result["outcome"]) == ("avif", "untouched")
     assert len(out) == 2
     assert result["cover_skipped"] == "its untouched pages (JPEG, PNG) share no cover format"
+
+
+# ---------------------------------------------------------------- convert notes (R15) and the status bound (D7)
+
+
+def listed(site, chapter_id):
+    """Return the notes status lists for the chapter ([] when it lists none)."""
+    head = f"  chapter {chapter_id} ("
+    return [line.split("): ", 1)[1] for line in status.report(site.conn) if line.startswith(head)]
+
+
+def converted(site, chapter_id):
+    """Run convert on the chapter, record its outcome and return the notes status lists for it."""
+    outcome = site.run(chapter_id)
+    assert isinstance(outcome, workflow.Done), outcome
+    site.record(outcome)
+    return listed(site, chapter_id)
+
+
+@budget(load="pool")
+def test_a_rejected_avif_is_noted_with_what_was_published(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    chapter_id = site.chapter(site.series(), [("001.jpg", jpeg(colour())), ("002.png", png(colour(seed=3)))])
+    (line,) = converted(site, chapter_id)
+    assert "convert: AVIF rejected (page " in line, "why the AVIF was rejected"
+    assert "published lossless" in line
+    assert "convert: lossless chapter stays mixed-format: JPEG+PNG" in line, "R15: mixed-format lossless"
+
+
+@budget(load="pool")
+def test_a4_is_noted_with_its_rendered_pages(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    edit = {**NO_EDIT, "bands": [{"page": 0, "box": [0, 0, 96, 64]}]}
+    chapter_id = site.chapter(site.series(), [("001.jpg", jpeg(colour())), ("002.png", png(colour(seed=3)))], edit)
+    (line,) = converted(site, chapter_id)
+    assert "published its rendered pages lossless" in line
+    assert "mixed-format" not in line, "rendered pages are all PNGs"
+
+
+@budget(load="pool")
+def test_a_group_scoring_low_at_its_calibrated_quality_is_noted_as_drift(site):
+    fake.SCORE[0] = lambda _ref, _dec: 82.0  # passes the floor, under the mean 85 - 2
+    series_id = site.series()
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples)"
+            " VALUES (%s, 'colour', 75, 1, 'computed', 'test', '[]')",
+            (series_id,),
+        )
+    (line,) = converted(site, site.chapter(series_id, pages(2)))
+    assert "convert: quality-drift: colour AVIF mean score 82.0 < 83 at q75" in line
+
+
+@budget(load="pool")
+def test_an_irregular_split_image_is_noted(site):
+    edit = {**NO_EDIT, "split": True}
+    chapter_id = site.chapter(site.series("T", aspect=[1.4]), [("001.jpg", jpeg(colour((100, 330))))], edit=edit)
+    (line,) = converted(site, chapter_id)
+    assert "convert: split: 1 irregular image(s): 001.jpg" in line, "2.36 pages tall: off the snap window"
+
+
+@budget(load="pool")
+def test_a_staged_file_under_10_percent_of_its_download_is_noted(site):
+    noise = Image.fromarray(np.random.default_rng(1).integers(0, 255, (900, 900, 3), dtype=np.uint8), "RGB")
+    members = [("001.jpg", jpeg(colour())), ("002.png", png(noise))]
+    (line,) = converted(site, site.chapter(site.series(), members, {**NO_EDIT, "drop_pages": [1]}))
+    assert "convert: staged file " in line
+    assert "< 10% of the download's" in line
+
+
+@budget(load="pool")
+def test_an_untouched_flag_mix_is_noted(site):
+    members = [("001.jpg", jpeg(colour())), ("002.gif", encoded(colour(seed=3), "GIF"))]
+    (line,) = converted(site, site.chapter(site.series(), members))
+    assert "convert: untouched-flag: formats GIF+JPEG mixed" in line
+
+
+@budget(load="pool")
+def test_a_jpeg_of_another_chroma_subsampling_is_noted(site, monkeypatch):
+    monkeypatch.setattr(images, "odd_jpeg_chroma", lambda _data: True)  # Pillow writes no 4:4:0 JPEG
+    members = [("001.jpg", encoded(colour(), "JPEG", quality=92, subsampling=0))]
+    (line,) = converted(site, site.chapter(site.series(), members))
+    assert "convert: JPEG chroma subsampling kept as 4:4:4: 001.jpg" in line
+
+
+@budget(load="pure")
+def test_a_4_4_0_jpeg_header_is_an_odd_chroma():
+    data = bytearray(encoded(colour(), "JPEG", quality=92, subsampling=0))
+    sof = data.index(b"\xff\xc0")
+    assert data[sof + 11] == 0x11, "4:4:4: the luma component samples 1x1"
+    assert not images.odd_jpeg_chroma(bytes(data))
+    data[sof + 11] = 0x12  # luma 1x2: 4:4:0
+    assert images.odd_jpeg_chroma(bytes(data)), "4:4:0 is no subsampling avifenc keeps"
+    assert not images.odd_jpeg_chroma(jpeg(gray())), "a gray JPEG has no chroma"
+
+
+@budget(load="pool")
+def test_animated_pages_converted_for_a_volume_cover_are_noted(site):
+    frames = [colour(seed=1).convert("P"), colour(seed=2).convert("P")]
+    gif = encoded(frames[0], "GIF", save_all=True, append_images=frames[1:])
+    chapter_id = site.chapter(site.series(), [("001.gif", gif)])
+    add_cover(site, chapter_id, COVER)
+    (line,) = converted(site, chapter_id)
+    assert "convert: animated pages converted to 1 frame for the volume cover: 001.gif" in line
+
+
+@budget(load="pool")
+def test_the_chapter_that_fixes_a_calibration_group_is_noted(site):
+    series_id = site.series()
+    lines = [converted(site, site.chapter(series_id, pages(8, seed=s))) for s in range(1, 4)]
+    fixing = [line for found in lines for line in found if "calibration: colour fixed at q" in line]
+    assert len(fixing) == 1, "1 chapter fixes the group, and only it is noted"
+    assert "from " in fixing[0]
+    assert "chapters" in fixing[0]
+
+
+@budget(load="pool")
+def test_a_retried_convert_replaces_its_notes_and_keeps_junks(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    chapter_id = site.chapter(site.series(), [("001.jpg", jpeg(colour())), ("002.png", png(colour(seed=3)))])
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "UPDATE chapter SET notes = %s WHERE id = %s",
+            (json.dumps(["rest of card mixed: piece 1", "convert: an old note"]), chapter_id),
+        )
+    site.record(site.run(chapter_id))
+    kept = json.loads(chapter(site.conn, chapter_id)["notes"])
+    assert kept[0] == "rest of card mixed: piece 1", "junk's note stays"
+    assert "convert: an old note" not in kept, "convert's earlier notes are replaced"
+    assert any(n.startswith("convert: AVIF rejected") for n in kept)
+
+
+@budget(load="db")
+def test_notes_of_another_prefix_are_refused(site):
+    chapter_id = site.chapter(site.series(), pages(1))
+    with pytest.raises(ValueError, match="not starting with"), db.transaction(site.conn):
+        workflow.replace_notes(site.conn, chapter_id, "convert: ", ["junk: x"])
+
+
+@budget(load="db")
+def test_status_lists_done_chapters_notes_of_the_last_7_days_and_counts_older_ones(site):
+    series_id = site.series()
+    old, recent, open_ = (site.chapter(series_id, pages(1)) for _ in range(3))
+    now = datetime.fromisoformat(db.now(site.conn))
+    with db.transaction(site.conn):
+        for chapter_id, days, state in ((old, 8, "done"), (recent, 1, "done"), (open_, 30, "ready")):
+            site.conn.execute(
+                "UPDATE chapter SET notes = %s, status = %s, updated_at = %s WHERE id = %s",
+                (json.dumps([f"note {chapter_id}"]), state, (now - timedelta(days=days)).isoformat(), chapter_id),
+            )
+    assert listed(site, old) == [], "a done chapter updated 8 days ago is not listed"
+    assert listed(site, recent) == [f"note {recent}"]
+    assert listed(site, open_) == [f"note {open_}"], "an open chapter is listed however old"
+    assert "  1 done chapter(s) with notes, updated over 7 days ago: not listed" in status.report(site.conn)

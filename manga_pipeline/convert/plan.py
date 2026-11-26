@@ -129,9 +129,14 @@ class PlannedBlank(TypedDict):
 
 
 class StripSpec(strip.RenderStrip):
-    """A strip or split spec: the render strip and the cuts its output pages are cut at (kept coordinates)."""
+    """A strip or split spec: the render strip, its cuts and a split's irregular images.
+
+    cuts: where its output pages are cut (kept coordinates); irregular: the split images not within the snap window of
+    a whole number of pages (a strip has none).
+    """
 
     cuts: list[int]
+    irregular: list[str]
 
 
 class PlannedEdits(TypedDict):
@@ -563,7 +568,7 @@ def _strip_spec(content: list[PlanPage], edit: ChapterEdit, x_dir: Path) -> Stri
     pages: list[strip.NamedRows] = [
         {"name": q["name"], "top": p["top"], "th": p["th"]} for q, p in zip(content, st.pages, strict=True)
     ]
-    return {"width": st.width, "pages": pages, "kept": cut["kept"], "cuts": cut["cuts"]}
+    return {"width": st.width, "pages": pages, "kept": cut["kept"], "cuts": cut["cuts"], "irregular": []}
 
 
 def _check_banded(entries: list[PlanPage], edit: ChapterEdit, by_index: dict[int, PlanPage]) -> None:
@@ -609,7 +614,7 @@ def _check_joined(entries: list[PlanPage], edit: ChapterEdit) -> None:
 def _split_spec(
     content: list[PlanPage], edit: ChapterEdit, drops: list[Drop], page_aspect: list[float] | None
 ) -> StripSpec:
-    """Return a split chapter's spec ({"width", "pages", "kept", "cuts"}).
+    """Return a split chapter's spec ({"width", "pages", "kept", "cuts", "irregular"}).
 
     Its non-cover pages not dropped, cut at the series' page aspect. Raises EditError when the edit holds another
     page-layout edit.
@@ -625,6 +630,7 @@ def _split_spec(
         "pages": [{"name": p["name"], "top": p["top"], "th": p["th"]} for p in pl["pages"]],
         "kept": [[0, pl["height"]]],
         "cuts": list(pl["cuts"]),
+        "irregular": [i["page"] for i in pl["irregular"]],
     }
 
 
