@@ -495,7 +495,7 @@ def _run_all(pool: Executor, tasks: Sequence[LosslessJob]) -> list[LosslessPage]
 
 
 def reshape_kind(edits: plan.PlannedEdits) -> str:
-    """Return a rendered chapter's reshape: restitch (long strip), split (stitched pages) or rejoin (crops, joins)."""
+    """Return a rendered chapter's reshape: restitch (a strip), split (stitched, re-sliced), rejoin (crops, joins)."""
     return "restitch" if edits["strip"] else "split" if edits["split"] else "rejoin"
 
 

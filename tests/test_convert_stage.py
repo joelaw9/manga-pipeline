@@ -520,6 +520,17 @@ def test_a_split_chapter_is_split_at_its_series_page_aspect(site):
 
 
 @budget(load="pool")
+def test_a_re_sliced_chapter_is_cut_into_its_recorded_pages_whatever_the_aspect_at_convert(site):
+    edit = {**NO_EDIT, "split": True, "split_pages": 4}
+    members = [(f"00{k}.jpg", jpeg(colour((100, 186), seed=k))) for k in (1, 2, 3)]  # 3 x 186 = 4 pages of 139.5
+    chapter_id = site.chapter(site.series("R", aspect=[1.0]), members, edit=edit)  # the aspect changed since junk
+    (line,) = converted(site, chapter_id)
+    result = json.loads(chapter(site.conn, chapter_id)["convert_result"])
+    assert result["pages_out"] == 4, "the recorded count, not the aspect's"
+    assert "split: re-sliced into 4 pages" in line, "the chapter is noted"
+
+
+@budget(load="pool")
 def test_a_strip_chapter_whose_avif_fails_is_published_restitched_and_lossless(site):
     fake.SCORE[0] = lambda _ref, _dec: 50.0
     tall = [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=i))) for i in range(1, 4)]

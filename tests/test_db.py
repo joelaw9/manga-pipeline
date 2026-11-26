@@ -5,6 +5,7 @@ read_only's 1 snapshot, rows that read as sqlite3.Row does (SPEC "State", "Confi
 (SPEC "Tests").
 """
 
+import json
 import os
 import secrets
 import shutil
@@ -787,6 +788,40 @@ def test_step_0080_marks_a_records_page_aspect_and_a_computed_one(tmp_path, monk
     assert marks == ["record", "computed", None], (
         "by the layout's origin, where it is the aspect's too; none with no aspect"
     )
+
+
+@budget(BUILD, load="db")
+def test_step_0081_gives_stored_split_scans_and_every_edit_their_null_page_count(tmp_path, monkeypatch):
+    older = tmp_path / "schema"
+    older.mkdir()
+    for step in SHIPPED.glob("*.sql"):
+        if step.stem < "0081":
+            shutil.copy(step, older)
+    cfg = db_cfg(tmp_path, built=False)
+    monkeypatch.setattr(db, "SCHEMA", older)
+    scans = ['{"layout": "pages", "split": true, "marks": []}', '{"layout": "pages", "split": false, "content": []}']
+    with closing(db.connect(cfg)) as conn, db.transaction(conn):
+        conn.execute("INSERT INTO series (name, origin) VALUES ('S', 'new')")
+        for n, scan in enumerate(scans, 1):
+            conn.execute(
+                """INSERT INTO chapter (series_id, kind, identity, number, stage, status, discovered_at, updated_at)
+                VALUES (1, 'download', %s, %s, 'junk', 'ready', 't', 't')""",
+                (f'["", null, "", "{n}", ""]', n),
+            )
+            conn.execute(
+                """INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at)
+                VALUES (%s, 1, 'd', %s, 't')""",
+                (n, scan),
+            )
+            conn.execute("INSERT INTO chapter_edit (chapter_id, edit) VALUES (%s, '{\"split\": false}')", (n,))
+    monkeypatch.undo()
+    with closing(db.connect(cfg)) as conn:
+        got = [json.loads(r[0]) for r in conn.execute("SELECT scan FROM junk_scan ORDER BY chapter_id")]
+        edits = [json.loads(r[0]) for r in conn.execute("SELECT edit FROM chapter_edit ORDER BY chapter_id")]
+    assert got == [{"layout": "pages", "split": True, "marks": [], "pages": None}, {**json.loads(scans[1])}], (
+        "a split scan gains its null page count (a stitched chapter's); any other scan is unchanged"
+    )
+    assert edits == [{"split": False, "split_pages": None}] * 2, "every edit gains its null"
 
 
 @budget(BUILD, load="db")

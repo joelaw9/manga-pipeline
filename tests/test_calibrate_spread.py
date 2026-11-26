@@ -11,7 +11,9 @@ from concurrent.futures import Future
 from contextlib import closing
 from pathlib import Path
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from manga_pipeline import archive, config, db, images, preflight
 from manga_pipeline.convert import calibrate, image, tools, vship
@@ -19,7 +21,7 @@ from manga_pipeline.stages import convert
 from scripts import calibrate_spread
 
 from tests.builders import add_chapter, add_series, adopted, config_file, present, running
-from tests.convert_pages import colour, gray, jpeg, webp
+from tests.convert_pages import colour, gray, jpeg, png, webp
 from tests.fakes import convert as fake
 from tests.timing import budget
 
@@ -207,6 +209,27 @@ def test_a_stitched_file_of_lossy_webp_pages_is_usable_at_the_aspect_its_series_
     row = site.groups(series_id)["colour"]
     assert row["why"].endswith("files Ch 1.cbz, Ch 2.cbz, Ch 3.cbz"), "split, it renders: usable (unsplit: untouched)"
     assert "(28 samples)" in row["why"], "8 + 6 split in 2 + 8 units"
+
+
+@budget(load="pool", seconds=20)
+def test_a_re_sliced_page_file_is_planned_split_as_junk_would(site, monkeypatch):
+    series_id = site.series(aspect=[1.4])
+    stack = np.concatenate([np.asarray(colour(size=(96, 134), seed=50 + i)) for i in range(9)])  # 9 pages of 134
+    sliced = [stack[k * 201 : (k + 1) * 201] for k in range(6)]  # 6 images of 1 1/2 pages
+    site.file(series_id, 1, [(f"{k + 1:03d}.png", png(Image.fromarray(im))) for k, im in enumerate(sliced)])
+    for n in (2, 3):
+        site.file(series_id, n, pages(8, seed=n, size=(96, 134)))
+    planned = []
+    build = calibrate_spread.plan.build
+
+    def recorded(name, measured, files, edit, layout):
+        planned.append((name, edit["split"], edit["split_pages"]))
+        return build(name, measured, files, edit, layout)
+
+    monkeypatch.setattr(calibrate_spread.plan, "build", recorded)
+    assert site.main() == 0
+    assert ("Ch 1.cbz", True, 9) in planned, "the re-sliced file is planned split into its 9 pages, as junk would"
+    assert ("Ch 2.cbz", False, None) in planned, "a file of whole pages is planned unsplit"
 
 
 @budget(load="pool", seconds=20)

@@ -54,6 +54,11 @@ class SliceRepair(TypedDict):
     fallback_page_aspect: ReadOnly[float]
     snap_window: ReadOnly[float]
     band_tolerance: ReadOnly[float]
+    reslice_fraction: ReadOnly[float]
+    reslice_align: ReadOnly[float]
+    reslice_stack_window: ReadOnly[float]
+    reslice_boundaries: ReadOnly[float]
+    reslice_joins: ReadOnly[float]
 
 
 class GeometryConfig(TypedDict):
@@ -82,6 +87,12 @@ SLICE_REPAIR: SliceRepair = {
     "fallback_page_aspect": 1.42,  # page shape when a series has no unstitched pages to learn from
     "snap_window": 0.06,  # stitched image within +-6% of a whole number of pages; else flagged irregular
     "band_tolerance": 0.01,  # credit bands: page taller than the series shape by more than this is band-scanned
+    # re-sliced chapters (plan phase-10-27, step 0: the data separate at 0.04 / 0.20 of cuts on a boundary)
+    "reslice_fraction": 0.15,  # an image this near a whole number of pages holds whole pages
+    "reslice_align": 0.15,  # share of inner image boundaries a re-slice's page cuts must fall on
+    "reslice_stack_window": 0.03,  # the stack within this many pages of a whole number
+    "reslice_boundaries": 0.15,  # share of the cuts inside an image that must show a page boundary (seam test)
+    "reslice_joins": 0.5,  # share of the joins inside a page that must be continuous (seam test)
 }
 CONFIG: GeometryConfig = {"restitch": RESTITCH, "slice_repair": SLICE_REPAIR}  # geometry_share's sections
 
@@ -162,7 +173,7 @@ class Irregular(TypedDict):
 
 
 class StitchedPlan(TypedDict):
-    """A stitched page-format chapter cut back into pages (plan_pages): the strip layout and its cuts.
+    """A split page-format chapter (stitched or re-sliced) cut back into pages (plan_pages): the layout and its cuts.
 
     Width and height of the strip at the target width, its pages, the cuts (0 and the height included), the irregular
     images and the page height (px at the target width) it was cut at.
@@ -764,21 +775,142 @@ def is_stitched(pages: Iterable[Size | None], aspects: Sequence[float] | None, c
     return statistics.median(ratios) >= cfg["stitched_ratio"] * base
 
 
+RESLICE_WHOLE = 0.5  # under a candidate at least this share of the images whole pages: they are pages
+RESLICE_SLIVERS = 0.25  # this share of slivers or more: slice repair's chapter, not a re-slice
+CUT_TOLERANCE = 0.003  # an image boundary within this share of a page (and CUT_MIN_PX) of a cut lies on it
+CUT_MIN_PX = 2
+RESLICE_MIN_PAGES = 3  # content pages a re-slice needs
+RESLICE_MIN_N = 2  # pages a re-slice's stack holds at least
+
+
+def page_cuts(height: int, n: int) -> list[int]:
+    """Return the rows that cut a stack of this height into n equal pages, 0 and height included."""
+    return [round(i * height / n) for i in range(n + 1)]
+
+
+def _inner_bounds(laid: Sequence[LaidPage]) -> list[int]:
+    return list(itertools.accumulate(p["th"] for p in laid[:-1]))
+
+
+def _on_cut(y: float, page_h: float, n: int) -> bool:
+    """Return whether a stack row lies on 1 of the n pages' inner cuts (CUT_TOLERANCE of a page, at least CUT_MIN_PX).
+
+    The stack's own top and bottom are no cut: a sliver image at either end does not lie on one.
+    """
+    k = round(y / page_h)
+    return 1 <= k <= n - 1 and abs(y - k * page_h) <= max(CUT_MIN_PX, CUT_TOLERANCE * page_h)
+
+
+def reslice_pages(
+    sizes: Sequence[Size], aspects: Sequence[float] | None, cfg: SliceRepair = SLICE_REPAIR
+) -> int | None:
+    """Return the page count n of a re-sliced page chapter by its sizes, else None (SPEC "Junk decisions", Pages).
+
+    Re-sliced: its page stack cut at another height than the page's, so its images hold fractions of pages or its
+    pages are cut in 2. At least 3 content pages (sizes), 1 width, not stitched, under a quarter slivers; some
+    candidate under which fewer than half the images are (near) whole pages, the stack is within reslice_stack_window
+    of n >= 2 pages and at least reslice_align of the inner image boundaries fall on its n equal cuts; of those, the
+    one the most boundaries fall on (a tie: the first). The pixels are cuts_on_boundaries'.
+    """
+    if (
+        not aspects
+        or len(sizes) < RESLICE_MIN_PAGES
+        or len({w for w, _ in sizes}) > 1
+        or is_stitched(sizes, aspects, cfg)
+    ):
+        return None
+    if len(slice_pairs(sizes, cfg)) >= RESLICE_SLIVERS * len(sizes):
+        return None
+    width, laid, total = strip_layout(sizes)
+    bounds = _inner_bounds(laid)
+    best: tuple[int, int] | None = None  # (boundaries on a cut, n)
+    for c in aspects:
+        page_h = width * c
+        ks = [p["th"] / page_h for p in laid]
+        if sum(round(k) >= 1 and abs(k - round(k)) < cfg["reslice_fraction"] for k in ks) >= RESLICE_WHOLE * len(ks):
+            continue  # under c the images are pages
+        n = round(total / page_h)
+        if n < RESLICE_MIN_N or abs(total / page_h - n) > cfg["reslice_stack_window"]:
+            continue
+        aligned = sum(_on_cut(b, total / n, n) for b in bounds)
+        if aligned >= cfg["reslice_align"] * len(bounds) and (best is None or aligned > best[0]):
+            best = (aligned, n)
+    return None if best is None else best[1]
+
+
+def _luma(im: Image.Image) -> NDArray[np.float32]:
+    """Return a page's luma at analysis width (as edge_rows), every row."""
+    g = im.convert("L")
+    g = g.resize(
+        (RESTITCH["analysis_width"], max(2 * SEAM_ROWS, round(g.height * RESTITCH["analysis_width"] / g.width)))
+    )
+    return np.asarray(g, np.float32)
+
+
+def _boundary(bottom: NDArray[np.float32], top: NDArray[np.float32], cfg: SliceRepair) -> bool:
+    """Return whether rows meeting here are 2 pages: a seam no slice makes, or blank on both sides."""
+    blank = bool(blank_rows(bottom).all() and blank_rows(top).all())
+    return blank or seam_score(bottom, top) >= cfg["max_seam_score"]
+
+
+def cuts_on_boundaries(
+    image: Callable[[int], Image.Image], sizes: Sequence[Size], n: int, cfg: SliceRepair = SLICE_REPAIR
+) -> bool:
+    """Return whether a re-slice's n cuts are page boundaries by the pixels (SPEC "Junk decisions", Pages).
+
+    image(i): content image i. Of the cuts inside an image (at least SEAM_ROWS analysis rows from its edges), at least
+    reslice_boundaries show 2 pages (_boundary); of the image boundaries inside a page (not on a cut), at least
+    reslice_joins are continuous (seam score at most max_seam_score). Either test with nothing to count passes.
+    """
+    _, laid, total = strip_layout(sizes)
+    page_h = total / n
+    cuts = page_cuts(total, n)[1:-1]
+    inside = shows = joins = continuous = 0
+    above: NDArray[np.float32] | None = None
+    for i, p in enumerate(laid):
+        a = _luma(image(i))
+        scale = len(a) / p["th"]
+        for c in cuts:
+            r = round((c - p["top"]) * scale)
+            if p["top"] <= c < p["top"] + p["th"] and SEAM_ROWS <= r <= len(a) - SEAM_ROWS:
+                inside += 1
+                shows += _boundary(a[r - SEAM_ROWS : r], a[r : r + SEAM_ROWS], cfg)
+        if above is not None and not _on_cut(p["top"], page_h, n):
+            joins += 1
+            continuous += seam_score(above, a[:SEAM_ROWS]) <= cfg["max_seam_score"]
+        above = a[-SEAM_ROWS:]
+    if inside and shows < cfg["reslice_boundaries"] * inside:
+        return False
+    return not joins or continuous >= cfg["reslice_joins"] * joins
+
+
 def plan_pages(
     names: Sequence[str],
     sizes: Sequence[Size],
     aspects: Sequence[float] | None,
     cfg: SliceRepair = SLICE_REPAIR,
+    *,
+    pages_n: int | None = None,
 ) -> StitchedPlan:
-    """Cut a stitched page-format chapter back into pages of the series' shape (sizes only, no decode).
+    """Cut a split page-format chapter back into pages of the series' shape (sizes only, no decode).
 
-    Stitchers join whole pages, so each source image holds a whole number of pages: an image of height H
-    is split into k = round(H / page_h) equal pages. (Snapping to white rows is wrong here: panel gutters
+    A re-sliced chapter (pages_n, its recorded page count): its stack into pages_n equal pages, cuts crossing its
+    images. A stitched one: stitchers join whole pages, so each source image holds a whole number of pages: an image of
+    height H is split into k = round(H / page_h) equal pages. (Snapping to white rows is wrong here: panel gutters
     inside a page are white too.) Images not within snap_window of a whole number of pages are reported
     as irregular for review and still split evenly. Returns {"width", "pages": [{"name", "w", "h", "top", "th"}],
     "height", "cuts", "irregular", "page_h"}.
     """
     width, laid, height = strip_layout(sizes)
+    if pages_n is not None:
+        return {
+            "width": width,
+            "pages": [{**p, "name": n} for n, p in zip(names, laid, strict=True)],
+            "height": height,
+            "cuts": page_cuts(height, pages_n),
+            "irregular": [],
+            "page_h": round(height / pages_n),
+        }
     page_h = _best_page_height([p["th"] for p in laid], width, aspects, cfg)
     pages: list[PlannedPage] = []
     cuts: list[int]

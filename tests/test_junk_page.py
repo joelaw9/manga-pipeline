@@ -563,7 +563,9 @@ def test_an_edge_page_decided_junk_is_dropped(tmp_path):
     """The last page's signature decided junk: it is dropped; the other edge pages stay undecided units."""
     sc = scan_of(tmp_path, [art(seed=s) for s in range(6)])
     out = page_units.decide(sc, decider({("page", edge(sc, 5)["sig"]): row(1, "junk")}))
-    assert out["edit"] == {"split": False, "drop_pages": [5], "bands": [], "join": []}, "a junk page is dropped"
+    assert out["edit"] == {"split": False, "split_pages": None, "drop_pages": [5], "bands": [], "join": []}, (
+        "a junk page is dropped"
+    )
     assert [u["page"] for u in out["undecided"]] == [0, 1, 3, 4], "undecided edge pages are listed, the middle not"
 
 
@@ -621,11 +623,14 @@ def test_a_stitched_chapter_is_only_split():
     """Pages 1.9 x the series shape: the scan says split, decoding nothing; the edit is split and nothing else."""
     sizes = [(600, round(600 * ASPECT * 1.9))] * 4
     sc = page_units.scan([Path("never-decoded.png")] * 4, names(4), sizes, [False] * 4, [ASPECT])
-    assert sc == {"layout": "pages", "split": True, "marks": []}, "a stitched chapter has no page or logo units"
-    out = page_units.decide(sc, decider({}))
-    assert out == {"edit": {"split": True, "drop_pages": [], "bands": [], "join": []}, "undecided": []}, (
-        "a stitched chapter is only split"
+    assert sc == {"layout": "pages", "split": True, "pages": None, "marks": []}, (
+        "a stitched chapter has no page or logo units; it is cut per image"
     )
+    out = page_units.decide(sc, decider({}))
+    assert out == {
+        "edit": {"split": True, "split_pages": None, "drop_pages": [], "bands": [], "join": []},
+        "undecided": [],
+    }, "a stitched chapter is only split"
 
 
 @budget(load="pure")
