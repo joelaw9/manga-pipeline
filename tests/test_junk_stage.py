@@ -1343,3 +1343,109 @@ def test_a_held_bundle_member_records_the_bundle_names_it_and_a_rescan_drops_a_s
     run_part(site.cfg, process)
     ((bundles,),) = site.rows("SELECT bundles FROM junk_scan")
     assert json.loads(bundles) == [{"ids": [p1, p2], "size": 2}], "rescanned: the stale record is gone"
+
+
+# ---------------------------------------------------------------- R19: page aspects from every live chapter
+
+
+def sized_cbz(size, pages, seed):
+    """Return a CBZ of `pages` noise pages of this (width, height)."""
+    rng = np.random.default_rng(seed)
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w", zipfile.ZIP_DEFLATED) as z:
+        for n in range(1, pages + 1):
+            im = Image.fromarray(rng.integers(0, 255, (size[1], size[0]), dtype=np.uint8), "L")
+            buf = io.BytesIO()
+            im.save(buf, "PNG")
+            z.writestr(f"{n:03}.png", buf.getvalue())
+    return data.getvalue()
+
+
+def stored_aspect(site):
+    ((text,),) = site.rows("SELECT page_aspect FROM series_conversion")
+    return None if text is None else json.loads(text)
+
+
+def page_series(site, first, origin="computed", aspect=None, aspect_origin=None):
+    """Download chapter 1 (CBZ `first`), run intake, store the series as a page series of these origins and aspect.
+
+    origin: the layout's; aspect_origin: the aspect's (computed by default when an aspect is given).
+    """
+    site.download("Alpha", 1, first)
+    run_part(site.cfg, intake)
+    if aspect is not None and aspect_origin is None:
+        aspect_origin = "computed"
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute(
+            "UPDATE series_conversion SET layout = 'pages', origin = %s, page_aspect = %s, aspect_origin = %s",
+            (origin, None if aspect is None else json.dumps(aspect), aspect_origin),
+        )
+
+
+@budget(load="db", seconds=20)
+def test_the_page_aspect_follows_the_series_past_an_atypical_first_chapter(site):
+    page_series(site, sized_cbz((100, 150), 4, seed=1))
+    run_part(site.cfg, process)
+    assert stored_aspect(site) == [1.5], "the first chapter's shape, as before"
+    for n in (2, 3):
+        site.download("Alpha", n, sized_cbz((100, 142), 6, seed=n))
+    site.parts()
+    assert present(stored_aspect(site))[0] == 1.42, "R19: the shape of every live chapter's pages, most common first"
+
+
+@budget(load="db", seconds=20)
+def test_a_dropped_chapters_pages_are_not_counted(site):
+    page_series(site, sized_cbz((100, 150), 4, seed=1))
+    run_part(site.cfg, process)
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):  # as chapter drop leaves it, download removed
+        conn.execute("UPDATE chapter SET status = 'done', last_error = %s", (workflow.DROPPED_BY_PERSON,))
+        ((path,),) = conn.execute("SELECT download_path FROM chapter").fetchall()
+    config.to_local(site.cfg, path).unlink()
+    for n in (2, 3):
+        site.download("Alpha", n, sized_cbz((100, 142), 6, seed=n))
+    site.parts()
+    assert stored_aspect(site) == [1.42], "the dropped chapter's 1.5 pages are no candidate"
+
+
+@pytest.mark.parametrize(
+    ("origin", "stored", "aspect_origin", "expected"),
+    [
+        ("record", [1.5], "record", [1.5]),
+        ("override", [1.5], "record", [1.5]),  # an override file names a layout: the record's aspect still stands
+        ("override", None, None, [1.42]),
+        ("record", [1.5], "computed", [1.42]),  # filled at junk for a record that held none: computed again
+    ],
+)
+@budget(load="db", seconds=20)
+def test_a_records_page_aspect_stands_whatever_the_layouts_origin(site, origin, stored, aspect_origin, expected):
+    page_series(site, sized_cbz((100, 142), 6, seed=1), origin=origin, aspect=stored, aspect_origin=aspect_origin)
+    run_part(site.cfg, process)
+    assert stored_aspect(site) == expected
+    computed = site.rows("SELECT aspect_origin FROM series_conversion")
+    assert computed == [("record" if expected == stored and aspect_origin == "record" else "computed",)]
+
+
+@budget(load="db", seconds=20)
+def test_a_chapter_with_no_page_like_page_leaves_the_stored_aspect(site):
+    page_series(site, sized_cbz((100, 400), 4, seed=1), aspect=[1.42])  # 4.0: stitched, no page-like page
+    run_part(site.cfg, process)
+    assert stored_aspect(site) == [1.42]
+
+
+@pytest.mark.parametrize(
+    ("stage", "error", "counted"),
+    [("publish", None, True), ("confirm", None, True), ("confirm", workflow.DROPPED_BY_PERSON, False)],
+)
+@budget(load="db", seconds=20)
+def test_a_published_chapter_counts_at_publish_or_confirm_and_one_dropped_there_does_not(site, stage, error, counted):
+    page_series(site, sized_cbz((100, 150), 4, seed=1))
+    run_part(site.cfg, process)
+    # a conversion ends at publish, a download at confirm; the download has left either way
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE chapter SET status = 'done', stage = %s, last_error = %s", (stage, error))
+        ((path,),) = conn.execute("SELECT download_path FROM chapter").fetchall()
+    config.to_local(site.cfg, path).unlink()
+    for n in (2, 3):
+        site.download("Alpha", n, sized_cbz((100, 142), 6, seed=n))
+    site.parts()
+    assert (stored_aspect(site) == [1.42, 1.5]) is counted, "chapter 1's 4 pages at 1.5: a 2nd candidate when counted"

@@ -277,19 +277,20 @@ def override_layout(override: volumes.Overrides) -> str | None:
     return volumes.layout(override)
 
 
-def _claims(kavita_genres: Iterable[str] | None) -> list[tuple[str, str, str]]:
-    """Return [(source, claim, value)] of Kavita's layout claims (metadata check).
+def layout_claims(genres: Iterable[str] | None, source: str) -> list[tuple[str, str, str]]:
+    """Return [(what, claim, value)] of the layout claims of a series' genres (metadata check).
 
-    A long-strip genre claims strip; exactly one origin genre claims pages (Manga) or strip (Manhwa / Manhua).
+    A long-strip genre claims strip; exactly one origin genre claims pages (Manga) or strip (Manhwa / Manhua). source
+    names where the genres come from ("Kavita", "stored": what becomes "<source> genre", "<source> origin").
     """
-    titles = [g.strip() for g in kavita_genres or ()]
+    titles = [g.strip() for g in genres or ()]
     out: list[tuple[str, str, str]] = []
     strip = [g for g in titles if g.lower() in LONG_STRIP_GENRES]
     if strip:
-        out.append(("Kavita genre", "strip", ", ".join(strip)))
+        out.append((f"{source} genre", "strip", ", ".join(strip)))
     origin = [g for g in titles if g.lower() in ORIGIN_LAYOUT]
     if len(origin) == 1:
-        out.append(("Kavita origin", ORIGIN_LAYOUT[origin[0].lower()], origin[0]))
+        out.append((f"{source} origin", ORIGIN_LAYOUT[origin[0].lower()], origin[0]))
     return out
 
 
@@ -312,7 +313,7 @@ def classify_layout(
     flags = [
         f"layout-metadata: {source} says {claim} ({value}) but continuous joins {share:.0%}: check the Kavita "
         "series match and the scraper's source"
-        for source, claim, value in _claims(kavita_genres)
+        for source, claim, value in layout_claims(kavita_genres, "Kavita")
         if claim != verdict
     ]
     if o:
@@ -727,6 +728,11 @@ def page_aspect(
                 aspects[round(d[1] / d[0], 3)] += 1
     common = [a for a, n in aspects.most_common(3) if n >= ASPECT_MIN_PAGES]
     return common or None
+
+
+def same_aspects(a: Sequence[float], b: Sequence[float]) -> bool:
+    """Return whether 2 page aspect candidate lists are the same to 2 decimals, in order."""
+    return [round(x, 2) for x in a] == [round(x, 2) for x in b]
 
 
 def _best_page_height(heights: Sequence[int], width: int, aspects: Sequence[float] | None, cfg: SliceRepair) -> float:

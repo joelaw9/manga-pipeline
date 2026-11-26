@@ -9,9 +9,10 @@ Read-only: it never creates, migrates or writes the database.
 from contextlib import closing
 from datetime import datetime, timedelta
 
-from manga_pipeline import config, conversions, db, kavita_link, notify, pause, rename, rewrite, workflow
+from manga_pipeline import config, conversions, db, kavita_link, notify, pause, rename, rewrite, strip, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates
+from manga_pipeline.metadata import merge, tags
 
 TITLES_SHOWN_DAYS = 30  # status lists the series titles changed at the sources this many days back
 REFILL_DAYS = 7  # status reports the junk refill over this many days back
@@ -71,6 +72,7 @@ def _report(conn: db.Connection) -> list[str]:
         *_discord(conn),
         *_redownloads(conn),
         *_notes(conn),
+        *_series_notes(conn),
         *_not_taken(conn),
         *_unconfirmed(conn),
     ]
@@ -314,6 +316,44 @@ def _notes(conn: db.Connection) -> list[str]:
     if older:
         lines.append(f"  {older} done chapter(s) with notes, updated over {NOTES_SHOWN_DAYS} days ago: not listed")
     if not rows and not older:
+        lines.append("  none")
+    return lines
+
+
+def _series_notes(conn: db.Connection) -> list[str]:
+    """Return the series notes: a series stored as pages that its genres claim is a long strip, and open calibration.
+
+    The genres are the series' own, from its stored records by the tag rules (what Kavita receives); only the claims
+    of strip are compared (SPEC "Runtime", status): a Manga origin says nothing of a vertical Japanese comic.
+    """
+    lines = ["Series notes:"]
+    rules = tags.load()
+    rows = conn.execute(
+        """SELECT s.id, s.name FROM series s JOIN series_conversion c ON c.series_id = s.id
+        WHERE c.layout = 'pages' ORDER BY s.id"""
+    ).fetchall()
+    fetched: dict[int, list[db.Row]] = {}
+    for f in conn.execute(
+        """SELECT f.series_id, f.source, f.kind, f.payload FROM fetched f
+        JOIN series_conversion c ON c.series_id = f.series_id WHERE c.layout = 'pages'"""
+    ):
+        fetched.setdefault(f["series_id"], []).append(f)
+    for r in rows:
+        records = merge.records_of(fetched.get(r["id"], []))
+        if not any(records.values()):
+            continue
+        claims = strip.layout_claims(tags.compute(records, rules)[0], "stored")
+        lines += [
+            f"  series {r['id']} ({r['name']}): stored as pages, but its {what} claims strip ({value})"
+            for what, claim, value in claims
+            if claim == "strip"
+        ]
+    groups = conn.execute(
+        """SELECT s.id, s.name, c.grp, c.why FROM series_calibration c JOIN series s ON s.id = c.series_id
+        WHERE c.origin = 'computed' AND c.fixed = 0 ORDER BY s.id, c.grp"""
+    ).fetchall()
+    lines += [f"  series {g['id']} ({g['name']}): {g['grp']} calibration open at q80 ({g['why']})" for g in groups]
+    if len(lines) == 1:
         lines.append("  none")
     return lines
 

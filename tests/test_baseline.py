@@ -89,6 +89,9 @@ def test_the_baseline_records_the_series_published_and_handled_chapters_once(wor
         ('["grp", null, "", "1.5", "extra"]', "published"),
     ]
     assert world.rows("SELECT layout, origin FROM series_conversion") == [("pages", "record")]
+    assert world.rows("SELECT page_aspect, aspect_origin FROM series_conversion") == [("[1.4]", "record")], (
+        "the record's page aspect, marked as the record's"
+    )
     assert world.rows("SELECT comicinfo_series, baseline_at IS NOT NULL FROM series") == [("Solo Leveling", 1)]
 
 

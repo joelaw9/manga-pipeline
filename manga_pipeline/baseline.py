@@ -291,8 +291,9 @@ def _write(conn: db.Connection, series: db.Row, record: record_reader.Record, na
         )
     aspect = record["series"]["layout"].get("page_aspect")
     conn.execute(
-        "INSERT INTO series_conversion (series_id, layout, page_aspect, origin) VALUES (%s, %s, %s, 'record')",
-        (series["id"], layout, None if aspect is None else json.dumps(aspect)),
+        "INSERT INTO series_conversion (series_id, layout, page_aspect, aspect_origin, origin)"
+        " VALUES (%s, %s, %s, %s, 'record')",
+        (series["id"], layout, None if aspect is None else json.dumps(aspect), None if aspect is None else "record"),
     )
     for group, (q, why) in calibrate.from_record(record).items():
         conn.execute(

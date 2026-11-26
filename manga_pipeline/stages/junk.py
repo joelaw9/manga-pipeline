@@ -239,12 +239,23 @@ def _sample(ctx: workflow.Context, chapter: db.Row, series: db.Row) -> list[list
 
 
 def _aspects(ctx: workflow.Context, series: db.Row, sizes: Sequence[strip.Size]) -> list[float]:
-    """Return the series' page aspect candidates: stored, else computed from this chapter and stored."""
-    aspects, stored = chapter_scan.page_aspects(ctx.conn, series["id"], sizes)
-    if aspects and not stored:
-        with db.transaction(ctx.conn):
+    """Return the series' page aspect candidates, computed again from every live chapter (SPEC "State", Layout).
+
+    A record's stored candidates stand (aspect_origin record). Else those of the measured pages of the series' live
+    chapters (workflow.live_page_sizes) replace the stored ones when the 2 differ to 2 decimals; with no page-like page
+    among them, the stored ones stand, else this chapter's are taken. Read and written in 1 transaction.
+    """
+    with db.transaction(ctx.conn):
+        aspects, stored = chapter_scan.page_aspects(ctx.conn, series["id"], sizes)
+        row = db.one_row(ctx.conn, "SELECT aspect_origin FROM series_conversion WHERE series_id = %s", (series["id"],))
+        whole = None
+        if not (stored and row["aspect_origin"] == "record"):
+            whole = strip.page_aspect([workflow.live_page_sizes(ctx.conn, series["id"])])
+        if whole is not None and not (stored and strip.same_aspects(aspects, whole)):
+            aspects, stored = whole, False
+        if aspects and not stored:
             ctx.conn.execute(
-                "UPDATE series_conversion SET page_aspect = coalesce(page_aspect, %s) WHERE series_id = %s",
+                "UPDATE series_conversion SET page_aspect = %s, aspect_origin = 'computed' WHERE series_id = %s",
                 (json.dumps(aspects), series["id"]),
             )
     return aspects

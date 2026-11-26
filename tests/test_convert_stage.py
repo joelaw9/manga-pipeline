@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import archive, config, db, errors, images, page_store, process, status, workflow
+from manga_pipeline import archive, config, db, errors, images, page_store, process, status, strip, workflow
 from manga_pipeline.convert import calibrate, check, covers, image, record_reader
 from manga_pipeline.stages import convert
 
@@ -353,6 +353,20 @@ def test_a_new_series_arriving_3_chapters_at_a_time_is_calibrated_by_the_third(s
     assert "gray" not in rows, "a group no page encodes gathers nothing"
 
 
+@budget(load="pool", seconds=10)
+def test_a_series_of_2_full_chapters_fixes_the_group_at_the_second(site):
+    fake.SCORE[0] = q_scores(lambda q: 95 - (80 - q) * 0.5)
+    series_id = site.series()
+    results = []
+    for n in range(2):
+        chapter_id = site.chapter(series_id, pages(calibrate.PER_CHAPTER, seed=n))
+        site.record(site.run(chapter_id))
+        results.append(json.loads(chapter(site.conn, chapter_id)["convert_result"])["quality"]["colour"])
+    row = calibration(site, series_id)["colour"]
+    assert results == [80, 60], "D3 (f): 14 + 14 samples reach 20, so the second chapter fixes the group and uses it"
+    assert (row["fixed"], row["q"], len(row["samples"])) == (1, 60, 2 * calibrate.PER_CHAPTER)
+
+
 @budget(load="pool")
 def test_a_retried_chapter_adds_no_samples_twice(site):
     series_id = site.series()
@@ -363,7 +377,7 @@ def test_a_retried_chapter_adds_no_samples_twice(site):
 
 
 @budget(load="pool", seconds=15)
-def test_samples_failing_at_q80_are_not_counted(site):
+def test_20_samples_with_fewer_than_20_counted_fix_the_group_at_q80(site):
     low = {"001", "002", "003"}
     fake.SCORE[0] = lambda _ref, dec: (
         70.0 if dec.name.split(".")[0] in low else 95 - (80 - int(dec.name.split(".q")[1][:2])) * 0.5
@@ -372,8 +386,55 @@ def test_samples_failing_at_q80_are_not_counted(site):
     for n in range(3):
         site.record(site.run(site.chapter(series_id, pages(7, seed=n))))
     row = calibration(site, series_id)["colour"]
-    assert len(row["samples"]) == 21, "18 counted samples are not enough to fix the group"
-    assert row["fixed"] == 0, "18 counted samples are not enough to fix the group"
+    assert len(row["samples"]) == 21
+    assert (row["fixed"], row["q"]) == (1, 80), "the bulk converter's rule: 20 samples fix it; 18 counted fail q75"
+    assert row["why"] == "q75 fails: 12 counted < 20 (21 samples)", "3 low pages in each of 3 chapters"
+
+
+def stored_samples(series_id, n, chapters, *, counted):
+    """Return n stored samples of the series' colour group over these chapter ids, the first `counted` passing q80."""
+    return [
+        {
+            "sha1": f"s{series_id}-{i}",
+            "rendered": False,
+            "bytes_in": 1,
+            "scores": {str(q): [90.0 if i < counted else 79.0, 1] for q in (80, *calibrate.LADDER)},
+            "chapter_id": chapters[i % len(chapters)],
+        }
+        for i in range(n)
+    ]
+
+
+@pytest.mark.parametrize(("n", "chapters", "counted", "q"), [(28, (901, 902), 28, 50), (40, (901, 902, 903), 19, 80)])
+@budget(load="pool")
+def test_an_open_group_stored_under_the_3_chapter_rule_fixes_at_the_next_convert(site, n, chapters, counted, q):
+    series_id = site.series()
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples)"
+            " VALUES (%s, 'colour', 80, 0, 'computed', 'open', %s)",
+            (series_id, json.dumps(stored_samples(series_id, n, chapters, counted=counted))),
+        )
+    chapter_id = site.chapter(series_id, pages(3, seed=7))
+    (line,) = converted(site, chapter_id)
+    row = calibration(site, series_id)["colour"]
+    assert (row["fixed"], row["q"]) == (1, q), "the new rule fixes it before the chapter samples"
+    assert line.count(f"calibration: colour fixed at q{q}") == 1, "the chapter that settled the group is noted once"
+
+
+@budget(load="pool")
+def test_a_group_holding_20_samples_of_this_chapter_fixes_at_its_retry(site):
+    series_id = site.series()
+    chapter_id = site.chapter(series_id, pages(3, seed=7))
+    with db.transaction(site.conn):  # samples it added under the 3-chapter rule: it takes no more, picks nothing new
+        site.conn.execute(
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples)"
+            " VALUES (%s, 'colour', 80, 0, 'computed', 'open', %s)",
+            (series_id, json.dumps(stored_samples(series_id, 24, (901, chapter_id), counted=24))),
+        )
+    (line,) = converted(site, chapter_id)
+    assert calibration(site, series_id)["colour"]["fixed"] == 1, "20 samples fix the group, whoever added them"
+    assert line.count("calibration: colour fixed") == 1, "settled by this chapter and holding its samples: 1 line"
 
 
 def calibrated_record(calibration: record_reader.RecordCalibration) -> record_reader.Record:
@@ -420,13 +481,12 @@ def test_choose_follows_the_bulk_converters_rule():
 
     passing = [sample(c % 3, lambda _q: 90.0) for c in range(20)]
     assert calibrate.choose(passing) == (50, "ladder floor q50 passes (20 samples)")
-    assert calibrate.choose(passing[:19]) is None, "fewer than 20 counted samples"
-    two_chapters = [sample(c % 2, lambda _q: 90.0) for c in range(20)]
-    assert calibrate.choose(two_chapters) is None, "samples from fewer than 3 chapters"
-    third_low = [*two_chapters, sample(2, lambda _q: 79.0)]
-    assert calibrate.choose(third_low) is not None, (
-        "a 3rd chapter counts though its samples score under the floor: a group takes no sample past 40, so it "
-        "would otherwise stay open for good"
+    assert calibrate.choose(passing[:19]) is None, "fewer than 20 samples leave the group open"
+    one_chapter = [sample(0, lambda _q: 90.0) for _ in range(20)]
+    assert calibrate.choose(one_chapter) == (50, "ladder floor q50 passes (20 samples)"), "no chapter minimum"
+    one_under = [*passing[:-1], sample(2, lambda _q: 79.0)]
+    assert calibrate.choose(one_under) == (80, "q75 fails: 19 counted < 20 (20 samples)"), (
+        "20 samples fix the group; with fewer than 20 counted it stays at q80"
     )
     one_low = [*passing[:-1], sample(0, lambda q: 90.0 if q >= 70 else 79.0)]
     assert present(calibrate.choose(one_low))[0] == 70, "a sample under the floor at q65 fails that probe"
@@ -989,7 +1049,7 @@ BLANKED_RENDER_EDIT = {
 @budget(load="pool")
 def test_a_blanked_rendered_chapter_of_a_series_whose_open_group_is_full_is_rendered_once(site, monkeypatch):
     series_id = site.series()
-    full = [{"sha1": f"s{i}", "chapter_id": 999, "rendered": True, "bytes_in": 1, "scores": {}} for i in range(40)]
+    full = stored_samples(series_id, 40, (999,), counted=40)
     with db.transaction(site.conn):
         site.conn.execute(
             "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples) "
@@ -1213,6 +1273,22 @@ def test_a_cover_page_a_volume_cover_replaced_is_left_out_of_the_drift_mean(site
     chapter_id = site.chapter(series_id, members)
     add_cover(site, chapter_id, COVER)
     assert not any("quality-drift" in n for n in converted(site, chapter_id)), "the replaced page is not the chapter's"
+
+
+@budget(load="pure")
+def test_layout_claims_name_their_source():
+    assert strip.layout_claims(["Long Strip", "Manga"], "stored") == [
+        ("stored genre", "strip", "Long Strip"),
+        ("stored origin", "pages", "Manga"),
+    ]
+    assert strip.layout_claims(["Manhwa", "Manhua"], "stored") == [], "2 origins: no origin claim"
+
+
+@budget(load="pure")
+def test_page_aspects_differ_to_2_decimals():
+    assert strip.same_aspects([1.421, 1.5], [1.424, 1.5]), "the same to 2 decimals"
+    assert not strip.same_aspects([1.42], [1.435]), "1.42 and 1.44"
+    assert not strip.same_aspects([1.42, 1.5], [1.5, 1.42]), "the order counts: the first is the split's"
 
 
 @budget(load="pure")

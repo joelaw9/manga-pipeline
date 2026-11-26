@@ -894,6 +894,25 @@ def replace_notes(conn: db.Connection, chapter_id: int, prefix: str, notes: Iter
     conn.execute("UPDATE chapter SET notes = %s WHERE id = %s", (json.dumps(merged) if merged else None, chapter_id))
 
 
+DROPPED_BY_PERSON = "dropped by a person"  # the last_error of a chapter `chapter drop` ended
+
+
+def live_page_sizes(conn: db.Connection, series_id: int) -> list[tuple[int, int]]:
+    """Return the page sizes ((width, height), from the page rows, 1 per page) of the series' live chapters.
+
+    Live: open, or published and not dropped by a person: done at publish (a conversion or a better copy ends there)
+    or at confirm (a download). A chapter dropped or closed before publishing is not. Read as 1 row per size.
+    """
+    rows = conn.execute(
+        """SELECT p.width, p.height, count(*) FROM page p JOIN chapter c ON c.id = p.chapter_id
+        WHERE c.series_id = %s AND p.width > 0 AND p.height > 0
+        AND (c.status <> 'done' OR (c.stage IN ('publish', 'confirm') AND c.last_error IS DISTINCT FROM %s))
+        GROUP BY p.width, p.height ORDER BY p.width, p.height""",
+        (series_id, DROPPED_BY_PERSON),
+    ).fetchall()
+    return [(r["width"], r["height"]) for r in rows for _ in range(r["count"])]
+
+
 # The stages at which a person may drop a needs_human chapter: nothing of it is staged or published yet.
 DROPPABLE = ("discover", "validate", "junk")
 
@@ -945,9 +964,9 @@ def drop_chapter(conn: db.Connection, chapter_id: int, record: Callable[[db.Conn
     with db.transaction(conn):
         _refuse_unless_human(conn, chapter_id, _droppable_stages(conn, chapter_id))
         conn.execute(
-            """UPDATE chapter SET status = 'done', last_error = 'dropped by a person', redownload = NULL,
+            """UPDATE chapter SET status = 'done', last_error = %s, redownload = NULL,
                 notes = NULL, updated_at = %s WHERE id = %s""",
-            (now(conn), chapter_id),
+            (DROPPED_BY_PERSON, now(conn), chapter_id),
         )
         record(conn)
 

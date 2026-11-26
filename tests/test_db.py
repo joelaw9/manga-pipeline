@@ -755,6 +755,48 @@ def test_step_0061_refuses_a_download_past_discover_whose_identity_has_no_number
         db.connect(cfg).close()
 
 
+def built_to_0079(tmp_path, monkeypatch, rows):
+    """Return the config of a database built with the steps before 0080, holding series_conversion rows.
+
+    rows: [(origin, layout, page_aspect JSON text or None)], 1 series each.
+    """
+    older = tmp_path / "schema"
+    older.mkdir()
+    for step in SHIPPED.glob("*.sql"):
+        if step.stem < "0080":
+            shutil.copy(step, older)
+    cfg = db_cfg(tmp_path, built=False)
+    monkeypatch.setattr(db, "SCHEMA", older)
+    with closing(db.connect(cfg)) as conn, db.transaction(conn):
+        for n, (origin, layout, aspect) in enumerate(rows, 1):
+            conn.execute("INSERT INTO series (name, origin) VALUES (%s, 'new')", (f"S{n}",))
+            conn.execute(
+                "INSERT INTO series_conversion (series_id, layout, page_aspect, origin) VALUES (%s, %s, %s, %s)",
+                (n, layout, aspect, origin),
+            )
+    monkeypatch.undo()
+    return cfg
+
+
+@budget(BUILD, load="db")
+def test_step_0080_marks_a_records_page_aspect_and_a_computed_one(tmp_path, monkeypatch):
+    rows = [("record", "pages", "[1.5]"), ("computed", "pages", "[1.42]"), ("record", "strip", None)]
+    cfg = built_to_0079(tmp_path, monkeypatch, rows)
+    with closing(db.connect(cfg)) as conn:
+        marks = [r[0] for r in conn.execute("SELECT aspect_origin FROM series_conversion ORDER BY series_id")]
+    assert marks == ["record", "computed", None], (
+        "by the layout's origin, where it is the aspect's too; none with no aspect"
+    )
+
+
+@budget(BUILD, load="db")
+def test_step_0080_refuses_an_override_layout_holding_a_page_aspect(tmp_path, monkeypatch):
+    rows = [("record", "pages", "[1.5]"), ("override", "pages", "[1.5]"), ("override", "strip", None)]
+    cfg = built_to_0079(tmp_path, monkeypatch, rows)
+    with pytest.raises(db.SchemaError, match=r"step 0080_aspect_origin: series 2 hold a page aspect under an override"):
+        db.connect(cfg).close()
+
+
 @budget(load="pure")
 def test_row_reads_as_a_query_row():
     row = db.row(id=4, key="k")
