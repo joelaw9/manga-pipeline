@@ -1366,14 +1366,19 @@ def stored_aspect(site):
     return None if text is None else json.loads(text)
 
 
-def page_series(site, first, origin="computed", aspect=None):
-    """Download chapter 1 (CBZ `first`), run intake, store the series as a page series of this origin and aspect."""
+def page_series(site, first, origin="computed", aspect=None, aspect_origin=None):
+    """Download chapter 1 (CBZ `first`), run intake, store the series as a page series of these origins and aspect.
+
+    origin: the layout's; aspect_origin: the aspect's (computed by default when an aspect is given).
+    """
     site.download("Alpha", 1, first)
     run_part(site.cfg, intake)
+    if aspect is not None and aspect_origin is None:
+        aspect_origin = "computed"
     with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
         conn.execute(
-            "UPDATE series_conversion SET layout = 'pages', origin = %s, page_aspect = %s",
-            (origin, None if aspect is None else json.dumps(aspect)),
+            "UPDATE series_conversion SET layout = 'pages', origin = %s, page_aspect = %s, aspect_origin = %s",
+            (origin, None if aspect is None else json.dumps(aspect), aspect_origin),
         )
 
 
@@ -1402,12 +1407,22 @@ def test_a_dropped_chapters_pages_are_not_counted(site):
     assert stored_aspect(site) == [1.42], "the dropped chapter's 1.5 pages are no candidate"
 
 
-@pytest.mark.parametrize(("origin", "stored", "expected"), [("record", [1.5], [1.5]), ("override", None, [1.42])])
+@pytest.mark.parametrize(
+    ("origin", "stored", "aspect_origin", "expected"),
+    [
+        ("record", [1.5], "record", [1.5]),
+        ("override", [1.5], "record", [1.5]),  # an override file names a layout: the record's aspect still stands
+        ("override", None, None, [1.42]),
+        ("record", [1.5], "computed", [1.42]),  # filled at junk for a record that held none: computed again
+    ],
+)
 @budget(load="db", seconds=20)
-def test_a_records_page_aspect_stands_and_an_overrides_is_filled(site, origin, stored, expected):
-    page_series(site, sized_cbz((100, 142), 6, seed=1), origin=origin, aspect=stored)
+def test_a_records_page_aspect_stands_whatever_the_layouts_origin(site, origin, stored, aspect_origin, expected):
+    page_series(site, sized_cbz((100, 142), 6, seed=1), origin=origin, aspect=stored, aspect_origin=aspect_origin)
     run_part(site.cfg, process)
     assert stored_aspect(site) == expected
+    computed = site.rows("SELECT aspect_origin FROM series_conversion")
+    assert computed == [("record" if expected == stored and aspect_origin == "record" else "computed",)]
 
 
 @budget(load="db", seconds=20)
