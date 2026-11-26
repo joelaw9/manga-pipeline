@@ -316,15 +316,17 @@ def series_rename(cfg: config.Config, args: argparse.Namespace, conn: db.Connect
     try:
         rename.apply(ctx, planned, outcome)
     except BaseException:
-        if outcome.renamed or outcome.moved:  # Kavita must read what was done; the rerun finishes the rest
-            with contextlib.suppress(*rename.KAVITA_ERRORS):
-                ctx.kavita.scan_library(cfg["kavita"]["library_id"])
+        # Kavita must read what was done (a series stopped part way too: its files may be rewritten); the rerun
+        # finishes the rest
+        with contextlib.suppress(*rename.KAVITA_ERRORS):
+            ctx.kavita.scan_library(cfg["kavita"]["library_id"])
         raise
     _lines(f"{p.line()}: done" for p in outcome.renamed)
     _lines(rename.only_lines(cfg, outcome.renamed))
     behind = rename.wait_for_kavita(ctx, outcome.moved, args.wait) if outcome.renamed or outcome.moved else []
     for p in behind:
         outcome.leave(f"series {p.series['id']}: Kavita has not followed its folder to {p.target}")
+    rename.finish_names(ctx, outcome, behind)
     if outcome.left:
         msg = f"{len(outcome.left)} series not done (listed above)"
         raise rename.RenameError(msg)

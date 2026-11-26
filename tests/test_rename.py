@@ -7,6 +7,7 @@ import copy
 import errno
 import sys
 from contextlib import closing
+from pathlib import Path
 
 import pytest
 
@@ -52,11 +53,17 @@ def checked(world, english, romaji=None, **where):
 
 
 def renamed(world, *ids):
-    """Plan and apply a rename of the series (all due ones without ids) as the command does; return (done, left)."""
+    """Rename the series (all due ones without ids) as the command does; return (done, left).
+
+    Kavita runs each scan the wait requests, so it follows each moved folder before the localized names are given
+    (the wait gives up after about 1 s: a series Kavita does not follow keeps its old name as its localized name).
+    """
     outcome = rename.Outcome()
     with closing(db.connect(world.cfg)) as conn:
         ctx = world.context(conn, "export")
         rename.apply(ctx, rename.check(ctx, rename.read_db(world.cfg, conn, list(ids) or None)), outcome)
+        behind = rename.wait_for_kavita(ctx, outcome.moved, 0.02, sleep=lambda _s: world.kavita.run_scans())
+        rename.finish_names(ctx, outcome, behind)
     return outcome.renamed, outcome.left
 
 
@@ -107,6 +114,18 @@ def test_a_series_is_renamed_in_kavita_then_its_files_and_folder_and_keeps_its_k
 
 
 @budget(load="db", seconds=10)
+def test_a_name_held_only_by_its_folder_is_renamed_as_kavita_allows(world):
+    sid = checked(world, "Solo Leveling", romaji="Ore Dake Level Up")
+    kid, _ = kavita(world, sid)
+    world.kavita.series_rows[kid].update(localizedName="Ore Dake Level Up", originalName="Na Honjaman")
+    done, left = renamed(world, sid)
+    assert (left, [p.series["id"] for p in done]) == ([], [sid]), (
+        "Kavita refuses to drop a name its folder carries unless the localized name holds it: written first"
+    )
+    assert kavita(world, sid) == (kid, ("Solo Leveling", "Ore Dake Level Up", True, True))
+
+
+@budget(load="db", seconds=10)
 def test_a_series_whose_name_is_right_gets_only_its_folder_renamed(world):
     sid = checked(world, "Solo Leveling", name="Solo Leveling", folder="Solo Leveling (old)")
     before = files(world, "Solo Leveling (old)")
@@ -114,7 +133,9 @@ def test_a_series_whose_name_is_right_gets_only_its_folder_renamed(world):
     done, _ = renamed(world)
     assert [p.series["id"] for p in done] == [sid]
     assert files(world, "Solo Leveling") == before, "files untouched"
-    assert len(world.kavita.writes) == writes, "no Kavita write for a folder rename"
+    assert [w for w in world.kavita.writes[writes:] if w[0] != "scan_library"] == [], (
+        "no Kavita write for a folder rename"
+    )
     assert world.rows("SELECT folder FROM series") == [("library/Solo Leveling",)]
 
 
@@ -251,7 +272,7 @@ def test_a_kavita_refusal_lists_the_series_and_the_run_goes_on(world, monkeypatc
 
 
 @budget(load="db", seconds=10)
-def test_a_kavita_refusal_after_the_folder_moved_stores_the_folder_and_the_next_run_finishes(world, monkeypatch):
+def test_a_kavita_refusal_of_the_localized_name_after_the_folder_moved_is_finished_by_the_next_run(world, monkeypatch):
     sid = checked(world, "Solo Leveling", romaji="Ore Dake Level Up")
     real, calls = world.kavita.rename_series, []
 
@@ -264,13 +285,16 @@ def test_a_kavita_refusal_after_the_folder_moved_stores_the_folder_and_the_next_
     with monkeypatch.context() as m:
         m.setattr(world.kavita, "rename_series", second_call_fails)
         done, left = renamed(world, sid)
-    assert (done, len(left)) == ([], 1), "listed"
-    assert world.rows("SELECT folder, comicinfo_series FROM series") == [("library/Solo Leveling", "Ore Dake")], (
-        "the moved folder is stored, the names are not: still due"
-    )
+    assert ([p.series["id"] for p in done], len(left)) == ([sid], 1), "renamed, its localized name listed"
+    assert "localized name not set" in left[0]
+    assert world.rows("SELECT folder, comicinfo_series, localized_name FROM series") == [
+        ("library/Solo Leveling", "Ore Dake", "Ore Dake")
+    ], "the folder is stored; the old name stays the localized and the stored ComicInfo name, so it is still due"
+    assert kavita(world, sid)[1][:2] == ("Solo Leveling", "Ore Dake"), "as Kavita holds it"
     done, left = renamed(world, sid)
     assert ([p.series["id"] for p in done], left) == ([sid], []), "the next run finishes"
     assert kavita(world, sid)[1][:2] == ("Solo Leveling", "Ore Dake Level Up")
+    assert world.rows("SELECT localized_name FROM series") == [("Ore Dake Level Up",)]
 
 
 @budget(load="db", seconds=10)
@@ -495,3 +519,45 @@ def test_status_tests_a_romaji_against_series_out_of_series_only(world):
     lines = status.run(cfg)
     section = lines[lines.index("Series names waiting for series rename:") + 1 :]
     assert section == ["  none"], "the romaji another series of the library holds is left out, as series rename does"
+
+
+@pytest.mark.parametrize("denials", [1, 2])
+@budget(load="db", seconds=10)
+def test_a_folder_rename_the_share_denies_is_tried_once_more(world, monkeypatch, denials):
+    sid = checked(world, "Solo Leveling")
+    real, tries, waits = Path.rename, [], []
+
+    def denied(self, target):
+        tries.append(self.name)
+        if len(tries) <= denials:
+            raise PermissionError(13, "Access is denied")
+        return real(self, target)
+
+    monkeypatch.setattr(rename.time, "sleep", waits.append)
+    monkeypatch.setattr(Path, "rename", denied)
+    if denials == 1:
+        done, left = renamed(world, sid)
+        assert ([p.series["id"] for p in done], left) == ([sid], [])
+        assert waits[0] == rename.FOLDER_RETRY_SECONDS, "1 pause before the 2nd try"
+        assert (world.library / "Solo Leveling").is_dir(), "renamed on the 2nd try"
+    else:
+        with pytest.raises(PermissionError):
+            renamed(world, sid)
+        assert tries == ["Ore Dake", "Ore Dake"], "tried twice, then the share error ends the run"
+
+
+@budget(load="db", seconds=10)
+def test_a_series_with_no_romanized_name_kavita_has_not_followed_is_finished_by_the_next_run(world):
+    sid = checked(world, "Solo Leveling")
+    outcome = rename.Outcome()
+    with closing(db.connect(world.cfg)) as conn:
+        ctx = world.context(conn, "export")
+        rename.apply(ctx, rename.check(ctx, rename.read_db(world.cfg, conn, [sid])), outcome)
+        rename.finish_names(ctx, outcome, outcome.moved)  # Kavita has not followed: nothing given
+    assert world.rows("SELECT comicinfo_series, localized_name FROM series") == [("Ore Dake", "Ore Dake")]
+    done, left = renamed(world)
+    assert ([p.series["id"] for p in done], left) == ([sid], []), "the next run finishes it"
+    assert world.rows("SELECT comicinfo_series, localized_name FROM series") == [("Solo Leveling", None)], (
+        "the old name no longer the localized name: a series with no romanized name is not left with it"
+    )
+    assert kavita(world, sid)[1][:2] == ("Solo Leveling", "")

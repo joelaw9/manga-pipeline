@@ -3,9 +3,10 @@
 `read_db` reads the run's series from the database (in the caller's snapshot); `check` then reads Kavita, the override
 files and every file and decides each series' plan, writing nothing. `apply` renames each planned series in turn:
 Kavita's name first (the files' old name kept as its localized name, so both match 1 series), the files, the folder,
-Kavita's localized name, then 1 transaction (when no file changes, Kavita's names come before the folder).
-`wait_for_kavita` requests 1 library scan and waits until Kavita follows each moved folder. `waiting` is status' list,
-from the stored names.
+then 1 transaction (when no file changes, Kavita's names come before the folder). `wait_for_kavita` requests 1 library
+scan and waits until Kavita follows each moved folder; `finish_names` then gives each renamed series its localized
+name (Kavita refuses to drop the old name while it lists the files in the folder that name named; a series whose
+folder did not move gets it before its transaction). `waiting` is status' list, from the stored names.
 """
 
 import logging
@@ -13,7 +14,7 @@ import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from manga_pipeline import archive, comicinfo, config, db, errors, names, retention, rewrite, volumes, workflow
 from manga_pipeline.clients import http
@@ -27,6 +28,8 @@ from manga_pipeline.replies.kavita import Series
 log = logging.getLogger(__name__)
 RESCAN_MINUTES = 10  # a scan requested while one runs does not work: request again this often
 POLL_SECONDS = 30
+# A folder rename the share denies right after the folder's files were rewritten is tried again once, after this
+FOLDER_RETRY_SECONDS = 10
 # A series a rename may act on: status ok, Kavita holds it, a folder, its check completed, a baseline or admitted new.
 ELIGIBLE = sql.SQL("""(s.status = 'ok' AND s.kavita_series_id IS NOT NULL AND s.folder IS NOT NULL
     AND (s.baseline_at IS NOT NULL OR s.origin = 'new')
@@ -116,10 +119,15 @@ class Run:
 
 @dataclass
 class Outcome:
-    """What `apply` did so far: the series renamed, those whose folder moved (waited for), the lines of the rest."""
+    """What `apply` did so far.
+
+    The series renamed, those whose folder moved (waited for), those whose localized name waits for Kavita to follow
+    their folder (finish_names), the lines of the rest.
+    """
 
     renamed: list[Planned] = field(default_factory=list[Planned])
     moved: list[Planned] = field(default_factory=list[Planned])
+    localized: list[Planned] = field(default_factory=list[Planned])
     left: list[str] = field(default_factory=list[str])
 
     def leave(self, line: str) -> None:
@@ -453,8 +461,8 @@ def apply(ctx: workflow.Context, planned: Sequence[Planned], outcome: Outcome) -
 def _rename(ctx: workflow.Context, one: Planned, outcome: Outcome) -> None:
     """Rename 1 series, recording it in outcome.
 
-    A failure before the folder rename leaves the rows as they are; after it, the folder and file rows are stored (the
-    names not: the next run finds the names still due and finishes).
+    Kavita is written only before the folder moves (a moved series' localized name waits for finish_names), so a
+    Kavita refusal leaves the rows as they are: the next run finds the series still due and finishes.
     """
     cfg, kavita, sid = ctx.cfg, ctx.kavita, one.series["id"]
     before = one.kavita or {}
@@ -466,7 +474,6 @@ def _rename(ctx: workflow.Context, one: Planned, outcome: Outcome) -> None:
         before.get("sortName"),
         one.series["folder"],
     )
-    moved = False
     name, localized = one.kavita_name(), one.localized()
     written = one.name_changes or one.due.localized
     try:
@@ -477,22 +484,38 @@ def _rename(ctx: workflow.Context, one: Planned, outcome: Outcome) -> None:
         for path in one.rewrite:
             _rewrite_file(cfg, path, one.chosen)
         if one.folder != one.target:
-            old, new = config.to_local(cfg, one.folder), config.to_local(cfg, one.target)
-            old.rename(new)
+            _rename_folder(config.to_local(cfg, one.folder), config.to_local(cfg, one.target))
         moved = one.series["folder"] != one.target
-        if one.due.files:
+        if one.due.files and not moved:
             _kavita_names(kavita, one, name, localized)
     except (*KAVITA_ERRORS, _LeftError) as e:
         outcome.leave(f"series {sid}: not renamed: {e}")
-        if moved:
-            _store(cfg, ctx.conn, one, None)
-            outcome.moved.append(one)
         return
-    _store(cfg, ctx.conn, one, (name, localized))
+    # Until Kavita follows the folder the old name stays Kavita's localized name, and the stored ComicInfo.xml name
+    # stays the old one: the series is still due (its files), so a run that stops before finish_names is finished by
+    # the next one, also for a series with no romanized name.
+    later = one.due.files and moved
+    old = one.series["comicinfo_series"] or ""
+    _store(cfg, ctx.conn, one, (name, old, old) if later else (name, localized, one.chosen.name))
     outcome.renamed.append(one)
     if moved:
         outcome.moved.append(one)
+    if later:
+        outcome.localized.append(one)
     log.info("series %s: renamed: %s", sid, one.line())
+
+
+def _rename_folder(old: Path, new: Path) -> None:
+    """Rename a series folder; denied (PermissionError), it is tried once more after FOLDER_RETRY_SECONDS.
+
+    The share has denied the rename right after the folder's files were rewritten and allowed it seconds later.
+    """
+    try:
+        old.rename(new)
+    except PermissionError as e:
+        log.warning("%s: rename denied (%s); tried again in %d s", old, e, FOLDER_RETRY_SECONDS)
+        time.sleep(FOLDER_RETRY_SECONDS)
+        old.rename(new)
 
 
 def _kavita_names(kavita: Kavita, one: Planned, name: str, localized: str) -> None:
@@ -526,11 +549,11 @@ def _rewrite_file(cfg: config.Config, stored: str, chosen: series_name.Chosen) -
     part.replace(file)
 
 
-def _store(cfg: config.Config, conn: db.Connection, one: Planned, names_: tuple[str, str] | None) -> None:
+def _store(cfg: config.Config, conn: db.Connection, one: Planned, names_: tuple[str, str, str]) -> None:
     """Write the rename's rows in 1 transaction.
 
-    Its folder and file paths, the recorded sizes of its files on disk and, with names_ (Kavita's name, localized
-    name), the series' and its files' names.
+    Its folder and file paths, the recorded sizes of its files on disk, the series' names (names_: Kavita's name,
+    localized name and the series' ComicInfo.xml name) and, when they were rewritten, its files' names.
     """
     sid, target = one.series["id"], one.target
     sizes = [
@@ -541,12 +564,10 @@ def _store(cfg: config.Config, conn: db.Connection, one: Planned, names_: tuple[
         if target != one.series["folder"]:
             folder_rows(conn, sid, one.series["folder"], target)
         db.executemany(conn, "UPDATE published_file SET size = %s WHERE library_path = %s", sizes)
-        if names_ is None:
-            return
-        kavita_name, localized = names_
+        kavita_name, localized, comicinfo_name = names_
         conn.execute(
             "UPDATE series SET name = %s, comicinfo_series = %s, localized_name = %s WHERE id = %s",
-            (kavita_name, one.chosen.name, localized or None, sid),
+            (kavita_name, comicinfo_name, localized or None, sid),
         )
         if one.due.files:
             conn.execute("UPDATE published_file SET comicinfo_series = %s WHERE series_id = %s", (one.chosen.name, sid))
@@ -609,6 +630,31 @@ def wait_for_kavita(
     except KAVITA_ERRORS as e:
         log.warning("Kavita did not answer during the wait: %s", e)
     return waiting_
+
+
+def finish_names(ctx: workflow.Context, outcome: Outcome, behind: Sequence[Planned]) -> None:
+    """Give each series of outcome.localized whose folder Kavita follows its localized name, read back; store it.
+
+    The series' ComicInfo.xml name is then stored as the new name. A series Kavita has not followed (behind), or whose
+    write Kavita refuses, keeps the old name as its localized and stored ComicInfo.xml name: still due, the next
+    `series rename` finishes it.
+    """
+    waiting_ = {p.series["id"] for p in behind}
+    for one in outcome.localized:
+        sid = one.series["id"]
+        if sid in waiting_:
+            continue
+        try:
+            _kavita_names(ctx.kavita, one, one.kavita_name(), one.localized())
+        except (*KAVITA_ERRORS, _LeftError) as e:
+            outcome.leave(f"series {sid}: localized name not set: {e}")
+            continue
+        with db.transaction(ctx.conn):
+            ctx.conn.execute(
+                "UPDATE series SET comicinfo_series = %s, localized_name = %s WHERE id = %s",
+                (one.chosen.name, one.localized() or None, sid),
+            )
+        log.info("series %s: localized name %r given", sid, one.localized())
 
 
 def _followed(ctx: workflow.Context, one: Planned) -> bool:

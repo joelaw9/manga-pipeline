@@ -29,7 +29,7 @@ import posixpath
 import xml.etree.ElementTree as ET
 import zipfile
 
-from manga_pipeline.clients import kavita
+from manga_pipeline.clients import http, kavita
 from manga_pipeline.clients.kavita_match import normalize, series_names
 
 from tests.fakes.http import NoNetwork
@@ -110,9 +110,40 @@ class FakeKavita(kavita.Kavita):
         self.metadata_rows[metadata["seriesId"]] = metadata
 
     def update_series(self, series, **changes):
+        """As Kavita: the series as sent, after Kavita's guard against orphaned files.
+
+        A change of the name, then of the localized name, is refused (HTTP 400) when the name it drops names a folder
+        of the series' files and the series' other stored names (name or localized, and original) do not hold it.
+        """
         self._asked("update_series")
+        row = self.series_rows[series["id"]]
+        for field, other, text in (
+            (
+                "name",
+                "localizedName",
+                b'"Changing this name would split files that are currently merged into this series"',
+            ),
+            (
+                "localizedName",
+                "name",
+                b'"Changing this localized name would split files that are currently merged into this series"',
+            ),
+        ):
+            if field in changes and self._orphans(series["id"], row.get(field), changes[field], row.get(other), row):
+                raise http.HttpError(400, "https://kavita.test/api/Series/update", text)
+            if field == "name" and "name" in changes:
+                row = {**row, "name": changes["name"]}  # the localized name's check sees the name as changed
         self.writes.append(("series", series["id"], dict(changes)))
         self.series_rows[series["id"]].update(changes)
+
+    def _orphans(self, series_id, dropped, proposed, other, row):
+        dropped = normalize(dropped or "")
+        if not dropped or dropped == normalize(proposed or ""):
+            return False
+        if dropped in (normalize(other or ""), normalize(row.get("originalName") or "")):
+            return False
+        segments = {s for path, f in self.files.items() if f["series"] == series_id for s in path.split("/")[:-1]}
+        return any(normalize(s) == dropped for s in segments)
 
     def upload_cover(self, series_id, image):
         self._asked("upload_cover")
@@ -188,8 +219,18 @@ class FakeKavita(kavita.Kavita):
         top = self.library_folders[library_id]
         on_disk = [self._kavita_path(folder) for folder, _, _ in os.walk(self.local_path(top))]
         indexed = [p.rpartition("/")[0] for p in self.files if p.startswith(top + "/")]
-        for folder in sorted({*on_disk, *indexed}):
+        # a folder renamed only in case: its files are the new folder's (a case-insensitive disk still opens the old)
+        by_case = {d.lower(): d for d in on_disk}
+        recased = {f: by_case[f.lower()] for f in indexed if f not in on_disk and f.lower() in by_case}
+        for folder in sorted({*on_disk, *indexed} - set(recased)):
             before = {path: self.files.pop(path) for path in [*self.files] if path.rpartition("/")[0] == folder}
+            before.update(
+                {
+                    folder + "/" + path.rpartition("/")[2]: self.files.pop(path)
+                    for path in [*self.files]
+                    if recased.get(path.rpartition("/")[0]) == folder
+                }
+            )
             for path in self._cbz_in(folder):
                 name, localized = _names_in(self.local_path(path), folder.rpartition("/")[2])
                 series_id = self._series_named(library_id, name, localized)
