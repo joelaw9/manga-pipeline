@@ -18,6 +18,7 @@ import contextlib
 import hashlib
 import itertools
 import json
+import math
 import os
 import shutil
 import time
@@ -43,19 +44,23 @@ type Decided = strip_units.StripDecision
 NEW_ROW = 10**12  # the proposed decision's id in a decide: the newest of all (the bulk converter's NEW_ROW)
 NEW_ADDED = "9999-12-31T23:59:59+00:00"  # its decided_at there (NEW_ADDED)
 # D7: the scanned chapters checked besides the named or picked ones: the most recent by chapter id; the rest are
-# counted "not checked". Plan phase-10-21 step 2's timing (1 proposal within 2 minutes) sets the value.
-CHECKED_RECENT = 20
+# counted "not checked". Plan phase-10-21 step 2's timing: +0.06 s per checked chapter, 1 proposal within 2 minutes;
+# the largest series held 205 scans.
+CHECKED_RECENT = 200
 CONTEXT = 300  # strip rows shown above and below a proposal sheet's range, or a span sheet's candidate unit
 SHEET_W = 400  # proposal sheet width (px)
-GREEN, BLUE, ORANGE, RED = (0, 170, 0), (0, 90, 255), (255, 140, 0), (220, 0, 0)
+GREEN, BLUE, ORANGE, RED, GREY = (0, 170, 0), (0, 90, 255), (255, 140, 0), (220, 0, 0), (128, 128, 128)
 COLOUR: dict[Kind, Colour] = {"cut": GREEN, "keep": BLUE}
 DIGEST_HEX = 16  # hex digits of a digest
 SCRATCH = "junk-cut"  # <paths.scratch>/junk-cut/<pid>/: a call's sheets (outside a review) and its pages (x/)
 SCRATCH_AGE = 86400  # s: an earlier call's scratch folder older than this is removed at the next call
 RULER_W = 64  # span sheet: the row ruler's column (px), a row number every RULER_STEP rows
 RULER_STEP = 100
-LABEL_W = 300  # span sheet: the span labels' column (px), in LABEL_LANES lanes so near spans' labels do not overlap
+# span sheet: the span labels' column is LABEL_LANES lanes (so near spans' labels do not overlap), then 1 lane of the
+# removed ranges' labels; a label's bar lies BAR_X into its lane, its text LABEL_X, LABEL_PAD px left after it
 LABEL_LANES = 3
+BAR_X, LABEL_X, LABEL_PAD = 4, 9, 4
+WASH = 0.5  # span sheet: a removed row's pixels blended this far toward GREY
 FONT_PX = 14
 TOKEN_PARTS = 3  # CHAPTER:START:END
 REGION_ARGS = 2  # --spans CHAPTER head|tail
@@ -556,9 +561,13 @@ class Piece(NamedTuple):
 
 
 class Version(NamedTuple):
-    """1 version built from a chapter's named ranges: its chapter, side, anchor seed, segments and JSON value."""
+    """1 version built from a chapter's named ranges.
+
+    Its chapter, its ranges as snapped, side, anchor seed, segments and JSON value.
+    """
 
     chapter: int
+    ranges: list[Named]
     side: Side
     anchor: an.Seed
     pieces: list[Piece]
@@ -701,13 +710,29 @@ def _version(h: Hand, ranges: Sequence[Named], key: str, *, inside: bool) -> Ver
         "ref": [[key, str(s.row["id"]), sd["pos"]]],
         "src": {"file": PurePosixPath(s.row["download_path"]).name, "sha256": s.row["content_digest"]},
     }
-    return Version(s.row["id"], side, sd, pieces, value)
+    return Version(s.row["id"], snapped, side, sd, pieces, value)
+
+
+def _already_removed(h: Hand, v: Version) -> list[str]:
+    """Return a clause per named cut range (as snapped) the decide without the proposal already removes.
+
+    Already removed: at most 1 gutter of its rows lies outside the merged removed ranges.
+    """
+    removed = an.merged((r["start"], r["end"]) for r in h.before["removed"])
+    g = strip_units.gutter(h.strip.layout.width)
+    out: list[str] = []
+    for n in (n for n in v.ranges if n.kind == "cut" and an.hits(n.start, n.end, removed)):
+        if sum(b - a for a, b in an.uncovered(n.start, n.end, removed)) <= g:
+            by = ", ".join(f"{a}:{b}" for a, b in removed if an.hits(a, b, [(n.start, n.end)]))
+            out.append(f"rows {n.start}:{n.end} are already removed (removed {by})")
+    return out
 
 
 def _own_check(h: Hand, v: Version, inp: Inputs) -> None:
     """Refuse a version that matches nowhere in its own chapter over its named cut pieces (as snapped).
 
-    The version is tried alone, overlap extension and its cap included.
+    The version is tried alone, overlap extension and its cap included. The refusal names the named cut ranges already
+    removed (_already_removed).
     """
     alone = _cut_decision(inp, chains.text({v.side: [v.value]}), "human", credit=False)
     got = _decide(h.strip, _rules(inp, alone))
@@ -717,7 +742,7 @@ def _own_check(h: Hand, v: Version, inp: Inputs) -> None:
         msg = f"chapter {h.strip.row['id']}: the version matches nowhere in its own chapter over its named pieces" + (
             f" ({'; '.join(new)})" if new else ""
         )
-        raise workflow.Refused(msg)
+        raise workflow.Refused("; ".join([msg, *_already_removed(h, v)]))
 
 
 # ---------------------------------------------------------------- plans
@@ -987,45 +1012,121 @@ def _named_sheets(p: Plan, checked: Checked, dest: Path) -> list[Path]:
     return out
 
 
-def _span_sheets(s: Strip, window: strip.Rows, seeds: Sequence[an.Seed], dest: Path, stem: str) -> list[Path]:
-    """Write the span sheets of strip rows `window`; return their paths.
+def lane_widths(height: int) -> tuple[int, int]:
+    """Return a span sheet's label lane width and its removed lane's, for a strip `height` rows long.
+
+    Each fits its longest label (START:END, `removed START:END`) after LABEL_X, with LABEL_PAD px to spare.
+    """
+    font = _font()
+
+    def fit(label: str) -> int:
+        return LABEL_X + math.ceil(font.getlength(label)) + LABEL_PAD
+
+    return fit(f"{height}:{height}"), fit(f"removed {height}:{height}")
+
+
+class SheetPage(NamedTuple):
+    """1 span sheet: strip rows [a, b) drawn `scale` times, `height` px tall."""
+
+    a: int
+    b: int
+    scale: float
+    height: int
+
+    def y(self, row: int) -> int:
+        """Return a strip row's y on the sheet (its last row for a row past the end)."""
+        return min(self.height - 1, round((row - self.a) * self.scale))
+
+    def bottom(self, end: int) -> int:
+        """Return the y of the last sheet row a range ending at strip row `end` covers (at most the last row)."""
+        return round((min(end, self.b) - self.a) * self.scale) - 1
+
+    def last_text(self) -> int:
+        """Return the lowest y a label's top may take and still show whole on the sheet."""
+        return max(0, self.height - FONT_PX - 2)
+
+    def shows(self, rows: strip.Rows) -> bool:
+        """Return whether strip rows [x, y) lie partly on this sheet."""
+        return rows[1] > self.a and rows[0] < self.b
+
+
+def _washed(im: Image.Image, pg: SheetPage, removed: Sequence[strip.Rows]) -> Image.Image:
+    """Return a sheet's strip image with the removed rows blended WASH toward GREY."""
+    for x, y in (r for r in removed if pg.shows(r)):
+        top, bottom = round((max(x, pg.a) - pg.a) * pg.scale), round((min(y, pg.b) - pg.a) * pg.scale)
+        if bottom > top:
+            box = (0, top, im.width, bottom)
+            part = im.crop(box)
+            im.paste(Image.blend(part, Image.new("RGB", part.size, GREY), WASH), box[:2])
+    return im
+
+
+def _ruler(draw: ImageDraw.ImageDraw, pg: SheetPage, font: ImageFont.FreeTypeFont | ImageFont.ImageFont) -> None:
+    for r in range(-(-pg.a // RULER_STEP) * RULER_STEP, pg.b, RULER_STEP):
+        draw.line((RULER_W - 12, pg.y(r), RULER_W - 1, pg.y(r)), fill="black")
+        draw.text((2, max(0, pg.y(r) - FONT_PX // 2)), str(r), fill="black", font=font)
+
+
+def _span_labels(draw: ImageDraw.ImageDraw, pg: SheetPage, spans: Sequence[strip.Rows], left: int, lane: int) -> None:
+    """Label each span on the sheet START:END in blue, in lanes from x `left`, `lane` px wide."""
+    font = _font()
+    for k, (x0, x1) in enumerate(spans):
+        if not pg.shows((x0, x1)):
+            continue
+        x = left + (k % LABEL_LANES) * lane
+        top = pg.y(max(x0, pg.a))
+        draw.line((x + BAR_X, top, x + BAR_X, max(top, pg.bottom(x1))), fill=BLUE, width=3)
+        draw.text((x + LABEL_X, min(top, pg.last_text())), f"{x0}:{x1}", fill=BLUE, font=font)
+
+
+def _removed_labels(draw: ImageDraw.ImageDraw, pg: SheetPage, removed: Sequence[strip.Rows], left: int) -> None:
+    """Label each removed range on the sheet `removed START:END` in grey, in its lane at x `left`.
+
+    A label starts below the one before it, so the labels of near ranges do not overlap, and never below the sheet's
+    last text line, so it is always readable.
+    """
+    font, below = _font(), 0
+    for x0, x1 in (r for r in removed if pg.shows(r)):
+        top = pg.y(max(x0, pg.a))
+        draw.line((left + BAR_X, top, left + BAR_X, max(top, pg.bottom(x1))), fill=GREY, width=3)
+        at = min(max(top, below), pg.last_text())
+        draw.text((left + LABEL_X, at), f"removed {x0}:{x1}", fill=GREY, font=font)
+        below = at + FONT_PX + 2
+
+
+def _span_sheets(s: Strip, window: strip.Rows, decided: Decided, dest: Path, stem: str) -> list[Path]:
+    """Write the span sheets of strip rows `window` as `decided` (the decide without a proposal) leaves it.
 
     Each at most groups.SHEET_LONG_EDGE long and groups.SHEET_PIXELS, with a row ruler, every span labelled START:END
-    (END exclusive: the range to name), the seeds given marked in red (one at the window's end on its last row).
+    (END exclusive: the range to name), the rows removed (merged) washed grey and labelled `removed START:END`, the
+    seeds in the window marked in red (one at the window's end on its last row). Return their paths.
     """
     lo, hi = window
-    scale = min(1.0, (groups.SHEET_LONG_EDGE - RULER_W - LABEL_W) / s.layout.width)
+    lane, removed_lane = lane_widths(s.layout.height)
+    labels = LABEL_LANES * lane + removed_lane
+    scale = min(1.0, (groups.SHEET_LONG_EDGE - RULER_W - labels) / s.layout.width)
     img_w = max(1, round(s.layout.width * scale))
-    sheet_w = RULER_W + img_w + LABEL_W
+    sheet_w = RULER_W + img_w + labels
     per = max(1, int(min(groups.SHEET_LONG_EDGE, groups.SHEET_PIXELS // sheet_w) / scale))
+    seeds = _in_window(decided["seeds"], window)
+    removed = an.merged((r["start"], r["end"]) for r in decided["removed"])
     font = _font()
     out: list[Path] = []
     starts = list(range(lo, hi, per))
     for n, a in enumerate(starts, 1):
         b = min(hi, a + per)
-        height = max(1, round((b - a) * scale))
-        sheet = Image.new("RGB", (sheet_w, height), "white")
-        sheet.paste(s.render(a, b).convert("RGB").resize((img_w, height)), (RULER_W, 0))
+        pg = SheetPage(a, b, scale, max(1, round((b - a) * scale)))
+        sheet = Image.new("RGB", (sheet_w, pg.height), "white")
+        sheet.paste(_washed(s.render(a, b).convert("RGB").resize((img_w, pg.height)), pg, removed), (RULER_W, 0))
         draw = ImageDraw.Draw(sheet)
-
-        def y(row: int, a: int = a, height: int = height) -> int:
-            return min(height - 1, round((row - a) * scale))
-
-        for r in range(-(-a // RULER_STEP) * RULER_STEP, b, RULER_STEP):
-            draw.line((RULER_W - 12, y(r), RULER_W - 1, y(r)), fill="black")
-            draw.text((2, max(0, y(r) - FONT_PX // 2)), str(r), fill="black", font=font)
-        lane_w = LABEL_W // LABEL_LANES
-        for k, (x0, x1) in enumerate(s.layout.spans):
-            if x1 <= a or x0 >= b:
-                continue
-            left = RULER_W + img_w + (k % LABEL_LANES) * lane_w + 4
-            draw.line((left, y(max(x0, a)), left, max(y(max(x0, a)), y(min(x1, b)) - 1)), fill=BLUE, width=3)
-            draw.text((left + 5, max(0, y(max(x0, a)))), f"{x0}:{x1}", fill=BLUE, font=font)
+        _ruler(draw, pg, font)
+        _span_labels(draw, pg, s.layout.spans, RULER_W + img_w, lane)
+        _removed_labels(draw, pg, removed, RULER_W + img_w + LABEL_LANES * lane)
         last = n == len(starts)
         for sd in (sd for sd in seeds if a <= sd["pos"] < b or (last and sd["pos"] == b)):
-            draw.line((RULER_W, y(sd["pos"]), RULER_W + img_w - 1, y(sd["pos"])), fill=RED, width=2)
+            draw.line((RULER_W, pg.y(sd["pos"]), RULER_W + img_w - 1, pg.y(sd["pos"])), fill=RED, width=2)
             label = f"seed {sd['side']} {sd['pos']} ({sd['kind']})"
-            draw.text((RULER_W + 4, max(0, y(sd["pos"]) - FONT_PX - 2)), label, fill=RED, font=font)
+            draw.text((RULER_W + 4, max(0, pg.y(sd["pos"]) - FONT_PX - 2)), label, fill=RED, font=font)
         path = dest / f"{stem}-{n}.png"
         images.save_png(sheet, path)
         out.append(path)
@@ -1085,7 +1186,8 @@ def _candidate_spans(cfg: config.Config, candidate: int, review_id: str | None, 
     if not units:
         msg = f"junk candidate {candidate}: no unit of chapter {s.row['id']} matches its key"
         raise workflow.Refused(msg)
-    seeds = _decide(s, _rules(inp))["seeds"]
+    decided = _decide(s, _rules(inp))
+    seeds = decided["seeds"]
     dest = _sheet_folder(cfg, review_id, work)
     lines = [f"chapter {s.row['id']}: candidate {candidate}'s units, {s.layout.height} rows"]
     for a, b in units:
@@ -1094,7 +1196,7 @@ def _candidate_spans(cfg: config.Config, candidate: int, review_id: str | None, 
         window = (max(0, a - CONTEXT), min(s.layout.height, b + CONTEXT))
         lines += [f"unit {a}:{b}", _seed_line("above", above), _seed_line("below", below)]
         stem = f"spans-{s.row['id']}-{a}-{b}"
-        lines += [f"sheet: {p}" for p in _span_sheets(s, window, _in_window(seeds, window), dest, stem)]
+        lines += [f"sheet: {p}" for p in _span_sheets(s, window, decided, dest, stem)]
     return lines
 
 
@@ -1104,9 +1206,8 @@ def _region_spans(cfg: config.Config, chapter: int, region: str, review_id: str 
         inp = _inputs(conn, _series_of(conn, [chapter], review_id), [chapter])
     s = _named_strip(cfg, inp, chapter, work)
     window = an.region_bounds(s.layout.height, region, strip_units.EDGE_PX)
-    seeds = _in_window(_decide(s, _rules(inp))["seeds"], window)
     dest = _sheet_folder(cfg, review_id, work)
-    sheets = _span_sheets(s, window, seeds, dest, f"spans-{chapter}-{region}")
+    sheets = _span_sheets(s, window, _decide(s, _rules(inp)), dest, f"spans-{chapter}-{region}")
     return [f"chapter {chapter}: {region} rows {window[0]}:{window[1]} of {s.layout.height}"] + [
         f"sheet: {p}" for p in sheets
     ]
