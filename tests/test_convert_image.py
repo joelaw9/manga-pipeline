@@ -418,27 +418,80 @@ def test_crop_and_join_render_numbered_avif_pages(tmp_path):
         assert im.size == (96, 168), "the sliver is joined under its page"
 
 
+def same_pixels(a, b):
+    """Return whether the 2 image files hold the same pixels."""
+    return pages.pixels_match(Path(a).read_bytes(), Path(b).read_bytes(), "exact")[0]
+
+
 @budget(load="pool")
-def test_a_rendered_chapter_whose_avif_fails_goes_out_untouched_without_a_reshape(tmp_path):
+def test_a_rendered_chapter_whose_avif_fails_goes_out_as_its_rendered_pages_lossless(tmp_path):
     fake.SCORE[0] = lambda _ref, _dec: 70.0
     ch = Chapter(
         tmp_path,
         [("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour((96, 40), seed=7))), ("003.jpg", jpeg(colour(seed=8)))],
     )
     rec = ch.run(ch.plan({**NO_EDIT, "bands": [{"page": 2, "box": [0, 0, 96, 100]}], "join": [[0, 1]]}))
-    assert rec["outcome"] == "untouched"
+    assert rec["outcome"] == "lossless", "A4: a rendered chapter is never published as its original pages"
     assert "scored 70.0" in present(rec.get("avif_rejected"))
-    assert "reshape" not in rec, "a rendered attempt that was rejected leaves no reshape"
-    assert [o["name"] for o in rec["output"]] == ["001.jpg", "002.jpg", "003.jpg"], "the original pages, unedited"
+    assert rec.get("reshape") == {"kind": "rejoin", "pages_in": 3, "pages_out": 2}
+    assert [o["name"] for o in rec["output"]] == ["001.png", "002.png"], "the rendered pages, joined"
+    assert all(same_pixels(ch.rendered_dir / n, ch.out / n) for n in ("001.png", "002.png")), "the render's pixels"
 
 
 @budget(load="pool")
-def test_a_rendered_chapter_failing_the_floor_keeps_its_original_pages_minus_drops(tmp_path):
+def test_a_dropped_and_banded_chapter_whose_avif_fails_keeps_its_drop_and_its_crop(tmp_path):
     fake.SCORE[0] = lambda _ref, _dec: 50.0
     ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour(seed=9))), ("003.jpg", jpeg(gray()))])
     rec = ch.run(ch.plan({**NO_EDIT, "drop_pages": [2], "bands": [{"page": 0, "box": [0, 0, 96, 64]}]}))
-    assert rec["outcome"] == "untouched"
-    assert [o["name"] for o in rec["output"]] == ["001.jpg", "002.jpg"]
+    assert rec["outcome"] == "lossless"
+    assert [o["name"] for o in rec["output"]] == ["001.png", "002.png"], "the dropped page stays out"
+    with Image.open(ch.out / "001.png") as im:
+        assert im.height < 128, "the band stays cropped"
+    assert same_pixels(ch.rendered_dir / "001.png", ch.out / "001.png")
+
+
+@budget(load="pool")
+def test_a_strip_chapter_whose_avif_fails_goes_out_restitched_without_its_removed_rows(tmp_path):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    tall = [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=i))) for i in range(1, 4)]
+    ch = Chapter(tmp_path, [("000_cover.jpg", jpeg(colour((200, 300), seed=9))), *tall])
+    removed = [{"start": 3900, "end": 4200, "why": "match", "decision": 9, "hash": SIG}]
+    p = ch.plan({**NO_EDIT, "strip_removed": removed}, layout="strip")
+    rec = ch.run(p)
+    names = [o["name"] for o in rec["output"]]
+    assert rec["outcome"] == "lossless"
+    assert names[0] == "000_cover.png", "the cover page stays first"
+    assert len(names) == len(p.render), "the rendered pages, not the 4 source slices"
+    heights = [Image.open(ch.out / n).height for n in names[1:]]
+    assert sum(heights) == 3900, "the strip without its removed rows"
+    assert present(rec.get("reshape"))["kind"] == "restitch"
+
+
+@budget(load="pool")
+def test_a_split_chapter_whose_avif_fails_goes_out_split(tmp_path):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    ch = Chapter(tmp_path, [("001.jpg", jpeg(colour((100, 280)))), ("002.jpg", jpeg(colour((100, 280), seed=3)))])
+    rec = ch.run(ch.plan({**NO_EDIT, "split": True}, page_aspect=[1.4]))
+    assert rec["outcome"] == "lossless"
+    assert len(rec["output"]) == 4, "2 stitched pages of 2 pages each"
+    assert present(rec.get("reshape"))["kind"] == "split"
+
+
+@pytest.mark.parametrize(("cls", "mode"), [(images.GRAY, "L"), (images.GRAY_MARK, "RGB"), (images.TINTED, "RGB")])
+@budget(load="pool")
+def test_a_rendered_lossless_page_is_grayed_only_when_its_class_is_gray(tmp_path, cls, mode):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    ch = Chapter(tmp_path, [("001.jpg", jpeg(gray().convert("RGB"))), ("002.jpg", jpeg(gray(seed=4).convert("RGB")))])
+    p = ch.plan({**NO_EDIT, "bands": [{"page": 0, "box": [0, 0, 96, 64]}]})
+    p = dataclasses.replace(p, render=[{**r, "class": cls} for r in p.render])
+    assert image.output_gray(p, present(p.outcomes.avif), []), (
+        "an AVIF page of a gray, gray-mark or tinted class: 4:0:0"
+    )
+    rec = ch.run(p)
+    assert rec["outcome"] == "lossless"
+    with Image.open(ch.out / "001.png") as im:
+        assert im.mode == mode, "a rendered page's class is its sources': only a gray one is grayed"
+    assert rec["gray"] is (cls == images.GRAY)
 
 
 @budget(load="pool")
@@ -639,6 +692,16 @@ def test_a_rendered_chapter_is_rendered_from_its_blanked_page(tmp_path):
     assert rec["outcome"] == "avif"
     assert rec["blanked"] == ["001.jpg"]
     assert filled(ch.rendered_dir / "001.png"), "the render reads the blanked page"
+
+
+@budget(load="pool")
+def test_a_rendered_chapter_whose_avif_fails_keeps_its_logo_blanked(tmp_path):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour(seed=4)))])
+    rec = ch.run(ch.plan({**BLANK, "bands": [{"page": 0, "box": [0, 0, 96, 100]}]}))
+    assert rec["outcome"] == "lossless"
+    assert rec["blanked"] == ["001.jpg"], "a rendered lossless outcome applies the blanks"
+    assert filled(ch.out / "001.png"), "the logo stays blanked"
 
 
 @budget(load="pool")

@@ -14,12 +14,14 @@ import pathlib
 import re
 import zipfile
 from contextlib import closing
+from datetime import datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import archive, config, db, errors, images, page_store, process, workflow
+from manga_pipeline import archive, config, db, errors, images, page_store, process, status, workflow
 from manga_pipeline.convert import calibrate, check, covers, image, record_reader
 from manga_pipeline.stages import convert
 
@@ -231,21 +233,22 @@ def test_the_post_check_names_what_is_wrong(tmp_path):
     rec: check.Staged = {
         "outcome": "untouched",
         "gate": None,
+        "edits": "drops",
         "cover": None,
         "lossless": {},
         "scores": {},
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}, {"name": "002.jpg", "sha1": archive.sha1(b)}],
     }
     kept: list[check.SourceBytes] = [{"bytes": len(a)}, {"bytes": len(b)}]
-    assert check.check(staged(tmp_path, [("001.jpg", a), ("002.jpg", b)]), rec, tmp_path, kept) == []
-    assert any("page-count" in f for f in check.check(staged(tmp_path, [("001.jpg", a)]), rec, tmp_path, kept))
-    swapped = check.check(staged(tmp_path, [("001.jpg", b), ("002.jpg", a)]), rec, tmp_path, kept)
+    assert check.check(staged(tmp_path, [("001.jpg", a), ("002.jpg", b)]), rec, kept) == []
+    assert any("page-count" in f for f in check.check(staged(tmp_path, [("001.jpg", a)]), rec, kept))
+    swapped = check.check(staged(tmp_path, [("001.jpg", b), ("002.jpg", a)]), rec, kept)
     assert "page-content-mismatch" in swapped
-    extra = check.check(staged(tmp_path, [("001.jpg", a), ("002.jpg", b), ("notes.txt", b"x")]), rec, tmp_path, kept)
+    extra = check.check(staged(tmp_path, [("001.jpg", a), ("002.jpg", b), ("notes.txt", b"x")]), rec, kept)
     assert any(f.startswith("unexpected-files") for f in extra)
-    wrong_ext = check.check(staged(tmp_path, [("001.png", a), ("002.jpg", b)]), rec, tmp_path, kept)
+    wrong_ext = check.check(staged(tmp_path, [("001.png", a), ("002.jpg", b)]), rec, kept)
     assert any("extension-mismatch: 001.png" in f for f in wrong_ext)
-    broken = check.check(staged(tmp_path, [("001.jpg", a[:40]), ("002.jpg", b)]), rec, tmp_path, kept)
+    broken = check.check(staged(tmp_path, [("001.jpg", a[:40]), ("002.jpg", b)]), rec, kept)
     assert any("undecodable-page: 001.jpg" in f for f in broken)
 
 
@@ -255,12 +258,13 @@ def test_the_post_check_holds_avif_scores_lossless_pixels_and_size(tmp_path):
     avif: check.Staged = {
         "outcome": "avif",
         "gate": "floor+size",
+        "edits": "drops",
         "lossless": {},
         "scores": {},
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    fails = check.check(staged(tmp_path, [("001.jpg", a)]), avif, tmp_path, [{"bytes": 1}])
+    fails = check.check(staged(tmp_path, [("001.jpg", a)]), avif, [{"bytes": 1}])
     assert "score-missing: 001.jpg" in fails
     assert "mixed-formats: JPEG" in fails
     assert any(f.startswith("output-larger-than-input") for f in fails), "page bytes above the source pages'"
@@ -268,13 +272,35 @@ def test_the_post_check_holds_avif_scores_lossless_pixels_and_size(tmp_path):
     lossless: check.Staged = {
         "outcome": "lossless",
         "gate": None,
-        "lossless": {"001.jpg": {"source": "001.jpg", "mode": "exact"}},
+        "edits": "drops",
+        "lossless": {"001.jpg": {"source": str(tmp_path / "001.jpg"), "mode": "exact"}},
         "scores": {},
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    fails = check.check(staged(tmp_path, [("001.jpg", a)]), lossless, tmp_path, [{"bytes": 10**6}])
+    fails = check.check(staged(tmp_path, [("001.jpg", a)]), lossless, [{"bytes": 10**6}])
     assert fails == ["lossless-mismatch (exact): 001.jpg"]
+
+
+@budget(load="pool")
+def test_the_post_check_compares_a_rendered_lossless_page_with_its_render_and_skips_the_size_rule(tmp_path):
+    render = tmp_path / "render"
+    render.mkdir()
+    (render / "001.png").write_bytes(png(colour()))
+    altered = colour()
+    altered.putpixel((0, 0), (0, 0, 0))
+    data = png(altered)
+    rec: check.Staged = {
+        "outcome": "lossless",
+        "gate": None,
+        "edits": "all",
+        "lossless": {"001.png": {"source": str(render / "001.png"), "mode": "exact"}},
+        "scores": {},
+        "cover": None,
+        "output": [{"name": "001.png", "sha1": archive.sha1(data)}],
+    }
+    fails = check.check(staged(tmp_path, [("001.png", data)]), rec, [{"bytes": 1}])
+    assert fails == ["lossless-mismatch (exact): 001.png"], "checked against the render; no size rule on rendered pages"
 
 
 @budget(load="pool")
@@ -286,12 +312,13 @@ def test_the_post_check_refuses_a_deflated_archive(tmp_path):
     rec: check.Staged = {
         "outcome": "untouched",
         "gate": None,
+        "edits": "drops",
         "lossless": {},
         "scores": {},
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    assert check.check(path, rec, tmp_path, [{"bytes": len(a)}]) == ["not-store-mode"]
+    assert check.check(path, rec, [{"bytes": len(a)}]) == ["not-store-mode"]
 
 
 # ---------------------------------------------------------------- calibration
@@ -432,6 +459,21 @@ def test_a_split_chapter_is_split_at_its_series_page_aspect(site):
     assert json.loads(chapter(site.conn, split_id)["convert_result"])["pages_out"] == 2
 
 
+@budget(load="pool")
+def test_a_strip_chapter_whose_avif_fails_is_published_restitched_and_lossless(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    tall = [(f"{i:03d}.jpg", jpeg(colour((200, 1400), seed=i))) for i in range(1, 4)]
+    members = [("000_cover.jpg", jpeg(colour((200, 300), seed=9))), *tall]
+    edit = {**NO_EDIT, "strip_removed": [{"start": 3900, "end": 4200, "why": "credits"}]}
+    chapter_id = site.chapter(site.series(layout="strip"), members, edit=edit)
+    result, out = staged_result(site, chapter_id)
+    assert result["outcome"] == "lossless", "A4: never the original slices with their junk"
+    assert result["reshape"]["kind"] == "restitch"
+    assert result["avif_rejected"], "why the AVIF was rejected"
+    assert out[0]["name"] == "000_cover.png"
+    assert sum(p["height"] for p in out[1:]) == 3900, "the strip without its removed 300 rows"
+
+
 def unit(sha1) -> calibrate.Unit:
     """Return a calibration unit of this sha1; its other fields are placeholders."""
     return {
@@ -469,27 +511,27 @@ def test_the_post_check_names_a_low_score_folders_and_an_ambiguous_order(tmp_pat
     rec: check.Staged = {
         "outcome": "avif",
         "gate": "floor",
+        "edits": "drops",
         "cover": None,
         "lossless": {},
         "scores": {"001.avif": 79.5},
         "output": [{"name": "001.avif", "sha1": archive.sha1(avif)}],
     }
-    assert check.check(staged(tmp_path, [("001.avif", avif)]), rec, tmp_path, []) == ["score-below-min: 001.avif 79.50"]
-    nested = check.check(
-        staged(tmp_path, [("a/001.avif", avif)]), {**rec, "scores": {"a/001.avif": 90.0}}, tmp_path, []
-    )
+    assert check.check(staged(tmp_path, [("001.avif", avif)]), rec, []) == ["score-below-min: 001.avif 79.50"]
+    nested = check.check(staged(tmp_path, [("a/001.avif", avif)]), {**rec, "scores": {"a/001.avif": 90.0}}, [])
     assert "nested-entries" in nested
     a, b, c = (jpeg(colour(seed=s)) for s in (1, 2, 3))
     names = [("1.jpg", a), ("2.jpg", b), ("10.jpg", c)]
     rec = {
         "outcome": "untouched",
         "gate": None,
+        "edits": "drops",
         "cover": None,
         "lossless": {},
         "scores": {},
         "output": [{"name": n, "sha1": archive.sha1(d)} for n, d in names],
     }
-    fails = check.check(staged(tmp_path, names), rec, tmp_path, [])
+    fails = check.check(staged(tmp_path, names), rec, [])
     assert fails == ["page-order-ambiguous: natural and lexical order differ"]
 
 
@@ -519,12 +561,13 @@ def test_a_luma_check_on_a_colour_page_is_done_exactly(tmp_path):
     rec: check.Staged = {
         "outcome": "lossless",
         "gate": None,
-        "lossless": {"001.jpg": {"source": "001.jpg", "mode": "luma"}},
+        "edits": "drops",
+        "lossless": {"001.jpg": {"source": str(tmp_path / "001.jpg"), "mode": "luma"}},
         "scores": {},
         "cover": None,
         "output": [{"name": "001.jpg", "sha1": archive.sha1(a)}],
     }
-    fails = check.check(staged(tmp_path, [("001.jpg", a)]), rec, tmp_path, [{"bytes": len(a)}])
+    fails = check.check(staged(tmp_path, [("001.jpg", a)]), rec, [{"bytes": len(a)}])
     assert fails == ["luma-check-on-colour-page: 001.jpg"], "a colour page may not be compared in luma only"
 
 
@@ -782,6 +825,21 @@ def test_a_cover_page_already_there_is_replaced(site):
 
 
 @budget(load="pool")
+def test_a_rendered_chapter_whose_avif_fails_takes_the_cover_as_png_in_place_of_its_cover_page(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0  # every AVIF fails: the cover's too
+    members = [("000_cover.jpg", jpeg(colour(seed=5))), *pages(2)]
+    edit = {**NO_EDIT, "bands": [{"page": 1, "box": [0, 0, 96, 64]}]}
+    chapter_id = site.chapter(site.series(), members, edit=edit)
+    add_cover(site, chapter_id, COVER)
+    result, out = staged_result(site, chapter_id)
+    assert result["outcome"] == "lossless"
+    assert [p["name"] for p in out] == ["000_cover.png", "001.png", "002.png"], "the cover replaces the cover page"
+    assert result["cover"]["format"] == "PNG", "the rendered pages' format"
+    assert result["pages_out"] == 3
+    assert result["cover_skipped"] is None
+
+
+@budget(load="pool")
 def test_a_lossless_chapter_takes_the_cover_as_jpeg(site):
     fake.SCORE[0] = lambda _ref, _dec: 50.0  # every AVIF fails: the cover's too
     chapter_id = site.chapter(site.series(), pages(2))
@@ -1029,3 +1087,282 @@ def test_a_forced_avif_that_fails_goes_out_untouched_without_the_cover(site):
     assert (result["route"], result["outcome"]) == ("avif", "untouched")
     assert len(out) == 2
     assert result["cover_skipped"] == "its untouched pages (JPEG, PNG) share no cover format"
+
+
+# ---------------------------------------------------------------- convert notes (R15) and the status bound (D7)
+
+
+def listed(site, chapter_id):
+    """Return the notes status lists for the chapter ([] when it lists none)."""
+    head = f"  chapter {chapter_id} ("
+    return [line.split("): ", 1)[1] for line in status.report(site.conn) if line.startswith(head)]
+
+
+def converted(site, chapter_id):
+    """Run convert on the chapter, record its outcome and return the notes status lists for it."""
+    outcome = site.run(chapter_id)
+    assert isinstance(outcome, workflow.Done), outcome
+    site.record(outcome)
+    return listed(site, chapter_id)
+
+
+@budget(load="pool")
+def test_a_rejected_avif_is_noted_with_what_was_published(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    chapter_id = site.chapter(site.series(), [("001.jpg", jpeg(colour())), ("002.png", png(colour(seed=3)))])
+    (line,) = converted(site, chapter_id)
+    assert "convert: AVIF rejected (page " in line, "why the AVIF was rejected"
+    assert "published lossless" in line
+    assert "convert: lossless chapter stays mixed-format: JPEG+PNG" in line, "R15: mixed-format lossless"
+
+
+@budget(load="pool")
+def test_a4_is_noted_with_its_rendered_pages(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    edit = {**NO_EDIT, "bands": [{"page": 0, "box": [0, 0, 96, 64]}]}
+    chapter_id = site.chapter(site.series(), [("001.jpg", jpeg(colour())), ("002.png", png(colour(seed=3)))], edit)
+    (line,) = converted(site, chapter_id)
+    assert "published its rendered pages lossless" in line
+    assert "mixed-format" not in line, "rendered pages are all PNGs"
+
+
+@budget(load="pool")
+def test_a_group_scoring_low_at_its_calibrated_quality_is_noted_as_drift(site):
+    fake.SCORE[0] = lambda _ref, _dec: 82.0  # passes the floor, under the mean 85 - 2
+    series_id = site.series()
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples)"
+            " VALUES (%s, 'colour', 75, 1, 'computed', 'test', '[]')",
+            (series_id,),
+        )
+    (line,) = converted(site, site.chapter(series_id, pages(2)))
+    assert "convert: quality-drift: colour AVIF mean score 82.0 < 83 at q75" in line
+
+
+@budget(load="pool")
+def test_an_irregular_split_image_is_noted(site):
+    edit = {**NO_EDIT, "split": True}
+    chapter_id = site.chapter(site.series("T", aspect=[1.4]), [("001.jpg", jpeg(colour((100, 330))))], edit=edit)
+    (line,) = converted(site, chapter_id)
+    assert "convert: split: 1 irregular image(s): 001.jpg" in line, "2.36 pages tall: off the snap window"
+
+
+@budget(load="pool")
+def test_a_staged_file_under_10_percent_of_its_download_is_noted(site):
+    noise = Image.fromarray(np.random.default_rng(1).integers(0, 255, (900, 900, 3), dtype=np.uint8), "RGB")
+    members = [("001.jpg", jpeg(colour())), ("002.png", png(noise))]
+    (line,) = converted(site, site.chapter(site.series(), members, {**NO_EDIT, "drop_pages": [1]}))
+    assert "convert: staged file " in line
+    assert "< 10% of the download's" in line
+
+
+@budget(load="pool")
+def test_an_untouched_flag_mix_is_noted(site):
+    members = [("001.jpg", jpeg(colour())), ("002.gif", encoded(colour(seed=3), "GIF"))]
+    (line,) = converted(site, site.chapter(site.series(), members))
+    assert "convert: untouched-flag: formats GIF+JPEG mixed" in line
+
+
+@budget(load="pool")
+def test_a_jpeg_of_another_chroma_subsampling_is_noted(site, monkeypatch):
+    monkeypatch.setattr(images, "odd_jpeg_chroma", lambda _data: True)  # Pillow writes no 4:4:0 JPEG
+    members = [("001.jpg", encoded(colour(), "JPEG", quality=92, subsampling=0))]
+    (line,) = converted(site, site.chapter(site.series(), members))
+    assert "convert: JPEG chroma subsampling encoded as 4:4:4: 001.jpg" in line
+
+
+@budget(load="pool")
+def test_a_cover_page_a_volume_cover_replaced_is_no_chroma_note(site, monkeypatch):
+    monkeypatch.setattr(images, "odd_jpeg_chroma", lambda _data: True)
+    full = {"quality": 92, "subsampling": 0}
+    members = [
+        ("000_cover.jpg", encoded(colour(seed=5), "JPEG", **full)),
+        ("001.jpg", encoded(colour(), "JPEG", **full)),
+    ]
+    chapter_id = site.chapter(site.series(), members)
+    add_cover(site, chapter_id, COVER)
+    (line,) = converted(site, chapter_id)
+    assert "convert: JPEG chroma subsampling encoded as 4:4:4: 001.jpg" in line, "the replaced 000_cover is not named"
+
+
+@budget(load="pool")
+def test_odd_chroma_is_noted_only_for_colour_pages_of_an_avif_outcome(site, monkeypatch):
+    monkeypatch.setattr(images, "odd_jpeg_chroma", lambda _data: True)
+    full = {"quality": 92, "subsampling": 0}
+    gray_rgb = [("001.jpg", encoded(gray().convert("RGB"), "JPEG", **full))]
+    found = converted(site, site.chapter(site.series("G"), gray_rgb))
+    assert not any("chroma" in n for n in found), "a gray page encodes 4:0:0"
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    colour_jpeg = [("001.jpg", encoded(colour(), "JPEG", **full))]
+    found = converted(site, site.chapter(site.series("L"), colour_jpeg))
+    assert not any("chroma" in n for n in found), "a lossless page keeps its own subsampling"
+
+
+@budget(load="pool")
+def test_a_cover_page_a_volume_cover_replaced_is_left_out_of_the_drift_mean(site):
+    series_id = site.series()
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples)"
+            " VALUES (%s, 'colour', 75, 1, 'computed', 'test', '[]')",
+            (series_id,),
+        )
+    fake.SCORE[0] = lambda ref, _dec: 80.0 if "000_cover" in Path(ref).name else 84.0  # the pages' mean is 84
+    members = [("000_cover.jpg", jpeg(colour(seed=5))), *pages(2)]
+    chapter_id = site.chapter(series_id, members)
+    add_cover(site, chapter_id, COVER)
+    assert not any("quality-drift" in n for n in converted(site, chapter_id)), "the replaced page is not the chapter's"
+
+
+@budget(load="pure")
+def test_a_4_4_0_jpeg_header_is_an_odd_chroma():
+    data = bytearray(encoded(colour(), "JPEG", quality=92, subsampling=0))
+    sof = data.index(b"\xff\xc0")
+    assert data[sof + 11] == 0x11, "4:4:4: the luma component samples 1x1"
+    assert not images.odd_jpeg_chroma(bytes(data))
+    data[sof + 11] = 0x12  # luma 1x2: 4:4:0
+    assert images.odd_jpeg_chroma(bytes(data)), "4:4:0 is no subsampling avifenc keeps"
+    assert not images.odd_jpeg_chroma(jpeg(gray())), "a gray JPEG has no chroma"
+
+
+@budget(load="pool")
+def test_animated_pages_converted_for_a_volume_cover_are_noted(site):
+    frames = [colour(seed=1).convert("P"), colour(seed=2).convert("P")]
+    gif = encoded(frames[0], "GIF", save_all=True, append_images=frames[1:])
+    chapter_id = site.chapter(site.series(), [("001.gif", gif)])
+    add_cover(site, chapter_id, COVER)
+    (line,) = converted(site, chapter_id)
+    assert "convert: animated pages converted to 1 frame for the volume cover: 001.gif" in line
+
+
+@budget(load="pool")
+def test_the_chapter_that_fixes_a_calibration_group_is_noted(site):
+    series_id = site.series()
+    lines = [converted(site, site.chapter(series_id, pages(8, seed=s))) for s in range(1, 4)]
+    fixing = [line for found in lines for line in found if "calibration: colour fixed at q" in line]
+    assert len(fixing) == 1, "1 chapter fixes the group, and only it is noted"
+    assert "; samples of chapters " in fixing[0], "the chapters its samples came from"
+
+
+@budget(load="pool")
+def test_a_retried_chapter_that_fixed_its_group_is_still_noted(site, monkeypatch):
+    series_id = site.series()
+    for s in (1, 2):
+        converted(site, site.chapter(series_id, pages(8, seed=s)))
+    third = site.chapter(series_id, pages(8, seed=3))
+    real, failed = check.check, []
+
+    def first_fails(*args):
+        if not failed:  # the fixing attempt fails after its samples are stored
+            failed.append(1)
+            return ["forced"]
+        return real(*args)
+
+    monkeypatch.setattr(check, "check", first_fails)
+    with pytest.raises(RuntimeError, match="forced"):
+        site.run(third)
+    assert calibration(site, series_id)["colour"]["fixed"] == 1, "the failed attempt fixed the group"
+    (line,) = converted(site, third)
+    assert "calibration: colour fixed at q" in line, "the retry of the fixing chapter writes its note"
+
+
+def specks():
+    """Return a gray page with 2 faint colour specks, each split across the 8 px colour tiles: it classes gray.
+
+    A crop of 1 to 7 rows lines them up with the tiles: the cropped page classes colour (2 marks are no badge).
+    """
+    a = np.full((256, 96, 3), 200, np.uint8)
+    for y in (4, 204):
+        a[y : y + 8, 4:12] = (240, 160, 200)  # spread 80: 20 per tile when split 4 ways
+    return a
+
+
+@budget(load="pool")
+def test_a_gray_rendered_page_that_classes_colour_after_its_crop_is_kept_exact(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    page = specks()
+    classify = images.classify
+    assert classify(page, images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)[0] == images.GRAY
+    assert classify(page[4:], images.COLOUR_BLOCK, images.TINT_P99, images.MARK_LIMITS)[0] == images.COLOUR
+    members = [("001.png", png(Image.fromarray(page, "RGB"))), ("002.png", png(gray(seed=4).convert("RGB")))]
+    edit = {**NO_EDIT, "bands": [{"page": 0, "box": [0, 4, 96, 256]}]}  # the region kept: 4 rows cut
+    result, out = staged_result(site, site.chapter(site.series(), members, edit))
+    assert result["outcome"] == "lossless", "the post-check passes: the page is kept colour, compared exactly"
+    assert result["gray"] is False, "BlackAndWhite: a page kept in colour is not gray"
+    assert out[0]["height"] == 252
+
+
+@budget(load="pool")
+def test_a_page_a_volume_cover_replaced_counts_in_no_note(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    members = [
+        ("000_cover.jpg", jpeg(colour(seed=5))),
+        ("001.png", png(colour(seed=1))),
+        ("002.png", png(colour(seed=2))),
+    ]
+    chapter_id = site.chapter(site.series(), members)
+    add_cover(site, chapter_id, COVER)
+    (line,) = converted(site, chapter_id)
+    assert "published lossless" in line
+    assert "mixed-format" not in line, "the replaced JPEG cover page is not a page of the staged file"
+
+
+@budget(load="pool")
+def test_a_chapter_whose_only_page_a_volume_cover_replaced_gets_no_mixed_format_note(site):
+    # the volume cover's AVIF passes (work/cover), the chapter's own page's fails (work/encode): it goes out lossless
+    fake.SCORE[0] = lambda ref, _dec: 50.0 if "encode" in Path(ref).parts else 90.0
+    chapter_id = site.chapter(site.series(), [("000_cover.png", png(colour(seed=5)))])
+    add_cover(site, chapter_id, COVER)
+    found = converted(site, chapter_id)
+    result = json.loads(chapter(site.conn, chapter_id)["convert_result"])
+    assert (result["outcome"], result["cover"]["format"]) == ("lossless", "AVIF"), "the cover replaced the only page"
+    assert not any("mixed-format" in line for line in found), "no page of its own is left: no format to list"
+
+
+@budget(load="pool")
+def test_an_animated_page_of_a_rendered_chapter_is_no_cover_note(site):
+    edit = {**NO_EDIT, "bands": [{"page": 0, "box": [0, 0, 96, 64]}]}
+    members = [("001.jpg", jpeg(colour())), ("002.gif", encoded(colour(seed=3), "GIF"))]
+    found = converted(site, site.chapter(site.series(), members, edit))
+    assert not any("volume cover" in line for line in found), "only a volume cover's force_avif is noted"
+
+
+@budget(load="pool")
+def test_a_retried_convert_replaces_its_notes_and_keeps_junks(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    chapter_id = site.chapter(site.series(), [("001.jpg", jpeg(colour())), ("002.png", png(colour(seed=3)))])
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "UPDATE chapter SET notes = %s WHERE id = %s",
+            (json.dumps(["rest of card mixed: piece 1", "convert: an old note"]), chapter_id),
+        )
+    site.record(site.run(chapter_id))
+    kept = json.loads(chapter(site.conn, chapter_id)["notes"])
+    assert kept[0] == "rest of card mixed: piece 1", "junk's note stays"
+    assert "convert: an old note" not in kept, "convert's earlier notes are replaced"
+    assert any(n.startswith("convert: AVIF rejected") for n in kept)
+
+
+@budget(load="db")
+def test_notes_of_another_prefix_are_refused(site):
+    chapter_id = site.chapter(site.series(), pages(1))
+    with pytest.raises(ValueError, match="not starting with"), db.transaction(site.conn):
+        workflow.replace_notes(site.conn, chapter_id, "convert: ", ["junk: x"])
+
+
+@budget(load="db")
+def test_status_lists_done_chapters_notes_of_the_last_7_days_and_counts_older_ones(site):
+    series_id = site.series()
+    old, recent, open_ = (site.chapter(series_id, pages(1)) for _ in range(3))
+    now = datetime.fromisoformat(db.now(site.conn))
+    with db.transaction(site.conn):
+        for chapter_id, days, state in ((old, 8, "done"), (recent, 1, "done"), (open_, 30, "ready")):
+            site.conn.execute(
+                "UPDATE chapter SET notes = %s, status = %s, updated_at = %s WHERE id = %s",
+                (json.dumps([f"note {chapter_id}"]), state, (now - timedelta(days=days)).isoformat(), chapter_id),
+            )
+    assert listed(site, old) == [], "a done chapter updated 8 days ago is not listed"
+    assert listed(site, recent) == [f"note {recent}"]
+    assert listed(site, open_) == [f"note {open_}"], "an open chapter is listed however old"
+    assert "  1 done chapter(s) with notes, updated over 7 days ago: not listed" in status.report(site.conn)

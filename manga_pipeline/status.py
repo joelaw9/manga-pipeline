@@ -15,6 +15,7 @@ from manga_pipeline.junk import candidates
 
 TITLES_SHOWN_DAYS = 30  # status lists the series titles changed at the sources this many days back
 REFILL_DAYS = 7  # status reports the junk refill over this many days back
+NOTES_SHOWN_DAYS = 7  # status lists the notes of done chapters updated this many days back; older ones are counted
 
 
 def run(cfg: config.Config) -> list[str]:
@@ -293,16 +294,26 @@ def _redownloads(conn: db.Connection) -> list[str]:
 
 
 def _notes(conn: db.Connection) -> list[str]:
+    """Return the chapter notes: every open chapter's, and a done chapter's updated in the window; count the rest."""
     lines = ["Chapter notes:"]
+    since = (datetime.fromisoformat(db.now(conn)) - timedelta(days=NOTES_SHOWN_DAYS)).isoformat()
     rows = conn.execute(
         """SELECT c.id, c.identity, c.notes, s.name FROM chapter c JOIN series s ON s.id = c.series_id
-        WHERE c.notes IS NOT NULL ORDER BY c.id"""
+        WHERE c.notes IS NOT NULL AND (c.status <> 'done' OR c.updated_at >= %s) ORDER BY c.id""",
+        (since,),
     ).fetchall()
     lines += [
         f"  chapter {r['id']} ({r['name']} / {r['identity']}): {'; '.join(workflow.read_notes(r['notes']))}"
         for r in rows
     ]
-    if not rows:
+    older = db.one_row(
+        conn,
+        "SELECT count(*) FROM chapter WHERE notes IS NOT NULL AND status = 'done' AND updated_at < %s",
+        (since,),
+    )[0]
+    if older:
+        lines.append(f"  {older} done chapter(s) with notes, updated over {NOTES_SHOWN_DAYS} days ago: not listed")
+    if not rows and not older:
         lines.append("  none")
     return lines
 

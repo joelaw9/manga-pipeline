@@ -5,15 +5,16 @@ not drift from the bulk converter's), the page workers, the scorer and the tool 
 
 process_chapter tries the plan's outcomes in order; a measured failure (the SSIMULACRA2 floor after the q90 retry, the
 AVIF size gate) moves to the next:
-- rendered pages (crops, joins, split, strip): AVIF, floor only; else the original pages minus drops.
+- rendered pages (crops, joins, split, strip): AVIF, floor only; else the rendered pages lossless.
 - JPEG / PNG / lossless WebP: AVIF (q90 retry per page) under floor + size gate; else the lossless path.
 - mixed with lossy WebP: AVIF under both gates; else untouched. Lossy WebP / GIF / AVIF / JXL: untouched.
 Gray, tinted and gray-mark pages encode 4:0:0 (scored against the gray version); colour pages keep their source's
 chroma; a colour JPEG the plan marked jpeg_feed is fed to avifenc as is. The lossless path grays gray and gray-mark
-JPEG / PNG pages (a JPEG only when jpegtran can: jpeg_gray); a lossless WebP passes through.
-Logo blanks (the plan's edits["blank"]) apply to the AVIF outcomes only: blank_pages writes each blanked page as a PNG,
-which the AVIF pages outcome encodes (and scores against) in place of the page, and which sources() puts in place of
-the page for the render. Lossless and untouched outcomes never blank.
+JPEG / PNG pages (a JPEG only when jpegtran can: jpeg_gray), and of a rendered chapter's PNGs only the gray ones; a
+lossless WebP passes through.
+Logo blanks (the plan's edits["blank"]) apply to the AVIF outcomes and to a rendered chapter's lossless outcome:
+blank_pages writes each blanked page as a PNG, which the AVIF pages outcome encodes (and scores against) in place of the
+page, and which sources() puts in place of the page for the render. Other lossless and untouched outcomes never blank.
 
 Work files go to the work folder the caller gives (inside the chapter's scratch folder), never elsewhere.
 """
@@ -40,7 +41,7 @@ SPEED = 6
 SCORE_FLOOR = 80  # SSIMULACRA2, rounded to 2 decimals
 MAX_SIZE_RATIO = 0.90  # page route: AVIF total bytes at most this share of the source pages' bytes
 RENDERED_FMT = "RENDERED"  # task format of a rendered PNG page
-LOSSLESS_GRAY = (images.GRAY, images.GRAY_MARK)  # the lossless path drops their colour channels
+LOSSLESS_GRAY = (images.GRAY, images.GRAY_MARK)  # the lossless path drops their colour channels (kept pages only)
 
 
 class PageTask(TypedDict):
@@ -92,7 +93,10 @@ class AvifPage(plan.PageClass):
 
 
 class LosslessTask(TypedDict):
-    """1 page for the lossless path: its source, output and work folder, format, class and jpeg_gray."""
+    """1 page for the lossless path: its source, output and work folder, format, class, jpeg_gray and grayable.
+
+    grayable: whether its class lets the path gray it (a JPEG only when jpeg_gray too).
+    """
 
     src: str
     out: str
@@ -100,6 +104,7 @@ class LosslessTask(TypedDict):
     fmt: str
     cls: str
     jpeg_gray: bool
+    grayable: bool
 
 
 class LosslessJob(LosslessTask):
@@ -109,9 +114,13 @@ class LosslessJob(LosslessTask):
 
 
 class LosslessPage(plan.PageClass):
-    """A lossless page's record: its name, format, bytes in and out, its pixel check (verify) and whether it grayed."""
+    """A lossless page's record.
+
+    Its name, its source file (src), format, bytes in and out, its pixel check (verify) and whether it grayed.
+    """
 
     name: str
+    src: str
     fmt: str
     bytes_in: int
     bytes_out: int
@@ -135,7 +144,7 @@ class OutputPage(TypedDict):
 
 
 class LosslessSource(TypedDict):
-    """A lossless output page's source page name and the pixel check it passed ("exact" or "luma")."""
+    """A lossless output page's source file (its path) and the pixel check it passed ("exact" or "luma")."""
 
     source: str
     mode: str
@@ -420,17 +429,17 @@ def grays_losslessly(cls: str, entry: plan.PlanPage) -> bool:
 def lossless_page(task: LosslessJob) -> LosslessPage:
     """Store 1 page on the lossless path with jpegtran / oxipng.
 
-    Gray and gray-mark JPEG / PNG pages lose their colour channels (a JPEG only when jpeg_gray), a lossless WebP passes
-    through. Verifies pixels; an output not smaller than its source keeps the source bytes.
-    task: {"src", "out", "tmp", "fmt", "cls", "jpeg_gray", "tools"}. Returns the record, "grayed" telling whether the
-    page lost colour.
+    A grayable JPEG / PNG page loses its colour channels (a JPEG only when jpeg_gray; the caller decides grayable: from
+    a kept page's class, from a rendered page's class and its own pixels), a lossless WebP passes through. Verifies
+    pixels; an output not smaller than its source keeps the source bytes. task: {"src", "out", "tmp", "fmt", "cls",
+    "jpeg_gray", "grayable", "tools"}. Returns the record, "grayed" telling whether the page lost colour.
     """
     src, out, tmp = Path(task["src"]), Path(task["out"]), Path(task["tmp"])
     im, alpha = images.open_image(src)
     with Image.open(src) as raw:
         src_mode, icc = raw.mode, raw.info.get("icc_profile")
     fmt, t = task["fmt"], task["tools"]
-    gray = task["cls"] in LOSSLESS_GRAY and (fmt != images.JPEG or task["jpeg_gray"])
+    gray = task["grayable"] and (fmt != images.JPEG or task["jpeg_gray"])
     if fmt == images.JPEG:
         # a non-sRGB profile defines the colours; a 1-component page keeps its (GRAY) profile when grayed, a colour
         # container grayed to Y drops it
@@ -465,6 +474,7 @@ def lossless_page(task: LosslessJob) -> LosslessPage:
         mode, grayed = "exact", False
     return {
         "name": src.name,
+        "src": str(src),
         "fmt": fmt,
         "class": task["cls"],
         "bytes_in": src.stat().st_size,
@@ -561,10 +571,11 @@ class _AvifStood:
 
 @dataclass(frozen=True)
 class _LosslessStood:
-    """The lossless attempt (it always stands): its outcome and its pages' records."""
+    """The lossless attempt (it always stands): its outcome, its pages' records and its reshape (a rendered one's)."""
 
     outcome: plan.LastOutcome
     pages: list[LosslessPage]
+    reshape: Reshape | None
 
 
 @dataclass(frozen=True)
@@ -627,9 +638,13 @@ class _Chapter:
             for p, r in zip(self.pages.rendered, ch.render, strict=True)
         ]
         results, failed = self.encoder.avif_pages(tasks, stop_on_fail=True)
-        reshape: Reshape = {"kind": reshape_kind(ch.edits), "pages_in": len(self.kept), "pages_out": len(tasks)}
         why = self.avif(results, failed, size_gate=False)
-        return _Rejected(why, results) if why is not None else _AvifStood(o, results, reshape)
+        return _Rejected(why, results) if why is not None else _AvifStood(o, results, self.reshape())
+
+    def reshape(self) -> Reshape:
+        """Return the rendered plan's reshape: its kind, the kept pages in and the rendered pages out."""
+        ch = self.plan
+        return {"kind": reshape_kind(ch.edits), "pages_in": len(self.kept), "pages_out": len(self.pages.rendered)}
 
     def pages_avif(self, o: plan.AvifOutcome, *, size_gate: bool) -> _AvifStood | _Rejected:
         ch = self.plan
@@ -653,6 +668,8 @@ class _Chapter:
         return _Rejected(why, results) if why is not None else _AvifStood(o, results, None)
 
     def lossless(self, o: plan.LastOutcome) -> _LosslessStood:
+        if o["edits"] == "all":
+            return self.rendered_lossless(o)
         tasks: list[LosslessTask] = [
             {
                 "src": str(self.pages.original(q["name"])),
@@ -661,10 +678,30 @@ class _Chapter:
                 "fmt": q["format"],
                 "cls": self.plan.classes[q["name"]],
                 "jpeg_gray": q["jpeg_gray"],
+                "grayable": self.plan.classes[q["name"]] in LOSSLESS_GRAY,
             }
             for q in self.kept
         ]
-        return _LosslessStood(o, self.encoder.lossless_pages(tasks))
+        return _LosslessStood(o, self.encoder.lossless_pages(tasks), None)
+
+    def rendered_lossless(self, o: plan.LastOutcome) -> _LosslessStood:
+        """Store the rendered pages (blanked where the plan blanks) on the lossless path, as PNGs."""
+        tasks: list[LosslessTask] = [
+            {
+                "src": str(p),
+                "out": str(self.out / (p.stem + images.EXTENSION[images.PNG])),
+                "tmp": str(self.tmp),
+                "fmt": images.PNG,
+                "cls": r["class"],
+                "jpeg_gray": False,
+                # a rendered page's class is its sources', and the post-check classes its own pixels: a crop moves the
+                # colour tiles, so a gray-mark's badge or faint specks can class colour there; only a gray page that
+                # the post-check also sees without colour is grayed
+                "grayable": r["class"] == images.GRAY and not pages.has_colour(pages.Page(p.read_bytes())),
+            }
+            for p, r in zip(self.pages.rendered, self.plan.render, strict=True)
+        ]
+        return _LosslessStood(o, self.encoder.lossless_pages(tasks), self.reshape())
 
     def untouched(self, o: plan.LastOutcome) -> _UntouchedStood:
         for q in self.kept:
@@ -707,20 +744,24 @@ def _clear(d: Path) -> None:
         p.unlink()
 
 
-def output_gray(chapter_plan: plan.ChapterPlan, outcome: plan.Outcome) -> bool:
-    """Return whether every page the outcome stores is gray, from the plan's page classes (no decode).
+def output_gray(chapter_plan: plan.ChapterPlan, outcome: plan.Outcome, lossless_pages: Sequence[LosslessPage]) -> bool:
+    """Return whether every page the outcome stores is gray.
 
     ComicInfo BlackAndWhite. An AVIF page of a gray / tinted / gray-mark class is 4:0:0; the lossless path grays gray
-    and gray-mark JPEG / PNG pages; untouched pages are stored as they are (only a gray page is gray). An inserted
-    volume cover is not counted, nor the page it replaces (BlackAndWhite describes the chapter's own pages).
+    and gray-mark JPEG / PNG pages; a rendered chapter's lossless pages are gray when the path grayed them
+    (lossless_pages' "grayed": rendered_lossless decides it on each page's own pixels); untouched pages are stored as
+    they are (only a gray page is gray). An inserted volume cover is not counted, nor the page it replaces
+    (BlackAndWhite describes the chapter's own pages). lossless_pages: the lossless outcome's records ([] for another).
     """
     kind = outcome["outcome"]
 
     def replaced(name: str) -> bool:
-        return bool(outcome["cover"]) and Path(name).stem == archive.COVER_STEM
+        return replaced_by_cover(name, inserted=bool(outcome["cover"]))
 
-    if outcome["edits"] == "all":
+    if outcome["edits"] == "all" and kind == "avif":
         return all(r["class"] in plan.GRAYISH for r in chapter_plan.render if not replaced(r["name"]))
+    if outcome["edits"] == "all":
+        return all(p["grayed"] for p in lossless_pages if not replaced(p["name"]))
     kept = [(chapter_plan.classes[q["name"]], q) for q in chapter_plan.kept() if not replaced(q["name"])]
     if kind == "avif":
         return all(cls in plan.GRAYISH for cls, _ in kept)
@@ -737,12 +778,11 @@ def process_chapter(
     pages (its PageFiles), output pages in out_dir, work files in work_dir; encoder: the run's Encoder. Tries the
     outcomes in order; the last one (untouched or lossless) always stands. The one that stands inserts the volume cover
     its plan gave it (plan.routes), in place of a page named 000_cover. Returns the record: {"outcome", "edits",
-    "route", "pages", "formats", "dropped",
-    "bytes_in", "bytes_out", "avif_rejected"? (why the first AVIF attempt failed), "avif_pages"?, "lossless_pages"?,
-    "reshape"?, "blanked" (the pages blanked: an AVIF outcome's only), "cover" (the inserted cover {"name", "format",
-    "score", "bytes"} or None), "quality", "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else
-    None), "gray", "output": [{"name", "sha1"}], "scores": {output name: score}, "lossless": {output name: {"source",
-    "mode"}}}.
+    "route", "pages", "formats", "dropped", "bytes_in", "bytes_out", "avif_rejected"? (why the first AVIF attempt
+    failed), "avif_pages"?, "lossless_pages"?, "reshape"?, "blanked" (the pages blanked: an AVIF outcome's and a
+    rendered lossless one's), "cover" (the inserted cover {"name", "format", "score", "bytes"} or None), "quality",
+    "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else None), "gray", "output": [{"name",
+    "sha1"}], "scores": {output name: score}, "lossless": {output name: {"source": its path, "mode"}}}.
     """
     out_dir, tmp = Path(out_dir), Path(work_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -769,10 +809,10 @@ def process_chapter(
         "edits": o["edits"],
         "gate": o["gate"],
         "quality": ch.quality,
-        "blanked": sorted(pages.blanked, key=archive.natural_key) if o["outcome"] == "avif" else [],
+        "blanked": sorted(pages.blanked, key=archive.natural_key) if blanks_applied(o) else [],
         "mean_score": round(sum(r["score"] for r in avif) / len(avif), 2) if avif else None,
         "min_score": min((r["score"] for r in avif), default=None),
-        "gray": output_gray(ch, o),
+        "gray": output_gray(ch, o, lossless_pages),
         "cover": inserted,
         "bytes_out": sum(p.stat().st_size for p in outputs),
         "output": [{"name": p.name, "sha1": archive.sha1(p.read_bytes())} for p in outputs],
@@ -781,6 +821,16 @@ def process_chapter(
     }
     _record_attempts(rec, stood, rejected)
     return rec
+
+
+def replaced_by_cover(name: str, *, inserted: bool) -> bool:
+    """Return whether an inserted volume cover replaced the page of this name: the page named 000_cover, if any."""
+    return inserted and Path(name).stem == archive.COVER_STEM
+
+
+def blanks_applied(outcome: plan.Outcome) -> bool:
+    """Return whether the outcome stores the plan's logo blanks: an AVIF one, or a rendered chapter's lossless one."""
+    return outcome["outcome"] == "avif" or outcome["edits"] == "all"
 
 
 def _record_attempts(rec: ChapterRecord, stood: _Stood, rejected: list[_Rejected]) -> None:
@@ -792,12 +842,12 @@ def _record_attempts(rec: ChapterRecord, stood: _Stood, rejected: list[_Rejected
         rec["avif_rejected"] = rejected[0].why
     if isinstance(stood, _AvifStood):
         rec["avif_pages"] = stood.pages
-        if stood.reshape is not None:
-            rec["reshape"] = stood.reshape
     elif rejected:
         rec["avif_pages"] = rejected[-1].pages
     if isinstance(stood, _LosslessStood):
         rec["lossless_pages"] = stood.pages
+    if not isinstance(stood, _UntouchedStood) and stood.reshape is not None:
+        rec["reshape"] = stood.reshape
 
 
 def _output_checks(
@@ -811,12 +861,11 @@ def _output_checks(
     scores = {Path(r["name"]).stem + ".avif": r["score"] for r in avif}
     stems = {Path(p.name).stem: p.name for p in outputs}
     lossless: dict[str, LosslessSource] = {
-        stems[Path(r["name"]).stem]: {"source": r["name"], "mode": r["verify"]} for r in lossless_pages
+        stems[Path(r["name"]).stem]: {"source": r["src"], "mode": r["verify"]} for r in lossless_pages
     }
     if inserted:
-        stem = archive.COVER_STEM
-        scores = {k: v for k, v in scores.items() if Path(k).stem != stem}
-        lossless = {k: v for k, v in lossless.items() if Path(k).stem != stem}
+        scores = {k: v for k, v in scores.items() if not replaced_by_cover(k, inserted=True)}
+        lossless = {k: v for k, v in lossless.items() if not replaced_by_cover(k, inserted=True)}
         if inserted["score"] is not None:
             scores[inserted["name"]] = inserted["score"]
     return scores, lossless

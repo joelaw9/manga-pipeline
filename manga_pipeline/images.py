@@ -478,6 +478,15 @@ def _jpeg_sampling(data: bytes) -> tuple[str, int]:
         return im.mode, JpegImagePlugin.get_sampling(im)
 
 
+def odd_jpeg_chroma(data: bytes) -> bool:
+    """Return whether a colour JPEG's chroma subsampling is none avifenc keeps (4:4:0, 4:1:1: chroma counts it 444).
+
+    Header only.
+    """
+    mode, sampling = _jpeg_sampling(data)
+    return mode != GRAY_JPEG_MODE and sampling not in JPEG_CHROMA
+
+
 def chroma(data: bytes, fmt: str) -> str:
     """Return a source image's chroma resolution as avifenc --yuv.
 

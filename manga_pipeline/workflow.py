@@ -878,6 +878,22 @@ def read_notes(text: str) -> list[str]:
     return json.loads(text)
 
 
+def replace_notes(conn: db.Connection, chapter_id: int, prefix: str, notes: Iterable[str]) -> None:
+    """Replace the chapter's notes that start with prefix by notes (each must start with it); keep the others.
+
+    In the caller's transaction (a stage's Done record).
+    """
+    new = list(notes)
+    wrong = [n for n in new if not n.startswith(prefix)]
+    if wrong:
+        msg = f"notes not starting with {prefix!r}: {wrong}"
+        raise ValueError(msg)
+    text = db.one_row(conn, "SELECT notes FROM chapter WHERE id = %s", (chapter_id,))["notes"]
+    kept = [n for n in (read_notes(text) if text else []) if not n.startswith(prefix)]
+    merged = kept + new
+    conn.execute("UPDATE chapter SET notes = %s WHERE id = %s", (json.dumps(merged) if merged else None, chapter_id))
+
+
 # The stages at which a person may drop a needs_human chapter: nothing of it is staged or published yet.
 DROPPABLE = ("discover", "validate", "junk")
 

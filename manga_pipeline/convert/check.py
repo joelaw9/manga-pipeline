@@ -20,6 +20,7 @@ class Staged(TypedDict):
 
     outcome: ReadOnly[str]
     gate: ReadOnly[str | None]
+    edits: ReadOnly[str]
     lossless: ReadOnly[Mapping[str, image.LosslessSource]]
     scores: ReadOnly[Mapping[str, float]]
     output: ReadOnly[Sequence[image.OutputPage]]
@@ -49,10 +50,10 @@ class _Read:
     out_bytes: int = 0
 
 
-def check(cbz: Path, rec: Staged, x_dir: Path, kept: Sequence[SourceBytes]) -> list[str]:
+def check(cbz: Path, rec: Staged, kept: Sequence[SourceBytes]) -> list[str]:
     """Return the post-check's failures ([] when the staged CBZ passes).
 
-    rec: image.process_chapter's record; x_dir: the extracted source pages; kept: the plan's kept pages ([{"name",
+    rec: image.process_chapter's record (a lossless page's source by its path); kept: the plan's kept pages ([{"name",
     "bytes"}]).
     """
     with zipfile.ZipFile(cbz) as z:
@@ -63,7 +64,7 @@ def check(cbz: Path, rec: Staged, x_dir: Path, kept: Sequence[SourceBytes]) -> l
         names = [i.filename for i in infos]
         extra = [n for n in names if PurePosixPath(n).suffix.lower() not in archive.IMAGE_EXTS]
         fails = _entry_fails(infos, extra)
-        read = _read_pages(z, [n for n in names if n not in extra], rec, x_dir)
+        read = _read_pages(z, [n for n in names if n not in extra], rec)
     return [
         *fails,
         *read.fails,
@@ -86,7 +87,7 @@ def _entry_fails(infos: list[zipfile.ZipInfo], extra: list[str]) -> list[str]:
     return fails
 
 
-def _read_pages(z: zipfile.ZipFile, names: list[str], rec: Staged, x_dir: Path) -> _Read:
+def _read_pages(z: zipfile.ZipFile, names: list[str], rec: Staged) -> _Read:
     """Read each page entry in order and check it.
 
     Its extension, that it decodes, then (a decodable page) its lossless match and its AVIF score.
@@ -106,21 +107,21 @@ def _read_pages(z: zipfile.ZipFile, names: list[str], rec: Staged, x_dir: Path) 
             read.fails.append(f"undecodable-page: {name}: {type(e).__name__}")
             continue
         if name in rec["lossless"]:
-            read.fails += _lossless_fails(name, page, rec["lossless"][name], x_dir)
+            read.fails += _lossless_fails(name, page, rec["lossless"][name])
         if rec["outcome"] == "avif":
             read.fails += _score_fails(name, rec["scores"].get(name))
         read.actual.append({"name": name, "sha1": archive.sha1(data)})
     return read
 
 
-def _lossless_fails(name: str, page: pages.Page, source: image.LosslessSource, x_dir: Path) -> list[str]:
-    """Check a lossless page against its source ({"source", "mode"}).
+def _lossless_fails(name: str, page: pages.Page, source: image.LosslessSource) -> list[str]:
+    """Check a lossless page against its source ({"source": its path, "mode"}).
 
     A luma check on a colour source is checked exact.
     """
     fails: list[str] = []
     mode = source["mode"]
-    original = pages.Page((Path(x_dir) / source["source"]).read_bytes())
+    original = pages.Page(Path(source["source"]).read_bytes())
     if mode == "luma" and pages.has_colour(original):
         fails.append(f"luma-check-on-colour-page: {name}")
         mode = "exact"
@@ -166,8 +167,11 @@ def _order_fails(names: list[str]) -> list[str]:
 
 
 def _size_fails(rec: Staged, kept: Sequence[SourceBytes], out_bytes: int) -> list[str]:
-    """Check that the lossless and size-gated AVIF outcomes are not larger than the source pages."""
-    if not (rec["outcome"] == "lossless" or rec.get("gate") == "floor+size"):
+    """Check that the lossless and size-gated AVIF outcomes are not larger than the source pages.
+
+    A rendered chapter's lossless pages are left out: they are new images, not the source pages stored losslessly.
+    """
+    if rec["edits"] == "all" or not (rec["outcome"] == "lossless" or rec.get("gate") == "floor+size"):
         return []
     source_bytes = sum(q["bytes"] for q in kept)
     if rec["cover"]:  # an inserted volume cover's bytes are left out, as in the bulk converter's check

@@ -129,9 +129,14 @@ class PlannedBlank(TypedDict):
 
 
 class StripSpec(strip.RenderStrip):
-    """A strip or split spec: the render strip and the cuts its output pages are cut at (kept coordinates)."""
+    """A strip or split spec: the render strip, its cuts and a split's irregular images.
+
+    cuts: where its output pages are cut (kept coordinates); irregular: the split images not within the snap window of
+    a whole number of pages (a strip has none).
+    """
 
     cuts: list[int]
+    irregular: list[str]
 
 
 class PlannedEdits(TypedDict):
@@ -229,14 +234,15 @@ class AvifOutcome(TypedDict):
 
 
 class LastOutcome(TypedDict):
-    """A plan's last outcome, lossless or untouched: it has no gate, so it always stands, and applies the drops only.
+    """A plan's last outcome, lossless or untouched: it has no gate, so it always stands.
 
-    cover the volume cover it inserts (None: it takes none); pages_out its expected pages, the cover included.
+    edits "drops" (the kept pages) or "all" (a rendered plan's rendered pages, lossless); cover the volume cover it
+    inserts (None: it takes none); pages_out its expected pages, the cover included.
     """
 
     outcome: Literal["lossless", "untouched"]
     gate: None
-    edits: Literal["drops"]
+    edits: Literal["all", "drops"]
     cover: OutcomeCover | None
     pages_out: int
 
@@ -562,7 +568,7 @@ def _strip_spec(content: list[PlanPage], edit: ChapterEdit, x_dir: Path) -> Stri
     pages: list[strip.NamedRows] = [
         {"name": q["name"], "top": p["top"], "th": p["th"]} for q, p in zip(content, st.pages, strict=True)
     ]
-    return {"width": st.width, "pages": pages, "kept": cut["kept"], "cuts": cut["cuts"]}
+    return {"width": st.width, "pages": pages, "kept": cut["kept"], "cuts": cut["cuts"], "irregular": []}
 
 
 def _check_banded(entries: list[PlanPage], edit: ChapterEdit, by_index: dict[int, PlanPage]) -> None:
@@ -608,7 +614,7 @@ def _check_joined(entries: list[PlanPage], edit: ChapterEdit) -> None:
 def _split_spec(
     content: list[PlanPage], edit: ChapterEdit, drops: list[Drop], page_aspect: list[float] | None
 ) -> StripSpec:
-    """Return a split chapter's spec ({"width", "pages", "kept", "cuts"}).
+    """Return a split chapter's spec ({"width", "pages", "kept", "cuts", "irregular"}).
 
     Its non-cover pages not dropped, cut at the series' page aspect. Raises EditError when the edit holds another
     page-layout edit.
@@ -624,6 +630,7 @@ def _split_spec(
         "pages": [{"name": p["name"], "top": p["top"], "th": p["th"]} for p in pl["pages"]],
         "kept": [[0, pl["height"]]],
         "cuts": list(pl["cuts"]),
+        "irregular": [i["page"] for i in pl["irregular"]],
     }
 
 
@@ -748,9 +755,9 @@ def routes(plan: ChapterPlan, *, cover: VolumeCover | None = None) -> RoutedPlan
     Each outcome a measured attempt, a failure moving to the next, with the volume cover it inserts in it ("cover": its
     format and its passed AVIF or its data; None when it takes none) and its expected pages ("pages_out", the cover
     included). cover: None (the chapter takes no volume cover), else the volume cover with its AVIF encode. An AVIF
-    cover that failed the gate goes in no AVIF outcome. A rendered plan: AVIF under the floor, else the original pages
-    minus drops. A plan that is not rendered, whose AVIF cover passed and whose non-cover pages share no cover format:
-    AVIF under the floor, else untouched (force_avif).
+    cover that failed the gate goes in no AVIF outcome. A rendered plan: AVIF under the floor, else its rendered pages
+    lossless (the cover as PNG). A plan that is not rendered, whose AVIF cover passed and whose non-cover pages share no
+    cover format: AVIF under the floor, else untouched (force_avif).
     """
     kept = plan.kept()
     all_fmts = sorted({q["format"] for q in kept})
@@ -783,6 +790,15 @@ def routes(plan: ChapterPlan, *, cover: VolumeCover | None = None) -> RoutedPlan
         }
 
     def last(name: Literal["lossless", "untouched"]) -> LastOutcome:
+        if plan.render:  # its rendered pages, as PNGs
+            inserted = taken([images.PNG])
+            return {
+                "outcome": name,
+                "gate": None,
+                "edits": "all",
+                "cover": inserted,
+                "pages_out": pages_out(inserted, len(plan.render)),
+            }
         inserted = taken(src)
         return {"outcome": name, "gate": None, "edits": "drops", "cover": inserted, "pages_out": pages_out(inserted, n)}
 
@@ -810,12 +826,12 @@ def _outcome_kinds(
 ) -> tuple[_AvifKind | None, Literal["lossless", "untouched"]]:
     """Return the kind of a plan's AVIF outcome (None: it has none) and of its last one (routes).
 
-    A rendered plan: AVIF under the floor, else untouched; force_avif: the same, over the n kept pages; the avif route:
-    AVIF under the floor and the size gate, else lossless; avif-or-untouched: that AVIF, else untouched; any other
-    route: untouched.
+    A rendered plan: AVIF under the floor, else its rendered pages lossless; force_avif: AVIF under the floor over the
+    n kept pages, else untouched; the avif route: AVIF under the floor and the size gate, else lossless;
+    avif-or-untouched: that AVIF, else untouched; any other route: untouched.
     """
-    if plan.render:
-        return ("floor", "all", len(plan.render)), "untouched"
+    if plan.render:  # SPEC "Conversion", Route: never its original pages, which hold its junk
+        return ("floor", "all", len(plan.render)), "lossless"
     if force_avif:
         return ("floor", "drops", n), "untouched"
     if base == "avif":
