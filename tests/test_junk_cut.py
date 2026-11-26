@@ -23,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageFont
 
 from manga_pipeline import cli, config, db, process, retention
 from manga_pipeline.junk import anchored, chains, cut, groups, ocr, review
@@ -233,6 +233,12 @@ def test_the_checked_chapters_are_capped_and_each_not_checked_is_counted(site, r
     assert [ln for ln in out.splitlines() if ln.startswith("chapter ")] == [f"chapter {named}: taken"], out
 
 
+@budget()
+def test_the_cap_checks_the_200_most_recent_scanned_chapters():
+    others, beyond = cut.checked_others(range(1, 206), [], cut.CHECKED_RECENT)
+    assert (others, beyond) == (list(range(205, 5, -1)), 5), "D7: the 200 newest by id, 5 left over"
+
+
 @budget(load="db", seconds=90)
 def test_named_chapters_among_the_newest_are_not_counted_in_the_cap(site, run, monkeypatch):
     oldest, older, named, newest = (real_head(site, n) for n in (2, 3, 4, 5))
@@ -436,6 +442,26 @@ def test_credit_is_the_rows_and_warns(site, run):
     assert "warning: the cut acts in a tail region (or carries credit)" in out, out
     run("junk", "cut", *oracle(chapter), "--credit", "--record", digest_of(out))
     assert site.rows("SELECT credit FROM junk_decision WHERE kind = 'cut'") == [(True,)]
+
+
+@budget(load="db", seconds=60)
+def test_a_range_already_removed_is_named_in_the_refusal(site, run):
+    # the notice block junk: the decide without a cut removes 178:306 (the block 232:304, joined to the gap above it)
+    chapter = real_head(site)
+    decide_junk(site.cfg, "junk")
+    code, out, err = run("junk", "cut", f"{chapter}:232:250")
+    assert (code, out) == (2, ""), err
+    assert "matches nowhere in its own chapter" in err, err
+    assert "rows 232:250 are already removed (removed 178:306)" in err, "the refusal says why it matches nowhere"
+
+
+@budget(load="db", seconds=60)
+def test_a_version_with_1_range_already_removed_and_1_not_is_proposed(site, run):
+    chapter = real_head(site)
+    decide_junk(site.cfg, "junk")  # removes 178:306, as above
+    code, out, err = run("junk", "cut", f"{chapter}:232:304", f"{chapter}:371:407")
+    assert code == 0, f"a range already removed beside 1 that is not refuses no version: {err}"
+    assert f"chapter {chapter}: taken" in out, out
 
 
 @budget(load="db", seconds=60)
@@ -749,6 +775,56 @@ def test_spans_of_a_candidate_pick_a_waiting_chapter_and_its_sheets_stay_within_
     assert code == 0, err
     assert f"chapter {chapter}: tail rows" in out, out
     assert_within_bounds(sheets_of(out))
+
+
+@budget(load="db", seconds=60)
+def test_span_sheets_wash_the_removed_rows_grey_and_leave_the_kept_rows(site, run):
+    # the notice block junk: the decide removes 178:306; the strip is 720 px wide, drawn 1:1 beside the ruler
+    chapter = real_head(site)
+    decide_junk(site.cfg, "junk")
+    code, out, err = run("junk", "cut", "--spans", str(chapter), "head")
+    assert code == 0, err
+    (path,) = sheets_of(out)
+    strip = np.asarray(Image.open(FIX / "strip.png").convert("RGB"), np.int16)
+    with Image.open(path) as im:
+        sheet = np.asarray(im.convert("RGB"), np.int16)
+    cols = slice(300, 700)  # right of the seed labels drawn on the image
+    shown = sheet[:, cut.RULER_W + cols.start : cut.RULER_W + cols.stop]
+    washed = (strip[240, cols] + np.array(cut.GREY)) / 2
+    assert np.abs(shown[240] - washed).max() <= 1, "a removed row (a notice line) is washed half grey"
+    assert (shown[105] == strip[105, cols]).all(), "a kept row (a credit line) is drawn as it is"
+    assert (shown[20] == strip[20, cols]).all(), "a kept row above the removal too"
+
+
+@budget(load="db", seconds=60)
+def test_span_sheets_name_each_removed_range_in_its_lane(site, run):
+    # the notice block junk: the decide removes 178:306, named in the removed lane beside its first row
+    chapter = real_head(site)
+    decide_junk(site.cfg, "junk")
+    code, out, err = run("junk", "cut", "--spans", str(chapter), "head")
+    assert code == 0, err
+    (path,) = sheets_of(out)
+    with Image.open(FIX / "strip.png") as im:
+        removed_lane = cut.lane_widths(im.height)[1]
+    with Image.open(path) as im:
+        sheet = np.asarray(im.convert("RGB"), np.int16)
+    column = sheet[:, sheet.shape[1] - removed_lane :]
+    inked = np.flatnonzero((column != 255).any(axis=(1, 2)))
+    assert inked.size, "the removed lane holds a bar and a label"
+    assert inked.min() == 178, "the removed range's bar and label start at its first row"
+    assert inked.max() == sheet.shape[0] - 1, "the bar runs to the sheet's end, which the range passes"
+
+
+@budget()
+def test_a_6_digit_strips_span_label_fits_its_lane_in_the_last_lane():
+    height = 123456
+    lane, removed_lane = cut.lane_widths(height)
+    font = ImageFont.load_default(size=cut.FONT_PX)  # the font the sheets draw with
+    column = cut.LABEL_LANES * lane + removed_lane
+    last_span = (cut.LABEL_LANES - 1) * lane + cut.LABEL_X + font.getlength(f"{height}:{height}")
+    assert last_span <= cut.LABEL_LANES * lane, "a span label ends inside its lane, the last lane's too"
+    last = cut.LABEL_LANES * lane + cut.LABEL_X + font.getlength(f"removed {height}:{height}")
+    assert last <= column, "a removed range's label ends inside the label column"
 
 
 def wave(f, w, h):
