@@ -398,7 +398,7 @@ def _encode(
         sampling = _sampling(calibrate.rows(ctx.conn, chapter["series_id"]), routed, chapter["id"])
         prepared = _pages(routed, scratch, sampling=sampling)
         routed.quality, calibrated = _calibrate(ctx, chapter, prepared.units, encoder=enc, work=work)
-        calibrated = settled + calibrated
+        calibrated = list(dict.fromkeys(settled + calibrated))  # a group it settled and last sampled: 1 line
         rec = image.process_chapter(
             image.PageFiles.of(scratch / EXTRACTED, prepared.encoded, prepared.blanked),
             scratch / OUTPUT,

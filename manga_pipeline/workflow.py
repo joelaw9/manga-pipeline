@@ -907,7 +907,7 @@ def live_page_sizes(conn: db.Connection, series_id: int) -> list[tuple[int, int]
         """SELECT p.width, p.height, count(*) FROM page p JOIN chapter c ON c.id = p.chapter_id
         WHERE c.series_id = %s AND p.width > 0 AND p.height > 0
         AND (c.status <> 'done' OR (c.stage IN ('publish', 'confirm') AND c.last_error IS DISTINCT FROM %s))
-        GROUP BY p.width, p.height""",
+        GROUP BY p.width, p.height ORDER BY p.width, p.height""",
         (series_id, DROPPED_BY_PERSON),
     ).fetchall()
     return [(r["width"], r["height"]) for r in rows for _ in range(r["count"])]

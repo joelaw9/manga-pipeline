@@ -197,9 +197,8 @@ def choose(samples: Sequence[Sample]) -> tuple[int, str] | None:
 
     They can with MIN_SAMPLES samples, from any number of chapters (the bulk converter's rule). The samples scoring at
     least the floor at CEILING are counted (the others are left out of every probe). Down the LADDER, a probe fails
-    with fewer than MIN_COUNTED
-    counted samples, a mean below MEAN_MIN or a minimum below the floor; the quality is the last step before the first
-    failure, else CEILING.
+    with fewer than MIN_COUNTED counted samples, a mean below MEAN_MIN or a minimum below the floor; the quality is the
+    last step before the first failure, else CEILING.
     """
     floor = image.SCORE_FLOOR
     counted = [s for s in samples if s["scores"][str(CEILING)][0] >= floor]
