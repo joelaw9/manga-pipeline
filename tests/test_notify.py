@@ -227,5 +227,5 @@ def test_status_lists_title_changes_of_the_last_30_days_only(conn):
         conn.execute("UPDATE notification SET queued_at = '2020-01-01T00:00:00+00:00'")
     with conn.transaction():
         lines = status.report(conn)
-    at = lines.index("Series titles changed at the sources (last 30 days, not applied):")
+    at = lines.index("Series titles changed at the sources (last 30 days):")
     assert lines[at + 1] == "  none", "SPEC 'Retroactive updates': status lists the changes of the last 30 days"

@@ -17,7 +17,7 @@ from typing import TypeIs
 
 from manga_pipeline import config, db, notify, workflow
 from manga_pipeline.db import sql
-from manga_pipeline.metadata import admit, covers, ids, platforms, refresh, search, sources
+from manga_pipeline.metadata import covers, ids, platforms, refresh, search, series_name, sources
 from manga_pipeline.metadata.records import SOURCE_RECORDS, STORED, Records
 from manga_pipeline.replies.kavita import SeriesMetadata
 from manga_pipeline.replies.sources import AniListMedia, MangaBakaSeries, MangaUpdatesSeries
@@ -516,9 +516,9 @@ def _comic[R: (MangaBakaSeries, MangaUpdatesSeries, AniListMedia)](
 def _title_change(conn: db.Connection, series: db.Row, media: AniListMedia | None) -> str | None:
     """Queue the report of a changed AniList English title and return its text; None when unchanged.
 
-    SPEC "Retroactive updates": a series Kavita holds or that is admitted is never renamed; a changed title is reported
-    (log, `status`, Discord). Only the same AniList id's record is compared, both titles set. Inside the store
-    transaction, before the record is stored.
+    SPEC "Metadata checks": a changed title is reported (log, `status`, Discord) as a name waiting for `series rename`.
+    Only the same AniList id's record is compared, both titles set. Inside the store transaction, before the record is
+    stored.
     """
     if series["kavita_series_id"] is None and series["admitted_at"] is None:
         return None  # a new series not admitted yet is named from its record when it is admitted
@@ -528,11 +528,11 @@ def _title_change(conn: db.Connection, series: db.Row, media: AniListMedia | Non
     old: AniListMedia | None = row["payload"] if row else None
     if old is None or media is None or old["id"] != media["id"]:
         return None
-    before, after = admit.anilist_title(old), admit.anilist_title(media)
-    if before is None or after is None or before == after:
+    before, after = series_name.anilist_english(old), series_name.anilist_english(media)
+    if not before or not after or before == after:
         return None
-    text = f'series {series["id"]} ({series["name"]}): AniList title changed: "{before}" -> "{after}"'
-    notify.queue(conn, "title", series["id"], text, "rename the series in Kavita if wanted")
+    text = f'series {series["id"]} ({series["name"]}): name waiting: "{before}" -> "{after}"'
+    notify.queue(conn, "title", series["id"], text, f"series rename {series['id']}")
     return text
 
 

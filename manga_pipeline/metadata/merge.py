@@ -8,7 +8,7 @@ D7.11): age rating from MangaBaka, language from MangaDex, writers and penciller
 """
 
 import html.parser
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import override
 
@@ -85,18 +85,25 @@ def fields(records: SeriesRecords, agreed: Mapping[str, str], rules: tags.Rules)
     )
 
 
-def stored(conn: db.Connection, series_id: int, rules: tags.Rules) -> SeriesFields:
-    """Return the series' fields from its stored records and agreed ids."""
-    payloads = {
-        (r["source"], r["kind"]): r["payload"]
-        for r in conn.execute("SELECT source, kind, payload FROM fetched WHERE series_id = %s", (series_id,))
-    }
-    records: SeriesRecords = {
+def stored_records(conn: db.Connection, series_id: int) -> SeriesRecords:
+    """Return the series' stored records (None for a source without one)."""
+    return records_of(conn.execute("SELECT source, kind, payload FROM fetched WHERE series_id = %s", (series_id,)))
+
+
+def records_of(rows: Iterable[db.Row]) -> SeriesRecords:
+    """Return a series' records from its `fetched` rows (source, kind, payload; None for a source without one)."""
+    payloads = {(r["source"], r["kind"]): r["payload"] for r in rows}
+    return {
         "mangabaka": payloads.get(STORED["mangabaka"]),
         "mangaupdates": payloads.get(STORED["mangaupdates"]),
         "mangadex": payloads.get(STORED["mangadex"]),
         "anilist": payloads.get(STORED["anilist"]),
     }
+
+
+def stored(conn: db.Connection, series_id: int, rules: tags.Rules) -> SeriesFields:
+    """Return the series' fields from its stored records and agreed ids."""
+    records = stored_records(conn, series_id)
     known = conn.execute(
         "SELECT source, origin, source_id FROM series_source_id WHERE series_id = %s", (series_id,)
     ).fetchall()

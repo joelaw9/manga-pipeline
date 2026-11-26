@@ -35,13 +35,15 @@ class Overrides(TypedDict, total=False):
     A key the bulk converter reads that the pipeline does not is kept, unchecked and untyped. volumes {volume: chapter
     range}, or null: a volume a whole number (an int, or a text of digits), a range a text or a number YAML read
     ("1-53", "54", "94-", "-53", 54); volume_starts {volume: first chapter}, or null (check_starts; not with volumes);
-    series_group a name or a non-empty list of names; layout "strip" or "pages" in any case and spacing, or null.
+    series_group a name or a non-empty list of names; layout "strip" or "pages" in any case and spacing, or null; name
+    the series' name, a non-empty text (SPEC "Retroactive updates", Series names).
     """
 
     volumes: dict[int | str, str | int | float] | None
     volume_starts: dict[int, int | float] | None
     series_group: str | list[str]
     layout: str | None
+    name: str
 
 
 def layout(data: Overrides) -> str | None:
@@ -76,6 +78,22 @@ def series_group(overrides: Path, folder_name: str) -> str | None:
     return ", ".join(_group_names(data["series_group"]))
 
 
+def override_name(overrides: Path, folder_name: str) -> str | None:
+    """Return the series' name its override file gives, None without the file or the key.
+
+    OverrideError when the file is malformed.
+    """
+    name = (override_file(overrides, folder_name) or {}).get("name")
+    return name.strip() if name else None
+
+
+def _check_name(value: Yaml) -> None:
+    """Raise ValueError unless value is a non-empty text."""
+    if not isinstance(value, str) or not value.strip():
+        msg = f"overrides name must be a non-empty text, not {value!r}"
+        raise ValueError(msg)
+
+
 def _mapping(data: Yaml) -> None:
     """Raise ValueError unless data is a mapping."""
     if not isinstance(data, dict):
@@ -101,6 +119,8 @@ def override_file(overrides: Path, folder_name: str) -> Overrides | None:
         _one_volume_format(data)
         if "series_group" in data:
             _group_names(data["series_group"])
+        if "name" in data:
+            _check_name(data["name"])
         layout(data)
     except (yaml.YAMLError, ValueError) as e:
         msg = f"{path}: {e}"

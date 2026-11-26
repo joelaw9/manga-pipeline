@@ -65,6 +65,15 @@ OPEN_REWRITES = sql.SQL("published_file_id IS NOT NULL AND status NOT IN ('done'
 BUSY = sql.SQL("""({p}.pending_path IS NOT NULL OR {p}.indexed_since IS NOT NULL OR {p}.pending_error IS NOT NULL
     OR {p}.carry_cover IS TRUE OR EXISTS (
         SELECT 1 FROM chapter b WHERE b.published_file_id = {p}.id AND b.status <> 'done'))""")
+# A series a rename must leave alone, {s} its alias (SPEC "Retroactive updates", Series names): a file with a rewrite
+# or copy queued, a wait for Kavita, a cover refresh due or a failed rewrite (BUSY's file part), or a chapter claimed or
+# at publish or confirm not done. An open conversion or rewrite chapter before publish does not count: its
+# ComicInfo.xml is built at the comicinfo stage from the series row, so it takes the new name.
+RENAME_BUSY = sql.SQL("""(EXISTS (SELECT 1 FROM published_file f WHERE f.series_id = {s}.id
+        AND (f.pending_path IS NOT NULL OR f.indexed_since IS NOT NULL OR f.pending_error IS NOT NULL
+            OR f.carry_cover IS TRUE))
+    OR EXISTS (SELECT 1 FROM chapter c WHERE c.series_id = {s}.id
+        AND (c.status = 'claimed' OR (c.stage IN ('publish', 'confirm') AND c.status <> 'done'))))""")
 # finish's file acts, each recorded in published_file.pending_step once done
 STEP_DATED, STEP_RETAINED, STEP_RENAMED, STEP_OLD_REMOVED = 1, 2, 3, 4
 

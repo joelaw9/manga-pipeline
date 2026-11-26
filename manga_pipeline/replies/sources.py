@@ -132,8 +132,13 @@ class MangaDexTag(TypedDict):
 
 
 class MangaDexAttributes(TypedDict):
-    """A MangaDex manga's attributes: its links, original language, description per language and tags."""
+    """A MangaDex manga's attributes: its titles, links, original language, description per language and tags.
 
+    title {language: title}; altTitles [{language: title}], 1 title each.
+    """
+
+    title: NotRequired[dict[str, str] | None]
+    altTitles: NotRequired[list[dict[str, str]] | None]
     links: NotRequired[MangaDexLinks | None]
     originalLanguage: NotRequired[str | None]
     description: NotRequired[dict[str, str] | None]

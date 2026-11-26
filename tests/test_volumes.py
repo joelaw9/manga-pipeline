@@ -236,3 +236,18 @@ def test_a_malformed_series_group_is_an_override_error(tmp_path, text):
     write_override(tmp_path, "Solo Leveling", text)
     with pytest.raises(volumes.OverrideError, match="series_group"):
         volumes.series_group(tmp_path, "Solo Leveling")
+
+
+@budget(load="fs")
+def test_an_override_name_is_read_from_the_file(tmp_path):
+    write_override(tmp_path, "Solo Leveling", "name: Only I Level Up\n")
+    assert volumes.override_name(tmp_path, "Solo Leveling") == "Only I Level Up", "SPEC 'Series names': name key"
+    assert volumes.override_name(tmp_path, "Other") is None, "no file, no name"
+
+
+@budget(load="fs")
+@pytest.mark.parametrize("text", ["name: ''\n", "name: 12\n", "name: [A]\n", "name:\n"])
+def test_a_malformed_override_name_is_an_override_error(tmp_path, text):
+    write_override(tmp_path, "Solo Leveling", text)
+    with pytest.raises(volumes.OverrideError, match="name"):
+        volumes.override_name(tmp_path, "Solo Leveling")
