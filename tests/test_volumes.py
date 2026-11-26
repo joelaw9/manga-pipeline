@@ -251,3 +251,20 @@ def test_a_malformed_override_name_is_an_override_error(tmp_path, text):
     write_override(tmp_path, "Solo Leveling", text)
     with pytest.raises(volumes.OverrideError, match="name"):
         volumes.override_name(tmp_path, "Solo Leveling")
+
+
+@budget(load="fs")
+def test_join_parts_is_read_from_the_file_and_true_without_it(tmp_path):
+    write_override(tmp_path, "Solo Leveling", "join_parts: false\n")
+    assert volumes.join_parts(tmp_path, "Solo Leveling") is False, "SPEC 'Split chapters': the series' switch"
+    write_override(tmp_path, "Other", "name: Other\n")
+    assert volumes.join_parts(tmp_path, "Other") is True, "a file without the key joins"
+    assert volumes.join_parts(tmp_path, "None") is True, "no file joins"
+
+
+@budget(load="fs")
+@pytest.mark.parametrize("text", ["join_parts: 'no'\n", "join_parts: 0\n", "join_parts:\n"])
+def test_a_join_parts_that_is_not_true_or_false_is_an_override_error(tmp_path, text):
+    write_override(tmp_path, "Solo Leveling", text)
+    with pytest.raises(volumes.OverrideError, match="join_parts"):
+        volumes.join_parts(tmp_path, "Solo Leveling")

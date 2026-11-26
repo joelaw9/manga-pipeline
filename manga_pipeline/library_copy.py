@@ -33,6 +33,7 @@ from manga_pipeline import (
 )
 from manga_pipeline.convert import record_reader
 from manga_pipeline.db import sql
+from manga_pipeline.metadata import parts
 
 SAME_CHAPTER = 0.15  # page count or strip length within this share: the same chapter (old duplicate_page_tolerance)
 NOT_WORSE = 0.95  # page width and bits per pixel at least this many times the published copy's: not worse
@@ -53,6 +54,9 @@ def judge(ctx: workflow.Context, chapter: db.Row) -> workflow.Dropped | workflow
     """
     if chapter["published_file_id"] is not None:
         return None
+    held = held_part(ctx, chapter, chapter["identity"], chapter["content_digest"])
+    if held is not None:  # a part joined while this download was past discover
+        return held
     published = _file_of(ctx, chapter)
     if published is None or isinstance(published, workflow.NeedsHuman):
         return published
@@ -349,6 +353,53 @@ def published_junk(ctx: workflow.Context, published: db.Row, layout: str, width:
     removed = (edits.get("reshape") or {}).get("removed") or []
     edit: measures.JunkEdit = {"drop_pages": edits.get("drops") or [], "strip_removed": removed}
     return measures.junk(edit, layout, width)
+
+
+def held_part(
+    ctx: workflow.Context, chapter: db.Row, identity: str, digest: str | None
+) -> workflow.Dropped | workflow.NeedsHuman | None:
+    """Drop a new download of a part N.j that a joined file of its series holds (SPEC "Split chapters").
+
+    identity, digest: the download's (discover passes what it read; junk the chapter's). The joined file must be in the
+    library (its path or its queued one) and of the same chapter (chapter_names.same_chapter: a volume that is not
+    whole is NeedsHuman). The download is put aside the retention way and recorded handled `duplicate`.
+    """
+    if chapter["published_file_id"] is not None:
+        return None
+    key = validation.chapter_key(identity)
+    number = names.number_key(key[2])
+    if key[1] or number is None or not number[1]:
+        return None
+    rows = [
+        r
+        for r in ctx.conn.execute(
+            "SELECT * FROM published_file WHERE series_id = %s AND joined_parts IS NOT NULL", (chapter["series_id"],)
+        )
+        if key in _held_by(r)
+        and any(errors.exists(config.to_local(ctx.cfg, p)) for p in (r["library_path"], r["pending_path"]) if p)
+    ]
+    if not rows:
+        return None
+    ours = functools.cache(lambda: chapter_names.download_volume(ctx.cfg, chapter["download_path"]))
+    try:
+        rows = [r for r in rows if chapter_names.same_chapter(ours, r["comicinfo_volume"], r["volume_source"])]
+    except volumes.VolumeError as e:
+        return workflow.NeedsHuman(str(e))
+    if not rows:
+        return None
+    workflow.holds_claim(ctx, chapter)
+    retention.put(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]))
+
+    def record(conn: db.Connection) -> None:
+        handled.record(conn, chapter["series_id"], identity, "duplicate", digest)
+
+    return workflow.Dropped(f"part {key[2]} is held in the joined file {rows[0]['library_path']}", record)
+
+
+def _held_by(file: db.Row) -> set[parts.Key]:
+    """Return the part keys a joined published file holds."""
+    season, _, number = validation.chapter_key(file["identity"])
+    return parts.held(season, number, file["joined_parts"])
 
 
 def _duplicate(ctx: workflow.Context, chapter: db.Row, published: db.Row, reason: str) -> workflow.Dropped:
