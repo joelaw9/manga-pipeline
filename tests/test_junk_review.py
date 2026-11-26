@@ -17,10 +17,12 @@ import yaml
 from manga_pipeline import cli, config, db, fleet, intake, preflight, process
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
-from manga_pipeline.junk import groups, review, review_run
+from manga_pipeline.junk import groups, ocr, review, review_run
 from manga_pipeline.metadata import sources
 
 from tests.builders import config_file, problem_text, run_part
+from tests.test_junk_cut import oracle, real_head, sheets_of
+from tests.test_junk_stage import Site
 from tests.timing import budget
 from tests.world import World, cbz
 
@@ -245,7 +247,7 @@ def test_a_review_that_cannot_start_claude_records_why(world, tmp_path):
 
 
 @budget(load="subprocess", seconds=20)
-def test_claude_may_read_only_the_candidates_folder_and_run_3_junk_commands(world, tmp_path):
+def test_claude_may_read_only_the_candidates_folder_and_run_4_junk_commands(world, tmp_path):
     exe = fake_claude(tmp_path / "claude", world.cfg, [])
     _, cfg = review_cmd(tmp_path, world.cfg, exe)
     (argv,) = dumps(tmp_path / "claude", "argv")
@@ -253,8 +255,8 @@ def test_claude_may_read_only_the_candidates_folder_and_run_3_junk_commands(worl
     candidates = review_run.rule_path(config.abs_path(cfg["paths"]["candidates"]))
     assert candidates.startswith("//"), "Read: the candidates folder only"
     assert allowed[0] == f"Read({candidates}/**)", "Read: the candidates folder only"
-    assert [a.split(" junk ")[1] for a in allowed[1:]] == ["list)", "show *)", "decide *)"], (
-        "the 3 junk commands; list exactly, so never list --all"
+    assert [a.split(" junk ")[1] for a in allowed[1:]] == ["list)", "show *)", "decide *)", "cut *)"], (
+        "the 4 junk commands; list exactly, so never list --all"
     )
     assert argv[argv.index("--tools") + 1] == "Read,Bash"
     assert "--permission-prompts" in argv
@@ -335,3 +337,65 @@ def test_the_junk_command_prefix_is_posix_with_forward_slashes():
         [r"C:\Python313\python.exe", "-m", "manga_pipeline.cli", "--config", r"F:\s\c 1.yaml"]
     )
     assert got == "C:/Python313/python.exe -m manga_pipeline.cli --config 'F:/s/c 1.yaml'", got
+
+
+@budget(load="pure")
+def test_the_prompt_is_version_8_and_names_the_3_cut_forms():
+    text = review_run.PROMPT.read_text(encoding="utf-8")
+    assert "prompt version 8" in text, "the version the cut text came in"
+    for form in ("{prefix} cut --spans ID", "{prefix} cut CHAPTER:START:END[:keep]", "--record DIGEST"):
+        assert form in text, f"the prompt names the cut form {form!r}"
+
+
+@pytest.fixture
+def site(tmp_path, monkeypatch):
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    return Site(tmp_path, monkeypatch)
+
+
+def cut_rows(cfg):
+    with closing(db.connect(cfg)) as conn:
+        return [
+            tuple(r)
+            for r in conn.execute(
+                "SELECT decider, written_by FROM junk_decision WHERE kind = 'cut' AND retired_by IS NULL ORDER BY id"
+            )
+        ]
+
+
+@budget(load="subprocess", seconds=30)
+def test_a_review_draws_proposes_and_records_a_cut_then_keeps_the_candidate(site, tmp_path):
+    """The real-head notice block: spans, the oracle's cut proposed and recorded with its digest, then keep."""
+    chapter = real_head(site)
+    ((cid,),) = site.rows("SELECT id FROM junk_candidate")
+    plan = ["list", f"spans:{cid}", "cut:" + " ".join(oracle(chapter)), "decide:keep"]
+    exe = fake_claude(tmp_path / "claude", site.cfg, plan)
+    code, cfg = review_cmd(tmp_path, site.cfg, exe)
+    (log,) = dumps(tmp_path / "claude", "log")
+    assert code == 0, f"the review ends ok, no call refused: {log}"
+    assert [(e[0], e[1]) for e in log] == [("list", 0), ("spans", 0), ("cut", 0), ("record", 0), ("decide", 0)], log
+    (act,) = {a for _, a in cut_rows(cfg)}
+    assert cut_rows(cfg) == [("claude", act)], "the review's cut is recorded, by claude"
+    assert site.rows("SELECT verdict, decider FROM junk_decision WHERE source = %s", f"candidate {cid}") == [
+        ("keep", "claude")
+    ], "then the candidate is kept"
+    (env,) = dumps(tmp_path / "claude", "env")
+    folder = groups.folder(cfg, f"{env[review.REVIEW_ID_VARIABLE]}-cut")
+    sheets = sheets_of(log[1][2]) + sheets_of(log[2][2])
+    assert sheets, log
+    assert all(p.parent == folder for p in sheets), "the review's sheets go to review-<id>-cut/"
+    assert not folder.exists(), "and are removed when the review ends"
+
+
+@budget(load="subprocess", seconds=45)
+def test_a_review_records_2_cuts_in_turn(site, tmp_path):
+    first = real_head(site, 2, "Long")
+    second = real_head(site, 2, "Other")
+    plan = ["list", "cut:" + " ".join(oracle(first)), "cut:" + " ".join(oracle(second)), "decide:keep"]
+    exe = fake_claude(tmp_path / "claude", site.cfg, plan)
+    code, cfg = review_cmd(tmp_path, site.cfg, exe)
+    (log,) = dumps(tmp_path / "claude", "log")
+    assert code == 0, log
+    rows = cut_rows(cfg)
+    assert [d for d, _ in rows] == ["claude", "claude"], "both cuts active"
+    assert len({a for _, a in rows}) == 2, "each in its own act"

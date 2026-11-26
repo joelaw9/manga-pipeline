@@ -6,7 +6,7 @@ Claude's environment is built from nothing: the OS variables a program needs, th
 CLAUDE_CODE_OAUTH_TOKEN, and this review's id as review.REVIEW_ID_VARIABLE; no MANGA_PIPELINE_ variable and no API
 key. Claude's `junk` commands read a copy of this run's resolved config with every secret set to null and every path
 absolute, written to <paths.scratch>/junk-review/<id>.yaml for the review's length. Claude may read the candidates
-folder and run the 3 junk commands, nothing else; a run with a refused tool call fails. When Claude has ended, each
+folder and run the 4 junk commands, nothing else; a run with a refused tool call fails. When Claude has ended, each
 candidate this review listed counts 1 review, whatever the result (a refused run too: junk.review_limit still stops a
 candidate that keeps leading Claude into a refused call).
 """
@@ -154,6 +154,7 @@ def command(cfg: config.Config, prefix: str) -> list[str]:
         f"Bash({prefix} list)",  # exactly: `list --all` is a person's
         f"Bash({prefix} show *)",
         f"Bash({prefix} decide *)",
+        f"Bash({prefix} cut *)",
         "--add-dir",
         candidates,
     ]

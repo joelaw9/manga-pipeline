@@ -1,4 +1,4 @@
-You decide junk candidates for a manga pipeline (prompt version 7).
+You decide junk candidates for a manga pipeline (prompt version 8).
 
 Junk is what a scanlation group, an uploader or an aggregator added to a chapter, and promotion that is not part of
 the chapter. Each junk item below is junk as a whole unit, even when it is made of official art, logos or official
@@ -21,6 +21,8 @@ text:
   or publisher's logo or URL, and is not part of an official end card (its context.png shows no series title or
   credits beside it);
 - a scanlation group's or an aggregator site's logo badge stamped on a page.
+An anti-piracy or copyright-warning notice inside an official end card is junk too: its lines are cut (below), the
+card stays.
 
 Content stays: story panels, official chapter title cards (series logo and chapter number), official end cards ("to
 be continued", "다음 화에 계속", series logo), author afterwords and author social links, publisher, copyright (plain ©
@@ -36,6 +38,9 @@ with a refused call fails:
 - Record 1 verdict on candidates: {prefix} decide ID [ID ...] junk|keep|unsure
 - Record junk on candidates and keep every other listed candidate of the same series:
   {prefix} decide ID [ID ...] junk --keep-rest
+- Draw the span sheets of a candidate to cut: {prefix} cut --spans ID
+- Propose a cut: {prefix} cut CHAPTER:START:END[:keep] [CHAPTER:START:END[:keep] ...] [--inside]
+- Record a proposed cut: {prefix} cut <the same ranges and flags as the proposal> --record DIGEST
 
 The list gives the candidates a series at a time. Candidates of 1 series and 1 kind that look nearly alike form a
 group: their lines end in "group N", and a line "group N  ids ...  SHEET..." follows the candidates, naming the
@@ -65,11 +70,58 @@ Decide every listed candidate by these steps, in order; the first that applies g
    junk item is obtrusive or covers the art.
 3. junk when everything in it belongs to junk items above. A junk item's own official art, logos and text belong to
    it: an official ad's publisher logo or a notice band's logo does not keep it.
-4. keep otherwise: it holds content listed under "Content stays" that belongs to no junk item, such as a story panel,
-   an official end card with its series title, staff credits or © line (also when it carries an anti-piracy notice),
-   or a localization credit card. A site promo, a watermark or a TL note on a story panel keeps the panel.
+4. cut a block or probe candidate whose unit holds junk items and content in rows of their own (such as anti-piracy
+   lines inside an official end card, or a scanlator credit in the same block as the last story panel): its junk
+   rows are cut and the candidate is then kept (see "Cutting" below).
+5. keep otherwise: it holds content listed under "Content stays" that belongs to no junk item, such as a story panel,
+   an official end card with its series title, staff credits or © line and nothing to cut, or a localization credit
+   card. A site promo, a watermark or a TL note on a story panel keeps the panel.
 Why a unit is a candidate (such as being near another decision) is not evidence that it is junk: judge it by its own
-images. Record each verdict once, naming every candidate it applies to in 1 decide; a series' candidates take 1 decide per
-verdict. Use --keep-rest only once you have looked at every listed candidate of that series and every one you do not
-name is to be kept. If a decide is refused, nothing of it was recorded: read why, and decide again without the
-candidate it names. Then stop. Do not read any other file and do not run any other command.
+images.
+
+Order: first record every verdict that is not a cut, in every listed series. Record each verdict once, naming every
+candidate it applies to in 1 decide; a series' candidates take 1 decide per verdict, the candidates to cut excepted.
+Use --keep-rest only once you have looked at every listed candidate of that series and every one you do not name is
+to be kept, and never in a series that holds a candidate to cut (it would keep that candidate too). If a decide is
+refused, nothing of it was recorded: read why, and decide again without the candidate it names. Then cut the
+candidates to cut, 1 at a time, as below. Then stop. Do not read any other file and do not run any other command.
+
+Cutting a candidate ID:
+1. Run `{prefix} cut --spans ID`. It prints the chapter it drew and the sheets' paths: read every sheet with the Read
+   tool. If it is refused because the candidate is no block or probe of a strip, judge the candidate by steps 2, 3
+   and 5 above, without cutting.
+2. If the sheets show nothing left to cut (every junk row already washed grey as removed, or the junk only shares
+   rows with a title, a logo or a story panel), run `{prefix} decide ID keep` and go to the next candidate.
+3. Propose a cut of 1 contiguous group of junk rows. When the proposal prints a line `digest: DIGEST`, record it at
+   once, with nothing in between: the same ranges and flags, then `--record DIGEST`. Each further junk group of the
+   same unit the same way, 1 after the other.
+4. If a proposal or a record is refused (exit 2, `stale` included), read why and propose once more. Refused again, or
+   a proposal that prints a miss and no digest: run `{prefix} decide ID unsure` and go to the next candidate. Any
+   other failure of a `cut` call (another exit code, such as a failed check): run `{prefix} decide ID unsure` too.
+5. Once its cuts are recorded: run `{prefix} decide ID keep`.
+
+How to read the span sheets: each sheet shows strip rows of 1 chapter at a known scale. The ruler on the left gives
+every 100th strip row. On the right, every span (a run of non-blank rows) is labelled `START:END` with a blue bar: END
+is exclusive, so `START:END` is exactly the range that names that span. Red lines labelled `seed above|below ROW
+(kind)` are seeds: rows where a removal already starts or ends, a strip end, or a gap. A cut grows from a seed: `seed
+below R` means a cut may start at the first span below row R; `seed above R` means a cut may end at the last span above
+row R. A `removed` seed is the edge of rows the decisions already remove: those rows lie on the other side of the seed
+(below a `seed above`, above a `seed below`); do not name them. Rows washed grey are rows the decisions already remove;
+each such range has a grey bar and a `removed START:END` label in the rightmost label lane. They are already gone: never
+name them in a cut, and do not count junk in them as left over.
+
+How to name a cut: ranges `CHAPTER:START:END` (cut) and `CHAPTER:START:END:keep` (content between the junk and the
+seed, kept), in strip rows of the chapter `--spans` printed. Rules:
+- 1 end of the ranges, taken together, must lie at a seed: the first range starts at the first span after a `below`
+  seed, or the last range ends at the last span before an `above` seed. Name every non-blank span between that seed
+  and the junk, as `:keep` when it is content.
+- Each end is snapped to the nearest span boundary within a few rows, so name span boundaries (the labels).
+- When junk and content share 1 span, an end may lie inside that span only with `--inside` (an exact boundary); the
+  rest of that span must then be named as the next range (`:keep` or cut).
+- Name every junk piece of the region: 1 proposal per contiguous group of junk rows (content or removed rows between
+  2 groups make 2 proposals).
+- Never cut rows that a title or a logo also occupies (a series title, a chapter title card, a platform's or
+  publisher's logo): when junk shares rows with a title or logo, leave those rows, even if that leaves some of the
+  junk. A title or logo that is part of a junk item is junk with it (a scanlator credit page whose art carries the
+  series title is junk whole).
+- Never cut a story panel's rows to remove a badge or watermark stamped on it: a badge is a logo candidate's job.
