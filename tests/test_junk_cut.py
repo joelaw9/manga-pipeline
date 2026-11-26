@@ -796,6 +796,25 @@ def test_span_sheets_wash_the_removed_rows_grey_and_leave_the_kept_rows(site, ru
     assert (shown[20] == strip[20, cols]).all(), "a kept row above the removal too"
 
 
+@budget(load="db", seconds=60)
+def test_span_sheets_name_each_removed_range_in_its_lane(site, run):
+    # the notice block junk: the decide removes 178:306, named in the removed lane beside its first row
+    chapter = real_head(site)
+    decide_junk(site.cfg, "junk")
+    code, out, err = run("junk", "cut", "--spans", str(chapter), "head")
+    assert code == 0, err
+    (path,) = sheets_of(out)
+    with Image.open(FIX / "strip.png") as im:
+        removed_lane = cut.lane_widths(im.height)[1]
+    with Image.open(path) as im:
+        sheet = np.asarray(im.convert("RGB"), np.int16)
+    column = sheet[:, sheet.shape[1] - removed_lane :]
+    inked = np.flatnonzero((column != 255).any(axis=(1, 2)))
+    assert inked.size, "the removed lane holds a bar and a label"
+    assert inked.min() == 178, "the removed range's bar and label start at its first row"
+    assert inked.max() == sheet.shape[0] - 1, "the bar runs to the sheet's end, which the range passes"
+
+
 @budget()
 def test_a_6_digit_strips_span_label_fits_its_lane_in_the_last_lane():
     height = 123456

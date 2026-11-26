@@ -1015,6 +1015,14 @@ class SheetPage(NamedTuple):
         """Return a strip row's y on the sheet (its last row for a row past the end)."""
         return min(self.height - 1, round((row - self.a) * self.scale))
 
+    def bottom(self, end: int) -> int:
+        """Return the y of the last sheet row a range ending at strip row `end` covers (at most the last row)."""
+        return round((min(end, self.b) - self.a) * self.scale) - 1
+
+    def last_text(self) -> int:
+        """Return the lowest y a label's top may take and still show whole on the sheet."""
+        return max(0, self.height - FONT_PX - 2)
+
     def shows(self, rows: strip.Rows) -> bool:
         """Return whether strip rows [x, y) lie partly on this sheet."""
         return rows[1] > self.a and rows[0] < self.b
@@ -1045,20 +1053,21 @@ def _span_labels(draw: ImageDraw.ImageDraw, pg: SheetPage, spans: Sequence[strip
             continue
         x = left + (k % LABEL_LANES) * lane
         top = pg.y(max(x0, pg.a))
-        draw.line((x + BAR_X, top, x + BAR_X, max(top, pg.y(min(x1, pg.b)) - 1)), fill=BLUE, width=3)
-        draw.text((x + LABEL_X, max(0, top)), f"{x0}:{x1}", fill=BLUE, font=font)
+        draw.line((x + BAR_X, top, x + BAR_X, max(top, pg.bottom(x1))), fill=BLUE, width=3)
+        draw.text((x + LABEL_X, min(top, pg.last_text())), f"{x0}:{x1}", fill=BLUE, font=font)
 
 
 def _removed_labels(draw: ImageDraw.ImageDraw, pg: SheetPage, removed: Sequence[strip.Rows], left: int) -> None:
     """Label each removed range on the sheet `removed START:END` in grey, in its lane at x `left`.
 
-    A label starts below the one before it, so the labels of near ranges do not overlap.
+    A label starts below the one before it, so the labels of near ranges do not overlap, and never below the sheet's
+    last text line, so it is always readable.
     """
     font, below = _font(), 0
     for x0, x1 in (r for r in removed if pg.shows(r)):
         top = pg.y(max(x0, pg.a))
-        draw.line((left + BAR_X, top, left + BAR_X, max(top, pg.y(min(x1, pg.b)) - 1)), fill=GREY, width=3)
-        at = max(top, below)
+        draw.line((left + BAR_X, top, left + BAR_X, max(top, pg.bottom(x1))), fill=GREY, width=3)
+        at = min(max(top, below), pg.last_text())
         draw.text((left + LABEL_X, at), f"removed {x0}:{x1}", fill=GREY, font=font)
         below = at + FONT_PX + 2
 
