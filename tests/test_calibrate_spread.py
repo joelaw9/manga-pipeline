@@ -7,6 +7,7 @@ are the fakes.
 import errno
 import json
 import re
+from concurrent.futures import Future
 from contextlib import closing
 from pathlib import Path
 
@@ -144,7 +145,9 @@ def test_a_series_with_no_usable_file_writes_nothing(site, capsys):
     assert site.main() == 0
     assert site.groups(series_id) == {}
     out = capsys.readouterr().out
-    assert f"series {series_id} (S, pages): no usable file; nothing written; Ch 2.cbz cannot be measured" in out
+    assert (
+        f"series {series_id} (S, pages): no usable file; nothing written; left out Ch 2.cbz: cannot be measured" in out
+    )
     assert "no usable file: 1" in out
 
 
@@ -230,8 +233,8 @@ def test_a_picked_file_that_cannot_be_rendered_is_replaced_by_another(site, monk
 
     def render_or_fail(chapter_plan, x_dir, out_dir):
         if chapter_plan.name == "Ch 1.cbz":
-            msg = "cannot write the render"
-            raise OSError(errno.EACCES, msg)
+            msg = "image file is truncated"  # Pillow's: an OSError with no errno, the file's fault
+            raise OSError(msg)
         return render(chapter_plan, x_dir, out_dir)
 
     monkeypatch.setattr(image, "render", render_or_fail)
@@ -240,7 +243,66 @@ def test_a_picked_file_that_cannot_be_rendered_is_replaced_by_another(site, monk
     assert "left out Ch 1.cbz: cannot be rendered" in capsys.readouterr().out
 
 
-# ---------------------------------------------------------------- which series, and what is written
+@budget(load="pool", seconds=20)
+def test_a_machine_error_on_a_file_fails_its_series_and_the_run_goes_on(site, monkeypatch, capsys):
+    denied, fine = site.series("Denied", layout="strip"), site.series("Fine", layout="strip")
+    for series_id in (denied, fine):
+        for n in (1, 2, 3):
+            site.file(series_id, n, pages(8, seed=series_id * 10 + n))
+    render = image.render
+
+    def render_or_deny(chapter_plan, x_dir, out_dir):
+        if f"s{denied}" in Path(x_dir).parts:
+            msg = "scratch denied"
+            raise OSError(errno.EACCES, msg)
+        return render(chapter_plan, x_dir, out_dir)
+
+    monkeypatch.setattr(image, "render", render_or_deny)
+    assert site.main() == 0
+    assert site.groups(denied) == {}, "an errno is the machine's: nothing written, not a file left out"
+    assert site.groups(fine)["colour"]["fixed"] == 1
+    out = capsys.readouterr().out
+    assert f"series {denied} (Denied, strip): failed, nothing written:" in out
+    assert "failed (run again): 1" in out
+
+
+@budget(load="pool", seconds=20)
+def test_a_strip_series_whose_every_file_fails_writes_nothing(site, capsys):
+    series_id = site.series(layout="strip")
+    site.file(series_id, 1, [("cover.jpg", jpeg(colour(seed=7)))])
+    site.file(series_id, 2, b"not a zip archive")
+    assert site.main() == 0
+    assert site.groups(series_id) == {}
+    out = capsys.readouterr().out
+    assert f"series {series_id} (S, strip): no usable file; nothing written; left out Ch 1.cbz: no AVIF page" in out
+
+
+@budget(load="pool", seconds=20)
+def test_2_groups_of_20_or_more_are_probed_in_1_call_per_file(site, monkeypatch):
+    probe, calls = calibrate.probe, []
+
+    def recorded(encoder, picked, work_dir):
+        calls.append(len(picked))
+        return probe(encoder, picked, work_dir)
+
+    monkeypatch.setattr(calibrate, "probe", recorded)
+    series_id = site.series()
+    for n in (1, 2, 3):
+        mixed = pages(7, seed=n) + [(f"g{name}", data) for name, data in pages(7, seed=50 + n, page=gray)]
+        site.file(series_id, n, mixed)
+    assert site.main() == 0
+    rows = site.groups(series_id)
+    assert (rows["gray"]["q"], rows["colour"]["q"]) == (60, 60), "21 units each: both probed"
+    assert calls == [14, 14, 14], "1 probe per picked file, both groups' units in it"
+
+
+@budget(load="pure")
+def test_results_cancels_the_queued_jobs_when_one_fails():
+    failed, queued = Future(), Future()
+    failed.set_exception(ValueError("broken"))
+    with pytest.raises(ValueError, match="broken"):
+        calibrate_spread.results([failed, queued])
+    assert queued.cancelled(), "the queued job is cancelled, not left to run"
 
 
 @budget(load="pool", seconds=20)
