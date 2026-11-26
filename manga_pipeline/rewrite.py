@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Literal, NamedTuple
@@ -51,7 +51,7 @@ CODE = hashlib.sha256(b"".join((Path(__file__).parent / m).read_bytes() for m in
 SERIES_LEVEL = (comicinfo_stage.OWN - {"Notes", "PageCount", "BlackAndWhite"}) | {"Series", "LocalizedSeries", "Volume"}
 # Columns of a queued rewrite on its published_file row, cleared together.
 PENDING = ("pending_path", "pending_staged", "pending_size", "pending_volume", "pending_volume_source", "pending_step",
-           "pending_cover", "pending_copy", "pending_title", "pending_unedited")  # fmt: skip
+           "pending_cover", "pending_copy", "pending_title", "pending_unedited", "pending_parts")  # fmt: skip
 PROGRESS = ("carry_pages_read", "carry_old_pages", "carry_new_pages", "carry_page_shift", "carry_kavita_modified")
 CARRY = (*PROGRESS, "carry_cover")
 # Open rewrite chapters and better copies (both name their file): the cap export.rewrites_open counts them. A chapter
@@ -60,11 +60,14 @@ OPEN_REWRITES = sql.SQL("published_file_id IS NOT NULL AND status NOT IN ('done'
     workflow.REPLACES_ADOPTED.format(c=sql.Identifier("chapter"))
 )
 # A published file busy with a change, {p} its alias (fill it with sql.Identifier(alias)): an open chapter names it (a
-# rewrite or a copy), a queued rewrite, a wait for Kavita, a cover refresh due, or a failed rewrite. No new rewrite or
-# copy takes it meanwhile.
+# rewrite or a copy) or joins it, a queued rewrite or a queued join holds it, a wait for Kavita, a cover refresh due, or
+# a failed rewrite. No new rewrite, copy or join takes it meanwhile.
 BUSY = sql.SQL("""({p}.pending_path IS NOT NULL OR {p}.indexed_since IS NOT NULL OR {p}.pending_error IS NOT NULL
     OR {p}.carry_cover IS TRUE OR EXISTS (
-        SELECT 1 FROM chapter b WHERE b.published_file_id = {p}.id AND b.status <> 'done'))""")
+        SELECT 1 FROM chapter b WHERE b.published_file_id = {p}.id AND b.status <> 'done')
+    OR EXISTS (SELECT 1 FROM chapter j WHERE j.join_parts IS NOT NULL AND j.status <> 'done'
+        AND {p}.id = ANY(j.join_parts))
+    OR EXISTS (SELECT 1 FROM published_file q WHERE q.pending_parts IS NOT NULL AND {p}.id = ANY(q.pending_parts)))""")
 # A series a rename must leave alone, {s} its alias (SPEC "Retroactive updates", Series names): a file with a rewrite
 # or copy queued, a wait for Kavita, a cover refresh due or a failed rewrite (BUSY's file part), or a chapter claimed or
 # at publish or confirm not done. An open conversion or rewrite chapter before publish does not count: its
@@ -75,7 +78,7 @@ RENAME_BUSY = sql.SQL("""(EXISTS (SELECT 1 FROM published_file f WHERE f.series_
     OR EXISTS (SELECT 1 FROM chapter c WHERE c.series_id = {s}.id
         AND (c.status = 'claimed' OR (c.stage IN ('publish', 'confirm') AND c.status <> 'done'))))""")
 # finish's file acts, each recorded in published_file.pending_step once done
-STEP_DATED, STEP_RETAINED, STEP_RENAMED, STEP_OLD_REMOVED = 1, 2, 3, 4
+STEP_DATED, STEP_RETAINED, STEP_RENAMED, STEP_OLD_REMOVED, STEP_PARTS_REMOVED = 1, 2, 3, 4, 5
 
 
 def _set_null(columns: Iterable[str]) -> sql.Composed:
@@ -425,22 +428,10 @@ def comicinfo_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | wor
     old = archive.read_comicinfo(source)
     if old is None:
         return workflow.NeedsHuman(f"{source} holds no ComicInfo.xml")
-    kept = {k: v for k, v in comicinfo.read_all(old).items() if k not in SERIES_LEVEL and comicinfo.field_ok(k, v)}
     try:
-        group = volumes.series_group(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
+        fields = file_fields(ctx, series, old, chapter["comicinfo_volume"])
     except volumes.VolumeError as e:
         return workflow.NeedsHuman(str(e))
-    elements = comicinfo_stage.series_fields(ctx, series, None, None, group)
-    old_links = (comicinfo.read_all(old).get("Web") or "").split()
-    links = (elements["Web"] or "").split()
-    fields: dict[str, str | int | None] = {**elements, **kept}
-    fields["Web"] = " ".join([*links, *(u for u in old_links if u not in links)])
-    fields["Series"] = series["comicinfo_series"]
-    if series["localized_name"]:
-        fields["LocalizedSeries"] = series["localized_name"]
-    fields.pop("Volume", None)
-    if chapter["comicinfo_volume"] is not None:
-        fields["Volume"] = chapter["comicinfo_volume"]
     if (chapter["comicinfo_title"] or "") != (file["comicinfo_title"] or ""):  # a hand edit, or its removal
         fields["Title"] = chapter["comicinfo_title"] or f"Chapter {names.fmt_num(float(file['comicinfo_number']))}"
     pages = comicinfo.read_pages(old)
@@ -463,6 +454,28 @@ def comicinfo_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | wor
         )
 
     return workflow.Done(record)
+
+
+def file_fields(ctx: workflow.Context, series: db.Row, old: bytes, volume: str | None) -> dict[str, str | int | None]:
+    """Return the ComicInfo.xml fields of a published file rewritten from its old ComicInfo.xml (old).
+
+    The series-level fields now, the old file's own fields, its links after the series' links, the series' name and
+    localized name, and volume. VolumeError from the series' override file.
+    """
+    kept = {k: v for k, v in comicinfo.read_all(old).items() if k not in SERIES_LEVEL and comicinfo.field_ok(k, v)}
+    group = volumes.series_group(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
+    elements = comicinfo_stage.series_fields(ctx, series, None, None, group)
+    old_links = (comicinfo.read_all(old).get("Web") or "").split()
+    links = (elements["Web"] or "").split()
+    fields: dict[str, str | int | None] = {**elements, **kept}
+    fields["Web"] = " ".join([*links, *(u for u in old_links if u not in links)])
+    fields["Series"] = series["comicinfo_series"]
+    if series["localized_name"]:
+        fields["LocalizedSeries"] = series["localized_name"]
+    fields.pop("Volume", None)
+    if volume is not None:
+        fields["Volume"] = volume
+    return fields
 
 
 def page_count(cbz: Path) -> int:
@@ -493,8 +506,10 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
     """Queue the rewrite, or a better copy's replacement, on its file's row with the API key's user's progress.
 
     The chapter is then done (SPEC "Retroactive updates"). A copy also queues its values (publish.row_values), puts its
-    download aside the retention way and is recorded as a handled chapter `published`. A publish run again finds its
-    rewrite queued or finished and is done.
+    download aside the retention way and is recorded as a handled chapter `published`. A join (SPEC "Split chapters")
+    queues its other files and the progress of the run: the pages of the parts read in full from the first, plus those
+    read in the first part not read in full, over the run's pages. A publish run again finds its rewrite queued or
+    finished and is done.
     """
     conn = ctx.conn
     file = db.one_row(conn, "SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],))
@@ -502,10 +517,15 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
         return workflow.Done()  # queued, or finished, by an earlier run of this stage
     series = db.one_row(conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     old = config.to_local(ctx.cfg, file["library_path"])
-    seen = [f for f in ctx.kavita.series_files(series["kavita_series_id"]) if f["path"] == old]
-    if not seen:  # a confirmed file Kavita lost: tried again by a later run, its attempts counted
-        msg = f"Kavita does not list {old} in series {series['kavita_series_id']}"
+    joined = list(chapter["join_parts"] or [])
+    paths = [file["library_path"], *(_path_of(conn, i) for i in joined)]
+    listed = {f["path"]: f for f in ctx.kavita.series_files(series["kavita_series_id"])}
+    seen = [listed.get(config.to_local(ctx.cfg, p)) for p in paths]
+    if any(s is None for s in seen):  # a confirmed file Kavita lost: tried again by a later run, its attempts counted
+        msg = f"Kavita does not list {', '.join(p for p, s in zip(paths, seen, strict=True) if s is None)}"
+        msg += f" in series {series['kavita_series_id']}"
         raise RuntimeError(msg)
+    files = [s for s in seen if s is not None]
     staged = config.to_local(ctx.cfg, chapter["staged_path"])
     target = config.to_local(ctx.cfg, chapter["library_path"])
     new_pages = page_count(staged)
@@ -518,8 +538,10 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
     if clash or (target != old and errors.exists(target)):
         return workflow.NeedsHuman(f"{target} is already in the library; a library file is never overwritten")
     copy = chapter["kind"] == "download"  # a better copy (SPEC "Library copies")
-    read, old_pages = seen[0]["pages_read"], page_count(old)
-    if copy:
+    read, old_pages = _read_pages(files) if joined else (files[0]["pages_read"], page_count(old))
+    if joined:
+        cover, shift, pending_copy = None, 0, None
+    elif copy:
         values = publish.row_values(conn, chapter)
         cover, shift = values["cover_state"], copy_shift(read, old_pages, new_pages)
         pending_copy = json.dumps({"values": values, "digest": chapter["content_digest"]})
@@ -536,7 +558,7 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
                 pending_volume = %s, pending_volume_source = %s, pending_cover = %s, pending_step = 0,
                 pending_attempts = 0, carry_pages_read = %s, carry_old_pages = %s, carry_new_pages = %s,
                 carry_page_shift = %s, carry_kavita_modified = %s, carry_cover = %s, pending_copy = %s,
-                pending_title = %s, pending_unedited = %s
+                pending_title = %s, pending_unedited = %s, pending_parts = %s
             WHERE id = %s AND pending_path IS NULL""",
             (
                 chapter["library_path"],
@@ -546,14 +568,15 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
                 chapter["naming_volume_source"],
                 now,
                 read,
-                seen[0]["pages"],
+                files[0]["pages"] if not joined else old_pages,
                 new_pages,
                 shift,
-                seen[0]["modified"],
+                max(f["modified"] for f in files),
                 copy or (bool(converted) and converted["cover_state"] != file["cover_state"]),  # a copy's page 1 is new
                 pending_copy,
                 chapter["comicinfo_title"],
-                _json(file["unedited"] if copy else chapter["naming_unedited"]),  # a copy keeps the file's edits
+                _json(_unedited(chapter, file)),
+                joined or None,
                 file["id"],
             ),
         )
@@ -561,6 +584,35 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
             handled.record(c, chapter["series_id"], chapter["identity"], "published", chapter["content_digest"])
 
     return workflow.Done(record)
+
+
+def _path_of(conn: db.Connection, file_id: int) -> str:
+    return db.one_row(conn, "SELECT library_path FROM published_file WHERE id = %s", (file_id,))[0]
+
+
+def _read_pages(files: Sequence[kavita_client.SeriesFile]) -> tuple[int, int]:
+    """Return (pages read, pages) of a run's files in order.
+
+    Pages read: the parts read in full from the first, plus the pages read in the first part not read in full.
+    """
+    read = 0
+    for f in files:
+        if f["pages_read"] < f["pages"]:
+            read += f["pages_read"]
+            break
+        read += f["pages"]
+    return read, sum(f["pages"] for f in files)
+
+
+def _unedited(chapter: db.Row, file: db.Row) -> object:
+    """Return the hand-edit record the file keeps.
+
+    A copy and a join onto a joined file keep the file's; a first join has none (the joined chapter has no edit of
+    its own); a rewrite's is its chapter's.
+    """
+    if chapter["kind"] == "download" or (chapter["join_parts"] and file["joined_parts"]):
+        return file["unedited"]
+    return None if chapter["join_parts"] else chapter["naming_unedited"]
 
 
 def _json(value: object) -> str | None:
@@ -638,8 +690,20 @@ def finish(ctx: workflow.Context, row: db.Row) -> None:
         if target != old and errors.exists(old):
             old.unlink()
         step = record_step(conn, row["id"], STEP_OLD_REMOVED)
+    if row["pending_parts"] and step < STEP_PARTS_REMOVED:
+        _remove_parts(cfg, conn, row["pending_parts"])
+        step = record_step(conn, row["id"], STEP_PARTS_REMOVED)
     _settle(conn, row)
     log.info("%s: rewrote %s as %s", ctx.part, row["library_path"], row["pending_path"])
+
+
+def _remove_parts(cfg: config.Config, conn: db.Connection, members: Sequence[int]) -> None:
+    """Put a join's other files in retention and remove them; each act repeated safely (a file already gone skipped)."""
+    for member in members:
+        path = config.to_local(cfg, _path_of(conn, member))
+        if errors.exists(path):
+            retention.put_library(cfg, path)
+            path.unlink()
 
 
 def _renamed(row: db.Row, target: Path, old: Path) -> bool:
@@ -655,9 +719,14 @@ def _renamed(row: db.Row, target: Path, old: Path) -> bool:
 def _settle(conn: db.Connection, row: db.Row) -> None:
     """Do finish's last act: the row takes the new path, size, volume, title and cover (a better copy's values too).
 
-    Its pending fields are cleared; the series is due a scan.
+    Its pending fields are cleared; the series is due a scan. A join's row then becomes chapter N (_joined); a better
+    copy's holds no parts.
     """
     with db.transaction(conn):
+        if row["pending_parts"]:
+            _joined(conn, row)
+        elif row["pending_copy"]:
+            conn.execute("UPDATE published_file SET joined_parts = NULL WHERE id = %s", (row["id"],))
         if row["pending_copy"]:  # a better copy: the row describes it now (SPEC "Retroactive updates")
             values = {k: v for k, v in row["pending_copy"]["values"].items() if k not in ("size", "cover_state")}
             conn.execute(
@@ -677,6 +746,59 @@ def _settle(conn: db.Connection, row: db.Row) -> None:
             (workflow.now(conn), row["id"]),
         )
         conn.execute("UPDATE series SET scan_due = 1 WHERE id = %s", (row["series_id"],))
+
+
+def _number(file: db.Row) -> tuple[int, str]:
+    """Return (N, decimal part) of a published file's number, from its identity."""
+    number = names.number_key(names.read_identity(file["identity"])[3])
+    if number is None:
+        msg = f"published file {file['id']} has no number"
+        raise ValueError(msg)
+    return number
+
+
+def _joined(conn: db.Connection, row: db.Row) -> None:
+    """Make a join's first file chapter N, inside _settle's transaction.
+
+    Its identity and number N; page count, junk, strip length and page hashes the files' sums (none when a file has
+    none), its median width the smallest, its bits per pixel the page-weighted mean; the parts it holds. The chapters
+    naming the other files name it; their rows go.
+    """
+    ids = [row["id"], *row["pending_parts"]]
+    files = conn.execute("SELECT * FROM published_file WHERE id = ANY(%s)", (ids,)).fetchall()
+    first = next(f for f in files if f["id"] == row["id"])
+    whole = _number(first)[0]
+    top = max(int(_number(f)[1]) for f in files if f["id"] != row["id"])  # the other files are parts N.j
+    conn.execute(
+        """UPDATE published_file f SET identity = %(identity)s, comicinfo_number = %(whole)s, joined_parts = %(top)s,
+            pages_in = s.pages_in, junk = s.junk, strip_length = s.strip_length, median_page_width = s.width,
+            page_phashes = s.phashes, bpp = s.bpp, pages_out = NULL
+        FROM (SELECT
+                CASE WHEN bool_and(pages_in IS NOT NULL) THEN sum(pages_in) END AS pages_in,
+                CASE WHEN bool_and(junk IS NOT NULL) THEN sum(junk) END AS junk,
+                CASE WHEN bool_and(strip_length IS NOT NULL) THEN sum(strip_length) END AS strip_length,
+                CASE WHEN bool_and(median_page_width IS NOT NULL) THEN min(median_page_width) END AS width,
+                CASE WHEN bool_and(page_phashes IS NOT NULL) THEN (
+                    SELECT jsonb_agg(h ORDER BY o.ord, h.n)::text
+                    FROM unnest(%(ids)s::bigint[]) WITH ORDINALITY o(id, ord)
+                    JOIN published_file g ON g.id = o.id,
+                    jsonb_array_elements_text(g.page_phashes::jsonb) WITH ORDINALITY h(h, n)) END AS phashes,
+                CASE WHEN bool_and(bpp IS NOT NULL AND pages_in IS NOT NULL)
+                    THEN sum(bpp * pages_in) / nullif(sum(pages_in), 0) END AS bpp
+            FROM published_file WHERE id = ANY(%(ids)s)) s
+        WHERE f.id = %(first)s""",
+        {
+            "identity": names.renumbered(first["identity"], str(whole)),
+            "whole": str(whole),
+            "top": top,
+            "ids": ids,
+            "first": row["id"],
+        },
+    )
+    conn.execute(
+        "UPDATE chapter SET published_file_id = %s WHERE published_file_id = ANY(%s)", (row["id"], row["pending_parts"])
+    )
+    conn.execute("DELETE FROM published_file WHERE id = ANY(%s)", (row["pending_parts"],))
 
 
 def is_new(path: Path, row: db.Row) -> bool:

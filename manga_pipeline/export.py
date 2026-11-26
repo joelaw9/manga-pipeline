@@ -10,7 +10,7 @@ import logging
 from datetime import timedelta
 from pathlib import Path, PurePosixPath
 
-from manga_pipeline import config, db, errors, kavita_link, notify, retention, rewrite, workflow
+from manga_pipeline import config, db, errors, joins, kavita_link, notify, retention, rewrite, workflow
 from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.db import sql
@@ -44,6 +44,7 @@ def _work(ctx: workflow.Context) -> None:
         retention.purge(ctx.cfg)
     # The comparison (SPEC "Retroactive updates"): rewrite chapters for comicinfo and publish below
     rewrite.compare(ctx)
+    joins.queue(ctx)  # SPEC "Split chapters": under the same cap
     workflow.drain(ctx, {"comicinfo": _comicinfo})
     for series_id in workflow.series_with_ready(ctx, ("publish",)):
         # A new series Kavita does not hold yet is published by new_series (SPEC "Publishing": it lands whole)
@@ -155,6 +156,8 @@ def _hold(ctx: workflow.Context, series: db.Row, reason: str) -> bool:
 
 
 def _comicinfo(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
+    if chapter["join_parts"] is not None:
+        return joins.comicinfo_run(ctx, chapter)
     return (rewrite.comicinfo_run if chapter["kind"] == "rewrite" else comicinfo.run)(ctx, chapter)
 
 

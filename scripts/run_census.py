@@ -16,7 +16,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from contextlib import closing
 from typing import TypedDict
 
-from manga_pipeline import config, db, names
+from manga_pipeline import config, db, joins, names
 from manga_pipeline.metadata import parts
 
 
@@ -64,28 +64,6 @@ def _beside_whole(files: Iterable[parts.File]) -> Counter[str]:
     return Counter(origin for n, origin in wholes.items() if n in with_parts)
 
 
-def read(conn: db.Connection) -> dict[int, list[parts.File]]:
-    """Return every series' published files as the rule reads them."""
-    out: dict[int, list[parts.File]] = {}
-    for r in conn.execute(
-        "SELECT id, series_id, identity, comicinfo_volume, origin, state, joined_parts FROM published_file ORDER BY id"
-    ):
-        _, season, side, number, _ = names.read_identity(r["identity"])
-        out.setdefault(r["series_id"], []).append(
-            parts.File(
-                id=r["id"],
-                season=season,
-                side=side,
-                number=number,
-                volume=r["comicinfo_volume"],
-                origin=r["origin"],
-                confirmed=r["state"] == "confirmed",
-                joined=r["joined_parts"],
-            )
-        )
-    return out
-
-
 def main(argv: list[str] | None = None) -> int:
     """Run the census on the configured database; print its report."""
     parser = argparse.ArgumentParser(description="The split-chapter run census: read only, JSON on stdout.")
@@ -94,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = config.init(args.config)
     with closing(db.open_connection(cfg)) as conn:
         conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
-        report = census(read(conn))
+        report = census(joins.published(conn, None))
     sys.stdout.write(json.dumps(report) + "\n")
     return 0
 

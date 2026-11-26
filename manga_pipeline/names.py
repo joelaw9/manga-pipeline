@@ -388,6 +388,12 @@ def identity(item: Item) -> str:
     return json.dumps([key(item.group), season, side_label(item), number, key(item.title)])
 
 
+def renumbered(text: str, number: str) -> str:
+    """Return a chapter identity's JSON text (identity's) with its number replaced by number."""
+    group, season, side, _, title = read_identity(text)
+    return json.dumps([group, season, side, number, title])
+
+
 def read_identity(text: str) -> list[str | None]:
     """Return the parts of a chapter identity's JSON text (identity's): scanlator key, season, side, number, title key.
 
