@@ -173,7 +173,7 @@ class Irregular(TypedDict):
 
 
 class StitchedPlan(TypedDict):
-    """A stitched page-format chapter cut back into pages (plan_pages): the strip layout and its cuts.
+    """A split page-format chapter (stitched or re-sliced) cut back into pages (plan_pages): the layout and its cuts.
 
     Width and height of the strip at the target width, its pages, the cuts (0 and the height included), the irregular
     images and the page height (px at the target width) it was cut at.
@@ -792,9 +792,13 @@ def _inner_bounds(laid: Sequence[LaidPage]) -> list[int]:
     return list(itertools.accumulate(p["th"] for p in laid[:-1]))
 
 
-def _on_cut(y: float, page_h: float) -> bool:
-    """Return whether a stack row lies on a page cut (CUT_TOLERANCE of a page, at least CUT_MIN_PX)."""
-    return abs(y - round(y / page_h) * page_h) <= max(CUT_MIN_PX, CUT_TOLERANCE * page_h)
+def _on_cut(y: float, page_h: float, n: int) -> bool:
+    """Return whether a stack row lies on 1 of the n pages' inner cuts (CUT_TOLERANCE of a page, at least CUT_MIN_PX).
+
+    The stack's own top and bottom are no cut: a sliver image at either end does not lie on one.
+    """
+    k = round(y / page_h)
+    return 1 <= k <= n - 1 and abs(y - k * page_h) <= max(CUT_MIN_PX, CUT_TOLERANCE * page_h)
 
 
 def reslice_pages(
@@ -828,7 +832,7 @@ def reslice_pages(
         n = round(total / page_h)
         if n < RESLICE_MIN_N or abs(total / page_h - n) > cfg["reslice_stack_window"]:
             continue
-        aligned = sum(_on_cut(b, total / n) for b in bounds)
+        aligned = sum(_on_cut(b, total / n, n) for b in bounds)
         if aligned >= cfg["reslice_align"] * len(bounds) and (best is None or aligned > best[0]):
             best = (aligned, n)
     return None if best is None else best[1]
@@ -871,7 +875,7 @@ def cuts_on_boundaries(
             if p["top"] <= c < p["top"] + p["th"] and SEAM_ROWS <= r <= len(a) - SEAM_ROWS:
                 inside += 1
                 shows += _boundary(a[r - SEAM_ROWS : r], a[r : r + SEAM_ROWS], cfg)
-        if above is not None and not _on_cut(p["top"], page_h):
+        if above is not None and not _on_cut(p["top"], page_h, n):
             joins += 1
             continuous += seam_score(above, a[:SEAM_ROWS]) <= cfg["max_seam_score"]
         above = a[-SEAM_ROWS:]

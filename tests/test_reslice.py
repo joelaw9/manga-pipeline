@@ -94,6 +94,34 @@ def test_pages_cut_in_2_are_rejoined_by_their_continuous_joins():
     assert split(ims) == page_units.Split(20), "every cut on an image boundary; every in-page join continuous"
 
 
+@budget(load="pure")
+def test_a_cut_through_blank_margins_is_a_page_boundary():
+    def margined(i: int) -> np.ndarray:  # a page with white top and bottom margins
+        p = page(i)
+        p[:12], p[-12:] = 255, 255
+        return p
+
+    ims = recut(np.concatenate([margined(i) for i in range(28)]), [224] * 21)
+    assert split(ims) == page_units.Split(28), "blank on both sides: 2 pages meet, though the seam score is 0"
+
+
+@budget(load="pure")
+def test_a_cut_a_few_rows_from_an_image_edge_is_not_an_inside_cut():
+    wide = [np.repeat(np.repeat(page(i), 10, axis=1), 10, axis=0) for i in range(4)]  # 1200 x 1680: 3 px = 1 row
+    # page 0's 2nd part is 3 px short: its last 3 rows open the next image, so the cut at 1680 lies 3 px (1 analysis
+    # row) into that image, where no 6-row window fits above it
+    parts = [wide[0][:990], wide[0][990:1677], np.concatenate([wide[0][1677:], wide[1][:990]]), wide[1][990:]]
+    parts += [wide[2][:990], wide[2][990:], wide[3][:990], wide[3][990:]]
+    assert strip.reslice_pages(sizes(parts), ASPECTS) == 4
+    assert split(parts) == page_units.Split(4), "the cut 3 px above an image's bottom is no inside cut"
+
+
+@budget(load="pure")
+def test_a_sliver_at_the_stack_edge_lies_on_no_cut():
+    edge = [(1000, 2), (1000, 2100), (1000, 2100)]  # the 2 px image's boundary is at the stack's top, no cut
+    assert strip.reslice_pages(edge, ASPECTS) is None, "no inner boundary lies on an inner cut"
+
+
 # ---------------------------------------------------------------- not re-sliced
 
 

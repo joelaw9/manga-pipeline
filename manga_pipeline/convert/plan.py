@@ -36,7 +36,6 @@ EDIT_KEYS: dict[str, tuple[type[object], ...]] = {
     "split_pages": (int, type(None)),
     "blank": (list,),
 }
-MIN_SPLIT_PAGES = 2  # a re-sliced chapter's recorded page count is at least this
 BOX_SIDES = 4  # a box: [left, top, right, bottom]
 PAIR_LEN = 2  # a join entry: [page, sliver]
 
@@ -363,8 +362,8 @@ def _check_keys(edit: Json) -> None:
             msg = f"chapter_edit {key} must be a {' or '.join(k.__name__ for k in kinds)}, got {edit[key]!r}"
             raise EditError(msg)
     n = edit["split_pages"]
-    if type(n) is int and (n < MIN_SPLIT_PAGES or edit["split"] is not True):
-        msg = f"chapter_edit split_pages must be null, or {MIN_SPLIT_PAGES} or more with split true, got {n!r}"
+    if type(n) is int and (n < strip.RESLICE_MIN_N or edit["split"] is not True):
+        msg = f"chapter_edit split_pages must be null, or {strip.RESLICE_MIN_N} or more with split true, got {n!r}"
         raise EditError(msg)
 
 

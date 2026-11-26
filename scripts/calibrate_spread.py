@@ -5,7 +5,7 @@ Plan phase-10-29.
 For each adopted series in scope (layout pages or strip, status ok, holding an adopted file) that holds no group fixed
 by a spread: its adopted files (origin library, confirmed) in number order; those with an AVIF page as convert would
 plan them are usable (every strip file is); 3 are picked spread over them; each is planned with no junk edit (a strip
-file rendered; a page file split at the series' page aspect when stitched, and rendered), and its AVIF pages are its
+file rendered; a page file split as junk splits it, stitched or re-sliced, and rendered), and its AVIF pages are its
 units. Per group, 40 units are shared among the 3, the file with fewest first, evenly spaced in each; a repeated page
 is probed once and counted each time; 20 or more are probed and the fix rule (calibrate.choose) applied, fewer fix the
 group at q80. Every group but a record's is written fixed, its why starting `spread:`, in 1 transaction per series.

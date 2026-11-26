@@ -220,15 +220,16 @@ def test_a_re_sliced_page_file_is_planned_split_as_junk_would(site, monkeypatch)
     for n in (2, 3):
         site.file(series_id, n, pages(8, seed=n, size=(96, 134)))
     planned = []
-    real = calibrate_spread.page_units.split_of
+    build = calibrate_spread.plan.build
 
-    def recorded(image, sizes, aspects):
-        planned.append(real(image, sizes, aspects))
-        return planned[-1]
+    def recorded(name, measured, files, edit, layout):
+        planned.append((name, edit["split"], edit["split_pages"]))
+        return build(name, measured, files, edit, layout)
 
-    monkeypatch.setattr(calibrate_spread.page_units, "split_of", recorded)
+    monkeypatch.setattr(calibrate_spread.plan, "build", recorded)
     assert site.main() == 0
-    assert calibrate_spread.page_units.Split(9) in planned, "the re-sliced file is split into its 9 pages"
+    assert ("Ch 1.cbz", True, 9) in planned, "the re-sliced file is planned split into its 9 pages, as junk would"
+    assert ("Ch 2.cbz", False, None) in planned, "a file of whole pages is planned unsplit"
 
 
 @budget(load="pool", seconds=20)

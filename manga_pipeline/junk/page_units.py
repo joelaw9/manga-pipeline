@@ -6,7 +6,7 @@ page_items_review / uncovered_bands), reshaped to 1 chapter:
 
 - `scan(...)` decodes once: per edge page its whole-page signature, frame, white flag and (last pages) text
   features; per tall page its credit bands; the edge rows of the pages slice repair may join; per content page its
-  logo (logo_units.measure); or, for a stitched chapter, only that it is split.
+  logo (logo_units.measure); or, for a stitched or re-sliced chapter (split_of), only how it is split.
 - `decide(sc, decide_unit)` applies decisions with no decode and returns the page-layout edit and the units left
   undecided, each with the per-chapter reasons it is a candidate (size, text, band).
 

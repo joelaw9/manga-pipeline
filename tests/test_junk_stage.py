@@ -28,6 +28,8 @@ from tests import pages as fx
 from tests.builders import config_file, one, present, run_part
 from tests.convert_pages import gray, jpeg
 from tests.fakes.suwayomi import page as fake_page
+from tests.test_reslice import PAGES_28, recut
+from tests.test_reslice import page as reslice_page
 from tests.timing import budget
 from tests.world import World, cbz, decide_junk, logo_cbz, logo_page
 
@@ -1450,3 +1452,27 @@ def test_a_published_chapter_counts_at_publish_or_confirm_and_one_dropped_there_
         site.download("Alpha", n, sized_cbz((100, 142), 6, seed=n))
     site.parts()
     assert (stored_aspect(site) == [1.42, 1.5]) is counted, "chapter 1's 4 pages at 1.5: a 2nd candidate when counted"
+
+
+def png_cbz(images):
+    """Return a CBZ of these images (numpy arrays) as PNG pages 001.png, 002.png, ..."""
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        for n, a in enumerate(images, 1):
+            out = io.BytesIO()
+            Image.fromarray(a).save(out, "PNG")
+            z.writestr(f"{n:03}.png", out.getvalue())
+    return data.getvalue()
+
+
+@budget(load="db", seconds=20)
+def test_junk_records_a_re_sliced_chapters_page_count_in_its_edit(site):
+    site.download("Resliced", 1, png_cbz([reslice_page(100 + i) for i in range(12)]))
+    site.download("Resliced", 2, png_cbz([reslice_page(200 + i) for i in range(12)]))
+    site.download("Resliced", 3, png_cbz(recut(PAGES_28, [224] * 21)))
+    site.parts()
+    decide_junk(site.cfg, "keep")
+    run_part(site.cfg, process)
+    ((text,),) = site.rows("SELECT e.edit FROM chapter_edit e JOIN chapter c ON c.id = e.chapter_id WHERE c.number = 3")
+    edit = json.loads(text)
+    assert (edit["split"], edit["split_pages"]) == (True, 28), "junk recorded chapter 3's 28 pages in its edit"
