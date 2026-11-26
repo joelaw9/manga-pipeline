@@ -159,6 +159,12 @@ def _calibrate(
     """
     stored = calibrate.rows(ctx.conn, chapter["series_id"])
     fixed: list[str] = []
+    for group, row in list(stored.items()):
+        if not row["fixed"] and row["origin"] == "computed" and len(row["samples"]) >= calibrate.MAX_SAMPLES:
+            # a full group samples no more; its stored samples meet the fix rule now (one stored under an older rule)
+            stored[group] = calibrate.add(
+                ctx.conn, chapter, group, [], guard=lambda _conn: workflow.holds_claim(ctx, chapter)
+            )
     for group, group_units in groups.items():
         row = stored.get(group)
         if not group_units or not _samples_wanted(row, chapter["id"]):

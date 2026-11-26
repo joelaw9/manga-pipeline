@@ -363,7 +363,7 @@ def test_a_retried_chapter_adds_no_samples_twice(site):
 
 
 @budget(load="pool", seconds=15)
-def test_samples_failing_at_q80_are_not_counted(site):
+def test_20_samples_with_fewer_than_20_counted_fix_the_group_at_q80(site):
     low = {"001", "002", "003"}
     fake.SCORE[0] = lambda _ref, dec: (
         70.0 if dec.name.split(".")[0] in low else 95 - (80 - int(dec.name.split(".q")[1][:2])) * 0.5
@@ -372,8 +372,38 @@ def test_samples_failing_at_q80_are_not_counted(site):
     for n in range(3):
         site.record(site.run(site.chapter(series_id, pages(7, seed=n))))
     row = calibration(site, series_id)["colour"]
-    assert len(row["samples"]) == 21, "18 counted samples are not enough to fix the group"
-    assert row["fixed"] == 0, "18 counted samples are not enough to fix the group"
+    assert len(row["samples"]) == 21
+    assert (row["fixed"], row["q"]) == (1, 80), "the bulk converter's rule: 20 samples fix it; 18 counted fail q75"
+    assert row["why"] == "q75 fails: 12 counted < 20 (21 samples)", "3 low pages in each of 3 chapters"
+
+
+def stored_samples(series_id, n, chapters, *, counted):
+    """Return n stored samples of the series' colour group over these chapter ids, the first `counted` passing q80."""
+    return [
+        {
+            "sha1": f"s{series_id}-{i}",
+            "rendered": False,
+            "bytes_in": 1,
+            "scores": {str(q): [90.0 if i < counted else 79.0, 1] for q in (80, *calibrate.LADDER)},
+            "chapter_id": chapters[i % len(chapters)],
+        }
+        for i in range(n)
+    ]
+
+
+@pytest.mark.parametrize(("n", "chapters", "counted", "q"), [(28, (901, 902), 28, 50), (40, (901, 902, 903), 19, 80)])
+@budget(load="pool")
+def test_an_open_group_stored_under_the_3_chapter_rule_fixes_at_the_next_convert(site, n, chapters, counted, q):
+    series_id = site.series()
+    with db.transaction(site.conn):
+        site.conn.execute(
+            "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples)"
+            " VALUES (%s, 'colour', 80, 0, 'computed', 'open', %s)",
+            (series_id, json.dumps(stored_samples(series_id, n, chapters, counted=counted))),
+        )
+    site.record(site.run(site.chapter(series_id, pages(3, seed=7))))
+    row = calibration(site, series_id)["colour"]
+    assert (row["fixed"], row["q"]) == (1, q), "the new rule fixes it: a full group (40) without taking samples"
 
 
 def calibrated_record(calibration: record_reader.RecordCalibration) -> record_reader.Record:
@@ -420,13 +450,12 @@ def test_choose_follows_the_bulk_converters_rule():
 
     passing = [sample(c % 3, lambda _q: 90.0) for c in range(20)]
     assert calibrate.choose(passing) == (50, "ladder floor q50 passes (20 samples)")
-    assert calibrate.choose(passing[:19]) is None, "fewer than 20 counted samples"
-    two_chapters = [sample(c % 2, lambda _q: 90.0) for c in range(20)]
-    assert calibrate.choose(two_chapters) is None, "samples from fewer than 3 chapters"
-    third_low = [*two_chapters, sample(2, lambda _q: 79.0)]
-    assert calibrate.choose(third_low) is not None, (
-        "a 3rd chapter counts though its samples score under the floor: a group takes no sample past 40, so it "
-        "would otherwise stay open for good"
+    assert calibrate.choose(passing[:19]) is None, "fewer than 20 samples leave the group open"
+    one_chapter = [sample(0, lambda _q: 90.0) for _ in range(20)]
+    assert calibrate.choose(one_chapter) == (50, "ladder floor q50 passes (20 samples)"), "no chapter minimum"
+    one_under = [*passing[:-1], sample(2, lambda _q: 79.0)]
+    assert calibrate.choose(one_under) == (80, "q75 fails: 19 counted < 20 (20 samples)"), (
+        "20 samples fix the group; with fewer than 20 counted it stays at q80"
     )
     one_low = [*passing[:-1], sample(0, lambda q: 90.0 if q >= 70 else 79.0)]
     assert present(calibrate.choose(one_low))[0] == 70, "a sample under the floor at q65 fails that probe"
@@ -989,7 +1018,7 @@ BLANKED_RENDER_EDIT = {
 @budget(load="pool")
 def test_a_blanked_rendered_chapter_of_a_series_whose_open_group_is_full_is_rendered_once(site, monkeypatch):
     series_id = site.series()
-    full = [{"sha1": f"s{i}", "chapter_id": 999, "rendered": True, "bytes_in": 1, "scores": {}} for i in range(40)]
+    full = stored_samples(series_id, 40, (999,), counted=40)
     with db.transaction(site.conn):
         site.conn.execute(
             "INSERT INTO series_calibration (series_id, grp, q, fixed, origin, why, samples) "

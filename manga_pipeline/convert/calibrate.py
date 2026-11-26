@@ -20,8 +20,8 @@ CEILING = image.AVIF_QUALITY  # 80: an open group's quality, and the q a sample 
 LADDER = (75, 70, 65, 60, 55, 50)  # probed qualities, highest first
 PER_CHAPTER = 14  # sample pages a chapter adds per group (the bulk converter's 40 pages over 3 chapters)
 MAX_SAMPLES = 40  # a group holding this many samples takes no more
-MIN_COUNTED = 20  # samples passing at CEILING needed to fix a group, and to pass a probe
-MIN_CHAPTERS = 3  # chapters the samples come from before a group is fixed
+MIN_SAMPLES = 20  # samples that fix a group (the bulk converter's calibration_min_pages; no chapter minimum)
+MIN_COUNTED = 20  # samples passing at CEILING a probe needs to pass
 MEAN_MIN = 85  # a probe's mean score at least this
 
 
@@ -195,15 +195,18 @@ def probe(encoder: image.Encoder, picked: Sequence[Unit], work_dir: Path) -> dic
 def choose(samples: Sequence[Sample]) -> tuple[int, str] | None:
     """Return (q, why) once the samples can fix the group, else None.
 
-    They can with MIN_COUNTED samples scoring at least the floor at CEILING (the others are left out of every probe),
-    and samples, counted or not, from MIN_CHAPTERS chapters. Down the LADDER, a probe fails with fewer than MIN_COUNTED
+    They can with MIN_SAMPLES samples, from any number of chapters (the bulk converter's rule). The samples scoring at
+    least the floor at CEILING are counted (the others are left out of every probe). Down the LADDER, a probe fails with
+    fewer than MIN_COUNTED
     counted samples, a mean below MEAN_MIN or a minimum below the floor; the quality is the last step before the first
     failure, else CEILING.
     """
     floor = image.SCORE_FLOOR
     counted = [s for s in samples if s["scores"][str(CEILING)][0] >= floor]
-    if len(counted) < MIN_COUNTED or len({s["chapter_id"] for s in samples}) < MIN_CHAPTERS:
+    if len(samples) < MIN_SAMPLES:
         return None
+    if len(counted) < MIN_COUNTED:
+        return CEILING, f"q{LADDER[0]} fails: {len(counted)} counted < {MIN_COUNTED} ({len(samples)} samples)"
     q = CEILING
     for step in LADDER:
         scores = [s["scores"][str(step)][0] for s in counted]
