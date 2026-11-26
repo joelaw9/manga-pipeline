@@ -477,14 +477,19 @@ def test_a_split_chapter_whose_avif_fails_goes_out_split(tmp_path):
     assert present(rec.get("reshape"))["kind"] == "split"
 
 
+@pytest.mark.parametrize(("cls", "mode"), [(images.GRAY, "L"), (images.GRAY_MARK, "RGB"), (images.TINTED, "RGB")])
 @budget(load="pool")
-def test_a_tinted_rendered_page_is_gray_as_avif_and_colour_as_lossless(tmp_path):
-    ch = Chapter(tmp_path, [("001.jpg", jpeg(colour())), ("002.jpg", jpeg(colour(seed=4)))])
+def test_a_rendered_lossless_page_is_grayed_only_when_its_class_is_gray(tmp_path, cls, mode):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    ch = Chapter(tmp_path, [("001.jpg", jpeg(gray().convert("RGB"))), ("002.jpg", jpeg(gray(seed=4).convert("RGB")))])
     p = ch.plan({**NO_EDIT, "bands": [{"page": 0, "box": [0, 0, 96, 64]}]})
-    tinted = dataclasses.replace(p, render=[{**r, "class": images.TINTED} for r in p.render])
-    assert image.output_gray(tinted, present(tinted.outcomes.avif)), "an AVIF page of a tinted class is 4:0:0"
-    assert tinted.outcomes.last["outcome"] == "lossless", "a rendered chapter's last outcome is lossless"
-    assert not image.output_gray(tinted, tinted.outcomes.last), "the lossless path keeps a tinted page's colour"
+    p = dataclasses.replace(p, render=[{**r, "class": cls} for r in p.render])
+    assert image.output_gray(p, present(p.outcomes.avif)), "an AVIF page of a gray, gray-mark or tinted class is 4:0:0"
+    rec = ch.run(p)
+    assert rec["outcome"] == "lossless"
+    with Image.open(ch.out / "001.png") as im:
+        assert im.mode == mode, "a rendered page's class is its sources': only a gray one is grayed"
+    assert rec["gray"] is (cls == images.GRAY)
 
 
 @budget(load="pool")

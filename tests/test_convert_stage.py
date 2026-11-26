@@ -1169,7 +1169,7 @@ def test_a_jpeg_of_another_chroma_subsampling_is_noted(site, monkeypatch):
     monkeypatch.setattr(images, "odd_jpeg_chroma", lambda _data: True)  # Pillow writes no 4:4:0 JPEG
     members = [("001.jpg", encoded(colour(), "JPEG", quality=92, subsampling=0))]
     (line,) = converted(site, site.chapter(site.series(), members))
-    assert "convert: JPEG chroma subsampling kept as 4:4:4: 001.jpg" in line
+    assert "convert: JPEG chroma subsampling encoded as 4:4:4: 001.jpg" in line
 
 
 @budget(load="pure")
@@ -1199,8 +1199,52 @@ def test_the_chapter_that_fixes_a_calibration_group_is_noted(site):
     lines = [converted(site, site.chapter(series_id, pages(8, seed=s))) for s in range(1, 4)]
     fixing = [line for found in lines for line in found if "calibration: colour fixed at q" in line]
     assert len(fixing) == 1, "1 chapter fixes the group, and only it is noted"
-    assert "from " in fixing[0]
-    assert "chapters" in fixing[0]
+    assert "; samples of chapters " in fixing[0], "the chapters its samples came from"
+
+
+@budget(load="pool")
+def test_a_retried_chapter_that_fixed_its_group_is_still_noted(site, monkeypatch):
+    series_id = site.series()
+    for s in (1, 2):
+        converted(site, site.chapter(series_id, pages(8, seed=s)))
+    third = site.chapter(series_id, pages(8, seed=3))
+    real, failed = check.check, []
+
+    def first_fails(*args):
+        if not failed:  # the fixing attempt fails after its samples are stored
+            failed.append(1)
+            return ["forced"]
+        return real(*args)
+
+    monkeypatch.setattr(check, "check", first_fails)
+    with pytest.raises(RuntimeError, match="forced"):
+        site.run(third)
+    assert calibration(site, series_id)["colour"]["fixed"] == 1, "the failed attempt fixed the group"
+    (line,) = converted(site, third)
+    assert "calibration: colour fixed at q" in line, "the retry of the fixing chapter writes its note"
+
+
+@budget(load="pool")
+def test_a_page_a_volume_cover_replaced_counts_in_no_note(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    members = [
+        ("000_cover.jpg", jpeg(colour(seed=5))),
+        ("001.png", png(colour(seed=1))),
+        ("002.png", png(colour(seed=2))),
+    ]
+    chapter_id = site.chapter(site.series(), members)
+    add_cover(site, chapter_id, COVER)
+    (line,) = converted(site, chapter_id)
+    assert "published lossless" in line
+    assert "mixed-format" not in line, "the replaced JPEG cover page is not a page of the staged file"
+
+
+@budget(load="pool")
+def test_an_animated_page_of_a_rendered_chapter_is_no_cover_note(site):
+    edit = {**NO_EDIT, "bands": [{"page": 0, "box": [0, 0, 96, 64]}]}
+    members = [("001.jpg", jpeg(colour())), ("002.gif", encoded(colour(seed=3), "GIF"))]
+    found = converted(site, site.chapter(site.series(), members, edit))
+    assert not any("volume cover" in line for line in found), "only a volume cover's force_avif is noted"
 
 
 @budget(load="pool")

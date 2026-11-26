@@ -10,10 +10,11 @@ AVIF size gate) moves to the next:
 - mixed with lossy WebP: AVIF under both gates; else untouched. Lossy WebP / GIF / AVIF / JXL: untouched.
 Gray, tinted and gray-mark pages encode 4:0:0 (scored against the gray version); colour pages keep their source's
 chroma; a colour JPEG the plan marked jpeg_feed is fed to avifenc as is. The lossless path grays gray and gray-mark
-JPEG / PNG pages (a JPEG only when jpegtran can: jpeg_gray); a lossless WebP passes through.
-Logo blanks (the plan's edits["blank"]) apply to the AVIF outcomes only: blank_pages writes each blanked page as a PNG,
-which the AVIF pages outcome encodes (and scores against) in place of the page, and which sources() puts in place of
-the page for the render. Lossless and untouched outcomes never blank.
+JPEG / PNG pages (a JPEG only when jpegtran can: jpeg_gray), and of a rendered chapter's PNGs only the gray ones; a
+lossless WebP passes through.
+Logo blanks (the plan's edits["blank"]) apply to the AVIF outcomes and to a rendered chapter's lossless outcome:
+blank_pages writes each blanked page as a PNG, which the AVIF pages outcome encodes (and scores against) in place of the
+page, and which sources() puts in place of the page for the render. Other lossless and untouched outcomes never blank.
 
 Work files go to the work folder the caller gives (inside the chapter's scratch folder), never elsewhere.
 """
@@ -92,7 +93,10 @@ class AvifPage(plan.PageClass):
 
 
 class LosslessTask(TypedDict):
-    """1 page for the lossless path: its source, output and work folder, format, class and jpeg_gray."""
+    """1 page for the lossless path: its source, output and work folder, format, class, jpeg_gray and grayable.
+
+    grayable: whether its class lets the path gray it (a JPEG only when jpeg_gray too).
+    """
 
     src: str
     out: str
@@ -100,6 +104,7 @@ class LosslessTask(TypedDict):
     fmt: str
     cls: str
     jpeg_gray: bool
+    grayable: bool
 
 
 class LosslessJob(LosslessTask):
@@ -434,7 +439,7 @@ def lossless_page(task: LosslessJob) -> LosslessPage:
     with Image.open(src) as raw:
         src_mode, icc = raw.mode, raw.info.get("icc_profile")
     fmt, t = task["fmt"], task["tools"]
-    gray = task["cls"] in LOSSLESS_GRAY and (fmt != images.JPEG or task["jpeg_gray"])
+    gray = task["grayable"] and (fmt != images.JPEG or task["jpeg_gray"])
     if fmt == images.JPEG:
         # a non-sRGB profile defines the colours; a 1-component page keeps its (GRAY) profile when grayed, a colour
         # container grayed to Y drops it
@@ -673,6 +678,7 @@ class _Chapter:
                 "fmt": q["format"],
                 "cls": self.plan.classes[q["name"]],
                 "jpeg_gray": q["jpeg_gray"],
+                "grayable": self.plan.classes[q["name"]] in LOSSLESS_GRAY,
             }
             for q in self.kept
         ]
@@ -688,6 +694,9 @@ class _Chapter:
                 "fmt": images.PNG,
                 "cls": r["class"],
                 "jpeg_gray": False,
+                # a rendered page's class is its sources': a gray-mark's badge can be a larger share of a cropped or
+                # cut page, which the post-check then classes colour; only a gray page is grayed
+                "grayable": r["class"] == images.GRAY,
             }
             for p, r in zip(self.pages.rendered, self.plan.render, strict=True)
         ]
@@ -738,8 +747,8 @@ def output_gray(chapter_plan: plan.ChapterPlan, outcome: plan.Outcome) -> bool:
     """Return whether every page the outcome stores is gray, from the plan's page classes (no decode).
 
     ComicInfo BlackAndWhite. An AVIF page of a gray / tinted / gray-mark class is 4:0:0; the lossless path grays gray
-    and gray-mark JPEG / PNG pages (a rendered page is a PNG); untouched pages are stored as they are (only a gray page
-    is gray). An inserted
+    and gray-mark JPEG / PNG pages, and of a rendered chapter's PNGs only the gray ones; untouched pages are stored as
+    they are (only a gray page is gray). An inserted
     volume cover is not counted, nor the page it replaces (BlackAndWhite describes the chapter's own pages).
     """
     kind = outcome["outcome"]
@@ -748,7 +757,7 @@ def output_gray(chapter_plan: plan.ChapterPlan, outcome: plan.Outcome) -> bool:
         return bool(outcome["cover"]) and Path(name).stem == archive.COVER_STEM
 
     if outcome["edits"] == "all":
-        grayish = plan.GRAYISH if kind == "avif" else LOSSLESS_GRAY
+        grayish = plan.GRAYISH if kind == "avif" else (images.GRAY,)  # rendered_lossless grays a gray page only
         return all(r["class"] in grayish for r in chapter_plan.render if not replaced(r["name"]))
     kept = [(chapter_plan.classes[q["name"]], q) for q in chapter_plan.kept() if not replaced(q["name"])]
     if kind == "avif":
@@ -766,12 +775,11 @@ def process_chapter(
     pages (its PageFiles), output pages in out_dir, work files in work_dir; encoder: the run's Encoder. Tries the
     outcomes in order; the last one (untouched or lossless) always stands. The one that stands inserts the volume cover
     its plan gave it (plan.routes), in place of a page named 000_cover. Returns the record: {"outcome", "edits",
-    "route", "pages", "formats", "dropped",
-    "bytes_in", "bytes_out", "avif_rejected"? (why the first AVIF attempt failed), "avif_pages"?, "lossless_pages"?,
-    "reshape"?, "blanked" (the pages blanked: an AVIF outcome's only), "cover" (the inserted cover {"name", "format",
-    "score", "bytes"} or None), "quality", "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else
-    None), "gray", "output": [{"name", "sha1"}], "scores": {output name: score}, "lossless": {output name: {"source",
-    "mode"}}}.
+    "route", "pages", "formats", "dropped", "bytes_in", "bytes_out", "avif_rejected"? (why the first AVIF attempt
+    failed), "avif_pages"?, "lossless_pages"?, "reshape"?, "blanked" (the pages blanked: an AVIF outcome's and a
+    rendered lossless one's), "cover" (the inserted cover {"name", "format", "score", "bytes"} or None), "quality",
+    "mean_score", "min_score" (the AVIF pages', when an AVIF outcome stood, else None), "gray", "output": [{"name",
+    "sha1"}], "scores": {output name: score}, "lossless": {output name: {"source": its path, "mode"}}}.
     """
     out_dir, tmp = Path(out_dir), Path(work_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

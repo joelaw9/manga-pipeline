@@ -171,10 +171,16 @@ def _calibrate(
             ctx.conn, chapter, group, new, guard=lambda _conn: workflow.holds_claim(ctx, chapter)
         )
         log.info("series %s %s calibration: %s", chapter["series_id"], group, stored[group]["why"])
-        if stored[group]["fixed"]:
-            g = stored[group]
-            chapters = len({s["chapter_id"] for s in g["samples"]})
-            fixed.append(f"calibration: {group} fixed at q{g['q']}: {g['why']}, from {chapters} chapters")
+    for group, g in sorted(stored.items()):
+        # the chapter whose samples fixed it added the last ones: a retry of it after a failed attempt finds it so
+        if (
+            g["fixed"]
+            and g["origin"] == "computed"
+            and g["samples"]
+            and g["samples"][-1]["chapter_id"] == chapter["id"]
+        ):
+            chapters = ", ".join(str(c) for c in sorted({s["chapter_id"] for s in g["samples"]}))
+            fixed.append(f"calibration: {group} fixed at q{g['q']}: {g['why']}; samples of chapters {chapters}")
     return calibrate.quality(stored), fixed
 
 
@@ -344,8 +350,12 @@ def _volume_cover(ctx: workflow.Context, chapter: db.Row, chapter_plan: plan.Cha
 
 
 def _odd_chroma(chapter_plan: plan.ChapterPlan, x_dir: Path) -> list[str]:
-    """Return the kept colour JPEG pages whose chroma subsampling avifenc cannot keep (stored as 444: headers read)."""
-    jpegs = [q["name"] for q in chapter_plan.kept() if q["format"] == images.JPEG and q["chroma"] == "444"]
+    """Return the kept colour-class JPEG pages whose subsampling avifenc cannot keep (stored 444; headers read)."""
+    jpegs = [
+        q["name"]
+        for q in chapter_plan.kept()
+        if q["format"] == images.JPEG and q["chroma"] == "444" and chapter_plan.classes[q["name"]] not in plan.GRAYISH
+    ]
     return [name for name in jpegs if images.odd_jpeg_chroma((x_dir / name).read_bytes())]
 
 
@@ -413,8 +423,9 @@ class _Pages:
 def _pages(chapter_plan: plan.RoutedPlan, scratch: Path, *, sampling: bool) -> _Pages:
     """Make the pages the encode and the calibration read.
 
-    Logo blanks apply to the AVIF outcomes only; calibration samples take the unblanked pages (as the bulk converter),
-    so a rendered chapter with blanks is rendered unblanked too when a group wants its samples (sampling).
+    Logo blanks apply to the AVIF outcomes and a rendered lossless one; calibration samples take the unblanked pages
+    (as the bulk converter), so a rendered chapter with blanks is rendered unblanked too when a group wants its samples
+    (sampling).
     """
     x_dir = scratch / EXTRACTED
     avif_first = chapter_plan.outcomes.avif is not None

@@ -5,10 +5,12 @@ optimizer/image.py, optimizer/plan.py, optimizer/pipeline.py), each as 1 note.
 """
 
 import statistics
+from collections import Counter
 from collections.abc import Sequence
+from pathlib import Path
 from typing import NamedTuple
 
-from manga_pipeline import images
+from manga_pipeline import archive, images
 from manga_pipeline.convert import calibrate, image, plan
 
 PREFIX = "convert: "  # every note of convert's starts so; a retried convert replaces its own (workflow.replace_notes)
@@ -34,18 +36,19 @@ def notes(
 ) -> list[str]:
     """Return the chapter's convert notes, each starting with PREFIX ([] when nothing is unusual).
 
-    odd_chroma: the kept JPEG pages whose chroma subsampling avifenc cannot keep (4:4:0, 4:1:1: encoded as 4:4:4);
+    odd_chroma: the kept colour JPEG pages whose chroma subsampling avifenc cannot keep (4:4:0, 4:1:1: an AVIF encodes
+    them 4:4:4); a page an inserted volume cover replaced is left out of every note;
     calibrated: the lines of the calibration groups this chapter's samples fixed.
     """
-    kept = chapter_plan.kept()
+    kept = [q for q in chapter_plan.kept() if not (rec["cover"] and Path(q["name"]).stem == archive.COVER_STEM)]
     found = [
         *_rejected(rec),
         *_drift(rec),
         *_irregular(chapter_plan),
         *_small(sizes),
         *_untouched_flag(rec),
-        *([f"JPEG chroma subsampling kept as 4:4:4: {', '.join(odd_chroma)}"] if odd_chroma else []),
-        *_mixed_lossless(rec),
+        *_odd_chroma(rec, odd_chroma),
+        *_mixed_lossless(rec, kept),
         *_animated(rec, kept),
         *calibrated,
     ]
@@ -94,15 +97,22 @@ def _untouched_flag(rec: image.ChapterRecord) -> list[str]:
     return [f"untouched-flag: formats {'+'.join(sorted(rec['formats']))} mixed"]
 
 
-def _mixed_lossless(rec: image.ChapterRecord) -> list[str]:
-    if rec["outcome"] != "lossless" or rec["edits"] == "all" or len(rec["formats"]) == 1:  # rendered pages: PNGs
+def _odd_chroma(rec: image.ChapterRecord, names: Sequence[str]) -> list[str]:
+    if rec["outcome"] != "avif" or not names:  # lossless and untouched pages keep their own subsampling
         return []
-    return [f"lossless chapter stays mixed-format: {'+'.join(sorted(rec['formats']))}"]
+    return [f"JPEG chroma subsampling encoded as 4:4:4: {', '.join(names)}"]
+
+
+def _mixed_lossless(rec: image.ChapterRecord, kept: Sequence[plan.PlanPage]) -> list[str]:
+    fmts = Counter(q["format"] for q in kept)
+    if rec["outcome"] != "lossless" or rec["edits"] == "all" or len(fmts) == 1:  # rendered pages: PNGs
+        return []
+    return [f"lossless chapter stays mixed-format: {'+'.join(sorted(fmts))}"]
 
 
 def _animated(rec: image.ChapterRecord, kept: Sequence[plan.PlanPage]) -> list[str]:
-    """Note the animated pages an AVIF outcome took: only a volume cover makes such a chapter AVIF (force_avif)."""
+    """Note the animated pages a volume cover took to AVIF (force_avif: the avif route, a cover inserted)."""
     names = [q["name"] for q in kept if q["format"] in ANIMATED]
-    if rec["outcome"] != "avif" or not names:
+    if rec["outcome"] != "avif" or rec["route"] != "avif" or not rec["cover"] or not names:
         return []
     return [f"animated pages converted to 1 frame for the volume cover: {', '.join(names)}"]
