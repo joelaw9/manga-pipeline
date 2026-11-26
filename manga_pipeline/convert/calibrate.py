@@ -92,7 +92,7 @@ def quality(stored: Mapping[str, Group]) -> dict[str, int]:
     return {g: stored[g]["q"] if g in stored and stored[g]["fixed"] else CEILING for g in plan.QUALITY_GROUPS}
 
 
-def _spaced[T](units: Sequence[T], n: int) -> list[T]:
+def spaced[T](units: Sequence[T], n: int) -> list[T]:
     """At most n of these units, evenly spaced in order."""
     if len(units) <= n:
         return list(units)
@@ -160,7 +160,7 @@ def pick(group_units: Sequence[Unit], sampled: Collection[str]) -> list[Unit]:
         if u["sha1"] not in seen:
             seen.add(u["sha1"])
             fresh.append(u)
-    return _spaced(fresh, room) if room > 0 else []
+    return spaced(fresh, room) if room > 0 else []
 
 
 def probe(encoder: image.Encoder, picked: Sequence[Unit], work_dir: Path) -> dict[str, Scores]:
@@ -192,7 +192,7 @@ def probe(encoder: image.Encoder, picked: Sequence[Unit], work_dir: Path) -> dic
     return scores
 
 
-def choose(samples: Sequence[Sample]) -> tuple[int, str] | None:
+def choose(samples: Sequence[NewSample]) -> tuple[int, str] | None:
     """Return (q, why) once the samples can fix the group, else None.
 
     They can with MIN_SAMPLES samples, from any number of chapters (the bulk converter's rule). The samples scoring at
