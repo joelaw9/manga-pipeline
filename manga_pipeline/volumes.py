@@ -36,7 +36,8 @@ class Overrides(TypedDict, total=False):
     range}, or null: a volume a whole number (an int, or a text of digits), a range a text or a number YAML read
     ("1-53", "54", "94-", "-53", 54); volume_starts {volume: first chapter}, or null (check_starts; not with volumes);
     series_group a name or a non-empty list of names; layout "strip" or "pages" in any case and spacing, or null; name
-    the series' name, a non-empty text (SPEC "Retroactive updates", Series names).
+    the series' name, a non-empty text (SPEC "Retroactive updates", Series names); join_parts true or false (SPEC
+    "Retroactive updates", Split chapters).
     """
 
     volumes: dict[int | str, str | int | float] | None
@@ -44,6 +45,7 @@ class Overrides(TypedDict, total=False):
     series_group: str | list[str]
     layout: str | None
     name: str
+    join_parts: bool
 
 
 def layout(data: Overrides) -> str | None:
@@ -87,6 +89,21 @@ def override_name(overrides: Path, folder_name: str) -> str | None:
     return name.strip() if name else None
 
 
+def join_parts(overrides: Path, folder_name: str) -> bool:
+    """Return whether the series' split chapter runs are joined: its override file's join_parts, true without it.
+
+    OverrideError when the file is malformed.
+    """
+    return (override_file(overrides, folder_name) or {}).get("join_parts", True)
+
+
+def _check_join_parts(value: Yaml) -> None:
+    """Raise ValueError unless value is true or false."""
+    if not isinstance(value, bool):
+        msg = f"overrides join_parts must be true or false, not {value!r}"
+        raise ValueError(msg)
+
+
 def _check_name(value: Yaml) -> None:
     """Raise ValueError unless value is a non-empty text."""
     if not isinstance(value, str) or not value.strip():
@@ -121,6 +138,8 @@ def override_file(overrides: Path, folder_name: str) -> Overrides | None:
             _group_names(data["series_group"])
         if "name" in data:
             _check_name(data["name"])
+        if "join_parts" in data:
+            _check_join_parts(data["join_parts"])
         layout(data)
     except (yaml.YAMLError, ValueError) as e:
         msg = f"{path}: {e}"
