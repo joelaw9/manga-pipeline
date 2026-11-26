@@ -9,11 +9,14 @@ junk.Library.check_row / _check_chain (which rows carry which chains), for the r
   `edge` segment, its key the chain's key span (`key_span`), and may carry credit.
 
 A chain is {"above": [VERSION, ...], "below": [VERSION, ...]} (a side omitted when it extends nothing). VERSION =
-{"segments": [SEGMENT, ...], "ref": [[series, chapter key, anchor start], ...], "src": {"file", "sha256"} | null}.
+{"segments": [SEGMENT, ...], "ref": [[series, chapter key, anchor start], ...], "src": {"file", "sha256"} | null}. A
+held row's (the bulk converter's) ref names its folder and archive and its src.sha256 is the archive's sha256; a row
+`junk cut` makes names the series key and the chapter id, and its src is the download's file name and its pages digest
+(chapter.content_digest).
 SEGMENT = {"kind": "cut" | "keep", "h", "tiles", "exact"?: true} (h in strip widths, at most 4 decimals; exact: exactly
 round(h x width) rows, followed by the non-exact rest of the span it splits) or {"kind": "edge"} (last only). A version
-holds a cut or edge segment. A `none` exemption or a `skip` segment is refused until the `junk cut` commands exist;
-a global decision or a keep carries no chain (no global rows are made).
+holds a cut or edge segment. A `none` exemption or a `skip` segment is refused (no command makes them); a global
+decision or a keep carries no chain (no global rows are made).
 """
 
 import json
@@ -52,7 +55,7 @@ type Segment = Span | Edge
 
 
 class Source(TypedDict):
-    """The archive a cut version was cut from."""
+    """The archive a cut version was cut from: its file name and sha256 (a held row) or pages digest (junk cut's)."""
 
     file: str
     sha256: str
@@ -104,7 +107,7 @@ def _segment(s: Json) -> Segment:
     if kind == "edge" and set(s) == {"kind"}:
         return {"kind": "edge"}
     if kind == "skip":
-        msg = f"segment {s!r}: skip segments come with the junk cut commands"
+        msg = f"segment {s!r}: skip segments are refused (no command makes them)"
         raise ValueError(msg)
     if kind not in ("cut", "keep") or set(s) - {"exact"} != {"kind", "h", "tiles"}:
         msg = f"segment {s!r}: not {{kind: cut|keep, h, tiles, exact?}} or {{kind: edge}}"
@@ -187,7 +190,7 @@ def parse(stored: str) -> Chain:
         msg = f"chain {stored!r}: not an object"
         raise ValueError(msg)
     if "none" in value:
-        msg = f"chain {stored!r}: none exemptions come with the junk cut commands"
+        msg = f"chain {stored!r}: none exemptions are refused (no command makes them)"
         raise ValueError(msg)
     if not (set(value) <= set(SIDES) and set(value)):
         msg = f"chain {stored!r}: keys are not 1 or 2 of {SIDES}"

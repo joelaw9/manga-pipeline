@@ -8,6 +8,7 @@ holds lock.AUTOMATION and reads the automation's pause: paused, it ends there (S
 
 import argparse
 import contextlib
+import io
 import logging
 import os
 import sys
@@ -46,7 +47,7 @@ from manga_pipeline import (
 )
 from manga_pipeline.clients import kavita, suwayomi
 from manga_pipeline.db import sql
-from manga_pipeline.junk import backup, candidates, groups, redecide, review, review_run, store, where
+from manga_pipeline.junk import backup, candidates, cut, groups, redecide, review, review_run, store, where
 from manga_pipeline.metadata import audit, human, importer, naming, sources
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
@@ -91,6 +92,9 @@ REVIEW_CHECKS = (
     preflight.FLEET_VERSION,
     preflight.CLAUDE_SETTINGS,
 )
+# junk cut reads downloads and retention originals on the share, extracts them into the scratch folder, and scans a
+# named chapter that holds no current scan again (OCR).
+CUT_CHECKS = (*LOCKED_CHECKS, preflight.SCRATCH_SPACE, preflight.OCR_DEVICE)
 # state version digests the program, the shared settings, the packages and the tools of this machine.
 VERSION_CHECKS = (preflight.PYTHON_VERSION, preflight.FREE_SPACE, preflight.IMAGE_TOOLS, preflight.SCORER)
 # watch takes no lock and touches no folder: it needs only the database and a webhook, so it still runs when every
@@ -634,6 +638,39 @@ def junk_restore(args: argparse.Namespace, conn: db.Connection) -> None:
     log.info("junk knowledge restored from %s: %s", args.dir, counts)
 
 
+def junk_cut(cfg: config.Config, args: argparse.Namespace, conn: db.Connection | None) -> None:
+    """Draw span sheets, or propose a cut or a card side, or record one (`junk cut`).
+
+    Exactly 1 form: --spans, --edge, or named ranges; --record goes with a proposal's arguments, --credit and --inside
+    with ranges.
+    """
+    review_id = os.environ.get(review.REVIEW_ID_VARIABLE) or None
+    forms = [name for name, given in (("--spans", args.spans), ("--edge", args.edge), ("ranges", args.ranges)) if given]
+    if len(forms) != 1:
+        msg = f"junk cut takes 1 of --spans, --edge or ranges, got {', '.join(forms) or 'none'}"
+        raise workflow.Refused(msg)
+    if args.spans:
+        if args.record is not None or args.credit or args.inside:
+            msg = "--spans draws sheets only: no --record, --credit or --inside"
+            raise workflow.Refused(msg)
+        _lines(cut.spans(cfg, args.spans, review_id))
+        return
+    if args.edge and (args.credit or args.inside):
+        msg = "--credit and --inside go with ranges, not --edge"
+        raise workflow.Refused(msg)
+    request = (
+        cut.parse_edge(args.edge)
+        if args.edge
+        else cut.CutArgs([cut.parse_range(t) for t in args.ranges], args.credit, args.inside)
+    )
+    if args.record is None:
+        _lines(cut.propose(cfg, request, review_id))
+        return
+    act = cut.record(cfg, locked_connection(conn), request, args.record, review_id)
+    print(f"junk act {act}: undo it with junk undo {act}")
+    log.info("junk act %s: %s", act, cut.command_text(request))
+
+
 def locked_connection(conn: db.Connection | None) -> db.Connection:
     """Return a locked command's connection; RuntimeError when it has none (its row in COMMANDS takes no lock)."""
     if conn is None:
@@ -701,6 +738,7 @@ COMMANDS = {
     "junk redecide": Command((), None, None, (), _unlocked(junk_redecide)),
     "junk undo": Command((), None, None, (), _unlocked(junk_undo)),
     "junk backup": Command((), None, None, (), _unlocked(junk_backup)),
+    "junk cut": Command((), S, None, CUT_CHECKS, junk_cut),
     "junk restore": Command(
         (), X, None, (), lambda _cfg, args, conn: junk_restore(args, locked_connection(conn)), builds=True
     ),
@@ -894,6 +932,16 @@ def _junk_commands(command: argparse.ArgumentParser) -> None:
     restore = junk.add_parser("restore", help="restore a junk backup into an empty junk store, ids kept")
     restore.add_argument("dir", help="the junk-<time> folder junk backup wrote")
     restore.set_defaults(command="junk restore")
+    cut_ = junk.add_parser("cut", help="span sheets, and cut or card-side proposals and their record")
+    cut_.add_argument("ranges", nargs="*", metavar="CHAPTER:START:END[:keep]", help="strip rows of a chapter to cut")
+    cut_.add_argument(
+        "--spans", nargs="+", metavar="ARG", help="ID (an open block or probe candidate) or CHAPTER head|tail: sheets"
+    )
+    cut_.add_argument("--edge", nargs=2, metavar=("ID", "SIDE"), help="a card side above|below on a candidate")
+    cut_.add_argument("--credit", action="store_true", help="the cut's tail ranges are tail bands")
+    cut_.add_argument("--inside", action="store_true", help="an end inside a span is an exact boundary")
+    cut_.add_argument("--record", metavar="DIGEST", help="record the proposal its digest names")
+    cut_.set_defaults(command="junk cut")
     junk.add_parser("review", help="let Claude decide the open candidates (claude -p)").set_defaults(
         command="junk review"
     )
@@ -959,6 +1007,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     check failed, the database server cannot be used, a command with locks finds no database, or the database is not
     one this version can use.
     """
+    for stream in (sys.stdout, sys.stderr):  # stored text (CJK OCR) prints on any console, redirected or not
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
     p = parser()
     args = p.parse_args(argv)
     command = COMMANDS[args.command]

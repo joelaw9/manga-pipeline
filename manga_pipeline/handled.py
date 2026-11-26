@@ -5,8 +5,6 @@ download whose pages a handled chapter of its series already had is put aside, n
 discover stage and by the junk stage once the series' baseline exists.
 """
 
-import os
-import re
 from pathlib import PurePosixPath
 from typing import Literal
 
@@ -40,7 +38,7 @@ def renamed(cfg: config.Config, conn: db.Connection, chapter: db.Row) -> str | N
     ):
         if validation.chapter_key(twin["identity"]) != key:
             continue
-        if os.name == "nt" and re.search(workflow.WINDOWS_UNUSABLE, twin["download_path"]):
+        if workflow.unusable_here(twin["download_path"]):
             continue  # a path Windows cannot open: not checked here (stages/junk.py does the same)
         if errors.exists(config.to_local(cfg, twin["download_path"])):
             name = PurePosixPath(twin["download_path"]).name

@@ -105,7 +105,8 @@ def get_open(conn: db.Connection, candidate_id: int, review_id: str | None) -> d
     return row
 
 
-def _decision(row: db.Row, verdict: str, decider: str, at: str) -> store.Decision:
+def decision(row: db.Row, verdict: str, decider: str, at: str) -> store.Decision:
+    """Return the decision a verdict on a candidate row writes: its key, kind, source and images, series-scoped."""
     return {
         "series_key": row["series_key"],
         "kind": row["kind"],
@@ -132,7 +133,7 @@ def _record(conn: db.Connection, rows: Sequence[db.Row], verdict: str, review_id
         db.executemany(conn, "UPDATE junk_candidate SET verdict = 'unsure' WHERE id = %s", [(r["id"],) for r in rows])
         return
     decider = "claude" if review_id else "human"
-    store.upsert(conn, [_decision(r, verdict, decider, at) for r in rows])
+    store.upsert(conn, [decision(r, verdict, decider, at) for r in rows])
 
 
 def decide(

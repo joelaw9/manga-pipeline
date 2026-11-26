@@ -43,8 +43,8 @@ def test_a_canonical_chain_parses_and_prints_back_the_same(stored):
 @pytest.mark.parametrize(
     ("value", "match"),
     [
-        ({"above": [version(seg())], "none": [["S", "c", 0, 100, "above"]]}, "none exemptions come with"),
-        ({"above": [version({"kind": "skip", "min": 0.1, "max": 0.2}, seg())]}, "skip segments come with"),
+        ({"above": [version(seg())], "none": [["S", "c", 0, 100, "above"]]}, "none exemptions are refused"),
+        ({"above": [version({"kind": "skip", "min": 0.1, "max": 0.2}, seg())]}, "skip segments are refused"),
         ({"above": [version({"kind": "edge"}, seg())]}, "edge is the last segment only"),
         ({"above": [version(seg(exact=True))]}, "exact segment is not followed"),
         ({"above": [version(seg(exact=True), {"kind": "edge"})]}, "exact segment is not followed"),

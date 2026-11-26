@@ -6,6 +6,7 @@ error, a held lock exits 3, a hard preflight problem exits 4.
 
 import dataclasses
 import errno
+import io
 import logging
 import subprocess
 import sys
@@ -20,11 +21,13 @@ from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.metadata import sources
 
 from tests import pg
-from tests.builders import one, running
+from tests.builders import config_file, one, running
 from tests.fakes.kavita import FakeKavita
 from tests.fakes.sources import fake_sources
 from tests.fakes.suwayomi import FakeSuwayomi
+from tests.test_junk_stage import Site
 from tests.timing import budget
+from tests.world import cbz
 
 log = logging.getLogger("manga_pipeline.cli")
 ARGV = {
@@ -38,6 +41,7 @@ ARGV = {
     "smoke": ["smoke"],
     "watch": ["watch"],
     "series link": ["series", "link", "1", "2"],
+    "junk cut": ["junk", "cut", "--spans", "1"],
     "state reset": ["state", "reset", "--yes"],
     "state adopt": ["state", "adopt", "--yes"],
     "state version": ["state", "version", "--yes"],
@@ -77,6 +81,7 @@ SPEC = {
     "smoke": (set(), None, ["workflow settings", "service settings"]),
     "watch": (set(), None, ["runtime version", "discord settings", "discord webhook"]),
     "series link": (set(), None, ["workflow settings", "service settings"]),
+    "junk cut": ({"idle"}, None, [*LOCKED, "scratch space", "OCR device"]),
     "state reset": ({"idle", "idle exclusive"}, None, [*LOCKED, "share ownership"]),
     "state adopt": ({"idle", "idle exclusive"}, None, [*LOCKED, "staging folder"]),
     "state version": (
@@ -378,3 +383,19 @@ def test_bad_config_is_a_usage_error(tmp_path, capsys):
         cli.main(["--config", str(bad), "status"])
     assert exit_.value.code == 2
     assert "logging must be a mapping" in capsys.readouterr().err
+
+
+@budget(load="db", seconds=10)
+def test_stored_text_prints_on_a_console_of_another_encoding(tmp_path, monkeypatch):
+    """The entry point makes stdout UTF-8: junk show of a reason holding CJK text, stdout a cp1252 stream, prints it."""
+    site = Site(tmp_path, monkeypatch)
+    site.download("Alpha", 2, cbz(credit=True))
+    site.parts()
+    ((cid,),) = site.rows("SELECT id FROM junk_candidate")
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute("UPDATE junk_candidate SET reason = %s WHERE id = %s", ("text '丘': \"丘\"", cid))
+    out = io.BytesIO()
+    monkeypatch.setattr("sys.stdout", io.TextIOWrapper(out, encoding="cp1252"))
+    assert cli.main(["--config", str(config_file(tmp_path, site.cfg)), "junk", "show", str(cid)]) == 0
+    sys.stdout.flush()
+    assert "丘" in out.getvalue().decode("utf-8"), "the reason is printed whole, as UTF-8"
