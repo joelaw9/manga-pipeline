@@ -26,7 +26,7 @@ import pytest
 from PIL import Image, ImageFont
 
 from manga_pipeline import cli, config, db, process, retention
-from manga_pipeline.junk import anchored, chains, cut, groups, ocr, review
+from manga_pipeline.junk import anchored, chains, cut, groups, ocr, review, store
 
 from tests.builders import config_file, present, run_part
 from tests.test_junk_stage import Site, edits, imported, panels_cbz, strip_logo_cbz
@@ -194,6 +194,27 @@ def test_a_record_after_a_decision_or_a_watermark_is_stale(site, run, what):
     else:
         with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
             conn.execute("INSERT INTO junk_watermark (series_key, key) VALUES ('Long', 'ffffffffffffffff|1.0')")
+    code, _, err = run("junk", "cut", *oracle(chapter), "--record", digest_of(out))
+    assert (code, "stale" in err) == (2, True), err
+    assert cuts(site) == [], "a stale record writes nothing"
+
+
+@budget(load="db", seconds=60)
+def test_a_decision_in_another_series_makes_a_cut_record_stale(site, run):
+    """The digest holds the store's version: a decision written in any series between propose and record."""
+    chapter = real_head(site)
+    _, out, _ = run("junk", "cut", *oracle(chapter))
+    other: store.Decision = {
+        "series_key": "Other",
+        "kind": "block",
+        "key": f"{0x0123456789ABCDEF:016x}|1.0",
+        "verdict": "junk",
+        "decider": "human",
+        "decided_at": "2026-11-27T00:00:00+00:00",
+        "source": None,
+    }
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        store.upsert(conn, [other])
     code, _, err = run("junk", "cut", *oracle(chapter), "--record", digest_of(out))
     assert (code, "stale" in err) == (2, True), err
     assert cuts(site) == [], "a stale record writes nothing"
@@ -692,7 +713,8 @@ def test_an_edge_side_writes_the_candidates_junk_decision_with_its_side_and_its_
     assert site.rows("SELECT retired_by IS NOT NULL FROM junk_decision WHERE id = %s", did) == [(True,)], (
         "junk undo of the act retires the side's decision"
     )
-    assert run("junk", "cut", "--edge", str(cid), "below", "--record", digest_of(out))[0] == 0
+    _, again, _ = run("junk", "cut", "--edge", str(cid), "below")  # the act and its undo moved the store's version
+    assert run("junk", "cut", "--edge", str(cid), "below", "--record", digest_of(again))[0] == 0
     ((did, chain),) = site.rows("SELECT id, chain FROM junk_decision WHERE retired_by IS NULL")
     assert chains.parse(chain) == {
         "below": [{"segments": [{"kind": "edge"}], "ref": [("Long", str(chapter), 2900)], "src": None}]

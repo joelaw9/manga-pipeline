@@ -71,7 +71,7 @@ def test_status_reports_claude_decisions_per_day_and_junk_needs_human(site):
         conn.execute("UPDATE chapter SET status = 'needs_human', last_error = 'unsure' WHERE id = %s", (held,))
         conn.execute(
             """INSERT INTO junk_decision (series_key, kind, key, verdict, decider, decided_at, source)
-            SELECT 'A', 'block', 'k' || n, 'junk', 'claude',
+            SELECT 'A', 'block', lpad(to_hex(81985529216486895 + n), 16, '0') || '|1.0', 'junk', 'claude',
                 to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"+00:00"'), 'candidate'
             FROM generate_series(1, 3) n"""
         )

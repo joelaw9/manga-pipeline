@@ -642,7 +642,7 @@ def test_a_stitched_chapter_is_only_split():
         (row(1, "keep", ""), row(2, "junk", ""), False),
         (row(1, "junk"), row(2, "keep", ""), True),
         (None, row(2, "junk", ""), True),
-        (row(1, "keep"), row(2, "junk", decider="claude"), True),
+        (row(1, "keep"), row(2, "junk", decider="claude"), False),
         (
             row(1, "keep", decider="human"),
             row(2, "junk", decider="claude", decided_at="2026-02-01T00:00:00+00:00"),
@@ -655,14 +655,14 @@ def test_a_stitched_chapter_is_only_split():
         "global-keep-first",
         "series-junk-beats-global-keep",
         "frame-only",
-        "pipeline-beats-import",
+        "series-import-keep-beats-pipeline-junk",
         "pipeline-older-keep-first",
     ],
 )
 def test_the_page_and_frame_decision_ranking_first_decides(page, frame, dropped):
     """Page and frame decisions both apply in lookup order.
 
-    The pipeline's (keep first), then imported ones: the series' before global, keep before junk within a scope.
+    The series' before global, keep before junk within a scope, whoever decided (A26).
     """
     rows = {("page", "s5"): page, ("frame", "f5"): frame}
     out = page_units.decide(hand_scan(frame_on=5), decider({k: v for k, v in rows.items() if v}))
