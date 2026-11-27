@@ -15,7 +15,7 @@ import os
 import zipfile
 from collections.abc import Iterable, Sequence
 from datetime import datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Literal, NamedTuple
 
 from manga_pipeline import (
@@ -406,8 +406,7 @@ def _target(row: db.Row, volume: float | None, title: str) -> str:
     """
     if row["origin"] != "pipeline":
         return row["library_path"]
-    name = names.file_name(float(row["comicinfo_number"]), title, volume)
-    return str(PurePosixPath(row["library_path"]).parent / name)
+    return names.renamed(row["library_path"], float(row["comicinfo_number"]), title, volume)
 
 
 # --- the rewrite chapter's stages
@@ -538,6 +537,8 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
     ).fetchone()
     if clash or (target != old and errors.exists(target)):
         return workflow.NeedsHuman(f"{target} is already in the library; a library file is never overwritten")
+    if publish.queued(conn, file["series_id"], chapter["library_path"], file["id"]):
+        return workflow.NeedsHuman(f"{target} is queued for another file; a library file is never overwritten")
     copy = chapter["kind"] == "download"  # a better copy (SPEC "Library copies")
     read, old_pages = _read_pages(files) if joined else (files[0]["pages_read"], page_count(old))
     if joined:

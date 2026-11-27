@@ -84,14 +84,19 @@ def inputs(
         (series["id"],),
     ).fetchone()
     mangadex = naming.mangadex_volumes(row["payload"] if row else None)
-    row = ctx.conn.execute(
-        "SELECT payload FROM fetched WHERE series_id = %s AND kind = %s", (series["id"], platforms.KIND)
-    ).fetchone()
-    platform = row["payload"] if row else None
+    platform = platform_list(ctx.conn, series["id"])
     # ponytail: each call reads every open unnamed chapter's ComicInfo.xml; a series with hundreds of open chapters
     # (a back catalogue) costs that many reads per chapter; store the read fields at validate if that bites
     rows = [*_published(ctx.conn, series["id"]), *planned, *_open(ctx, series["id"], downloads or {})]
     return rows, overrides, mangadex, platform
+
+
+def platform_list(conn: db.Connection, series_id: int) -> platforms.PlatformList | None:
+    """Return the series' stored platform list, None when it has none."""
+    row = conn.execute(
+        "SELECT payload FROM fetched WHERE series_id = %s AND kind = %s", (series_id, platforms.KIND)
+    ).fetchone()
+    return row["payload"] if row else None
 
 
 def _published(conn: db.Connection, series_id: int) -> list[naming.Row[naming.RowKey]]:

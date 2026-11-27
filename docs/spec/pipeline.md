@@ -73,7 +73,7 @@ A conversion goes through every stage as a better copy of its file (SPEC "Retroa
 - discover, where it is never put aside as a handled chapter, since its pages are already published;
 - validate, where a bad file is downloaded again as a hand-placed download is, and the new download takes its place;
 - junk, where it is not judged as a notice, and Claude decides what the series' stored decisions do not;
-- convert, comicinfo and publish: named as its file is, with the volume cover its file holds.
+- convert, comicinfo and publish: named from its file (SPEC "Retroactive updates"), with the volume cover its file holds.
 
 It is queued on the file's row and finished by `export`, and the old file is kept the retention way. The file then has origin `pipeline` and the measurements and junk that publish records.
 

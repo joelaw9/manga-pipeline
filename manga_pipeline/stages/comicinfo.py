@@ -14,7 +14,7 @@ import json
 from collections.abc import Collection, Mapping, Sequence
 
 from manga_pipeline import archive, baseline, chapter_names, comicinfo, config, db, names, volumes, workflow
-from manga_pipeline.metadata import merge, naming, tags
+from manga_pipeline.metadata import merge, naming, platforms, tags
 from manga_pipeline.metadata.records import STORED
 from manga_pipeline.stages import convert
 
@@ -43,7 +43,8 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     """Write the staged CBZ's ComicInfo.xml and settle its library path; record both with the chapter's naming.
 
     Waits on bulk_conversion when a baseline the series needs cannot be taken yet; a VolumeError from naming is
-    needs_human. A better copy keeps its file's path. ValueError when the series has no ComicInfo Series name.
+    needs_human. A better copy is named from its file (_copy_name), in its file's folder. ValueError when the series
+    has no ComicInfo Series name.
     """
     series = db.one_row(ctx.conn, "SELECT * FROM series WHERE id = %s", (chapter["series_id"],))
     if not series["comicinfo_series"]:
@@ -56,7 +57,7 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     read, _ = comicinfo.read_download(config.to_local(ctx.cfg, chapter["download_path"]))
     fields: dict[str, str | int | None] = {k: v for k, v in read.items() if k not in OWN}
     try:
-        named = _copy_name(ctx, chapter) or chapter_names.resolve(ctx, series)[chapter["id"]]
+        named = _copy_name(ctx, series, chapter) or chapter_names.resolve(ctx, series)[chapter["id"]]
         unedited = None
         if chapter["published_file_id"] is None and chapter_names.edits(ctx.conn, series["id"]):
             unedited = naming.unedited(named, chapter_names.resolve(ctx, series, edited=False)[chapter["id"]])
@@ -82,8 +83,9 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     workflow.holds_claim(ctx, chapter)
     size = archive.replace_member(config.to_local(ctx.cfg, chapter["staged_path"]), archive.COMICINFO, xml)
     target = config.to_local(ctx.cfg, series["folder"]) / names.file_name(named.number, named.title, named.volume)
-    if chapter["published_file_id"] is not None:  # a better copy takes its file's place, under its name
-        target = config.to_local(ctx.cfg, _file(ctx, chapter)["library_path"])
+    if chapter["published_file_id"] is not None:  # a better copy takes its file's place, in its file's folder
+        stored = names.renamed(_file(ctx, chapter)["library_path"], named.number, named.title, named.volume)
+        target = config.to_local(ctx.cfg, stored)
 
     def record(conn: db.Connection) -> None:
         conn.execute(
@@ -113,23 +115,28 @@ def _file(ctx: workflow.Context, chapter: db.Row) -> db.Row:
     return db.one_row(ctx.conn, "SELECT * FROM published_file WHERE id = %s", (chapter["published_file_id"],))
 
 
-def _copy_name(ctx: workflow.Context, chapter: db.Row) -> naming.Naming | None:
-    """Return a better copy's naming: its file's as it is now (SPEC "Retroactive updates").
+def _copy_name(ctx: workflow.Context, series: db.Row, chapter: db.Row) -> naming.Naming | None:
+    """Return a better copy's naming: its file's as it is now (SPEC "Retroactive updates"), not resolved.
 
-    None for any other chapter.
+    An untitled main file takes its platform list title as a new chapter does (naming.list_title), an untitled side
+    file "Side Story <n>". None for any other chapter.
     """
     if chapter["published_file_id"] is None:
         return None
     f = _file(ctx, chapter)
+    number = float(f["comicinfo_number"])
+    title = f["comicinfo_title"] or ""
+    if not title and f["kind"] == names.SIDE:
+        title = naming.SIDE_TITLE.format(n=names.fmt_num(number))
+    elif not title:
+        overrides = volumes.override_file(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
+        listed = naming.title_list(chapter_names.platform_list(ctx.conn, series["id"]), overrides)
+        season = names.read_identity(f["identity"])[1]
+        title = naming.list_title(
+            platforms.chapter_titles(listed), number, None if season is None else int(float(season))
+        )
     volume = names.to_volume(f["comicinfo_volume"])
-    return naming.Naming(
-        f["kind"],
-        volume,
-        float(f["comicinfo_number"]),
-        f["comicinfo_title"] or "",
-        f["volume_source"],
-        opens_covered_volume=False,
-    )
+    return naming.Naming(f["kind"], volume, number, title, f["volume_source"], opens_covered_volume=False)
 
 
 def series_fields(

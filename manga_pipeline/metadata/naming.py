@@ -169,6 +169,21 @@ def apply_edit[K: Hashable](row: Row[K], edits: Mapping[EditKey, Edit]) -> Row[K
     return row
 
 
+def title_list(
+    platform: platforms.PlatformList | None, overrides: volumes.Overrides | None
+) -> platforms.PlatformList | None:
+    """Return the platform list chapters take titles from: none when the override file sets list_titles false."""
+    return platform if (overrides or {}).get("list_titles", True) else None
+
+
+def list_title(titles: Mapping[str, str], number: float, season: int | None) -> str:
+    """Return a main chapter's title from its list's titles (platforms.chapter_titles); "" for a chapter with a season.
+
+    A list numbers on across seasons, a season's chapters may start again: a number is not a seasonal chapter's key.
+    """
+    return "" if season is not None else titles.get(names.fmt_num(number), "")
+
+
 def resolve[K: Hashable](  # noqa: PLR0913  # 7 inputs the resolver itself uses
     basis: str | None,
     rows: Sequence[Row[K]],
@@ -233,15 +248,16 @@ def resolve[K: Hashable](  # noqa: PLR0913  # 7 inputs the resolver itself uses
             raise VolumeError(msg)
     out: dict[K, Naming] = {}
     covered = _opens_covered(rows, _covered_firsts(basis, main, vol, (sources.override, sources.mangadex)))
-    titles = platforms.chapter_titles(platform)
+    listed = title_list(platform, override)
+    titles = platforms.chapter_titles(listed)
     for i in main:
         if not rows[i].settled:
             v, source = opened[i]
-            title = rows[i].title or names.clean_marker_title(titles.get(names.fmt_num(rows[i].number)) or "")
+            title = rows[i].title or list_title(titles, rows[i].number, rows[i].season)
             e = edits.get(edit_key(names.MAIN, rows[i].season, rows[i].number))
             title = e.title if e is not None and e.title is not None else title
             out[rows[i].key] = Naming(names.MAIN, v, rows[i].number, title, source, i in covered)
-    for key, side_named in _side_stories(rows, side, [vol[i][0] for i in main], platform, past).items():
+    for key, side_named in _side_stories(rows, side, [vol[i][0] for i in main], listed, past).items():
         named = side_named
         e = edits.get(edit_key(names.SIDE, None, named.number))
         if e is not None and e.title is not None:
@@ -670,7 +686,7 @@ def _side_stories[K: Hashable](
     for n, i in enumerate(todo, start + 1):
         t = names.clean_marker_title(names.SIDE_MARKER.sub("", rows[i].title).strip())
         if not t and i in past:
-            t = names.clean_marker_title(episode_titles.get(names.fmt_num(rows[i].number)) or "")
+            t = episode_titles.get(names.fmt_num(rows[i].number), "")
         t = t or names.clean_marker_title(special_titles.get(n) or "")
         base = SIDE_TITLE.format(n=n)
         source = SIDE_SOURCE if side_volume is not None else NONE

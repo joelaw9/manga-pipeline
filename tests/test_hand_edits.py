@@ -320,11 +320,12 @@ def test_a_better_copy_of_an_edited_file_keeps_the_edit(world):
     world.run(export)  # Kavita re-read it: the file is free again
     copies.copy(world, width=20)
     copies.through(world)
-    r = copies.row(world)
+    r = copies.row(world, "Vol.1 Ch.2 - Hello.cbz")
     assert (r["origin"], r["comicinfo_title"], "title" in (r["unedited"] or {})) == ("pipeline", "Hello", True), (
-        "the copy takes the file's edited name and keeps its unedited values for a removal"
+        "the copy takes the file's edited name, is named for it as the pipeline names a file, and keeps its unedited "
+        "values for a removal"
     )
-    assert title(world, "Vol.1 Ch.2.cbz") == "Hello"
+    assert title(world, "Vol.1 Ch.2 - Hello.cbz") == "Hello"
 
 
 @budget(load="db", seconds=60)

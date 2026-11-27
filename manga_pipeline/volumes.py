@@ -37,7 +37,8 @@ class Overrides(TypedDict, total=False):
     ("1-53", "54", "94-", "-53", 54); volume_starts {volume: first chapter}, or null (check_starts; not with volumes);
     series_group a name or a non-empty list of names; layout "strip" or "pages" in any case and spacing, or null; name
     the series' name, a non-empty text (SPEC "Retroactive updates", Series names); join_parts true or false (SPEC
-    "Retroactive updates", Split chapters).
+    "Retroactive updates", Split chapters); list_titles true or false (SPEC "Publishing": false, its chapters take no
+    platform list title).
     """
 
     volumes: dict[int | str, str | int | float] | None
@@ -46,6 +47,7 @@ class Overrides(TypedDict, total=False):
     layout: str | None
     name: str
     join_parts: bool
+    list_titles: bool
 
 
 def layout(data: Overrides) -> str | None:
@@ -97,10 +99,10 @@ def join_parts(overrides: Path, folder_name: str) -> bool:
     return (override_file(overrides, folder_name) or {}).get("join_parts", True)
 
 
-def _check_join_parts(value: Yaml) -> None:
+def _check_bool(key: str, value: Yaml) -> None:
     """Raise ValueError unless value is true or false."""
     if not isinstance(value, bool):
-        msg = f"overrides join_parts must be true or false, not {value!r}"
+        msg = f"overrides {key} must be true or false, not {value!r}"
         raise ValueError(msg)
 
 
@@ -138,8 +140,9 @@ def override_file(overrides: Path, folder_name: str) -> Overrides | None:
             _group_names(data["series_group"])
         if "name" in data:
             _check_name(data["name"])
-        if "join_parts" in data:
-            _check_join_parts(data["join_parts"])
+        for key in ("join_parts", "list_titles"):
+            if key in data:
+                _check_bool(key, data[key])
         layout(data)
     except (yaml.YAMLError, ValueError) as e:
         msg = f"{path}: {e}"

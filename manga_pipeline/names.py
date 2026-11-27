@@ -14,6 +14,7 @@ import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
+from pathlib import PurePosixPath
 from typing import overload
 
 MAIN, SIDE, NON_CHAPTER, UNNUMBERED = "main", "side", "non-chapter", "unnumbered"
@@ -500,3 +501,8 @@ def file_name(
     name = (f"Vol.{fmt_num(volume)} " if volume is not None else "") + f"Ch.{fmt_num(number)}"
     safe = safe_title(title) if title else ""
     return name + (f" - {safe}" if safe else "") + ".cbz"
+
+
+def renamed(stored_path: str, number: float, title: str | None, volume: float | None) -> str:
+    """Return a published file's stored path once named for number, title and volume (file_name), in its own folder."""
+    return str(PurePosixPath(stored_path).parent / file_name(number, title, volume))

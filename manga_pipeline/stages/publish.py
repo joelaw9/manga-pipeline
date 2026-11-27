@@ -88,11 +88,26 @@ def row_values(conn: db.Connection, chapter: db.Row) -> FileValues:
     }
 
 
+def queued(conn: db.Connection, series_id: int, stored_path: str, file_id: int | None = None) -> bool:
+    """Return whether another file of the series has a rewrite or a better copy queued to stored_path.
+
+    file_id: the file renamed, whose own queued path does not count (None: a new file).
+    """
+    return (
+        conn.execute(
+            "SELECT 1 FROM published_file WHERE series_id = %s AND pending_path = %s AND id IS DISTINCT FROM %s",
+            (series_id, stored_path, file_id),
+        ).fetchone()
+        is not None
+    )
+
+
 def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     """Rename the staged CBZ into the series' folder as it is now, never over a library file, and record the result.
 
-    A target already in the library, or one left at another size by a lost staged file, is needs_human; a rename done
-    before a crash carries on. The record: the published file (unconfirmed), the handled chapter, the series' due scan.
+    A target already in the library or queued for another file (queued), or one left at another size by a lost
+    staged file, is needs_human; a rename done before a crash carries on. The record: the published file
+    (unconfirmed), the handled chapter, the series' due scan.
     """
     # The series' folder as it is now (a person may have linked it again since comicinfo named the file): the name
     # comicinfo settled, in that folder.
@@ -103,6 +118,8 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     if not errors.exists(target.parent):
         msg = f"series folder {target.parent} does not exist"
         raise FileNotFoundError(msg)
+    if queued(ctx.conn, chapter["series_id"], library_path):
+        return workflow.NeedsHuman(f"{target} is queued for another file; a library file is never overwritten")
     if errors.exists(staged):
         if errors.exists(target):
             return workflow.NeedsHuman(f"{target} is already in the library; a library file is never overwritten")
