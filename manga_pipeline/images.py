@@ -380,6 +380,10 @@ ASPECT_TOLERANCE = 0.03  # live rule: aspect difference relative to the larger a
 # took story panels, so 8; the live rule's 3 % kept re-uploaded credit variants (4-9 % taller) out, so 10 %.
 NEAR_THRESHOLD = 8
 NEAR_ASPECT_TOLERANCE = 0.10
+# Near caps (the bulk converter's per-scope caps, ported: plan phase-10-6 D7): NEAR_THRESHOLD for a decision of the
+# unit's series or a global one, NEAR_OTHER_SERIES for another series', NEAR_PROBE for a probe unit whatever the scope.
+NEAR_OTHER_SERIES = 6
+NEAR_PROBE = 4
 UNIFORM_TOLERANCE = 10  # a page whose every channel's range is at most this is uniform: no signature
 
 type Signature = tuple[tuple[int, ...], float]  # (tile pHashes from top to bottom, aspect h / w)

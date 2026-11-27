@@ -130,16 +130,16 @@ class Scanned(NamedTuple):
 class Inputs(NamedTuple):
     """What a proposal reads of the database, in 1 snapshot.
 
-    The series and its key; the active decisions of the series and the global ones, each key parsed (newest id first);
-    its watermark keys; the ids of every chapter of it holding a current strip scan, by id; the chapters it may use
-    (loaded: the named ones, those waiting on the candidate asked about, and the CHECKED_RECENT + 1 newest scanned),
-    the waiting ones' ids in id order; the ids of its chapters not done at discover, validate or junk holding no
+    The series and its key; the store index (store_index: every active decision, each key parsed); its watermark
+    keys; the ids of every chapter of it holding a current strip scan, by id; the chapters it may use (loaded: the
+    named ones, those waiting on the candidate asked about, and the CHECKED_RECENT + 1 newest scanned), the waiting
+    ones' ids in id order; the ids of its chapters not done at discover, validate or junk holding no
     current scan (not named); the database part of the inputs digest (state).
     """
 
     series: db.Row
     key: str
-    parsed: list[tuple[db.Row, store.ParsedKey]]
+    store_index: store.Index
     known: list[str]
     scanned: list[int]
     loaded: dict[int, Scanned]
@@ -176,8 +176,9 @@ def _scanned() -> sql.Composable:
 def state(conn: db.Connection, series: db.Row) -> Json:
     """Return the database part of the inputs digest (plan phase-10-21 D5).
 
-    The ids of the active decisions of the series and the global ones, the series' watermark keys, and every series
-    chapter holding a current strip scan, whether or not its download is usable: (id, content digest, scan time).
+    The ids of the active decisions of the series and the global ones, the store's version (store.version: any
+    decision written or changed in any series moves it), the series' watermark keys, and every series chapter holding a
+    current strip scan, whether or not its download is usable: (id, content digest, scan time).
     """
     key = store.series_key(series)
     ids = conn.execute(
@@ -192,6 +193,7 @@ def state(conn: db.Connection, series: db.Row) -> Json:
     )
     return [
         [r[0] for r in ids],
+        list(store.version(conn)),
         [r[0] for r in marks],
         [[r["id"], r["content_digest"], str(r["scanned_at"])] for r in scans],
     ]
@@ -223,12 +225,6 @@ def _inputs(conn: db.Connection, series: db.Row, named: Sequence[int], candidate
         msg = f"series {series['id']} is not a strip (layout {layout and layout['layout']}): a cut is strip-only"
         raise workflow.Refused(msg)
     key = store.series_key(series)
-    decisions = conn.execute(
-        sql.SQL("SELECT * FROM junk_decision WHERE series_key IN (%s, %s) AND {} ORDER BY id DESC").format(
-            store.ACTIVE
-        ),
-        (key, store.GLOBAL),
-    ).fetchall()
     known = [r[0] for r in conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s ORDER BY key", (key,))]
     rows = conn.execute(
         sql.SQL("""SELECT c.id, c.stage = 'junk' AND c.status <> 'done'
@@ -249,7 +245,7 @@ def _inputs(conn: db.Connection, series: db.Row, named: Sequence[int], candidate
     return Inputs(
         series,
         key,
-        [(r, store.parse_key(r["kind"], r["key"])) for r in decisions],
+        store.index(conn),
         known,
         scanned,
         _loaded(conn, sorted(wanted), set(scanned)),
@@ -476,11 +472,11 @@ class Rules(NamedTuple):
 
 def _rules(inp: Inputs, proposed: store.Decision | None = None) -> Rules:
     """Return today's rules, or (proposed) those with the proposed decision the newest of all (id NEW_ROW)."""
-    parsed = inp.parsed
+    layered: list[store.Keyed] = []
     if proposed is not None:
         row = db.row(id=NEW_ROW, superseded_by=None, retired_by=None, written_by=None, **proposed)
-        parsed = [(row, store.parse_key(row["kind"], row["key"])), *parsed]
-    decisions = store.Decisions.of_rows(inp.key, parsed)
+        layered = [(row, store.parse_key(row["kind"], row["key"]))]
+    decisions = store.Decisions.of_rows(inp.store_index, inp.key, layered)
     return Rules(decisions, [images.sig_from_str(k) for k in inp.known], decisions.cuts())
 
 
@@ -800,7 +796,7 @@ def _cut_plan(cfg: config.Config, args: CutArgs, review_id: str | None, work: Pa
     decision = _cut_decision(
         inp, chains.text({side: [v.value for v in versions]}), _decider(review_id), credit=args.credit
     )
-    taken = next((r for r, _ in inp.parsed if r["kind"] == "cut" and r["key"] == decision["key"]), None)
+    taken = next((r for r in inp.store_index.cuts(inp.key) if r["key"] == decision["key"]), None)
     if taken is not None:
         msg = f"key span {decision['key']} is taken: covered by decision {taken['id']} (1 active cut per key span)"
         raise workflow.Refused(msg)

@@ -2,9 +2,11 @@
 
 import base64
 import json
+import math
 import shutil
 
 import numpy as np
+import psycopg
 import pytest
 
 from manga_pipeline import config, db, images, names
@@ -125,14 +127,84 @@ def test_frames_match_by_their_own_rule(conn):
 
 
 @budget(load="db")
-def test_near_finds_an_approved_signature_of_any_series_but_not_one_that_decides(conn):
-    put(conn, decision("Other", "block", sig(), "junk"))
-    hit = store.near(conn, "S", ((flip(T, 8),), 1.05))
-    assert hit is not None, "another series' approval 8 bits away is near"
-    assert hit[1] == 8, "another series' approval 8 bits away is near"
-    assert store.near(conn, "S", ((flip(T, 9),), 1.0)) is None, "9 bits is not near"
-    put(conn, decision("S", "block", sig((flip(T, 8),)), "junk"))
-    assert store.near(conn, "S", ((flip(T, 8),), 1.0)) is None, "a decision that applies and matches decides: no near"
+@pytest.mark.parametrize(
+    ("scope", "unit_kind", "cap"),
+    [
+        ("S", "block", 8),
+        ("", "block", 8),
+        ("Other", "block", 6),
+        ("S", "probe", 4),
+        ("", "probe", 4),
+        ("Other", "probe", 4),
+    ],
+    ids=["series", "global", "other-series", "probe-series", "probe-global", "probe-other-series"],
+)
+def test_near_caps_8_for_the_series_and_global_6_for_another_series_4_for_a_probe(conn, scope, unit_kind, cap):
+    """A junk decision is near a unit of series S within its cap, aspect within 10 %; 1 bit more is not near.
+
+    Both units are 5 % off the decision's aspect: past the live rule's 3 %, so no decision of the series matches them
+    and suppresses near; only the cap decides.
+    """
+    put(conn, decision(scope, "block", sig(), "junk"))
+    hit = store.Decisions(conn, "S").near(((flip(T, cap),), 1.05), unit_kind)
+    assert hit is not None, f"a {scope or 'global'} junk decision {cap} bits from a {unit_kind} is near"
+    assert hit[1] == cap, f"its distance is {cap}"
+    far = store.Decisions(conn, "S").near(((flip(T, cap + 1),), 1.05), unit_kind)
+    assert far is None, f"{cap + 1} bits from a {unit_kind} is not near a {scope or 'global'} decision"
+
+
+@budget(load="db")
+def test_near_finds_a_decision_in_the_next_aspect_bin(conn):
+    """A decision at aspect 0.99 and a unit at 1.05 (6 % apart) lie in adjacent bins of the index: still near."""
+    bins = {math.floor(math.log(a) / store.ASPECT_BIN) for a in (0.99, 1.05)}
+    assert len(bins) == len((0.99, 1.05)), "the 2 aspects are in different bins"
+    put(conn, decision("S", "block", sig(aspect=0.99), "junk"))
+    hit = store.Decisions(conn, "S").near(((flip(T, 2),), 1.05), "block")
+    assert hit is not None, "a decision in the next aspect bin is near"
+
+
+@budget()
+def test_the_pipelines_decision_comes_before_an_imported_one_of_its_tier():
+    """2 series junk decisions match the unit: the pipeline's, older and chained, decides before a newer import."""
+    rows = [
+        db_row(
+            id=1,
+            series_key="S",
+            kind="block",
+            key=sig(),
+            verdict="junk",
+            decider="claude",
+            decided_at="2026-11-01T00:00:00+00:00",
+            chain="{}",
+        ),
+        db_row(
+            id=2,
+            series_key="S",
+            kind="block",
+            key=sig((flip(T, 1),)),
+            verdict="junk",
+            decider="import",
+            decided_at="2026-12-01T00:00:00+00:00",
+            chain=None,
+        ),
+    ]
+    got = present(store.Decisions.of_rows(store.index_of(rows), "S", []).decide("block", ((T,), 1.0)))
+    assert (got["id"], got["chain"]) == (1, "{}"), "the pipeline's decision decides, its chain with it"
+
+
+@budget(load="db")
+def test_a_series_band_junk_still_suppresses_near_for_a_block_and_a_keep_does_not(conn):
+    """Near is for the undecided: a junk decision of the series that matches at the live rule suppresses it.
+
+    A band junk decides no block, yet it suppresses near for one (today's rule, kept); a keep never suppresses.
+    """
+    put(conn, decision("Other", "block", sig(), "junk"), decision("S", "band", sig((flip(T, 2),)), "keep"))
+    unit = ((flip(T, 1),), 1.0)
+    assert store.Decisions(conn, "S").near(unit, "block") is not None, "a matching keep of the series does not suppress"
+    put(conn, decision("S", "band", sig((flip(T, 3),)), "junk"))
+    decisions = store.Decisions(conn, "S")
+    assert decisions.decide("block", unit) is None, "band decisions decide no block"
+    assert decisions.near(unit, "block") is None, "a matching band junk of the series suppresses near"
 
 
 # ---------------------------------------------------------------- upsert
@@ -312,13 +384,15 @@ def test_a_malformed_marks_row_is_a_record_that_does_not_parse(damage):
 
 
 @budget(load="db")
-def test_a_pipeline_decision_wins_for_every_signature_it_covers(conn):
-    put(conn, decision("S", "block", sig(), "junk", decider="claude", at="2026-11-01T00:00:00+00:00"))
-    put(conn, decision("S", "block", sig((flip(T, 2),)), "keep", at="2026-12-01T00:00:00+00:00"))
+def test_a_series_imported_keep_beats_its_pipeline_junk_on_a_unit_both_match(conn):
+    """A26: keeps before junk across the pipeline's and the imported decisions of a series."""
+    put(conn, decision("S", "block", sig(), "junk", decider="claude", at="2026-12-01T00:00:00+00:00"))
+    put(conn, decision("S", "block", sig((flip(T, 2),)), "keep", at="2026-11-01T00:00:00+00:00"))
     got = present(store.Decisions(conn, "S").decide("block", ((flip(T, 1),), 1.0)))
-    assert (got["decider"], got["verdict"]) == ("claude", "junk"), (
-        "an imported keep on a matching key never overrides Claude's junk"
-    )
+    assert (got["decider"], got["verdict"]) == ("import", "keep"), "the series' older imported keep beats Claude's junk"
+    only_junk = T ^ (0b111111 << 2)  # 6 bits from the junk key, 8 from the keep's
+    alone = present(store.Decisions(conn, "S").decide("block", ((only_junk,), 1.0)))
+    assert (alone["decider"], alone["verdict"]) == ("claude", "junk"), "a unit only Claude's junk matches is junk"
 
 
 @budget()
@@ -482,8 +556,9 @@ def test_a_unit_with_an_unsignable_key_matches_no_decision_and_is_near_none(conn
     decisions = store.Decisions(conn, "S")
     assert decisions.decide("block", ((flip(FLAT, 4),), 1.0)) is not None, "a signable unit within reach is decided"
     assert decisions.decide("block", ((FLAT,), 1.0)) is None, "a flat unit matches nothing"
-    assert store.near(conn, "T", ((flip(FLAT, 4),), 1.0)) is not None, "a signable unit of another series is near"
-    assert store.near(conn, "T", ((FLAT,), 1.0)) is None, "a flat unit is near nothing"
+    other = store.Decisions(conn, "T")
+    assert other.near(((flip(FLAT, 4),), 1.0), "block") is not None, "a signable unit of another series is near"
+    assert other.near(((FLAT,), 1.0), "block") is None, "a flat unit is near nothing"
 
 
 @budget(load="db")
@@ -698,7 +773,118 @@ def test_a_pipeline_decision_on_a_key_an_undone_act_left_inactive_is_written(con
 
 @budget(load="db")
 def test_near_ignores_inactive_rows(conn):
-    put(conn, decision("O", "block", sig((flip(T, 8),)), "junk"))
-    assert store.near(conn, "S", ((T,), 1.0)) is not None, "an active junk of another series is near"
+    put(conn, decision("O", "block", sig((flip(T, 6),)), "junk"))
+    assert store.Decisions(conn, "S").near(((T,), 1.0), "block") is not None, "an active junk of another series is near"
     retired_by_an_act(conn, one(conn, "SELECT id FROM junk_decision"))
-    assert store.near(conn, "S", ((T,), 1.0)) is None, "a retired one is not"
+    assert store.Decisions(conn, "S").near(((T,), 1.0), "block") is None, "a retired one is not"
+
+
+# ---------------------------------------------------------------- the store index and its version
+
+
+@budget(load="db")
+def test_an_insert_a_retire_and_an_undo_each_change_the_store_version(conn):
+    """Every writer moves the version (largest decision id, largest act id), and the next lookup sees the change."""
+    unit = store.parse_key("block", sig())
+    before = store.version(conn)
+    put(conn, decision("S", "block", sig(), "junk"))
+    inserted = store.version(conn)
+    assert inserted != before, "an insert moves the version"
+    assert store.Decisions(conn, "S").decide("block", unit) is not None, "the inserted decision decides"
+    written = one(conn, "SELECT id FROM junk_decision")
+    retired_by_an_act(conn, written)
+    retired = store.version(conn)
+    assert retired != inserted, "a retirement moves the version"
+    assert store.Decisions(conn, "S").decide("block", unit) is None, "the retired decision decides nothing"
+    with db.transaction(conn):
+        act = one(conn, "SELECT max(id) FROM junk_act")
+        store.restore(conn, [written], store.new_act(conn, "undo", "2026-11-11T00:00:00+00:00", undoes=act))
+    assert store.version(conn) != retired, "an undo moves the version"
+    assert store.Decisions(conn, "S").decide("block", unit) is not None, "the restored decision decides again"
+
+
+@budget(load="db")
+def test_a_write_in_another_connection_is_seen_by_the_next_decisions_built(cfg, conn):
+    unit = store.parse_key("block", sig())
+    assert store.Decisions(conn, "S").decide("block", unit) is None, "an empty store decides nothing"
+    with db.connect(cfg) as other:
+        put(other, decision("S", "block", sig(), "junk"))
+    assert store.Decisions(conn, "S").decide("block", unit) is not None, "the other connection's decision is seen"
+
+
+@budget(load="db")
+def test_the_index_of_an_empty_store_decides_nothing_and_has_no_cuts(conn):
+    unit = images.sig_from_str(sig())
+    for decisions in (store.Decisions(conn, "S"), store.Decisions.of_rows(store.index_of([]), "S", [])):
+        assert decisions.decide("block", unit) is None, "an empty store decides nothing"
+        assert decisions.cuts() == [], "an empty store has no cuts"
+        assert decisions.near(unit, "block") is None, "an empty store is near nothing"
+
+
+def cut_decision(series_key, tiles, at) -> store.Decision:
+    """Return a cut decision of 1 cut segment with tile pHash text `tiles` (its key span), decided at `at`."""
+    chain = (
+        f'{{"below":[{{"ref":[["{series_key}","c",0]],"segments":[{{"h":0.5,"kind":"cut","tiles":"{tiles}"}}],'
+        f'"src":{{"file":"a.cbz","sha256":"{"ab" * 32}"}}}}]}}'
+    )
+    return {**decision(series_key, "cut", f"{tiles}|0.5", "junk", at=at), "chain": chain}
+
+
+@budget(load="db")
+def test_cuts_are_the_series_active_cut_rows_oldest_first(conn):
+    put(
+        conn,
+        cut_decision("S", f"{T:016x}", "2026-11-03T00:00:00+00:00"),
+        cut_decision("S", f"{flip(T, 20):016x}", "2026-11-01T00:00:00+00:00"),
+        cut_decision("S", f"{flip(T, 30):016x}", "2026-11-02T00:00:00+00:00"),
+        cut_decision("Other", f"{flip(T, 40):016x}", "2026-11-01T00:00:00+00:00"),
+    )
+    retired_by_an_act(conn, one(conn, "SELECT id FROM junk_decision WHERE key LIKE %s", (f"{flip(T, 30):016x}|%",)))
+    got = [r["decided_at"][:10] for r in store.Decisions(conn, "S").cuts()]
+    assert got == ["2026-11-01", "2026-11-03"], "the series' active cuts, oldest first; another series' left out"
+
+
+def decided_in_a_rolled_back_write(conn, unit):
+    """Write a junk decision in a transaction, look the unit up inside it, roll back; return that lookup's row."""
+    with db.transaction(conn):
+        store.upsert(conn, [decision("S", "block", sig(), "junk")])
+        found = store.Decisions(conn, "S").decide("block", unit)
+        raise psycopg.Rollback
+    return found
+
+
+@budget(load="db")
+def test_index_inside_a_callers_transaction_reads_on_its_connection_and_sees_its_writes(conn):
+    unit = store.parse_key("block", sig())
+    assert decided_in_a_rolled_back_write(conn, unit) is not None, "the caller's own write is seen"
+    assert store.Decisions(conn, "S").decide("block", unit) is None, "after the rollback the write is gone"
+    put(conn, decision("S", "block", sig((flip(T, 1),)), "keep"))
+    assert present(store.Decisions(conn, "S").decide("block", unit))["verdict"] == "keep", (
+        "the next committed write is seen, not the rolled-back rows cached before it"
+    )
+
+
+@budget(load="db")
+@pytest.mark.parametrize(
+    ("kind", "key"),
+    [("frame", "zz|1.0"), ("logo", "!!!"), ("block", f"{T:016x}|0.0")],
+    ids=["frame", "logo", "aspect-0"],
+)
+def test_a_malformed_frame_or_logo_key_is_refused_on_write(conn, kind, key):
+    with pytest.raises(ValueError, match="decision key"):
+        put(conn, decision("S", kind, key, "junk"))
+    assert one(conn, "SELECT count(*) FROM junk_decision") == 0, "nothing is written"
+
+
+@budget(load="db")
+def test_a_retirement_after_a_read_in_1_act_is_seen_by_the_next_read_and_after_commit(conn):
+    """Within 1 act the retirement moves no id: a read before it must not leave its rows for the reads after."""
+    unit = store.parse_key("block", sig())
+    put(conn, decision("S", "block", sig(), "junk"))
+    written = one(conn, "SELECT id FROM junk_decision")
+    with db.transaction(conn):
+        act = store.new_act(conn, "test", "2026-11-10T00:00:00+00:00")
+        assert store.Decisions(conn, "S").decide("block", unit) is not None, "read before the retirement: decided"
+        store.retire(conn, [written], act)
+        assert store.Decisions(conn, "S").decide("block", unit) is None, "read after it, in the act: retired"
+    assert store.Decisions(conn, "S").decide("block", unit) is None, "read after the commit: retired"

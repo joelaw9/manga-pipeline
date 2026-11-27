@@ -145,10 +145,13 @@ def chapters_showing(conn: db.Connection, series_key: str, kind: str, key: str) 
     return len({ident for k, ident in rows if store.matches(store.parse_key(kind, k), parsed)})
 
 
-def strip_reasons(conn: db.Connection, series_key: str, unit: strip_units.Piece, words: ocr.WordLists) -> list[str]:
-    """Why a strip unit is a candidate (near, OCR keywords); [] when neither."""
+def strip_reasons(decisions: store.Decisions, unit: strip_units.Piece, kind: str, words: ocr.WordLists) -> list[str]:
+    """Why a strip unit of kind (block, probe) is a candidate (near, OCR keywords); [] when neither.
+
+    decisions: the series' store.Decisions.
+    """
     out: list[str] = []
-    hit = store.near(conn, series_key, images.sig_from_str(unit["sig"]))
+    hit = decisions.near(images.sig_from_str(unit["sig"]), kind)
     if hit is not None:
         row, d, diff = hit
         out.append(f"near decision {row['id']} ({row['series_key'] or 'global'}) distance {d}, aspect {diff:.1%}")
@@ -172,15 +175,13 @@ def _recurrence(conn: db.Connection, series_key: str, kind: str, key: str) -> li
     return [f"seen in {n} chapters"] if n >= RECUR_CHAPTERS else []
 
 
-def _flagged_probe(
-    conn: db.Connection, series_key: str, block: strip_units.BlockUnit, words: ocr.WordLists
-) -> Candidate | None:
+def _flagged_probe(decisions: store.Decisions, block: strip_units.BlockUnit, words: ocr.WordLists) -> Candidate | None:
     """Return the candidate of a strip edge block's first signable probe that is near or has a keyword, or None.
 
     The probe is the first from the chapter edge; near and keyword are strip_reasons'.
     """
     probes = [p for p in block["probes"] if not store.unsignable("probe", p["sig"])]
-    flagged = next(((p, why) for p in probes for why in [strip_reasons(conn, series_key, p, words)] if why), None)
+    flagged = next(((p, why) for p in probes for why in [strip_reasons(decisions, p, "probe", words)] if why), None)
     if flagged is None:
         return None
     probe, why = flagged
@@ -188,25 +189,30 @@ def _flagged_probe(
 
 
 def _block_candidate(
-    conn: db.Connection, series_key: str, block: strip_units.BlockUnit, words: ocr.WordLists, *, first_chapter: bool
+    conn: db.Connection,
+    decisions: store.Decisions,
+    block: strip_units.BlockUnit,
+    words: ocr.WordLists,
+    *,
+    first_chapter: bool,
 ) -> Candidate | None:
     """Return a strip edge block's candidate, or None.
 
     Its flagged probe, else the block when its key is signable and it is near, has a keyword, is the rest of a block
     whose edge piece is junk, is in a first chapter of the series (first_chapter), or recurs; else None.
     """
-    probe = _flagged_probe(conn, series_key, block, words)
+    probe = _flagged_probe(decisions, block, words)
     if probe is not None:
         return probe
     key = _key(block)
     if store.unsignable("block", key):
         return None
-    reasons = strip_reasons(conn, series_key, block, words)
+    reasons = strip_reasons(decisions, block, "block", words)
     if block.get("rest"):
         reasons.append("the rest of a block whose edge piece is junk")
     if first_chapter:
         reasons.append("a first chapter of the series")
-    reasons += _recurrence(conn, series_key, "block", key)
+    reasons += _recurrence(conn, decisions.series_key, "block", key)
     return {"kind": "block", "key": key, "unit": block, "reason": "; ".join(reasons)} if reasons else None
 
 
@@ -229,7 +235,7 @@ def select(
         kind, key = u["kind"], _key(u)
         found: Candidate | None
         if u["kind"] == "block":
-            found = _block_candidate(conn, series_key, u, words, first_chapter=first_chapter)
+            found = _block_candidate(conn, decisions, u, words, first_chapter=first_chapter)
         elif store.unsignable(kind, key):
             continue
         elif u["kind"] == "logo":

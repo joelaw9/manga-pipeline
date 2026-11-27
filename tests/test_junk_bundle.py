@@ -106,15 +106,15 @@ def decision_row(i, verdict, decider, *, bundle=False, kind="piece"):
 
 
 def judged(*rows):
-    decisions = store.Decisions.of_rows("S", [(r, store.parse_key(r["kind"], r["key"])) for r in rows])
+    decisions = store.Decisions.of_rows(store.index_of(rows), "S", [])
     return decisions, decisions.judged_keep(images.sig_from_str(key(FAR[0])))
 
 
 @budget(load="pure")
-def test_judged_keep_sees_a_keep_behind_a_newer_row_and_never_a_marked_keep():
+def test_judged_keep_sees_a_keep_a_pipeline_junk_also_matches_and_never_a_marked_keep():
     decisions, seen = judged(decision_row(1, "keep", "import"), decision_row(2, "junk", "claude"))
-    assert present_verdict(decisions) == "junk", "the pipeline's junk decides the piece"
-    assert seen, "yet the imported keep behind it is a judgement"
+    assert present_verdict(decisions) == "keep", "the series' imported keep decides the piece (A26: keeps first)"
+    assert seen, "and it is a judgement"
     _, marked = judged(decision_row(1, "keep", "import", bundle=True))
     assert not marked, "a keep given as part of a bundle protects no gap"
     _, other = judged(decision_row(1, "keep", "import", kind="block"))
@@ -376,23 +376,20 @@ def test_the_rule_on_the_bulk_converters_cached_pieces_gives_its_members():
     79 are protected: none.
     """
     fx = json.loads(W5_FIX.read_bytes())
-    parsed = [
-        (
-            db_row(
-                id=k["id"],
-                series_key=k["series"] or store.GLOBAL,
-                kind="piece",
-                key=k["key"],
-                verdict="keep",
-                decider="import",
-                decided_at=AT,
-                bundle=(k["review_id"] or "").startswith(importing.BUNDLE_PREFIX),
-            ),
-            store.parse_key("piece", k["key"]),
+    rows = [
+        db_row(
+            id=k["id"],
+            series_key=k["series"] or store.GLOBAL,
+            kind="piece",
+            key=k["key"],
+            verdict="keep",
+            decider="import",
+            decided_at=AT,
+            bundle=(k["review_id"] or "").startswith(importing.BUNDLE_PREFIX),
         )
         for k in fx["keeps"]
     ]
-    decisions = store.Decisions.of_rows(fx["series"], parsed)
+    decisions = store.Decisions.of_rows(store.index_of(rows), fx["series"], [])
     got, want = {}, {}
     for ch in fx["chapters"]:
         pieces, bounds = old_chapter(ch)
@@ -417,7 +414,7 @@ def test_judged_keep_judges_no_unsignable_piece():
     row = db_row(
         id=1, series_key="S", kind="piece", key=near_flat, verdict="keep", decider="import", decided_at=AT, bundle=False
     )
-    decisions = store.Decisions.of_rows("S", [(row, store.parse_key("piece", near_flat))])
+    decisions = store.Decisions.of_rows(store.index_of([row]), "S", [])
     assert decisions.judged_keep(((0xF,), 1.0)), "a signable piece within reach is judged"
     assert not decisions.judged_keep(((0,), 1.0)), "a flat piece is judged by none, as decide decides it by none"
 
