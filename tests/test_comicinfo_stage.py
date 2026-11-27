@@ -4,6 +4,7 @@ Series fields from stored records, the chapter's source, pages, and the folder c
 """
 
 import io
+import json
 import xml.etree.ElementTree as ET
 import zipfile
 from contextlib import closing
@@ -227,3 +228,147 @@ def test_a_mangadex_series_names_its_new_chapter_and_side_story_and_covers_the_n
     assert world.rows(
         "SELECT kind, volume_source FROM published_file WHERE origin = 'pipeline' ORDER BY comicinfo_number"
     ) == [("side", "side"), ("main", "mangadex")]
+
+
+# ---------------------------------------------------------------- Manga and a series' own genres (plan 10.14)
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("mangabaka_type", "language", "terms", "want"),
+    [
+        ("manga", None, {"manhwa"}, "YesAndRightToLeft"),
+        ("Manga", "ko", set(), "YesAndRightToLeft"),
+        ("manhwa", "ja", set(), "Yes"),
+        ("manhua", None, set(), "Yes"),
+        ("oel", None, set(), "Yes"),
+        ("other", None, set(), "Yes"),
+        (None, "en", set(), "Yes"),
+        (None, "JA", {"manhwa"}, "YesAndRightToLeft"),
+        ("", "ja", set(), "YesAndRightToLeft"),
+        (None, None, {"manhua"}, "Yes"),
+        (None, None, set(), "YesAndRightToLeft"),
+    ],
+    ids=[
+        "manga with a left-to-right term",
+        "Manga casefolded, language unread",
+        "manhwa, language unread",
+        "manhua",
+        "oel",
+        "other",
+        "no type, English",
+        "no type, JA casefolded, term unread",
+        "empty type, Japanese",
+        "neither, a stored term",
+        "neither, no term",
+    ],
+)
+def test_a_page_series_reads_by_its_mangabaka_type_then_its_language_then_its_terms(
+    mangabaka_type, language, terms, want
+):
+    got = stage.reading_direction(mangabaka_type, language, terms)
+    assert got == want, "MangaBaka's type decides; with none MangaDex's original language; with neither the terms"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("genres", "tag_list", "want"),
+    [
+        ([], [], ("Isekai, Ongoing", "Magic")),
+        (["Action"], [], ("Action", "")),
+        ([], ["Magic"], ("", "Magic")),
+        (["Action"], ["Magic"], ("Action", "Magic")),
+    ],
+    ids=["records give neither", "stored genres only", "stored tags only", "both stored"],
+)
+def test_a_series_whose_records_give_no_genres_or_tags_keeps_the_files_own(genres, tag_list, want):
+    own = {"Genre": "Isekai, Ongoing", "Tags": "Magic", "Translator": "Grp"}
+    assert stage.genre_lists(genres, tag_list, own) == want, "the file's own, as written, only when neither is stored"
+
+
+@budget(load="pure")
+def test_a_series_with_neither_stored_nor_own_genres_leaves_both_out():
+    assert stage.genre_lists([], [], {}) == (None, None), "a file with neither: both left out"
+
+
+@budget(load="db", seconds=3)
+def test_a_hand_placed_chapter_of_a_series_no_source_matched_keeps_its_own_genres(world):
+    world.kavita_series("Solo Leveling")
+    folder = world.mangas / "Local" / "Solo Leveling"
+    folder.mkdir(parents=True)
+    xml = ci(Number="2", Genre="Manhwa, Isekai", Tags="Magic", Manga="Yes")
+    (folder / "Chapter 2.cbz").write_bytes(cbz(comicinfo=xml))
+    settle(folder / "Chapter 2.cbz")
+    run_all(world)
+    got = comicinfo.read_all(published_xml(world))
+    assert (got["Genre"], got["Tags"]) == ("Manhwa, Isekai", "Magic"), "no record gives any: the file's own"
+    assert got["Manga"] == "YesAndRightToLeft", "the file's own Manga and genres never set the direction"
+
+
+@budget(load="db", seconds=3)
+def test_a_page_series_mangabaka_types_oel_reads_left_to_right(world):
+    known_series(world)
+    world.sources.mangabaka.records[("series", "50")]["type"] = "oel"
+    world.download(world.manga("Solo Leveling"), "Chapter 2", data=cbz(comicinfo=ci(Number="2")))
+    run_all(world)
+    assert comicinfo.read_all(published_xml(world))["Manga"] == "Yes", "MangaBaka's type, not the terms"
+
+
+def set_records(world, layout, mangabaka_type, language, anilist_genres):
+    """Set the stored series' layout, MangaBaka type (None: a NULL payload), MangaDex language and AniList genres."""
+    sid = world.rows("SELECT id FROM series WHERE name = 'Solo Leveling'")[0][0]
+    world.rows("UPDATE series_conversion SET layout = %s WHERE series_id = %s RETURNING 1", layout, sid)
+    mb = None if mangabaka_type is None else {"id": 50, "type": mangabaka_type}
+    md = None if language is None else {"id": "md", "attributes": {"originalLanguage": language}}
+    al = None if anilist_genres is None else {"id": 7, "genres": anilist_genres}
+    world.rows("DELETE FROM fetched WHERE series_id = %s RETURNING 1", sid)
+    for (source, kind), payload in (
+        (("mangabaka", "series"), mb),
+        (("mangadex", "manga"), md),
+        (("anilist", "media"), al),
+    ):
+        world.rows(
+            "INSERT INTO fetched (series_id, source, kind, payload, payload_hash, fetched_at) "
+            "VALUES (%s, %s, %s, %s, 'h', '2026-01-01') RETURNING 1",
+            sid,
+            source,
+            kind,
+            None if payload is None else json.dumps(payload),
+        )
+
+
+@budget(load="db", seconds=5)
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("strip", "manga", "ja", None, {}, ("Yes", "Manga")),
+        ("pages", "manga", "en", ["Manhwa"], {}, ("YesAndRightToLeft", "Manhwa, Manga")),
+        ("pages", None, "en", None, {}, ("Yes", None)),
+        ("pages", None, "ja", ["Manhwa"], {}, ("YesAndRightToLeft", "Manhwa")),
+        ("pages", None, None, ["Manhwa"], {}, ("Yes", "Manhwa")),
+        ("pages", None, None, None, {"Genre": "Manhwa, Isekai"}, ("YesAndRightToLeft", "Manhwa, Isekai")),
+        ("pages", None, None, ["Action"], {"Genre": "Manhwa, Isekai"}, ("YesAndRightToLeft", "Action")),
+    ],
+    ids=[
+        "strip, whatever its type",
+        "type manga over language and terms",
+        "no MangaBaka record: English",
+        "no MangaBaka record: Japanese over terms",
+        "neither: a stored term",
+        "neither stored: own genres kept, never the direction",
+        "stored genres: own ignored",
+    ],
+)
+def test_series_fields_reads_the_stored_type_language_terms_and_the_files_own_genres(world, case):
+    """case: (layout, MangaBaka type, MangaDex language, AniList genres, the file's own fields, (Manga, Genre))."""
+    layout, mangabaka_type, language, anilist_genres, own, want = case
+    known_series(world)
+    world.download(world.manga("Solo Leveling"), "Chapter 2", data=cbz(comicinfo=ci(Number="2")))
+    run_all(world)
+    set_records(world, layout, mangabaka_type, language, anilist_genres)
+    with closing(db.connect(world.cfg)) as conn:
+        series = db.one_row(conn, "SELECT * FROM series WHERE name = 'Solo Leveling'", ())
+        got = stage.series_fields(world.context(conn, "process"), series, None, None, own)
+    assert (got["Manga"], got["Genre"] or None) == want, (
+        "the stored records through series_fields, as the stage reads them"
+    )
