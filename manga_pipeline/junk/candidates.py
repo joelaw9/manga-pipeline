@@ -189,10 +189,9 @@ def select(conn: db.Connection, series_key: str, undecided: Iterable[Unit], word
 
     Strip edge blocks: the first probe from the chapter edge that is near or has a keyword is offered instead of its
     block; else the block when it is near, has a keyword, recurs, or is the rest of a block whose edge piece is junk.
-    Tail pieces always. Pages, frames and bands: their per-chapter
-    reasons, or recurrence. Logos always; a logo variant offers the first of its representatives' keys that an existing
-    candidate matches, else its first. Never a unit with an unsignable key (no decision could be written on it), a
-    block's probe included.
+    Tail pieces always. Pages, frames and bands: their per-chapter reasons, or recurrence. Logos always; a logo variant
+    offers the first of its representatives' keys that an existing candidate matches, else its first. Never a unit with
+    an unsignable key (no decision could be written on it), a block's probe included.
     """
     decisions = store.Decisions(conn, series_key)
     out: list[Candidate] = []

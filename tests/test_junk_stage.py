@@ -355,7 +355,7 @@ def test_a_malformed_stored_page_aspect_fails_the_scan_naming_its_series(site):
 
 @budget(load="db", seconds=5)
 def test_a_strip_chapter_waits_on_its_candidates_and_finishes_once_they_are_kept(site, monkeypatch):
-    # the real engine reads noise for seconds per block
+    # a keyword gives each edge block a reason to be offered (and stands in for the engine, which is slow on noise)
     monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
@@ -374,7 +374,7 @@ def test_a_strip_chapter_waits_on_its_candidates_and_finishes_once_they_are_kept
 
 @budget(load="db", seconds=5)
 def test_a_strip_chapter_whose_junk_would_leave_too_little_needs_a_human(site, monkeypatch):
-    # the real engine reads noise for seconds per block
+    # a keyword gives each edge block a reason to be offered (and stands in for the engine, which is slow on noise)
     monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")

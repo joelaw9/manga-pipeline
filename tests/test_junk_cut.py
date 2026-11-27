@@ -876,9 +876,8 @@ def wave(f, w, h):
 
 
 @budget(load="db", seconds=60)
-def test_spans_draw_every_match_and_name_the_nearest_seeds_outside_the_window(site, run, monkeypatch):
+def test_spans_draw_every_match_and_name_the_nearest_seeds_outside_the_window(site, run):
     # a notice x glued to the story (a hard join) at the head and at the tail: probes, 1 candidate (a keyword)
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "join our discord")
     head = np.full((1600, 300, 3), 255, np.uint8)
     head[100:300, 20:280] = wave(1, 260, 200)
     head[300:1100, 20:280] = wave(9, 260, 800)

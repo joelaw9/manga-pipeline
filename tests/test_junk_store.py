@@ -405,18 +405,8 @@ def chapter(number):
     return names.identity(names.parse(f"Grp_Chapter {number}"))
 
 
-IMPORTED_SEEN_AT = "1970-01-01T00:00:00+00:00"  # the bulk converter's sightings: first seen before any scan
-
-
-def imported_sightings(conn, numbers):
-    rows = [("S", "block", sig((flip(T, 40 + n),)), chapter(n), IMPORTED_SEEN_AT, "import") for n in numbers]
-    with db.transaction(conn):
-        candidates.write_seen(conn, rows)
-
-
 @budget(load="db")
 def test_a_first_chapter_unit_with_no_other_reason_is_no_candidate(conn):
-    imported_sightings(conn, (1, 2, 3))
     block: strip_units.BlockUnit = {
         "kind": "block",
         "sig": sig((flip(T, 60),)),
