@@ -4,6 +4,7 @@ Which page a series' links name, the Tapas and Webtoons clients on replies recor
 platform-seasons basis and titles against the bulk converter's records.
 """
 
+import dataclasses
 import json
 from contextlib import closing
 from pathlib import Path
@@ -421,3 +422,16 @@ def test_an_untitled_chapter_takes_its_list_title_unless_it_has_a_season_or_its_
     platform = platform_list([episode_record(episodes.MAIN, "1", "Ep. 1 - Start")])
     got = naming.resolve(None, [_open_row(1.0, season)], overrides, {}, platform)
     assert got[1.0].title == want, "SPEC 'Publishing': a seasonal chapter's number is not the list's"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("overrides", "want"), [(None, "Side Story 1: Snow Day"), ({"list_titles": False}, "Side Story 1")]
+)
+def test_list_titles_false_turns_off_a_specials_title_too(overrides, want):
+    platform = platform_list([episode_record(episodes.SPECIAL, "1", "Snow Day")])
+    side = dataclasses.replace(_open_row(1.0), kind=names.SIDE)
+    got = naming.resolve(None, [side], overrides, {}, platform)
+    assert got[1.0].title == want, (
+        "SPEC 'Publishing': list_titles false takes no title from the list, specials included"
+    )
