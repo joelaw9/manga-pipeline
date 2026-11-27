@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from manga_pipeline import archive, images, measures, names
+from manga_pipeline import archive, comicinfo, images, measures, names
 
 MISLABEL_HAMMING = 6  # pHash bits: the old integrity.flag_mislabelled threshold
 MISLABEL_SHARE = 0.90  # of a chapter's non-blank pages
@@ -18,6 +18,10 @@ SHORT_RATIO = 0.40  # of the series' median strip length (old integrity.short_ch
 MIN_PUBLISHED = 3  # published files with measurements before the series-wide checks run
 UNDECODABLE_FORMATS = {images.UNKNOWN}  # no decoder here: an unknown format to a person, not a bad copy
 ROTATED = range(2, 9)  # EXIF orientations that turn or mirror a page; 1 is upright, 0 and others read as upright
+WIDTH_OUTLIER = 0.15  # a page width this far from the chapter's median is noted (old integrity.WIDTH_OUTLIER)
+WEBP_MAX_SIDE = 16383  # a page this tall was stitched to WebP's limit and scaled down: its length is unreliable
+BLANK_NOTE = "blank pages:"  # the 2 routine notes; status counts them apart for done chapters
+WIDTH_NOTE = "width outliers:"
 
 
 type ChapterKey = tuple[str | None, str | None, str | None]
@@ -67,7 +71,10 @@ def check[P: Published](
     held = _rotated(members) or _mislabelled(pages, key, published, same)
     if held:
         return Verdict("human", held)
-    return Verdict("ok", pages=pages, notes=_duplicates(pages) + _short(pages, published))
+    _, comicinfo_problem = comicinfo.download_xml(cbz)
+    ignored = [f"{comicinfo_problem}: its fields are ignored"] if comicinfo_problem else []
+    notes = ignored + _duplicates(pages) + _blank(pages) + _widths(pages) + _short(pages, published)
+    return Verdict("ok", pages=pages, notes=notes)
 
 
 def _page_bytes(members: list[tuple[str, bytes]]) -> Verdict | None:
@@ -123,6 +130,27 @@ def _duplicates(pages: list[images.MeasuredPage]) -> list[str]:
     return [f"duplicate pages: {', '.join(repeated)}"] if repeated else []
 
 
+def _content(pages: list[images.MeasuredPage]) -> list[images.MeasuredPage]:
+    """Return the pages that are not cover-named (a cover is no page of the chapter's own)."""
+    return [p for p in pages if not archive.is_cover_name(p["name"])]
+
+
+def _blank(pages: list[images.MeasuredPage]) -> list[str]:
+    blank = [p["name"] for p in _content(pages) if p["blank"]]
+    return [f"{BLANK_NOTE} {', '.join(blank)}"] if blank else []
+
+
+def _widths(pages: list[images.MeasuredPage]) -> list[str]:
+    widths = [p["width"] for p in _content(pages)]
+    if not widths:
+        return []
+    median = statistics.median(widths)
+    odd = sum(abs(w - median) / median > WIDTH_OUTLIER for w in widths)
+    if not odd:
+        return []
+    return [f"{WIDTH_NOTE} {odd} of {len(widths)} pages more than {WIDTH_OUTLIER:.0%} from the median width {median:g}"]
+
+
 def _short(pages: list[images.MeasuredPage], published: Sequence[Published]) -> list[str]:
     lengths = [length for p in published if (length := p["strip_length"]) is not None]
     if len(lengths) < MIN_PUBLISHED:
@@ -130,7 +158,9 @@ def _short(pages: list[images.MeasuredPage], published: Sequence[Published]) -> 
     ours, median = measures.strip_length(pages), statistics.median(lengths)
     if ours >= SHORT_RATIO * median:
         return []
-    return [f"short: strip length {ours} is {ours / median:.0%} of the series' median {median:g}"]
+    capped = any(p["height"] >= WEBP_MAX_SIDE for p in pages)
+    why = f"; a page is at the {WEBP_MAX_SIDE:,} px height limit, so the length cannot be trusted" if capped else ""
+    return [f"short: strip length {ours} is {ours / median:.0%} of the series' median {median:g}{why}"]
 
 
 def chapter_key(identity: str) -> ChapterKey:

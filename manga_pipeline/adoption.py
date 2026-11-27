@@ -10,7 +10,6 @@ import itertools
 import os
 import shutil
 import time
-import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter, defaultdict
 from collections.abc import Sequence
@@ -216,7 +215,7 @@ def plan(path: str, members: list[str], xml: bytes | None) -> File | Problem:
     name = PurePosixPath(path).name
     try:
         fields = {k: v for k, v in comicinfo.read_all(xml).items() if comicinfo.field_ok(k, v)} if xml else {}
-    except (ET.ParseError, LookupError, ValueError):  # an encoding Python, or expat, does not read: as comicinfo.py
+    except comicinfo.UNPARSEABLE:
         fields = {}
     item = names.parse(PurePosixPath(path).stem, fields.get("Number", ""))
     if item.number is None:

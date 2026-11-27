@@ -8,9 +8,8 @@ mislabel check and the volume-cover supply (D7.21).
 
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from xml.etree.ElementTree import ParseError
 
-from manga_pipeline import archive, comicinfo, config, db, errors, names, volumes, workflow
+from manga_pipeline import comicinfo, config, db, errors, names, volumes, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import naming, platforms
 
@@ -153,8 +152,6 @@ def _open(ctx: workflow.Context, series_id: int, downloads: Mapping[int, str]) -
             if errors.dropped_share(e):
                 raise
             fields, item = {}, names.parse(path.stem)
-        except (*archive.UNREADABLE, ParseError):  # validate reports an unreadable download; the name still counts
-            fields, item = {}, names.parse(path.stem)
         number = item.num
         if item.kind not in (names.MAIN, names.SIDE) or number is None:
             continue
@@ -185,10 +182,7 @@ def download_volume(cfg: config.Config, download: str) -> int | float | None:
     VolumeError for a volume that is not whole.
     """
     path = config.to_local(cfg, download)
-    try:
-        fields, item = comicinfo.read_download(path)
-    except (*archive.UNREADABLE, ParseError):
-        fields, item = {}, names.parse(path.stem)
+    fields, item = comicinfo.read_download(path)
     if item.kind != names.MAIN:
         return None
     volume = names.to_volume(item.volume if item.volume is not None else fields.get("Volume"))

@@ -3,7 +3,7 @@
 import logging
 from contextlib import closing
 
-from manga_pipeline import config, db, export, intake, process, status
+from manga_pipeline import config, db, export, intake, process, status, validation
 from manga_pipeline.clients import discord as discord_client
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
@@ -52,7 +52,10 @@ def test_a_needs_human_chapter_and_series_each_give_1_log_line_1_status_entry_an
         lines = status.report(conn)
     for kind, item in (("chapter", chapter), ("series", series)):
         assert caplog.text.count(f"needs human: {kind} {item}:") == 1, f"1 log line for the {kind}"
-        entries = [line for line in lines if line.startswith(f"  {kind} {item} (")]
+        # the fake pages are blank, so the chapter also has a line of its own among the chapter notes
+        entries = [
+            line for line in lines if line.startswith(f"  {kind} {item} (") and validation.BLANK_NOTE not in line
+        ]
         assert len(entries) == 1, f"1 status entry for the {kind}"
         posts = [p for p in world.discord.posts if p.startswith(f"{kind} {item} (")]
         assert len(posts) == 1, f"1 Discord message for the {kind}, none on the 3 later export runs"

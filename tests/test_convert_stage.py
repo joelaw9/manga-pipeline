@@ -1483,3 +1483,28 @@ def test_status_lists_done_chapters_notes_of_the_last_7_days_and_counts_older_on
     assert listed(site, recent) == [f"note {recent}"]
     assert listed(site, open_) == [f"note {open_}"], "an open chapter is listed however old"
     assert "  1 done chapter(s) with notes, updated over 7 days ago: not listed" in status.report(site.conn)
+
+
+@budget(load="pool")
+def test_status_counts_done_chapters_with_only_routine_notes_apart(site):
+    series_id = site.series()
+    only, mixed, old, open_ = (site.chapter(series_id, pages(1)) for _ in range(4))
+    blank, width, short = "blank pages: 002.png", "width outliers: 1 of 4 pages", "short: strip length 1"
+    now = datetime.fromisoformat(db.now(site.conn))
+    with db.transaction(site.conn):
+        for chapter_id, notes, days, state in (
+            (only, [blank], 1, "done"),
+            (mixed, [blank, short], 1, "done"),
+            (old, [width], 30, "done"),
+            (open_, [blank, width], 1, "ready"),
+        ):
+            site.conn.execute(
+                "UPDATE chapter SET notes = %s, status = %s, updated_at = %s WHERE id = %s",
+                (json.dumps(notes), state, (now - timedelta(days=days)).isoformat(), chapter_id),
+            )
+    lines = status.report(site.conn)
+    assert listed(site, only) == [], "a done chapter with only routine notes is not listed"
+    assert listed(site, mixed) == [short], "a done chapter's routine notes are left out"
+    assert listed(site, open_) == [f"{blank}; {width}"], "an open chapter is listed whole"
+    assert "  2 done chapter(s) with only blank-page or width notes: not listed" in lines, "of every age"
+    assert not any("updated over 7 days ago" in line for line in lines), "the old routine-only one is not there"
