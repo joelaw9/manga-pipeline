@@ -32,10 +32,10 @@ The comicinfo stage writes every new chapter's `ComicInfo.xml`, valid for the Co
 | Element | From |
 |---|---|
 | `Series`, `LocalizedSeries`, `Title`, `Number`, `Volume` | SPEC "Publishing" |
-| `Summary`, `Genre`, `Tags`, `LanguageISO`, `AgeRating`, `Writer`, `Penciller` | the series' fields (above); lists joined with ", "; left out when the stored records give none, never taken from the download |
+| `Summary`, `Genre`, `Tags`, `LanguageISO`, `AgeRating`, `Writer`, `Penciller` | the series' fields (above); lists joined with ", "; left out when the stored records give none, never taken from the download, but `Genre` and `Tags` of a series whose records give neither: the file's own, as it has them (the download's, or the published file's on a rewrite or a join) |
 | `Web` | the series' web links, then the chapter's page at its Suwayomi source (Suwayomi's `realUrl`), separated by spaces |
 | `Notes` | `Source: <source>` (the Suwayomi source's display name, as the chapter records it) |
-| `Manga` | `Yes` for a strip series (SPEC "Conversion", layout) or one whose genres or tags hold Manhwa, Manhua, Korean, Chinese, Webtoon, Long Strip or Web Comic; else `YesAndRightToLeft` |
+| `Manga` | `Yes` for a strip series (SPEC "Conversion", layout). A page series by its MangaBaka type: `manga` is `YesAndRightToLeft`, any other type is `Yes`. A page series MangaBaka has no record or no type for: `YesAndRightToLeft` when its original language (MangaDex) is Japanese, `Yes` when it is another; with neither, `Yes` when its stored genres or tags hold Manhwa, Manhua, Korean, Chinese, Webtoon, Long Strip or Web Comic, else `YesAndRightToLeft`. A file's own genres never count |
 | `SeriesGroup` | the series' override file's `series_group` (a name, or a list of names joined with ", "; a name holds no comma), left out without one |
 | `Translator`, `ScanInformation`, `Year`, `Month`, `Day`, and any other element valid for the schema | the download's own `ComicInfo.xml` |
 | `PageCount`, `Pages` | the staged CBZ's pages as convert wrote them: per page its index, width, height and bytes, `FrontCover` on an inserted volume cover, and `DoublePage` on a page wider than tall in a page series |

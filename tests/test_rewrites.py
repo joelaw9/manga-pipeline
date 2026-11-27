@@ -49,7 +49,7 @@ def library(world):
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"), ("Vol.1 Ch.2.cbz", "Grp_Chapter 2", "2", "1"))
     kid = world.kavita_series(SERIES, bulk=bulk, basis="filename")
     for name, number in (("Vol.1 Ch.1.cbz", 1), ("Vol.1 Ch.2.cbz", 2)):
-        xml = comicinfo(Series=SERIES, Number=number, Volume=1, Translator="Grp")
+        xml = comicinfo(Series=SERIES, Number=number, Volume=1, Translator="Grp", Genre="Isekai", Tags="Magic")
         (world.library / SERIES / name).write_bytes(cbz(pages=4, seed=name, comicinfo=xml))
     world.kavita.scan_library(4)
     world.kavita.run_scans()
@@ -135,6 +135,7 @@ def test_a_rewrite_keeps_the_old_files_own_fields_and_pages_and_carries_the_seri
         fields = comicinfo_xml.read_all(new.read("ComicInfo.xml"))
     assert (fields["Volume"], fields["Number"], fields["Translator"]) == ("2", "2", "Grp"), "new volume, own fields"
     assert fields["Manga"], "the series-level fields now"
+    assert (fields["Genre"], fields["Tags"]) == ("Isekai", "Magic"), "no record gives genres: the old file's own kept"
     assert fields["Series"] == SERIES, "the series-level fields now"
 
 

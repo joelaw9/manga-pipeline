@@ -4,19 +4,22 @@ Adds ComicInfo.xml to the staged CBZ and settles the file's name in the series f
 
 The download's ComicInfo.xml is kept field by field where a field is valid for the schema (Suwayomi writes Day, Month
 and Year out of schema order: build orders them), except what this stage writes itself: the series' fields from its
-stored records, the chapter's source, Manga, SeriesGroup and the pages. Series and LocalizedSeries are the series';
+stored records (a series whose records give no genres and no tags keeps the download's Genre and Tags), the
+chapter's source, Manga, SeriesGroup and the pages. Series and LocalizedSeries are the series';
 Number, Title, Volume and the file name are the bulk converter's, resolved with the series' other chapters
 (chapter_names.resolve).
 """
 
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 
 from manga_pipeline import archive, baseline, chapter_names, comicinfo, config, db, names, volumes, workflow
 from manga_pipeline.metadata import merge, naming, tags
+from manga_pipeline.metadata.records import STORED
 from manga_pipeline.stages import convert
 
-# Elements this stage writes itself: the download's own are never kept (Count is never written: SPEC "Metadata").
+# Elements this stage writes itself: the download's own are not kept as such (Genre and Tags of a series whose records
+# give neither are, through series_fields; Count is never written: SPEC "Metadata").
 OWN = {
     "Summary",
     "Genre",
@@ -52,13 +55,12 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
             return workflow.Waiting("bulk_conversion", {"why": why})
     read, _ = comicinfo.read_download(config.to_local(ctx.cfg, chapter["download_path"]))
     fields: dict[str, str | int | None] = {k: v for k, v in read.items() if k not in OWN}
-    overrides = config.abs_path(ctx.cfg["paths"]["naming_overrides"])
     try:
         named = _copy_name(ctx, chapter) or chapter_names.resolve(ctx, series)[chapter["id"]]
         unedited = None
         if chapter["published_file_id"] is None and chapter_names.edits(ctx.conn, series["id"]):
             unedited = naming.unedited(named, chapter_names.resolve(ctx, series, edited=False)[chapter["id"]])
-        group = volumes.series_group(overrides, series["rules_key"])
+        elements = series_fields(ctx, series, chapter["source"], chapter["source_url"], read)
     except volumes.VolumeError as e:
         return workflow.NeedsHuman(str(e))
     fields["Number"] = names.fmt_num(named.number)
@@ -70,7 +72,7 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     fields.pop("LocalizedSeries", None)
     if series["localized_name"]:
         fields["LocalizedSeries"] = series["localized_name"]
-    fields.update(series_fields(ctx, series, chapter["source"], chapter["source_url"], group))
+    fields.update(elements)
     result = convert.read_result(chapter["convert_result"])
     pages = convert.read_output_pages(chapter["output_pages"])
     entries = page_entries(pages, cover=bool(result["cover"]), spreads=_layout(ctx.conn, series["id"]) == "pages")
@@ -131,26 +133,63 @@ def _copy_name(ctx: workflow.Context, chapter: db.Row) -> naming.Naming | None:
 
 
 def series_fields(
-    ctx: workflow.Context, series: db.Row, source: str | None, source_url: str | None, group: str | None
+    ctx: workflow.Context, series: db.Row, source: str | None, source_url: str | None, own: Mapping[str, str]
 ) -> dict[str, str | None]:
-    """Return the ComicInfo elements the series' stored fields and the chapter's source (and its page) give."""
+    """Return the ComicInfo elements the series' stored fields, the chapter's source (and its page) and the file give.
+
+    own: the file's own ComicInfo fields, whose Genre and Tags a series whose records give neither keeps. VolumeError
+    from the series' override file (its series group).
+    """
     got = merge.stored(ctx.conn, series["id"], tags.load())
     web = [*got.links, *([source_url] if source_url else [])]
-    genres = {g.lower() for g in (*got.genres, *got.tags)}
+    terms = {g.lower() for g in (*got.genres, *got.tags)}
     strip = _layout(ctx.conn, series["id"]) == "strip"
+    genre, tag_list = genre_lists(got.genres, got.tags, own)
+    overrides = config.abs_path(ctx.cfg["paths"]["naming_overrides"])
     return {
         "Summary": got.summary,
-        "Genre": ", ".join(got.genres),
-        "Tags": ", ".join(got.tags),
+        "Genre": genre,
+        "Tags": tag_list,
         "LanguageISO": got.language,
         "AgeRating": got.age_rating,
         "Writer": ", ".join(got.writers),
         "Penciller": ", ".join(got.pencillers),
         "Web": " ".join(web),
         "Notes": f"Source: {source}" if source else None,
-        "Manga": "Yes" if strip or genres & LEFT_TO_RIGHT else "YesAndRightToLeft",
-        "SeriesGroup": group,
+        "Manga": "Yes" if strip else reading_direction(_mangabaka_type(ctx.conn, series["id"]), got.language, terms),
+        "SeriesGroup": volumes.series_group(overrides, series["rules_key"]),
     }
+
+
+def genre_lists(
+    genres: Sequence[str], tag_list: Sequence[str], own: Mapping[str, str]
+) -> tuple[str | None, str | None]:
+    """Return (Genre, Tags): the stored lists joined, or the file's own when the records give neither."""
+    if genres or tag_list:
+        return ", ".join(genres), ", ".join(tag_list)
+    return own.get("Genre"), own.get("Tags")
+
+
+def reading_direction(mangabaka_type: str | None, language: str | None, terms: Collection[str]) -> str:
+    """Return the Manga element of a page series.
+
+    By MangaBaka's type (manga reads right to left, any other type left to right); with none, by MangaDex's original
+    language (Japanese right to left); with neither, by its stored genres and tags (terms, lower case).
+    """
+    if mangabaka_type:
+        return "YesAndRightToLeft" if mangabaka_type.casefold() == "manga" else "Yes"
+    if language:
+        return "YesAndRightToLeft" if language.casefold() == "ja" else "Yes"
+    return "Yes" if LEFT_TO_RIGHT.intersection(terms) else "YesAndRightToLeft"
+
+
+def _mangabaka_type(conn: db.Connection, series_id: int) -> str | None:
+    source, kind = STORED["mangabaka"]
+    row = conn.execute(
+        "SELECT payload ->> 'type' AS type FROM fetched WHERE series_id = %s AND source = %s AND kind = %s",
+        (series_id, source, kind),
+    ).fetchone()
+    return None if row is None else row["type"]
 
 
 def page_entries(pages: Sequence[convert.StagedPage], *, cover: bool, spreads: bool) -> list[dict[str, str | int]]:

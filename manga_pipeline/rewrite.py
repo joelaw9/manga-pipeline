@@ -46,7 +46,8 @@ log = logging.getLogger(__name__)
 _CODE_MODULES = ("metadata/naming.py", "chapter_names.py", "names.py", "volumes.py", "metadata/platforms.py",
                  "metadata/episodes.py", "metadata/rewrite_plan.py", "comicinfo.py")  # fmt: skip
 CODE = hashlib.sha256(b"".join((Path(__file__).parent / m).read_bytes() for m in _CODE_MODULES)).hexdigest()
-# Elements the comicinfo stage writes from the series (new on a rewrite); every other element of the old file is its
+# Elements the comicinfo stage writes from the series (new on a rewrite; Genre and Tags the old file's own when the
+# series' records give neither); every other element of the old file is its
 # own chapter's and is kept, Notes, PageCount and BlackAndWhite included (SPEC "Retroactive updates").
 SERIES_LEVEL = (comicinfo_stage.OWN - {"Notes", "PageCount", "BlackAndWhite"}) | {"Series", "LocalizedSeries", "Volume"}
 # Columns of a queued rewrite on its published_file row, cleared together.
@@ -462,10 +463,10 @@ def file_fields(ctx: workflow.Context, series: db.Row, old: bytes, volume: str |
     The series-level fields now, the old file's own fields, its links after the series' links, the series' name and
     localized name, and volume. VolumeError from the series' override file.
     """
-    kept = {k: v for k, v in comicinfo.read_all(old).items() if k not in SERIES_LEVEL and comicinfo.field_ok(k, v)}
-    group = volumes.series_group(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
-    elements = comicinfo_stage.series_fields(ctx, series, None, None, group)
-    old_links = (comicinfo.read_all(old).get("Web") or "").split()
+    own = comicinfo.read_all(old)
+    kept = {k: v for k, v in own.items() if k not in SERIES_LEVEL and comicinfo.field_ok(k, v)}
+    elements = comicinfo_stage.series_fields(ctx, series, None, None, own)
+    old_links = (own.get("Web") or "").split()
     links = (elements["Web"] or "").split()
     fields: dict[str, str | int | None] = {**elements, **kept}
     fields["Web"] = " ".join([*links, *(u for u in old_links if u not in links)])
