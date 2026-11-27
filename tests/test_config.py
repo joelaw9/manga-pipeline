@@ -301,3 +301,10 @@ def test_the_config_types_name_every_key_of_the_example_with_its_type():
 def test_the_sections_a_test_may_replace_are_config_sections():
     sections = typing.get_type_hints(builders.ConfigChanges).keys()
     assert sections == typing.get_type_hints(config.Config).keys(), "ConfigChanges names every Config section, no other"
+
+
+@budget(load="fs")
+@pytest.mark.parametrize("value", ["2.5", "two"])
+def test_ocr_workers_must_be_an_integer(value):
+    with pytest.raises(config.ConfigError, match=r"junk\.ocr_workers: must be int"):
+        config.load(sets=[f"junk.ocr_workers={value}"])

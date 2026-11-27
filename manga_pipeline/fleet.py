@@ -28,6 +28,7 @@ MACHINE_LOCAL_KEYS = (
     ("convert", "workers"),
     ("convert", "min_scratch_free_mb"),
     ("junk", "ocr_device"),
+    ("junk", "ocr_workers"),
     ("junk", "claude_path"),
     ("suwayomi", "url"),
     ("kavita", "url"),

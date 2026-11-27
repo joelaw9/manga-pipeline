@@ -12,6 +12,7 @@ import pytest
 
 from manga_pipeline import config, db, preflight
 from manga_pipeline.convert import vship
+from manga_pipeline.junk import ocr
 from manga_pipeline.preflight import HARD, SOFT, Check
 
 from tests import pg, real_load
@@ -588,3 +589,27 @@ def test_long_paths_are_no_problem_off_windows(monkeypatch):
 def test_workflow_settings_refuse_convert_workers_below_1():
     cfg: config.Config = {**config.cached(), "convert": {**config.cached()["convert"], "workers": 0}}
     assert preflight.workflow_settings(cfg) == "convert.workers must be at least 1, got 0"
+
+
+@budget(load="pure", seconds=5.0)
+@pytest.mark.parametrize(
+    ("device", "workers", "problem"),
+    [
+        ("cpu", 0, "junk.ocr_workers must be at least 1, got 0"),
+        ("dml", 2, "junk.ocr_workers must be 1 on dml"),
+    ],
+)
+def test_ocr_device_check_refuses_workers_below_1_and_above_1_on_dml(monkeypatch, device, workers, problem):
+    monkeypatch.setattr(ocr, "provider_problem", lambda _device: None)  # dml loads only on a Windows GPU
+    cfg: config.Config = {
+        **config.cached(),
+        "junk": {**config.cached()["junk"], "ocr_device": device, "ocr_workers": workers},
+    }
+    assert problem in problem_text(preflight.ocr_device(cfg)), "the pool size is checked before any OCR runs"
+
+
+@budget(load="pure", seconds=5.0)
+def test_ocr_device_check_passes_1_worker_on_dml(monkeypatch):
+    monkeypatch.setattr(ocr, "provider_problem", lambda _device: None)
+    cfg: config.Config = {**config.cached(), "junk": {**config.cached()["junk"], "ocr_device": "dml", "ocr_workers": 1}}
+    assert preflight.ocr_device(cfg) is None, "dml reads serially on 1 engine"

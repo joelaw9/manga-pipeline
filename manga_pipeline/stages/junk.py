@@ -282,7 +282,8 @@ def scan(ctx: workflow.Context, chapter: db.Row, series: db.Row, key: str) -> wo
         pages = chapter_scan.Extracted(paths, names, sizes)
         sc: chapter_scan.Scan
         if layout == "strip":
-            sc = chapter_scan.scan_strip(pages, store.Decisions(ctx.conn, key), ctx.cfg["junk"]["ocr_device"])
+            junk = ctx.cfg["junk"]
+            sc = chapter_scan.scan_strip(pages, store.Decisions(ctx.conn, key), junk["ocr_device"], junk["ocr_workers"])
             nul = _nul_rows(sc)
             if nul:  # PostgreSQL's jsonb cannot hold it: storing the scan would fail every claim query
                 rows = ", ".join(f"{s}-{e}" for s, e in nul)

@@ -2,8 +2,8 @@
 
 The junk stage scans a chapter (scan_strip or page_units.scan by the series' layout) and later decides it from the
 stored scan (apply); a source review's sample (SPEC "Source review") runs both on a CBZ in hand. Every input is given:
-the pages, the series' decisions, known watermarks, page aspects (page_aspects reads them) and the OCR device. The
-caller stores what it keeps.
+the pages, the series' decisions, known watermarks, page aspects (page_aspects reads them) and the OCR device and
+workers. The caller stores what it keeps.
 """
 
 from collections.abc import Callable, Sequence
@@ -52,8 +52,11 @@ class Extracted(NamedTuple):
     sizes: list[strip.Size]
 
 
-def scan_strip(pages: Extracted, decisions: store.Decisions, device: str) -> StoredStripScan:
-    """Scan a strip chapter's content pages: its units, OCR on the edge blocks no decision covers, its logos."""
+def scan_strip(pages: Extracted, decisions: store.Decisions, device: str, workers: int) -> StoredStripScan:
+    """Scan a strip chapter's content pages: its units, OCR on the edge blocks no decision covers, its logos.
+
+    OCR runs on `device`, `workers` units at once (ocr.texts).
+    """
     content = strip.content_indexes(pages.names)
     cpaths = [pages.paths[i] for i in content]
     rows: list[NDArray[np.bool_]]
@@ -70,7 +73,7 @@ def scan_strip(pages: Extracted, decisions: store.Decisions, device: str) -> Sto
     marks = [_strip_logo(logo, placed[logo["page"]]) for logo in logos]
     units = strip_units.scan(
         st,
-        lambda im: ocr.text(im, device),
+        lambda ims: ocr.texts(ims, device, workers),
         lambda sig: decisions.decide("block", sig) is None,
     )
     return {**units, "marks": marks}

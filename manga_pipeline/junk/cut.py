@@ -391,7 +391,12 @@ def _extracted(ch: Scanned, cbz: Path, pages: Sequence[tuple[str, bytes]], work:
 
 def _in_hand(cfg: config.Config, ch: Scanned, pages: chapter_scan.Extracted, decisions: store.Decisions) -> Strip:
     """Return a chapter's strip from its extracted pages: its current scan, else the strip scanned again (in memory)."""
-    sc = ch.scan if ch.scan is not None else chapter_scan.scan_strip(pages, decisions, cfg["junk"]["ocr_device"])
+    junk = cfg["junk"]
+    sc = (
+        ch.scan
+        if ch.scan is not None
+        else chapter_scan.scan_strip(pages, decisions, junk["ocr_device"], junk["ocr_workers"])
+    )
     layout = an.Layout(sc["height"], sc["width"], sc["spans"], sc["gaps"])
     return Strip(ch.row, sc, layout, chapter_scan.renderer(pages))
 

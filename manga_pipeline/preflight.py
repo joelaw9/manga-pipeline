@@ -327,8 +327,17 @@ def claude_settings(cfg: config.Config) -> str | None:
 
 
 def ocr_device(cfg: config.Config) -> str | None:
-    """junk.ocr_device is known and its onnxruntime provider loads (SPEC "Preflight")."""
-    return ocr.provider_problem(cfg["junk"]["ocr_device"])
+    """junk.ocr_device is known and its provider loads; junk.ocr_workers at least 1, and 1 on dml (SPEC "Preflight")."""
+    device, workers = cfg["junk"]["ocr_device"], cfg["junk"]["ocr_workers"]
+    problems: list[str] = []
+    if workers < 1:
+        problems.append(f"junk.ocr_workers must be at least 1, got {workers}")
+    elif device == "dml" and workers > 1:
+        problems.append(f"junk.ocr_workers must be 1 on dml (DirectML crashes on 2 sessions at once), got {workers}")
+    problem = ocr.provider_problem(device)
+    if problem:
+        problems.append(problem)
+    return "; ".join(problems) or None
 
 
 def junk_word_lists(cfg: config.Config) -> str | None:
