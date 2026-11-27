@@ -8,7 +8,6 @@ them (the census uses it too).
 """
 
 import logging
-import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
@@ -240,7 +239,7 @@ def _read(cfg: config.Config, files: Sequence[db.Row]) -> tuple[bytes, list[_Pag
     pages = _numbered(taken)
     try:
         entries = _entries(taken, [comicinfo.read_pages(x) if x else None for x in xmls])
-    except ET.ParseError as e:
+    except comicinfo.UNPARSEABLE as e:
         return f"a ComicInfo.xml of the run cannot be read: {e}"
 
     return first_xml, pages, entries

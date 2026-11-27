@@ -9,7 +9,19 @@ Read-only: it never creates, migrates or writes the database.
 from contextlib import closing
 from datetime import datetime, timedelta
 
-from manga_pipeline import config, conversions, db, kavita_link, notify, pause, rename, rewrite, strip, workflow
+from manga_pipeline import (
+    config,
+    conversions,
+    db,
+    kavita_link,
+    notify,
+    pause,
+    rename,
+    rewrite,
+    strip,
+    validation,
+    workflow,
+)
 from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates
 from manga_pipeline.metadata import merge, tags
@@ -17,6 +29,7 @@ from manga_pipeline.metadata import merge, tags
 TITLES_SHOWN_DAYS = 30  # status lists the series titles changed at the sources this many days back
 REFILL_DAYS = 7  # status reports the junk refill over this many days back
 NOTES_SHOWN_DAYS = 7  # status lists the notes of done chapters updated this many days back; older ones are counted
+ROUTINE_NOTES = (validation.BLANK_NOTE, validation.WIDTH_NOTE)  # counted apart for done chapters
 
 
 def run(cfg: config.Config) -> list[str]:
@@ -296,26 +309,35 @@ def _redownloads(conn: db.Connection) -> list[str]:
 
 
 def _notes(conn: db.Connection) -> list[str]:
-    """Return the chapter notes: every open chapter's, and a done chapter's updated in the window; count the rest."""
+    """Return the chapter notes: every open chapter's, and a done chapter's updated in the window; count the rest.
+
+    A done chapter's blank-page and width notes are routine (ROUTINE_NOTES): left out, and the done chapters with no
+    other note are counted apart, of every age.
+    """
     lines = ["Chapter notes:"]
     since = (datetime.fromisoformat(db.now(conn)) - timedelta(days=NOTES_SHOWN_DAYS)).isoformat()
     rows = conn.execute(
-        """SELECT c.id, c.identity, c.notes, s.name FROM chapter c JOIN series s ON s.id = c.series_id
-        WHERE c.notes IS NOT NULL AND (c.status <> 'done' OR c.updated_at >= %s) ORDER BY c.id""",
+        """SELECT c.id, c.identity, c.notes, c.status, c.updated_at >= %s AS recent, s.name FROM chapter c
+        JOIN series s ON s.id = c.series_id WHERE c.notes IS NOT NULL ORDER BY c.id""",
         (since,),
     ).fetchall()
-    lines += [
-        f"  chapter {r['id']} ({r['name']} / {r['identity']}): {'; '.join(workflow.read_notes(r['notes']))}"
-        for r in rows
-    ]
-    older = db.one_row(
-        conn,
-        "SELECT count(*) FROM chapter WHERE notes IS NOT NULL AND status = 'done' AND updated_at < %s",
-        (since,),
-    )[0]
+    older = routine = 0
+    for r in rows:
+        notes = workflow.read_notes(r["notes"])
+        if r["status"] == "done":
+            notes = [n for n in notes if not n.startswith(ROUTINE_NOTES)]
+            if not notes:
+                routine += 1
+                continue
+            if not r["recent"]:
+                older += 1
+                continue
+        lines.append(f"  chapter {r['id']} ({r['name']} / {r['identity']}): {'; '.join(notes)}")
     if older:
         lines.append(f"  {older} done chapter(s) with notes, updated over {NOTES_SHOWN_DAYS} days ago: not listed")
-    if not rows and not older:
+    if routine:
+        lines.append(f"  {routine} done chapter(s) with only blank-page or width notes: not listed")
+    if len(lines) == 1:
         lines.append("  none")
     return lines
 

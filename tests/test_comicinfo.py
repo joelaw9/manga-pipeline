@@ -11,6 +11,7 @@ import pytest
 from manga_pipeline import comicinfo
 
 from tests import pages as fx
+from tests.builders import present
 from tests.timing import budget
 
 TY = "{http://www.w3.org/2001/XMLSchema}"  # the namespace Suwayomi puts its Tachiyomi status tag in
@@ -291,3 +292,36 @@ def test_read_all_skips_pages_and_empty_elements():
 def test_read_all_refuses_xml_that_does_not_parse():
     with pytest.raises(ET.ParseError):
         comicinfo.read_all(b"<ComicInfo>")
+
+
+# ---------------------------------------------------------------- a download's ComicInfo.xml
+
+
+@budget(load="fs")
+def test_download_xml_gives_the_xml_or_why_it_is_not_used(tmp_path):
+    page = {"001.jpg": fx.jpeg(fx.manga_page(seed=1))}
+    good = b"<ComicInfo><Number>5</Number></ComicInfo>"
+    assert comicinfo.download_xml(fx.cbz(tmp_path / "g.cbz", page, comicinfo=good)) == (good, None)
+    assert comicinfo.download_xml(fx.cbz(tmp_path / "n.cbz", page)) == (None, None), "none: nothing to say"
+    xml, why = comicinfo.download_xml(fx.cbz(tmp_path / "b.cbz", page, comicinfo=b"<ComicInfo>"))
+    assert xml is None
+    assert present(why).startswith("ComicInfo.xml does not parse: ParseError")
+    xml, why = comicinfo.download_xml(fx.crc_bad_comicinfo(tmp_path / "c.cbz", page))
+    assert xml is None
+    assert present(why).startswith("ComicInfo.xml cannot be read: BadZipFile")
+
+
+@budget(load="fs")
+def test_a_comicinfo_that_does_not_parse_gives_no_number_and_no_fields(tmp_path):
+    path = fx.cbz(tmp_path / "Chapter 7.cbz", {"001.jpg": fx.jpeg(fx.manga_page(seed=1))}, comicinfo=b"<Comic")
+    assert comicinfo.download_number(path) == "", "read as no ComicInfo.xml, not raised"
+    fields, item = comicinfo.read_download(path)
+    assert (fields, item.number) == ({}, "7"), "no fields; the name still numbers it"
+    bogus = fx.cbz(
+        tmp_path / "Chapter 8.cbz",
+        {"001.jpg": fx.jpeg(fx.manga_page(seed=1))},
+        comicinfo=b'<?xml version="1.0" encoding="bogus"?><ComicInfo/>',
+    )
+    assert comicinfo.read_download(bogus)[0] == {}, (
+        "a bogus encoding (LookupError) is read as missing too: naming reads every sibling through this"
+    )

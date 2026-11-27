@@ -413,7 +413,7 @@ def _comicinfo(cfg: config.Config, stored: str) -> bytes:
 def _series_in(stored: str, xml: bytes) -> str | None:
     try:
         return comicinfo.read_all(xml).get("Series")
-    except (ET.ParseError, LookupError, ValueError) as e:
+    except comicinfo.UNPARSEABLE as e:
         msg = f"{stored}: its ComicInfo.xml cannot be read ({e})"
         raise _LeftError(msg) from e
 

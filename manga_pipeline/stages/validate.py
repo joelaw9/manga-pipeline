@@ -191,7 +191,9 @@ def _check(ctx: workflow.Context, chapter: db.Row, path: str) -> validation.Verd
         # A file numbered otherwise (only a person's choice can bring one) would be published under its own number
         # (comicinfo reads the file's name) while the chapter's identity and records say ours. Checked on every look,
         # so a retry of such a chapter is held again.
-        return validation.Verdict("human", f"it is numbered {theirs}, not {ours} (season, side label, number)")
+        _, problem = comicinfo.download_xml(local)  # a name with no number takes it from a ComicInfo.xml not used
+        why = f"; {problem}" if problem and names.parse(local.stem).number is None else ""
+        return validation.Verdict("human", f"it is numbered {theirs}, not {ours} (season, side label, number){why}")
     return verdict
 
 

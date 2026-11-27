@@ -48,7 +48,9 @@ def _settle(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     digest = archive.digest_or_none(download)
     item = names.parse(download.stem, number)
     if item.number is None:
-        return workflow.NeedsHuman(f"{download.name}: no chapter number in its name or its ComicInfo Number")
+        _, problem = comicinfo.download_xml(download)
+        why = f"; {problem}" if problem else ""
+        return workflow.NeedsHuman(f"{download.name}: no chapter number in its name or its ComicInfo Number{why}")
     chapter_number = float(item.number)
     why = digest and chapter["published_file_id"] is None and handled.put_aside(ctx, chapter, digest)
     if why:

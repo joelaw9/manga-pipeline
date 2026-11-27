@@ -170,3 +170,14 @@ def stack(*ims):
         np.full((im[0], w, 3), 255, np.uint8) if isinstance(im, tuple) else np.asarray(im.convert("RGB")) for im in ims
     ]
     return Image.fromarray(np.vstack(rows))
+
+
+def crc_bad_comicinfo(path, pages):
+    """Write a stored CBZ of `pages` ({name: bytes}) whose ComicInfo.xml member fails its CRC (1 byte changed)."""
+    xml = b"<ComicInfo><Number>5</Number></ComicInfo>"
+    cbz(path, pages, comicinfo=xml, method=zipfile.ZIP_STORED)
+    data = bytearray(Path(path).read_bytes())
+    at = data.rindex(b"<Number>5")
+    data[at + 8] = ord("6")
+    Path(path).write_bytes(bytes(data))
+    return path

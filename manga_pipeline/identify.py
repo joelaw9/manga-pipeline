@@ -9,7 +9,6 @@ taken until it is admitted (metadata/admit.py). `link` is `series link`.
 """
 
 import logging
-import xml.etree.ElementTree as ET
 from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -214,7 +213,7 @@ def comicinfo_series(paths: Iterable[Path]) -> str | None:
         try:
             xml = archive.read_comicinfo(path)
             name = comicinfo.read_fields(xml, ("Series",))["Series"] if xml else ""
-        except (*archive.UNREADABLE, ET.ParseError, LookupError, OSError) as e:
+        except (*archive.UNREADABLE, *comicinfo.UNPARSEABLE, OSError) as e:
             # A file this machine cannot read (permissions, held open, gone) says nothing; a failing share ends the run
             if isinstance(e, OSError) and (errors.dropped_share(e) or e.errno in errors.SHARE_ERRNOS):
                 raise

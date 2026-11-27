@@ -7,7 +7,7 @@ from PIL import Image
 
 from manga_pipeline import images, measures, validation
 
-from tests.pages import ZERO_BYTE, cbz, jpeg, jxl_of_jpeg, manga_page, png
+from tests.pages import ZERO_BYTE, cbz, crc_bad_comicinfo, jpeg, jxl_of_jpeg, manga_page, png
 from tests.timing import budget
 
 KEY = (None, "", "5")
@@ -148,7 +148,7 @@ def test_the_mislabel_check_waits_for_3_measured_published_files_and_skips_the_s
 @budget(load="fs")
 def test_a_short_chapter_is_noted_and_passes(tmp_path):
     def strip(seed, height):
-        return {f"{i:03}.png": png(Image.new("L", (100, height), (seed + i) % 256)) for i in range(1, 4)}
+        return {f"{i:03}.png": png(manga_page((100, height), seed=seed + i)) for i in range(1, 4)}  # not blank
 
     series = [measured(tmp_path, (None, "", str(i)), strip(10 * i, 500), f"s{i}.cbz") for i in range(3)]
     short = cbz(tmp_path / "short.cbz", strip(90, 150))
@@ -177,3 +177,90 @@ def test_an_exif_orientation_of_0_reads_as_upright(tmp_path):
     exif[0x0112] = 0
     page = jpeg(manga_page(seed=1), exif=exif.tobytes())
     assert validation.check(cbz(tmp_path / "o.cbz", {"001.jpg": page}), KEY, []).kind == "ok"
+
+
+# ---------------------------------------------------------------- R16 notes
+
+
+def blank_page(shade):
+    """Return a page of 1 shade at manga_page's default size (900 x 1300): blank, no width outlier, no duplicate."""
+    return png(Image.new("RGB", (900, 1300), (shade, shade, shade)))
+
+
+@budget(load="fs")
+def test_blank_pages_are_noted_by_name_and_a_cover_named_one_is_left_out(tmp_path):
+    pages = {"000_cover.png": blank_page(255), "001.jpg": jpeg(manga_page(seed=1)), "002.png": blank_page(254)}
+    pages["003.png"] = blank_page(253)
+    verdict = validation.check(cbz(tmp_path / "b.cbz", pages), KEY, [])
+    assert verdict.kind == "ok"
+    assert verdict.notes == ["blank pages: 002.png, 003.png"], "a blank page is noted; a cover is no page of its own"
+    plain = validation.check(cbz(tmp_path / "p.cbz", {"001.jpg": jpeg(manga_page(seed=1))}), KEY, [])
+    assert plain.notes == [], "no blank page, no note"
+
+
+@budget(load="fs")
+@pytest.mark.parametrize(
+    ("width", "noted"), [(720, True), (1080, True), (810, False)], ids=["20 % narrower", "20 % wider", "10 % narrower"]
+)
+def test_a_page_far_from_the_median_width_is_noted(tmp_path, width, noted):
+    pages = {f"00{i}.jpg": jpeg(manga_page(seed=i)) for i in (1, 2, 3)}
+    pages["004.jpg"] = jpeg(manga_page((width, 1300), seed=4))
+    pages["000_cover.jpg"] = jpeg(manga_page((600, 1300), seed=5))  # a cover-named page is left out
+    verdict = validation.check(cbz(tmp_path / "w.cbz", pages), KEY, [])
+    want = ["width outliers: 1 of 4 pages more than 15% from the median width 900"] if noted else []
+    assert verdict.notes == want, "more than 15 % from the median width is noted, the cover not counted"
+
+
+@budget(load="fs")
+def test_a_download_of_only_a_cover_named_page_has_no_page_note(tmp_path):
+    verdict = validation.check(cbz(tmp_path / "c.cbz", {"cover.jpg": jpeg(manga_page(seed=1))}), KEY, [])
+    assert (verdict.kind, verdict.notes) == ("ok", []), "no page left to measure: no note, no error"
+
+
+@budget(load="fs")
+@pytest.mark.parametrize("capped", [True, False])
+def test_a_short_capped_strip_says_its_length_cannot_be_trusted(tmp_path, monkeypatch, capped):
+    def strip(seed, height):
+        return {f"{i:03}.png": png(manga_page((100, height), seed=seed + i)) for i in range(1, 4)}
+
+    series = [measured(tmp_path, (None, "", str(i)), strip(10 * i, 500), f"s{i}.cbz") for i in range(3)]
+    if capped:
+        monkeypatch.setattr(validation, "WEBP_MAX_SIDE", 150)  # the short chapter's pages reach the limit
+    (note,) = validation.check(cbz(tmp_path / "short.cbz", strip(90, 150)), KEY, series).notes
+    assert note.startswith("short: strip length 4500 is 30%")
+    assert ("so the length cannot be trusted" in note) == capped, "only a page at the limit makes the length unsure"
+
+
+@budget(load="fs")
+@pytest.mark.parametrize(
+    ("xml", "why"),
+    [
+        (b"<ComicInfo><Number>5</Num", "ComicInfo.xml does not parse"),
+        (b"", "ComicInfo.xml does not parse"),
+        (b'<?xml version="1.0" encoding="bogus"?><ComicInfo/>', "ComicInfo.xml does not parse"),
+    ],
+    ids=["broken", "empty", "bogus encoding"],
+)
+def test_a_comicinfo_that_does_not_parse_is_noted_and_kept(tmp_path, xml, why):
+    path = cbz(tmp_path / "f.cbz", {"001.jpg": jpeg(manga_page(seed=1))}, comicinfo=xml)
+    verdict = validation.check(path, KEY, [])
+    assert verdict.kind == "ok", "its fields are ignored; the comicinfo stage writes a new one"
+    (note,) = verdict.notes
+    assert note.startswith(why)
+    assert note.endswith("its fields are ignored")
+
+
+@budget(load="fs")
+def test_a_comicinfo_member_that_fails_its_crc_is_noted_and_kept(tmp_path):
+    path = crc_bad_comicinfo(tmp_path / "f.cbz", {"001.jpg": jpeg(manga_page(seed=1))})
+    verdict = validation.check(path, KEY, [])
+    assert verdict.kind == "ok"
+    (note,) = verdict.notes
+    assert note.startswith("ComicInfo.xml cannot be read")
+
+
+@budget(load="fs")
+def test_a_comicinfo_with_schema_errors_only_is_not_noted(tmp_path):
+    xml = b"<ComicInfo><Unknown>x</Unknown><Number>5</Number></ComicInfo>"
+    verdict = validation.check(cbz(tmp_path / "f.cbz", {"001.jpg": jpeg(manga_page(seed=1))}, comicinfo=xml), KEY, [])
+    assert (verdict.kind, verdict.notes) == ("ok", []), "it parses: schema errors are the comicinfo stage's"

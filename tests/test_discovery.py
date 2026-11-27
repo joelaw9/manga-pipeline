@@ -457,3 +457,19 @@ def test_intake_runs_discovery_and_the_stage(world):
     world.download(world.manga("Solo Leveling"), "Chapter 2")
     world.run(intake)
     assert world.rows("SELECT stage, status FROM chapter") == [("junk", "ready")], "discover, then validate (stub)"
+
+
+@budget(load="db")
+def test_a_comicinfo_that_does_not_parse_gives_no_number_and_the_name_still_counts(world):
+    chapter_id, _ = discovered(world, "Chapter 5", data=cbz(comicinfo=b"<ComicInfo><Number>9</Num"))
+    assert isinstance(run_stage(world, chapter_id), workflow.Done), "no failure: the ComicInfo.xml is read as missing"
+    assert world.rows("SELECT stage, number FROM chapter") == [("validate", 5.0)]
+
+
+@budget(load="db")
+def test_an_unnumbered_name_with_a_comicinfo_that_does_not_parse_needs_a_human(world):
+    chapter_id, _ = discovered(world, "Oneshot", data=cbz(comicinfo=b"<ComicInfo><Number>9</Num"))
+    run_stage(world, chapter_id)
+    ((status, error),) = world.rows("SELECT status, last_error FROM chapter")
+    assert status == "needs_human", "no number anywhere"
+    assert "ComicInfo.xml does not parse" in error, "the reason names why the ComicInfo Number is missing"

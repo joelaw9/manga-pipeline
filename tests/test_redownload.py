@@ -582,3 +582,17 @@ class WorldConn:
         """End the transaction and close the connection."""
         self.tx.__exit__(*exc)
         self.conn.close()
+
+
+@budget(load="db")
+@pytest.mark.parametrize(("name", "named"), [("Oneshot", True), ("Chapter 13", False)], ids=["unnumbered", "numbered"])
+def test_a_chosen_download_with_a_comicinfo_that_does_not_parse_is_held(world, name, named):
+    exhausted(world)
+    chosen = world.suwayomi.add_chapter(world.other, name)
+    command(cli.chapter_use, world, chapter=1, suwayomi_chapter=chosen)
+    world.run(intake)
+    world.suwayomi.finish_downloads(cbz(seed="13", comicinfo=b"<ComicInfo><Number>12</Num"))
+    world.run(intake)
+    ((status, error),) = world.rows("SELECT status, last_error FROM chapter")
+    assert status == "needs_human", "its number cannot be checked, or is another"
+    assert ("ComicInfo.xml does not parse" in error) == named, "named only when the name has no number of its own"

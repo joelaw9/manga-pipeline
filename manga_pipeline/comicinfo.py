@@ -14,6 +14,8 @@ from pathlib import Path
 from manga_pipeline import archive, names
 
 XSD = Path(__file__).with_name("ComicInfo-v2.1.xsd")
+# what ComicInfo XML that does not parse raises (LookupError, ValueError: an encoding Python or expat does not read)
+UNPARSEABLE = (ET.ParseError, ValueError, LookupError)
 XS = "{http://www.w3.org/2001/XMLSchema}"
 INT = re.compile(r"^-?\d+$")
 
@@ -83,7 +85,7 @@ def validate(xml_bytes: bytes) -> list[str]:
     """Return a list of schema violations (empty = valid)."""
     try:
         root = ET.fromstring(xml_bytes)
-    except (ET.ParseError, ValueError, LookupError) as e:  # LookupError: bogus encoding declaration
+    except UNPARSEABLE as e:
         return [f"parse-error: {e}"]
     if root.tag != "ComicInfo":
         return [f"root element is {root.tag!r}, expected 'ComicInfo'"]
@@ -198,22 +200,38 @@ def build(fields: Mapping[str, str | int | None], pages: Sequence[Mapping[str, s
     return xml
 
 
-def download_number(path: Path) -> str:
-    """Return a download's ComicInfo Number: '' without one, or for an archive that cannot be read."""
+def download_xml(path: Path) -> tuple[bytes | None, str | None]:
+    """Return a download's ComicInfo.xml and why it is not used (SPEC "Validation").
+
+    (xml, None) when it reads and parses; (None, None) without one; (None, why) when the archive or the member cannot
+    be read, or the XML does not parse (an empty file included). A missing file raises OSError.
+    """
     try:
         xml = archive.read_comicinfo(path)
-    except archive.UNREADABLE:
-        return ""
-    return read_fields(xml, ("Number",))["Number"] if xml else ""
+    except archive.UNREADABLE as e:
+        return None, f"ComicInfo.xml cannot be read: {type(e).__name__}: {e}"
+    if xml is None:
+        return None, None
+    try:
+        ET.fromstring(xml)
+    except UNPARSEABLE as e:
+        return None, f"ComicInfo.xml does not parse: {type(e).__name__}: {e}"
+    return xml, None
+
+
+def download_number(path: Path) -> str:
+    """Return a download's ComicInfo Number: '' without one, or for a ComicInfo.xml that is not used (download_xml)."""
+    xml, _ = download_xml(path)
+    return "" if xml is None else read_fields(xml, ("Number",))["Number"]
 
 
 def read_download(path: Path) -> tuple[dict[str, str], names.Item]:
     """Return (fields, item) of a download as the comicinfo stage reads it.
 
-    The ComicInfo.xml fields valid for the schema ({} without one), and its name's parse, numbered by that Number when
-    the name has none. Raises archive.UNREADABLE or ET.ParseError for an archive or a ComicInfo.xml that cannot be read.
+    The ComicInfo.xml fields valid for the schema ({} without one, or for one that is not used: download_xml), and its
+    name's parse, numbered by that Number when the name has none. A missing file raises OSError.
     """
     path = Path(path)
-    xml = archive.read_comicinfo(path)
-    fields = {k: v for k, v in read_all(xml).items() if field_ok(k, v)} if xml else {}
+    xml, _ = download_xml(path)
+    fields = {} if xml is None else {k: v for k, v in read_all(xml).items() if field_ok(k, v)}
     return fields, names.parse(path.stem, fields.get("Number", ""))
