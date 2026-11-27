@@ -37,6 +37,7 @@ def test_the_machine_that_set_the_version_passes(cfg):
         ("junk", "claude_path", "/elsewhere/claude"),
         ("convert", "workers", 3),
         ("junk", "ocr_device", "cuda"),
+        ("junk", "ocr_workers", 1),
         ("paths", "scratch", "/elsewhere/scratch"),
         ("tools", "avifenc", "/elsewhere/avifenc"),
         ("kavita", "url", "http://x"),

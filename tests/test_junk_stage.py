@@ -428,6 +428,24 @@ def test_ocr_text_holding_a_nul_makes_its_chapter_needs_human_at_once(site, monk
     assert site.rows("SELECT count(*) FROM junk_scan") == [(0,)], "nothing is stored"
 
 
+@budget(load="db", seconds=5)
+def test_a_failed_ocr_read_fails_the_scan_naming_the_units_rows_and_stores_nothing(site, monkeypatch):
+    def fail(_im, _device):
+        msg = "CUDA out of memory"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(ocr, "text", fail)
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    site.download("Long", 2, strip_cbz("n2"))
+    site.parts()
+    ((status, attempts, reason),) = site.rows("SELECT status, attempts, last_error FROM chapter")
+    assert (status, attempts) == ("ready", 1), "a failed scan spends an attempt, as any stage failure does"
+    assert "strip rows" in reason, f"the error names the unit's rows: {reason}"
+    assert "CUDA out of memory" in reason, f"the error names the read's own error: {reason}"
+    assert site.rows("SELECT count(*) FROM junk_scan") == [(0,)], "no partial text is stored"
+
+
 @budget(load="db", seconds=10)
 def test_a_chapter_leaving_junk_has_its_chapter_edit_with_every_key(site):
     site.download("Alpha", 2, cbz(seed="e2", credit=True))

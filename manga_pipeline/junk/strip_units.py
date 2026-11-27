@@ -4,7 +4,7 @@ Ported from the bulk converter's optimizer/strip_junk.py (edge blocks, match_blo
 kept check) and the strip steps of its planner (plan_scan.strip_chapter, plan_review.tail_review / finish_strip),
 reshaped to 1 chapter:
 
-- `scan(strip, ocr_text)` decodes once and returns a JSON-able scan holding everything `decide` reads: the gaps and
+- `scan(strip, ocr_texts)` decodes once and returns a JSON-able scan holding everything `decide` reads: the gaps and
   spans, every edge block with its hard-join pieces and their remainders (signature, OCR text when given), the
   measurements of every content block of the tail region and every remainder (the tail pieces are cut from them),
   and the signatures of the middle blocks (the watermark rule).
@@ -36,7 +36,7 @@ from PIL import Image
 from manga_pipeline import db, images, strip
 from manga_pipeline.convert import plan
 from manga_pipeline.junk import anchored as an
-from manga_pipeline.junk import store
+from manga_pipeline.junk import ocr, store
 
 EDGE_PX = 6000  # edge region: the first and last rows of a strip whose blocks are junk units (old junk_edge_px)
 MAX_SEAM = strip.SLICE_REPAIR["max_seam_score"]  # hard-join threshold (slice_repair.max_seam_score)
@@ -282,6 +282,9 @@ class _Part(NamedTuple):
     im: Image.Image
 
 
+type _Want = Callable[[Piece, Image.Image], None]  # want(unit, image): a final unit dict that OCR may read
+
+
 def _hard_join_pieces(im: Image.Image, s: int, e: int, where: str) -> Iterator[tuple[_Part, _Part]]:
     """Return (piece, rest) per hard join of the edge block `im`.
 
@@ -294,22 +297,24 @@ def _hard_join_pieces(im: Image.Image, s: int, e: int, where: str) -> Iterator[t
         yield _Part(a, b, piece), _Part(x, y, rest)
 
 
-def _join(piece: _Part, rest: _Part, unit: Callable[[int, int, Image.Image], Piece]) -> Join:
-    """Return a hard join's entry.
+def _unit(s: int, e: int, im: Image.Image) -> Piece:
+    """Return the unit of rows [s, e) with image im: its rows and signature (OCR text is added later)."""
+    return {"start": s, "end": e, "sig": images.sig_to_str(images.signature(im))}
 
-    The piece's unit (a uniform one's signature only, never OCR), "uniform", and "rest", its remainder's {"start",
-    "end", "sig"} (None when uniform).
+
+def _join(piece: _Part, rest: _Part, want: _Want) -> Join:
+    """Return a hard join's entry, given to want(entry, image) unless uniform (a uniform piece is never read).
+
+    The piece's unit, "uniform", and "rest", its remainder's {"start", "end", "sig"} (None when uniform).
     """
     uniform = images.is_uniform(piece.im)
-    join: Piece = (
-        {"start": piece.start, "end": piece.end, "sig": images.sig_to_str(images.signature(piece.im))}
-        if uniform
-        else unit(piece.start, piece.end, piece.im)
-    )
     r: Rest | None = None
     if not images.is_uniform(rest.im):
         r = {"start": rest.start, "end": rest.end, "sig": images.sig_to_str(images.signature(rest.im))}
-    return {**join, "uniform": uniform, "rest": r}
+    entry: Join = {**_unit(piece.start, piece.end, piece.im), "uniform": uniform, "rest": r}
+    if not uniform:
+        want(entry, piece.im)
+    return entry
 
 
 class _Edges(NamedTuple):
@@ -326,12 +331,12 @@ def _edge_blocks(
     blocks: Iterable[strip.Rows],
     height: int,
     render: Callable[[int, int], Image.Image],
-    unit: Callable[[int, int, Image.Image], Piece],
+    want: _Want,
 ) -> _Edges:
     """Return the edge blocks among a strip's content blocks [(start, end)].
 
-    render(start, end) -> image, unit(start, end, image) -> a unit. A block under strip.MIN_EDGE_BLOCK_PX or uniform is
-    no unit (a tail one is still measured).
+    render(start, end) -> image, want(unit, image): each final unit dict (edge block or non-uniform join piece) with
+    its image. A block under strip.MIN_EDGE_BLOCK_PX or uniform is no unit (a tail one is still measured).
     """
     edge: list[EdgeBlock]
     measured: dict[str, PieceMeasure]
@@ -347,10 +352,12 @@ def _edge_blocks(
             continue
         joins: list[Join] = []
         for piece, rest in _hard_join_pieces(im, s, e, where):
-            joins.append(_join(piece, rest, unit))
+            joins.append(_join(piece, rest, want))
             if where == "tail":
                 measured[f"{rest.start}:{rest.end}"] = measure_piece(rest.im)
-        edge.append({**unit(s, e, im), "where": where, "joins": joins})
+        block: EdgeBlock = {**_unit(s, e, im), "where": where, "joins": joins}
+        want(block, im)
+        edge.append(block)
     return _Edges(edge, measured)
 
 
@@ -373,27 +380,35 @@ def _middle_sigs(blocks: Iterable[strip.Rows], height: int, render: Callable[[in
 
 def scan(
     st: strip.Strip,
-    ocr_text: Callable[[Image.Image], str] | None = None,
+    ocr_texts: Callable[[Sequence[Image.Image]], list[str]] | None = None,
     undecided: Callable[[images.Signature], bool] = lambda _sig: True,
 ) -> StripScan:
     """Scan a Strip (strip.make_strip over the chapter's non-cover pages).
 
-    ocr_text(image) -> text, called for every edge block and non-uniform hard-join piece whose signature
-    `undecided(sig)` (no stored decision) says so; None: no OCR. Returns a JSON-able dict.
+    ocr_texts(images) -> their texts in order, called once with the image of every edge block and non-uniform
+    hard-join piece whose signature `undecided(sig)` (no stored decision) says so; None: no OCR. Its ocr.OcrError
+    fails the scan naming the unit's rows. Returns a JSON-able dict.
     """
     gaps = strip.find_gaps(st)
     spans = strip.spans(st)
     blocks_all = strip.content_blocks(st, gaps)
     render = functools.partial(strip.render_rows, st.pages, st.width, cache={})
+    to_read: list[tuple[Piece, Image.Image]] = []
 
-    def unit(s: int, e: int, im: Image.Image) -> Piece:
-        sig = images.signature(im)
-        u: Piece = {"start": s, "end": e, "sig": images.sig_to_str(sig)}
-        if ocr_text is not None and undecided(sig):
-            u["text"] = ocr_text(im)
-        return u
+    def want(u: Piece, im: Image.Image) -> None:
+        if ocr_texts is not None and undecided(images.sig_from_str(u["sig"])):
+            to_read.append((u, im))
 
-    edge = _edge_blocks(blocks_all, st.height, render, unit)
+    edge = _edge_blocks(blocks_all, st.height, render, want)
+    if ocr_texts is not None:
+        try:
+            read = ocr_texts([im for _, im in to_read])
+        except ocr.OcrError as e:
+            u = to_read[e.index][0]
+            msg = f"OCR of strip rows {u['start']}-{u['end']} failed: {type(e.cause).__name__}: {e.cause}"
+            raise RuntimeError(msg) from e
+        for (u, _), t in zip(to_read, read, strict=True):
+            u["text"] = t
     return {
         "layout": "strip",
         "width": st.width,

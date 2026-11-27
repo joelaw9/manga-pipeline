@@ -180,7 +180,7 @@ def test_a_uniform_remainder_after_a_glued_junk_cut_is_dropped(tmp_path):
 
 @budget(load="fs")
 def test_no_ocr_no_text_and_a_split_remainder_has_no_probes():
-    """Without ocr_text no text is read; a remainder after a glued-junk cut keeps no probes (1 cut per block)."""
+    """Without ocr_texts no text is read; a remainder after a glued-junk cut keeps no probes (1 cut per block)."""
     banner = sig_of(Image.open(BANNER).convert("RGB").crop((0, 0, 360, 166)))
     got = su.decide(su.scan(strip_of([BANNER])), store(("probe", banner, "junk", 3)))
     (block,) = got["undecided"]
@@ -191,7 +191,7 @@ def test_no_ocr_no_text_and_a_split_remainder_has_no_probes():
 @budget(load="fs")
 def test_an_unmatched_edge_block_carries_its_banner_probe_with_its_text():
     """Nothing approved: the cover block keeps its banner piece as a probe, each with its own OCR text."""
-    got = su.decide(su.scan(strip_of([BANNER]), lambda im: f"{im.height} px"), store())
+    got = su.decide(su.scan(strip_of([BANNER]), lambda ims: [f"{im.height} px" for im in ims]), store())
     (block,) = got["undecided"]
     assert block["kind"] == "block"
     assert block.get("text") == "300 px", "each unit's own read"
@@ -200,9 +200,9 @@ def test_an_unmatched_edge_block_carries_its_banner_probe_with_its_text():
 
 @budget(load="fs")
 def test_a_unit_with_a_stored_decision_is_not_read():
-    """ocr_text reads only units `undecided` says have no stored decision: the decided banner piece gets no text."""
+    """ocr_texts reads only units `undecided` says have no stored decision: the decided banner piece gets no text."""
     banner = images.signature(Image.open(BANNER).convert("RGB").crop((0, 0, 360, 166)))
-    sc = su.scan(strip_of([BANNER]), lambda _im: "read", lambda sig: not images.matches(sig, banner))
+    sc = su.scan(strip_of([BANNER]), lambda ims: ["read"] * len(ims), lambda sig: not images.matches(sig, banner))
     (block,) = sc["blocks"]
     assert block.get("text") == "read", block["joins"]
     assert "text" not in block["joins"][0], block["joins"]

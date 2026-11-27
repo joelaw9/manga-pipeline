@@ -89,6 +89,7 @@ junk:
   review_limit: 2
   review_batch: 20
   ocr_device: "cpu"
+  ocr_workers: 2
   keywords: [repost, discord, scans, scanlat, translat, typeset, proofread, clean, redraw, read on, support us, patreon, ko-fi, paypal, gg/, join us, join our, raw provider, recruit, official domain, fastest, uploading, protected by copyright, protected under copyright, copyright law, unauthorized reproduction, unauthorized distribution, .com, .net, .org, .io]
   weak: [.com, .net, .org, .io, scans]
   paired: [clean]
