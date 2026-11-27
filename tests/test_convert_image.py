@@ -72,7 +72,7 @@ def page_plan(pages) -> plan.ChapterPlan:
         ({images.JPEG, images.PNG, images.WEBP_LOSSLESS}, "avif"),
         ({images.JPEG, images.WEBP_LOSSY}, "avif-or-untouched"),
         ({images.WEBP_LOSSY}, "untouched"),
-        ({images.GIF, images.AVIF, images.JXL}, "untouched"),
+        ({images.GIF, images.AVIF}, "untouched"),
         ({images.WEBP_ANIMATED}, "untouched"),
         ({images.JPEG, images.GIF}, "untouched-flag"),
         ({images.JPEG, images.BMP}, "untouched-flag"),
@@ -212,6 +212,49 @@ def test_a_malformed_stored_page_aspect_is_refused_naming_its_series(text):
 def test_a_well_formed_edit_passes():
     edit = {**NO_EDIT, "drop_pages": [0], "bands": [{"page": 1, "box": [0, 2, 10, 20]}], "join": [[2, 3]]}
     assert plan.check_edit(json.dumps(edit)) == edit
+
+
+@budget(load="pool")
+@pytest.mark.parametrize(
+    "members",
+    [
+        [("001.jxl", fx.jxl(colour(seed=1))), ("002.jxl", fx.jxl(colour(seed=2)))],
+        [("001.jxl", fx.jxl(colour(seed=1))), ("002.webp", webp(colour(seed=2)))],
+    ],
+    ids=["jxl", "jxl+lossy-webp"],
+)
+def test_a_chapter_with_a_jxl_page_renders_with_no_untouched_outcome(tmp_path, members):
+    p = Chapter(tmp_path, members).plan()
+    assert p.route == plan.RENDERED, "Kavita shows no JPEG XL page: the chapter is rendered"
+    assert [r.get("parts") for r in p.render] == [[("001.jxl", None)], [(members[1][0], None)]], "each page whole"
+    avif, last = p.outcomes
+    assert avif is not None
+    assert (avif["gate"], last["outcome"], last["edits"]) == ("floor", "lossless", "all"), "AVIF, else rendered PNGs"
+    assert image.reshape_kind(p.edits) == "decode", "no edit reshapes it"
+
+
+@budget(load="pool")
+def test_a_chapter_with_no_jxl_page_and_no_reshaping_edit_does_not_render(tmp_path):
+    p = Chapter(tmp_path, [("001.webp", webp(colour(seed=1)))]).plan()
+    assert (p.render, p.route) == ([], "untouched"), "the rule for every other format is unchanged"
+
+
+@budget(load="pool")
+def test_a_jxl_chapter_with_a_crop_renders_once_as_a_rejoin(tmp_path):
+    members = [("001.jxl", fx.jxl(colour(seed=1))), ("002.jxl", fx.jxl(colour(seed=2)))]
+    p = Chapter(tmp_path, members).plan({**NO_EDIT, "bands": [{"page": 1, "box": [0, 0, 96, 20]}]})
+    assert len(p.render) == len(members), "1 render: each page once, the crop applied"
+    assert p.render[1].get("parts") == [("002.jxl", [0, 0, 96, 20])], "the page rendered with its crop box"
+    assert image.reshape_kind(p.edits) == "rejoin", "an edit that reshapes names the reshape, not decode"
+
+
+@budget(load="pool")
+def test_an_exif_rotated_jxl_page_needs_a_human(tmp_path):
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    ch = Chapter(tmp_path, [("001.jxl", fx.jxl_of_jpeg(jpeg_with_exif(colour(), exif)))])
+    with pytest.raises(plan.NeedsHuman, match="EXIF orientation 6"):
+        ch.plan()
 
 
 @budget(load="pool")

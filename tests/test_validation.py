@@ -7,7 +7,7 @@ from PIL import Image
 
 from manga_pipeline import images, measures, validation
 
-from tests.pages import ZERO_BYTE, cbz, jpeg, manga_page, png
+from tests.pages import ZERO_BYTE, cbz, jpeg, jxl_of_jpeg, manga_page, png
 from tests.timing import budget
 
 KEY = (None, "", "5")
@@ -69,8 +69,9 @@ def _encrypted(tmp_path):
         lambda t: cbz(t / "empty.cbz", {}),
         lambda t: cbz(t / "zero.cbz", {"001.jpg": jpeg(manga_page(seed=1)), "002.jpg": ZERO_BYTE}),
         lambda t: cbz(t / "undecodable.cbz", {"001.jpg": jpeg(manga_page(seed=1))[:400]}),
+        lambda t: cbz(t / "jxl.cbz", {"001.jpg": jpeg(manga_page(seed=1)), "002.jxl": b"\xff\x0a jxl codestream"}),
     ],
-    ids=["truncated", "crc", "encrypted", "no pages", "zero-byte page", "undecodable page"],
+    ids=["truncated", "crc", "encrypted", "no pages", "zero-byte page", "undecodable page", "undecodable jxl page"],
 )
 def test_a_bad_download_is_bad(tmp_path, make):
     verdict = validation.check(make(tmp_path), KEY, [])
@@ -80,12 +81,19 @@ def test_a_bad_download_is_bad(tmp_path, make):
 @budget(load="fs")
 @pytest.mark.parametrize(
     "page",
-    [b"\x00\x01\x02 not an image at all", b"\xff\x0a jxl codestream"],
-    ids=["unknown", "jxl"],
+    [b"\x00\x01\x02 not an image at all"],
+    ids=["unknown"],
 )
 def test_a_page_of_a_format_the_pipeline_cannot_read_needs_a_human(tmp_path, page):
     verdict = validation.check(cbz(tmp_path / "f.cbz", {"001.jpg": jpeg(manga_page(seed=1)), "002.jpg": page}), KEY, [])
     assert verdict.kind == "human", "another source would not change an unknown format: a person decides"
+
+
+@budget(load="fs")
+def test_a_download_of_jxl_pages_is_read_like_any_other(tmp_path):
+    pages = {f"00{i}.jxl": jxl_of_jpeg(jpeg(manga_page(seed=i))) for i in (1, 2)}
+    verdict = validation.check(cbz(tmp_path / "f.cbz", pages), KEY, [])
+    assert verdict.kind == "ok", f"JPEG XL pages are decoded and checked, not held: {verdict}"
 
 
 @budget(load="fs")

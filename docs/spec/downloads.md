@@ -21,7 +21,7 @@ Validate reads every page of the download in full, in archive order, in this ord
 | Found | Outcome |
 |---|---|
 | an archive that cannot be read (broken, truncated, CRC error, encrypted), no pages, a zero-byte page, a page of a known format that does not decode | bad download: re-downloaded (above) |
-| a page of unknown format (by its first bytes), or JPEG XL | `needs_human` |
+| a page of unknown format (by its first bytes) | `needs_human` |
 | a page with an EXIF orientation that turns or mirrors it (2 to 8) | `needs_human` |
 | mislabelled: at least 90 % of its non-blank pages within pHash Hamming distance 6 of a non-blank page of the series' published files of other chapters (another season, side label or number, or another volume where the volume tells chapters apart: Library copies) | `needs_human` |
 | the same page bytes twice | noted (`status`), kept |

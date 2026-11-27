@@ -14,6 +14,11 @@ from typing import ReadOnly, TypedDict
 from manga_pipeline import archive, images
 from manga_pipeline.convert import covers, image, pages
 
+# the page formats Kavita shows (its parser's image extensions at v0.9.1.4: png, jpeg, jpg, webp, gif, avif)
+KAVITA_FORMATS = frozenset(
+    {images.JPEG, images.PNG, images.GIF, images.WEBP_LOSSY, images.WEBP_LOSSLESS, images.WEBP_ANIMATED, images.AVIF}
+)
+
 
 class Staged(TypedDict):
     """What the post-check reads of image.process_chapter's record (read only: an image.ChapterRecord is one)."""
@@ -90,7 +95,8 @@ def _entry_fails(infos: list[zipfile.ZipInfo], extra: list[str]) -> list[str]:
 def _read_pages(z: zipfile.ZipFile, names: list[str], rec: Staged) -> _Read:
     """Read each page entry in order and check it.
 
-    Its extension, that it decodes, then (a decodable page) its lossless match and its AVIF score.
+    Its format (one Kavita shows), its extension, that it decodes, then (a decodable page) its lossless match and its
+    AVIF score.
     """
     read = _Read()
     for name in names:
@@ -98,6 +104,8 @@ def _read_pages(z: zipfile.ZipFile, names: list[str], rec: Staged) -> _Read:
         read.out_bytes += len(data)
         fmt = images.detect(data)
         read.fmts[fmt] += 1
+        if fmt not in KAVITA_FORMATS:
+            read.fails.append(f"unreadable-format: {name} is {fmt}")
         if PurePosixPath(name).suffix.lower() not in _extensions(fmt):
             read.fails.append(f"extension-mismatch: {name} is {fmt}")
         page = pages.Page(data)

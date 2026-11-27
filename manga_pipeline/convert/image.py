@@ -5,9 +5,10 @@ not drift from the bulk converter's), the page workers, the scorer and the tool 
 
 process_chapter tries the plan's outcomes in order; a measured failure (the SSIMULACRA2 floor after the q90 retry, the
 AVIF size gate) moves to the next:
-- rendered pages (crops, joins, split, strip): AVIF, floor only; else the rendered pages lossless.
+- rendered pages (crops, joins, split, strip, or a JPEG XL page among the kept): AVIF, floor only; else the rendered
+  pages lossless.
 - JPEG / PNG / lossless WebP: AVIF (q90 retry per page) under floor + size gate; else the lossless path.
-- mixed with lossy WebP: AVIF under both gates; else untouched. Lossy WebP / GIF / AVIF / JXL: untouched.
+- mixed with lossy WebP: AVIF under both gates; else untouched. Lossy WebP / GIF / AVIF: untouched.
 Gray, tinted and gray-mark pages encode 4:0:0 (scored against the gray version); colour pages keep their source's
 chroma; a colour JPEG the plan marked jpeg_feed is fed to avifenc as is. The lossless path grays gray and gray-mark
 JPEG / PNG pages (a JPEG only when jpegtran can: jpeg_gray), and of a rendered chapter's PNGs only the gray ones; a
@@ -495,7 +496,12 @@ def _run_all(pool: Executor, tasks: Sequence[LosslessJob]) -> list[LosslessPage]
 
 
 def reshape_kind(edits: plan.PlannedEdits) -> str:
-    """Return a rendered chapter's reshape: restitch (a strip), split (stitched, re-sliced), rejoin (crops, joins)."""
+    """Return a rendered chapter's reshape: restitch (a strip), split (stitched, re-sliced), rejoin (crops, joins).
+
+    decode when no edit reshapes (rendered for a JPEG XL page: its pages decoded whole).
+    """
+    if not plan.edit_renders(edits):
+        return "decode"
     return "restitch" if edits["strip"] else "split" if edits["split"] else "rejoin"
 
 

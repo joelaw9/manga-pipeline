@@ -230,7 +230,8 @@ def jpeg_440():
         (fx.encode(fx.webtoon_page((64, 64)), "GIF"), images.GIF, "444"),
         (fx.encode(fx.webtoon_page((64, 64)), "BMP"), images.BMP, "444"),
         (fx.webp(fx.webtoon_page((64, 64))), images.WEBP_LOSSY, "420"),
-        (b"", images.JXL, "420"),  # anything else: header not read
+        (fx.jxl(fx.webtoon_page((64, 64))), images.JXL, "444"),  # its source's own sampling unknown: never below it
+        (b"", images.UNKNOWN, "420"),  # anything else: header not read
     ],
     ids=[
         "jpeg-444",
@@ -243,6 +244,7 @@ def jpeg_440():
         "gif",
         "bmp",
         "webp-lossy",
+        "jxl",
         "other",
     ],
 )

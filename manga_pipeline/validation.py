@@ -16,7 +16,7 @@ MISLABEL_HAMMING = 6  # pHash bits: the old integrity.flag_mislabelled threshold
 MISLABEL_SHARE = 0.90  # of a chapter's non-blank pages
 SHORT_RATIO = 0.40  # of the series' median strip length (old integrity.short_chapter_ratio)
 MIN_PUBLISHED = 3  # published files with measurements before the series-wide checks run
-UNDECODABLE_FORMATS = {images.UNKNOWN, images.JXL}  # no decoder here: an unknown format to a person, not a bad copy
+UNDECODABLE_FORMATS = {images.UNKNOWN}  # no decoder here: an unknown format to a person, not a bad copy
 ROTATED = range(2, 9)  # EXIF orientations that turn or mirror a page; 1 is upright, 0 and others read as upright
 
 

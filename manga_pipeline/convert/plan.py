@@ -20,7 +20,7 @@ from manga_pipeline.replies import Json
 
 RENDERED = "rendered-avif"
 AVIF_SOURCES = frozenset({images.JPEG, images.PNG, images.WEBP_LOSSLESS})  # chapters of only these: AVIF, else lossless
-UNTOUCHED_SOURCES = frozenset({images.WEBP_LOSSY, images.GIF, images.AVIF, images.JXL})  # only these: untouched
+UNTOUCHED_SOURCES = frozenset({images.WEBP_LOSSY, images.GIF, images.AVIF})  # only these: untouched
 GRAYISH = (images.GRAY, images.TINTED, images.GRAY_MARK)  # encoded without chroma
 COVER_FORMATS = (images.AVIF, images.JPEG, images.PNG, images.WEBP_LOSSY)  # chapter formats a volume cover can match
 QUALITY_GROUPS = ("gray", "colour")  # encode groups: 1 AVIF quality each
@@ -461,7 +461,7 @@ def page_entry(page: images.MeasuredPage, path: Path) -> PlanPage:
     """
     data = Path(path).read_bytes()
     fmt = page["format"]
-    if fmt in (images.JPEG, images.PNG, images.WEBP_LOSSY, images.WEBP_LOSSLESS):
+    if fmt in (images.JPEG, images.PNG, images.WEBP_LOSSY, images.WEBP_LOSSLESS, images.JXL):
         turn = images.exif_orientation(data)
         if turn in TURNED:
             msg = f"page {page['name']} has EXIF orientation {turn} (a rotation or mirror)"
@@ -508,7 +508,7 @@ def route(fmts: Iterable[str]) -> str:
         return "avif-or-untouched"  # mixed with lossy WebP: no lossless form unifies it
     if fmts <= UNTOUCHED_SOURCES:
         return "untouched"
-    return "untouched-flag"  # GIF / AVIF / JXL / unknown mixed with something else
+    return "untouched-flag"  # GIF / AVIF / unknown mixed with something else (a JXL page renders: build)
 
 
 def _edits(entries: list[PlanPage], edit: ChapterEdit, layout: SeriesLayout, files: list[Path]) -> PlannedEdits:
@@ -682,7 +682,7 @@ def _blanks(entries: list[PlanPage], edit: ChapterEdit, name: Callable[[int, str
 
 
 def render_pages(plan: ChapterPlan) -> list[RenderPage]:
-    """Return the rendered outcome's output pages (strip.render specs) of a plan with crops, joins, a split or a strip.
+    """Return the rendered outcome's output pages (strip.render specs) of a plan that renders (build).
 
     Cover-named pages first under their own stems, then 001, 002, ... (strip / split rows in kept coordinates, or
     page-format pages with their crop boxes and joined slivers). Each gets the class of the source pages it is made of
@@ -890,7 +890,11 @@ def build(
         edits=_edits(entries, edit, layout, files),
         classes={q["name"]: p["colour_class"] for q, p in zip(entries, measured, strict=True)},
     )
-    e = plan.edits
-    if e["crop"] or e["join"] or e["split"] or e["strip"]:
-        plan.render = render_pages(plan)
+    if edit_renders(plan.edits) or any(q["format"] == images.JXL for q in plan.kept()):
+        plan.render = render_pages(plan)  # a JPEG XL page renders: Kavita cannot show one, so none goes out as it is
     return plan
+
+
+def edit_renders(edits: PlannedEdits) -> bool:
+    """Return whether a planned edit reshapes pages, so its chapter renders: crops, joins, a split or a strip."""
+    return bool(edits["crop"] or edits["join"] or edits["split"] or edits["strip"])

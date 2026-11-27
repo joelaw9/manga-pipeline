@@ -672,3 +672,32 @@ def test_tint_is_the_99th_percentile_not_the_max():
     rgb = np.full((1723, 1200, 3), 128, np.uint8)
     rgb[:16, :, 1] = 138
     assert page_class(rgb) == images.GRAY, "a cast on under 1% of the page leaves its p99 spread at 0"
+
+
+# ---------------------------------------------------------------- JPEG XL
+
+
+@budget(load="pure")
+def test_a_lossless_jxl_page_decodes_to_its_own_pixels():
+    src = fx.manga_page((90, 130), seed=4).convert("RGB")
+    data = fx.jxl(src)
+    assert images.detect(data) == images.JXL
+    got, alpha = images.open_image(data)
+    assert not alpha
+    assert np.array_equal(np.asarray(got), np.asarray(src)), "a lossless JPEG XL reads as the pixels it was made of"
+
+
+@budget(load="pure")
+def test_a_jxl_repacked_jpeg_decodes_as_its_jpeg():
+    jpeg = fx.jpeg(fx.manga_page((90, 130), seed=5).convert("RGB"))
+    data = fx.jxl_of_jpeg(jpeg)
+    assert b"jbrd" in data, "the fixture carries JPEG reconstruction data"
+    got = np.asarray(images.open_image(data)[0])
+    assert np.array_equal(got, np.asarray(images.open_image(jpeg)[0])), "the page reads as the JPEG it repacks"
+
+
+@budget(load="fs")
+def test_a_jxl_page_is_measured(tmp_path):
+    data = fx.jxl_of_jpeg(fx.jpeg(fx.manga_page((90, 130), seed=6).convert("RGB")))
+    (page,) = images.measure_pages(fx.cbz(tmp_path / "c.cbz", {"001.jxl": data}))
+    assert (page["format"], page["width"], page["height"], page["chroma"]) == (images.JXL, 90, 130, "444")
