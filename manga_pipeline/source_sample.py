@@ -146,7 +146,7 @@ def judge(s: Sampling, row: db.Row) -> list[str]:
         *(f"  note: {note}" for note in verdict.notes),
     ]
     picks = candidates.select(
-        s.ctx.conn, store.series_key(s.series), row["identity"], applied.undecided, ocr.word_lists(s.ctx.cfg["junk"])
+        s.ctx.conn, store.series_key(s.series), applied.undecided, ocr.word_lists(s.ctx.cfg["junk"])
     )
     out += [f"  for review: {p['kind']} ({p['reason']})" for p in picks]
     return out

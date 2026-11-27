@@ -462,7 +462,7 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
             _refill(conn, chapter, key, 0)  # no candidate: the edit itself needs a person
 
         return workflow.NeedsHuman(applied.problem, record=too_much)
-    picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, ocr.word_lists(ctx.cfg["junk"]))
+    picks = candidates.select(ctx.conn, key, applied.undecided, ocr.word_lists(ctx.cfg["junk"]))
     if not picks:
         _log_agreed(chapter, agreed_units(sc, applied, memo))
         return _finished(ctx, chapter, key, applied, members)

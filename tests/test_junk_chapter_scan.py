@@ -10,7 +10,7 @@ from contextlib import closing
 import pytest
 from PIL import Image
 
-from manga_pipeline import archive, config, db, names, strip
+from manga_pipeline import archive, config, db, strip
 from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates, chapter_scan, ocr, store
 
@@ -47,7 +47,8 @@ def counts(conn):
 @budget(load="db", seconds=5)
 @pytest.mark.parametrize("layout", ["pages", "strip"])
 def test_a_scan_and_decision_of_a_cbz_in_hand_writes_nothing(tmp_path, monkeypatch, layout):
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")  # the real engine reads noise for seconds per block
+    # the real engine reads noise for seconds per block; a keyword gives the strip's edge blocks a reason
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "read at more scans")
     cfg = site_cfg(tmp_path)
     with closing(db.connect(cfg)) as conn:
         decisions = store.Decisions(conn, "Series")
@@ -59,11 +60,14 @@ def test_a_scan_and_decision_of_a_cbz_in_hand_writes_nothing(tmp_path, monkeypat
             aspects = present(strip.page_aspect([pages.sizes]))  # as the stage computes them for a new series
             sc = chapter_scan.scan_pages(pages, [False] * len(pages.paths), aspects)
         applied = chapter_scan.apply(sc, lambda kind, text: decisions.decide(kind, store.parse_key(kind, text)), [])
-        picks = candidates.select(conn, "Series", names.identity(names.parse("Chapter 1")), applied.undecided, WORDS)
+        picks = candidates.select(conn, "Series", applied.undecided, WORDS)
         assert applied.problem is None, applied.problem
         assert applied.undecided, "with no decision stored, the chapter's units are undecided"
         assert all(p["unit"] in applied.undecided or p["kind"] == "probe" for p in picks), "offered from undecided"
         assert picks or layout == "strip", "the wider credit page is offered for review by its size"
+        assert layout == "pages" or {p["kind"] for p in picks} & {"block", "probe"}, (
+            "a strip's keyword block is offered"
+        )
         assert counts(conn) == dict.fromkeys(WRITTEN, 0), "no candidate, sighting, watermark, scan or layout written"
 
 

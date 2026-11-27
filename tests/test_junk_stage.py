@@ -33,6 +33,9 @@ from tests.test_reslice import page as reslice_page
 from tests.timing import budget
 from tests.world import World, cbz, decide_junk, logo_cbz, logo_page
 
+# OCR text with a junk.keywords hit: a strip chapter's edge blocks are offered and its scan waits on them
+KEYWORD_TEXT = "join our discord"
+
 
 class Site:
     """A World whose client and source builders hand out its fakes, with 1 Suwayomi manga per series name."""
@@ -352,7 +355,8 @@ def test_a_malformed_stored_page_aspect_fails_the_scan_naming_its_series(site):
 
 @budget(load="db", seconds=5)
 def test_a_strip_chapter_waits_on_its_candidates_and_finishes_once_they_are_kept(site, monkeypatch):
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")  # the real engine reads noise for seconds per block
+    # a keyword gives each edge block a reason to be offered (and stands in for the engine, which is slow on noise)
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
     for n in (2, 3, 4):
@@ -370,12 +374,13 @@ def test_a_strip_chapter_waits_on_its_candidates_and_finishes_once_they_are_kept
 
 @budget(load="db", seconds=5)
 def test_a_strip_chapter_whose_junk_would_leave_too_little_needs_a_human(site, monkeypatch):
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")  # the real engine reads noise for seconds per block
+    # a keyword gives each edge block a reason to be offered (and stands in for the engine, which is slow on noise)
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
     site.download("Long", 2, strip_cbz("w2"))
     site.parts()
-    assert decide_junk(site.cfg, "junk") > 0, "a first chapter offers its blocks"
+    assert decide_junk(site.cfg, "junk") > 0, "a chapter offers its keyword blocks"
     with closing(db.connect(site.cfg)) as conn, db.transaction(conn):  # as a first decide after its scan would be
         conn.execute("UPDATE chapter SET junk_candidates = NULL")
     run_part(site.cfg, process)
@@ -722,7 +727,7 @@ def test_a_watermark_1_chapter_shows_is_known_to_the_series_next_chapters(site, 
     panel after it is no tail piece. The memory is by key: the decision rebuilt under a new id changes nothing.
     Without the memory the panel is a tail piece.
     """
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
     site.download("Long", 2, panels_cbz(["a2", "b2", "c2", "d2", "mark", "mark"]))
@@ -1025,7 +1030,7 @@ def chain_text(side, *segs, src):
 
 def chained_strip(site, monkeypatch):
     """Scan 1 strip chapter of 6 panels; return (its CBZ bytes, its stored scan)."""
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
     data = panels_cbz(CHAIN_PANELS)
@@ -1153,7 +1158,7 @@ def test_44_a_credit_cut_on_the_real_card_removes_its_notice_lines_through_the_s
 
     [keep (c)][keep logo][cut][cut][cut] from the gap seed under the (c) line, credit: the 3 notice lines are cut.
     """
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     png = (FIX_JUNK / "s5_2_real_head_c0003" / "strip.png").read_bytes()
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
@@ -1182,7 +1187,7 @@ def test_44_a_credit_cut_on_the_real_card_removes_its_notice_lines_through_the_s
 @budget(load="db", seconds=30)
 def test_a_decide_that_renders_and_writes_candidate_images_extracts_once(site, monkeypatch):
     """A cut decision known before the scan: the decide renders for it and writes candidate images, 1 extraction."""
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     data = panels_cbz(CHAIN_PANELS)
     last = (2400 + 700, 2400 + 1100)  # panel f: page 3's second panel
     cut = chain_text("below", span_segment(strip_rows(data), last), src={"file": "c.cbz", "sha256": "a" * 64})
@@ -1249,7 +1254,7 @@ def bundled_strip(site, monkeypatch):
     Its 4th panel, an imported junk block decision, starts the credit; the 2 panels after it are the bundle. Returns
     the 2 pieces' candidate ids, in strip order.
     """
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
     site.download("Long", 2, panels_cbz(["a2", "b2", "c2", "credit", "p1", "p2"]))
@@ -1539,7 +1544,7 @@ def agreed_watermark(site, monkeypatch):
 
     Return the stand-in's id (the newer of the 2 agreeing decisions).
     """
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     site.world.kavita_series("Long", layout="strip")
     site.mangas["Long"] = site.world.manga("Long")
     site.download("Long", 2, panels_cbz(["a2", "b2", "c2", "d2", "mark", "mark"]))
