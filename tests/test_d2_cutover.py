@@ -61,14 +61,19 @@ def adopted_site(tmp_path):
 
 
 @budget(load="db", seconds=10)
-def test_the_cutover_clears_only_waiting_chapters_writes_no_status_and_dry_run_writes_nothing(
+def test_the_cutover_clears_only_chapters_waiting_on_junk_candidates_writes_no_status_and_dry_run_writes_nothing(
     adopted_site, tmp_path, capsys
 ):
     cfg, conn = adopted_site
-    strip = series_of(conn, "Strip", "strip")
+    strip, stuck = series_of(conn, "Strip", "strip"), series_of(conn, "Stuck", "strip")
     block, other = candidate(conn, "Strip", "block", 1), candidate(conn, "Strip", "block", 2)
     waits = waiting_chapter(conn, strip, "c1", "waiting", [block])
     held = waiting_chapter(conn, strip, "c2", "needs_human", [other])
+    copy = waiting_chapter(conn, strip, "c3", "waiting", [other])
+    series_held = waiting_chapter(conn, stuck, "c1", "waiting", [candidate(conn, "Stuck", "block", 3)])
+    with db.transaction(conn):
+        conn.execute("UPDATE chapter SET waiting_on = 'open_copy' WHERE id = %s", (copy,))
+        conn.execute("UPDATE series SET status = 'needs_human', status_reason = 'x' WHERE id = %s", (stuck,))
     scans = "SELECT chapter_id, candidates, bundles FROM junk_scan ORDER BY chapter_id"
     chapters = "SELECT id, stage, status, waiting_on, updated_at FROM chapter ORDER BY id"
     before_scans, before = conn.execute(scans).fetchall(), conn.execute(chapters).fetchall()
@@ -80,7 +85,13 @@ def test_the_cutover_clears_only_waiting_chapters_writes_no_status_and_dry_run_w
     got = {r[0]: (r[1], r[2]) for r in conn.execute(scans)}
     assert got[waits] == ("[]", "[]"), "the waiting chapter's candidates and bundles are cleared"
     assert got[held] == (f"[{other}]", json.dumps([{"ids": [other], "size": 2}])), "a needs_human chapter is untouched"
+    assert got[copy] != ("[]", "[]"), "a chapter waiting on something else is untouched"
+    assert got[series_held] != ("[]", "[]"), (
+        "a chapter of a needs_human series is untouched: process ends no wait of it"
+    )
     assert conn.execute(chapters).fetchall() == before, "no chapter status is written: process ends the wait"
+    assert d2_cutover.main(["--config", path]) == 0
+    assert "chapters waiting on junk candidates: 0 cleared" in capsys.readouterr().out, "a second run finds none left"
 
 
 @budget(load="db", seconds=10)

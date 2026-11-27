@@ -4,9 +4,12 @@ Before PR 3 a unit of a series' first 3 chapters was a candidate for that alone 
 chapter at the junk stage waiting on junk_decision has its recorded candidates and bundles cleared: `process` ends its
 wait (an empty record is a wait that is over) and decides it again from its stored scan, so a candidate it waited on
 only by the first-3 rule is no longer waited on; a candidate with another reason is offered again. A needs_human
-chapter is left alone: its retry decides it again. The junk refill is not changed: it records the first decide after a
-scan only. Nothing else is written: no chapter status, no decision. Run it once after PR 3 is deployed, under
-`state pause`. Under lock.IDLE exclusive: no part runs meanwhile; 1 transaction. --dry-run counts and writes nothing.
+chapter is left alone: its retry decides it again. So is a chapter of a needs_human series: `process` ends no wait of
+one, and its candidates, no longer listed, would be removed by junk review's cleanup before it is decided again. The
+junk refill is not changed: it records the first decide after a scan only. Nothing else is written: no chapter status,
+no decision. Run it once, under `state pause`, after `state version --yes` (deploy step 3) and before the resume, so
+that no machine still on the old program decides the chapters first. Under lock.IDLE exclusive: no part runs
+meanwhile; 1 transaction. --dry-run counts and writes nothing.
 
 Usage, from the project root:
 python -m scripts.d2_cutover [--dry-run] [--config PATH]
@@ -19,8 +22,9 @@ from contextlib import closing
 
 from manga_pipeline import config, db, lock
 
-CHAPTERS = """SELECT c.id FROM chapter c JOIN junk_scan js ON js.chapter_id = c.id
-    WHERE c.stage = 'junk' AND c.status = 'waiting' AND c.waiting_on = 'junk_decision'
+CHAPTERS = """SELECT c.id FROM chapter c JOIN junk_scan js ON js.chapter_id = c.id JOIN series s ON s.id = c.series_id
+    WHERE c.stage = 'junk' AND c.status = 'waiting' AND c.waiting_on = 'junk_decision' AND s.status = 'ok'
+    AND js.candidates <> '[]'
     ORDER BY c.id"""
 
 
