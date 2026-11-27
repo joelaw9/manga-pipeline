@@ -5,6 +5,7 @@ converter's optimizer/formats.py (its archive half is archive.py); reads no conf
 """
 
 import functools
+import importlib
 import io
 import os
 import struct
@@ -21,6 +22,8 @@ from PIL._imagingcms import CmsProfile
 from manga_pipeline import archive
 
 Image.MAX_IMAGE_PIXELS = None  # webtoon strips exceed Pillow's bomb guard legitimately (set once, for every module)
+# registers JPEG XL with Pillow, for every module that decodes (SPEC "Conversion")
+importlib.import_module("pillow_jxl")
 
 JPEG, PNG, GIF, BMP = "JPEG", "PNG", "GIF", "BMP"
 WEBP_LOSSY, WEBP_LOSSLESS, WEBP_ANIMATED = "WEBP_LOSSY", "WEBP_LOSSLESS", "WEBP_ANIMATED"
@@ -37,7 +40,7 @@ EXTENSION = {
     AVIF: ".avif",
     JXL: ".jxl",
 }
-HEADER_BYTES = 256 * 1024  # enough of a file for dimensions() on every format we meet but AVIF (the whole file)
+HEADER_BYTES = 256 * 1024  # enough of a file for dimensions() on every format we meet but AVIF and JXL (the whole file)
 # WebP header bytes read for the canvas size: through it (VP8X, VP8), through the VP8L size field
 VP8X_HEAD, VP8_HEAD, VP8L_HEAD = 30, 30, 25
 VP8L_SIGNATURE = 0x2F  # a lossless bitstream's first byte
@@ -102,7 +105,7 @@ def dimensions(head: bytes) -> tuple[int, int] | None:
     """Return (width, height) from the first bytes of an image, without decoding.
 
     WebP needs this because Pillow decodes the whole stream to learn the size. Returns None if the header isn't
-    understood: always for an AVIF cut short, whose size Pillow reads only from the whole file.
+    understood: always for an AVIF or a JPEG XL cut short, whose size Pillow reads only from the whole file.
     """
     if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         chunk = head[12:16]
@@ -491,13 +494,14 @@ def chroma(data: bytes, fmt: str) -> str:
     """Return a source image's chroma resolution as avifenc --yuv.
 
     A JPEG's stored subsampling (444 / 422 / 420; an unrecognised one counts as 444, never below the source), full
-    chroma (444) for PNG, lossless WebP, GIF and BMP, 420 for lossy WebP and anything else. A single-component
+    chroma (444) for PNG, lossless WebP, GIF, BMP and JPEG XL (never below its source, whose own sampling a header does
+    not tell), 420 for lossy WebP and anything else. A single-component
     (grayscale) JPEG has no chroma: 400. Header only.
     """
     if fmt == JPEG:
         mode, sampling = _jpeg_sampling(data)
         return "400" if mode == GRAY_JPEG_MODE else JPEG_CHROMA.get(sampling, "444")
-    return "444" if fmt in (PNG, WEBP_LOSSLESS, GIF, BMP) else "420"
+    return "444" if fmt in (PNG, WEBP_LOSSLESS, GIF, BMP, JXL) else "420"
 
 
 # ---------------------------------------------------------------- page measurement

@@ -25,6 +25,7 @@ from manga_pipeline import archive, config, db, errors, images, page_store, proc
 from manga_pipeline.convert import calibrate, check, covers, image, record_reader
 from manga_pipeline.stages import convert
 
+from tests import pages as fx
 from tests.builders import (
     WinFileNotFoundError,
     add_chapter,
@@ -250,6 +251,10 @@ def test_the_post_check_names_what_is_wrong(tmp_path):
     assert any("extension-mismatch: 001.png" in f for f in wrong_ext)
     broken = check.check(staged(tmp_path, [("001.jpg", a[:40]), ("002.jpg", b)]), rec, kept)
     assert any("undecodable-page: 001.jpg" in f for f in broken)
+    x = fx.jxl(colour())
+    rec_x: check.Staged = {**rec, "output": [{"name": "001.jxl", "sha1": archive.sha1(x)}]}
+    jxl_page = check.check(staged(tmp_path, [("001.jxl", x)]), rec_x, [{"bytes": len(x)}])
+    assert jxl_page == ["unreadable-format: 001.jxl is JXL"], "Kavita shows no JPEG XL page: none goes out"
 
 
 @budget(load="pool")
@@ -528,6 +533,31 @@ def test_a_re_sliced_chapter_is_cut_into_its_recorded_pages_whatever_the_aspect_
     result = json.loads(chapter(site.conn, chapter_id)["convert_result"])
     assert result["pages_out"] == 4, "the recorded count, not the aspect's"
     assert "split: re-sliced into 4 pages" in line, "the chapter is noted"
+
+
+@budget(load="pool")
+def test_a_jxl_page_chapter_is_published_as_avif(site):
+    members = [(f"00{i}.jxl", fx.jxl_of_jpeg(jpeg(colour(seed=i)))) for i in (1, 2)]
+    result, out = staged_result(site, site.chapter(site.series(), members))
+    assert (result["outcome"], result["reshape"]["kind"]) == ("avif", "decode")
+    assert [p["name"] for p in out] == ["001.avif", "002.avif"], "every page AVIF, in order"
+
+
+@budget(load="pool")
+def test_a_jxl_page_chapter_whose_avif_fails_is_published_as_png(site):
+    fake.SCORE[0] = lambda _ref, _dec: 50.0
+    members = [("001.jxl", fx.jxl(colour(seed=1))), ("002.webp", webp(colour(seed=2)))]
+    result, out = staged_result(site, site.chapter(site.series(), members))
+    assert result["outcome"] == "lossless"
+    assert [p["name"] for p in out] == ["001.png", "002.png"], "decoded, never the JPEG XL page Kavita cannot show"
+
+
+@budget(load="pool")
+def test_a_strip_chapter_of_jxl_pages_is_published_restitched(site):
+    tall = [(f"00{i}.jxl", fx.jxl(colour((200, 1400), seed=i))) for i in (1, 2, 3)]
+    result, out = staged_result(site, site.chapter(site.series(layout="strip"), tall))
+    assert (result["outcome"], result["reshape"]["kind"]) == ("avif", "restitch")
+    assert sum(p["height"] for p in out) == 4200, "the whole strip, cut into pages"
 
 
 @budget(load="pool")

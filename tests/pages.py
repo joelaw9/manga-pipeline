@@ -4,6 +4,7 @@ Copied from the bulk converter's tests/fixtures.py; PAGE_FIX holds tiny ICC prof
 """
 
 import io
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -80,6 +81,23 @@ def webp(im, *, lossless=False, extended=False):
     if extended:
         kw["icc_profile"] = bytes(132)
     return encode(im, "WEBP", **kw)
+
+
+def jxl(im):
+    """Return im as lossless JPEG XL bytes (pixels, no JPEG reconstruction data)."""
+    return encode(im, "JXL", lossless=True)
+
+
+def jxl_of_jpeg(data):
+    """Return JPEG bytes repacked as JPEG XL with reconstruction data (as most downloaded JXL pages are).
+
+    The plugin repacks only a JPEG opened from a file.
+    """
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "page.jpg"
+        src.write_bytes(data)
+        with Image.open(src) as im:
+            return encode(im, "JXL", lossless_jpeg=True)
 
 
 def cbz(path, pages, comicinfo=None, method=zipfile.ZIP_DEFLATED):
