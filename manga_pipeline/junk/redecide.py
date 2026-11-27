@@ -53,7 +53,7 @@ def _checked(conn: db.Connection, ids: Sequence[int], verdict: str, *, global_on
             msg = f"junk decision {row['id']} is {verdict} already"
             raise Refused(msg)
         if global_only and row["series_key"] != store.GLOBAL:
-            msg = f"junk decision {row['id']} is series {row['series_key']!r}'s: --series and --retire are for global"
+            msg = f"junk decision {row['id']} is series {row['series_key']!r}'s: --retire is for a global one"
             raise Refused(msg)
     return rows
 
@@ -100,15 +100,35 @@ def redecide(conn: db.Connection, ids: Sequence[int], verdict: str, at: str) -> 
 
 
 def redecide_in(conn: db.Connection, ids: Sequence[int], verdict: str, series: Sequence[str], at: str) -> int:
-    """Re-decide global decisions to verdict in the series named only (--series); the global ones stay."""
+    """Re-decide decisions to verdict in the series named only (--series); the decisions named stay.
+
+    A global decision, or a series decision (D12 (b): a series opting out of an agreement it is one of): each series
+    named gets a decision of verdict on its kind and key. Refused for a series decision of a kind agreement never
+    decides (a tail piece) or naming its own series, and for 2 decisions that would write 1 key in 1 series.
+    """
     if len(set(series)) != len(series):
         msg = f"a series is named twice: {list(series)}"
         raise Refused(msg)
-    rows = _checked(conn, ids, verdict, global_only=True)
+    rows = _checked(conn, ids, verdict, global_only=False)
+    for row in rows:
+        if row["series_key"] == store.GLOBAL:
+            continue
+        if row["kind"] in store.NEVER_AGREED:
+            msg = f"junk decision {row['id']} is a {row['kind']} decision: agreement never decides one (no opt-out)"
+            raise Refused(msg)
+        if row["series_key"] in series:
+            msg = f"junk decision {row['id']} is series {row['series_key']!r}'s own: re-decide it without --series"
+            raise Refused(msg)
     missing = store.unknown_series(conn, series)
     if missing:
         msg = f"no series has the key(s) {missing}"
         raise Refused(msg)
+    targets: dict[tuple[str, str], int] = {}
+    for row in rows:
+        other = targets.setdefault((row["kind"], row["key"]), row["id"])
+        if other != row["id"]:
+            msg = f"junk decisions {other} and {row['id']} are on 1 key: each series named would get 2 decisions on it"
+            raise Refused(msg)
     plan = {row["id"]: Step(list(series), retire=False) for row in rows}
     command = " ".join(["junk redecide", *map(str, ids), verdict, *(f"--series {s}" for s in series)])
     return _apply(conn, command, verdict, at, plan)

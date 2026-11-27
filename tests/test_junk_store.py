@@ -888,3 +888,171 @@ def test_a_retirement_after_a_read_in_1_act_is_seen_by_the_next_read_and_after_c
         store.retire(conn, [written], act)
         assert store.Decisions(conn, "S").decide("block", unit) is None, "read after it, in the act: retired"
     assert store.Decisions(conn, "S").decide("block", unit) is None, "read after the commit: retired"
+
+
+# ---------------------------------------------------------------- agreement (plan phase-10-6, step 2)
+
+FAR_TILES = (0x0F0F0F0F0F0F0F0F, 0xF0F0F0F0F0F0F0F0, 0x00FF00FF00FF00FF)  # >= 32 bits apart: none match another
+
+
+def stored(row_id, series_key, kind, key, verdict, **columns):
+    """Return an active decision row as the store holds it: imported, of 2026-11-01, no chain, unless columns say."""
+    defaults = {"decider": "import", "decided_at": "2026-11-01T00:00:00+00:00", "chain": None, "bundle": False}
+    return db_row(id=row_id, series_key=series_key, kind=kind, key=key, verdict=verdict, **{**defaults, **columns})
+
+
+def of(rows, series_key="S"):
+    """Return series series_key's Decisions over an index of these rows."""
+    return store.Decisions.of_rows(store.index_of(rows), series_key, [])
+
+
+UNIT = ((T,), 1.0)  # a block unit every sig() and sig((flip(T, 1),)) row matches
+
+
+@budget()
+@pytest.mark.parametrize("verdict", ["junk", "keep"])
+def test_2_other_series_agreeing_decide_a_unit_of_a_series_with_none(verdict):
+    rows = [stored(1, "A", "block", sig(), verdict), stored(2, "B", "probe", sig((flip(T, 1),)), verdict)]
+    got = present(of(rows).decide("block", UNIT))
+    assert (got["verdict"], got["decider"], got["chain"]) == (verdict, store.AGREEMENT, None), (
+        "2 other series of 1 verdict decide it, as a stand-in with no chain"
+    )
+    assert store.agreeing(got) == (1, 2), "the stand-in names both agreeing decisions"
+    assert present(of(rows).decide("probe", UNIT))["verdict"] == verdict, "block and probe decisions agree on a probe"
+
+
+@budget()
+def test_1_other_series_decides_nothing():
+    rows = [stored(1, "A", "block", sig(), "junk"), stored(2, "A", "probe", sig((flip(T, 1),)), "junk")]
+    assert of(rows).decide("block", UNIT) is None, "2 decisions of 1 other series are no agreement"
+    assert of(rows, "A").decide("block", UNIT) is not None, "in its own series the decision decides as ever"
+    second = [*rows, stored(3, "B", "block", sig(), "junk")]
+    assert present(of(second).decide("block", UNIT))["decider"] == store.AGREEMENT, "a 2nd series makes it agree"
+
+
+@budget()
+@pytest.mark.parametrize("kind", ["block", "probe"])
+def test_a_contrary_decision_in_any_series_ends_the_agreement(kind):
+    rows = [stored(1, "A", "block", sig(), "junk"), stored(2, "B", "block", sig(), "junk")]
+    assert present(of(rows).decide("block", UNIT))["decider"] == store.AGREEMENT, "A and B agree"
+    contrary = [*rows, stored(3, "C", kind, sig((flip(T, 1),)), "keep")]
+    assert of(contrary).decide("block", UNIT) is None, f"a {kind} keep of a third series: no agreement"
+
+
+@budget()
+@pytest.mark.parametrize("own", ["junk", "keep"])
+def test_the_series_own_decision_beats_an_agreement(own):
+    other = "keep" if own == "junk" else "junk"
+    rows = [
+        stored(1, "A", "block", sig(), other, decider="claude", decided_at="2026-11-09T00:00:00+00:00"),
+        stored(2, "B", "block", sig(), other, decider="claude", decided_at="2026-11-09T00:00:00+00:00"),
+        stored(3, "S", "block", sig((flip(T, 1),)), own),  # imported and older
+    ]
+    got = present(of(rows).decide("block", UNIT))
+    assert (got["id"], got["verdict"]) == (3, own), "the series' own decision ranks before any agreement"
+    without = present(of(rows[:2]).decide("block", UNIT))
+    assert (without["decider"], without["verdict"]) == (store.AGREEMENT, other), "without it, the agreement decides"
+
+
+@budget()
+def test_a_global_keep_beats_an_agreed_junk_and_an_agreed_keep_beats_a_global_junk():
+    agreed_junk = [stored(1, "A", "block", sig(), "junk"), stored(2, "B", "block", sig(), "junk")]
+    got = present(of([*agreed_junk, stored(3, "", "block", sig((flip(T, 1),)), "keep")]).decide("block", UNIT))
+    assert (got["id"], got["verdict"]) == (3, "keep"), "a global keep ranks before agreement"
+    agreed_keep = [stored(1, "A", "block", sig(), "keep"), stored(2, "B", "block", sig(), "keep")]
+    got = present(of([*agreed_keep, stored(3, "", "block", sig((flip(T, 1),)), "junk")]).decide("block", UNIT))
+    assert (store.agreeing(got), got["verdict"]) == ((1, 2), "keep"), "an agreed keep ranks before a global junk"
+    ranked = store.in_lookup_order([stored(3, "", "block", sig(), "junk"), got, stored(4, "", "block", sig(), "keep")])
+    assert [r["id"] for r in ranked] == [4, 2, 3], "global keep, agreed keep, global junk"
+
+
+@budget()
+def test_a_tail_piece_is_never_decided_by_agreement():
+    rows = [stored(1, "A", "piece", sig(), "junk"), stored(2, "B", "piece", sig(), "junk")]
+    assert of(rows).decide("piece", UNIT) is None, "pieces never agree (D4)"
+    blocks = [stored(1, "A", "block", sig(), "junk"), stored(2, "B", "block", sig(), "junk")]
+    assert of(blocks).decide("block", UNIT) is not None, "the same 2 series agree on a block of that key"
+
+
+@budget()
+def test_frames_and_logos_agree_only_on_junk():
+    vec = np.full(frames.CELLS * 3, 100, np.uint8)
+    frame = frames.key_text(frames.Frame(vec, 1.5))
+    for verdict, want in (("junk", ["junk", "junk"]), ("keep", [None, None])):
+        rows = [
+            stored(1, "A", "frame", frame, verdict),
+            stored(2, "B", "frame", frame, verdict),
+            stored(3, "A", "logo", logo().key_text(), verdict),
+            stored(4, "B", "logo", logo().key_text(), verdict),
+        ]
+        d = of(rows)
+        got = [d.decide("frame", frames.Frame(vec + 5, 1.5)), d.decide("logo", logo())]
+        assert [None if r is None else r["verdict"] for r in got] == want, f"a frame or logo {verdict} agreement"
+
+
+@budget()
+def test_the_stand_in_names_every_agreeing_decision():
+    rows = [
+        stored(5, "A", "block", sig(), "junk", decided_at="2026-11-01T00:00:00+00:00"),
+        stored(9, "A", "probe", sig((flip(T, 1),)), "junk", decider="claude", decided_at="2026-11-03T00:00:00+00:00"),
+        stored(7, "B", "block", sig((flip(T, 2),)), "junk", decided_at="2026-11-02T00:00:00+00:00"),
+        stored(8, "C", "block", sig((flip(T, 3),)), "junk", decided_at="2026-11-02T00:00:00+00:00"),
+        stored(6, "D", "block", sig(((FAR_TILES[0]),)), "junk"),  # another key: no part of it
+    ]
+    got = present(of(rows).decide("block", UNIT))
+    assert store.agreeing(got) == (5, 7, 8, 9), "every matching decision of every other series, sorted"
+    assert (got["id"], got["kind"], got["key"]) == (9, "probe", sig((flip(T, 1),))), "the newest agreeing row stands"
+    assert store.agreeing(rows[0]) == (), "a stored row stands for no agreement"
+
+
+@budget(load="db")
+def test_a_retired_agreeing_decision_ends_the_agreement_for_the_next_decide(conn):
+    put(conn, decision("A", "block", sig(), "junk"), decision("B", "block", sig(), "junk"))
+    before = store.Decisions(conn, "S")
+    assert present(before.decide("block", UNIT))["decider"] == store.AGREEMENT, "A and B agree"
+    first = one(conn, "SELECT min(id) FROM junk_decision")
+    with db.transaction(conn):
+        store.retire(conn, [first], store.new_act(conn, "test", "2026-11-10T00:00:00+00:00"))
+    assert store.Decisions(conn, "S").decide("block", UNIT) is None, "1 series left: the next decide has no agreement"
+    assert before.decide("block", UNIT) is not None, "a lookup built before the act keeps what it read (known limit 3)"
+
+
+@budget(load="db")
+def test_an_agreed_probe_raises_its_blocks_rest_as_a_candidate(conn):
+    """2 other series junk a block's edge piece: it is removed by agreement, and the rest is offered for it."""
+    put(conn, decision("S", "piece", sig((flip(T, 20),)), "keep"))  # rule (d) aside: chapter 9 is no first chapter
+    imported_sightings(conn, (1, 2, 3))
+    piece, rest, whole = sig((FAR_TILES[0],)), sig((FAR_TILES[1],)), sig((FAR_TILES[2],))
+    block: strip_units.EdgeBlock = {
+        "start": 0,
+        "end": 200,
+        "where": "head",
+        "sig": whole,
+        "joins": [
+            {"start": 0, "end": 60, "sig": piece, "uniform": False, "rest": {"start": 60, "end": 200, "sig": rest}}
+        ],
+    }
+
+    def junk_only(kind, text):
+        row = store.Decisions(conn, "S").decide(kind, store.parse_key(kind, text))
+        return row if row is not None and row["verdict"] == "junk" else None
+
+    put(conn, decision("A", "probe", piece, "junk"))
+    removed, left = strip_units.match_blocks([block], junk_only)
+    assert removed == [], "1 other series: the piece is undecided, the block stays whole"
+    put(conn, decision("B", "block", piece, "junk"))
+    removed, left = strip_units.match_blocks([block], junk_only)
+    assert [(r["start"], r["end"], r["why"]) for r in removed] == [(0, 60, "match")], "the agreed piece is removed"
+    assert store.agreeing(removed[0]["decision"]), "removed by the agreement's stand-in"
+    assert (left[0]["start"], left[0].get("rest")) == (60, True), "the block's rest is left"
+    (pick,) = candidates.select(conn, "S", chapter(9), [{**left[0], "kind": "block"}], word_lists())
+    assert pick["reason"] == "the rest of a block whose edge piece is junk", pick
+
+
+@budget()
+def test_1_other_series_and_a_global_decision_of_1_verdict_make_no_agreement():
+    rows = [stored(1, "A", "block", sig(), "junk"), stored(2, "", "block", sig((flip(T, 1),)), "junk")]
+    got = present(of(rows).decide("block", UNIT))
+    assert (got["id"], store.agreeing(got)) == (2, ()), "a global decision is no other series: the global junk decides"
+    with_b = present(of([*rows, stored(3, "B", "block", sig(), "junk")]).decide("block", UNIT))
+    assert store.agreeing(with_b) == (1, 3), "a 2nd series agrees, the global row not among them"

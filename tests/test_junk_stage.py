@@ -18,7 +18,7 @@ from manga_pipeline import cli, config, db, errors, export, identify, intake, pr
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import plan
-from manga_pipeline.junk import anchored, candidates, chains, logo_units, ocr, redecide, review, store
+from manga_pipeline.junk import anchored, candidates, chains, chapter_scan, logo_units, ocr, redecide, review, store
 from manga_pipeline.metadata import sources
 from manga_pipeline.stages import convert as convert_stage
 from manga_pipeline.stages import junk as junk_stage
@@ -1494,3 +1494,182 @@ def test_junk_records_a_re_sliced_chapters_page_count_in_its_edit(site):
     ((text,),) = site.rows("SELECT e.edit FROM chapter_edit e JOIN chapter c ON c.id = e.chapter_id WHERE c.number = 3")
     edit = json.loads(text)
     assert (edit["split"], edit["split_pages"]) == (True, 28), "junk recorded chapter 3's 28 pages in its edit"
+
+
+# ---------------------------------------------------------------- agreement of other series (plan phase-10-6, step 2)
+
+
+def agree(cfg, kind, key, verdict="junk", chain=None):
+    """Write 1 decision on kind and key in each of 2 other series, X (with chain) and Y; return their ids."""
+    rows: list[store.Decision] = [
+        {
+            "series_key": s,
+            "kind": kind,
+            "key": key,
+            "verdict": verdict,
+            "decider": "claude",
+            "decided_at": "2026-11-01T00:00:00+00:00",
+            "source": "test",
+            "chain": chain if s == "X" else None,
+        }
+        for s in ("X", "Y")
+    ]
+    with closing(db.connect(cfg)) as conn, db.transaction(conn):
+        store.upsert(conn, rows)
+        return [r[0] for r in conn.execute("SELECT id FROM junk_decision WHERE series_key IN ('X', 'Y') ORDER BY id")]
+
+
+@budget(load="db", seconds=15)
+def test_an_agreed_unit_is_no_candidate_and_ends_a_wait(site):
+    site.download("Alpha", 2, cbz(seed="g2", credit=True))
+    site.parts()
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "the chapter waits on its credit page"
+    (c,) = open_candidates(site)
+    ids = agree(site.cfg, c["kind"], c["key"])
+    assert open_candidates(site) == [], "the agreement closes the candidate"
+    with closing(db.connect(site.cfg)) as conn, pytest.raises(review.Refused) as refused:
+        review.get_open(conn, c["id"], None)
+    assert f"decisions {ids[0]}, {ids[1]} of other series agree it is junk" in str(refused.value), refused.value
+    run_part(site.cfg, process)
+    assert site.chapters()[0][0] != "junk", "the wait ends and the agreed junk decides the chapter"
+
+
+def agreed_watermark(site, monkeypatch):
+    """Scan and decide strip chapter 2 of Long, ending with the same band twice; X and Y then junk the band.
+
+    Return the stand-in's id (the newer of the 2 agreeing decisions).
+    """
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    site.download("Long", 2, panels_cbz(["a2", "b2", "c2", "d2", "mark", "mark"]))
+    site.parts()
+    ((scan,),) = site.rows("SELECT scan FROM junk_scan")
+    return agree(site.cfg, "block", json.loads(scan)["blocks"][-1]["sig"])
+
+
+@budget(load="pool", seconds=60)
+def test_an_agreed_removal_remembers_no_watermark(site, monkeypatch):
+    """The band twice at 1 tail is a watermark; removed by agreement, it is not remembered (no row written)."""
+    ids = agreed_watermark(site, monkeypatch)
+    run_part(site.cfg, process)
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "its other blocks are still undecided"
+    assert site.rows("SELECT key FROM junk_watermark") == [], "not remembered while it waits"
+    decide_junk(site.cfg, "keep")
+    run_part(site.cfg, process)
+    (edit,) = edits(site)
+    agreed = [r for r in edit["strip_removed"] if r.get("decision") == ids[-1]]
+    assert len(agreed) == len(["mark", "mark"]), "both bands are removed, named by the stand-in's (real) decision"
+    assert site.rows("SELECT key FROM junk_watermark") == [], "nor when the chapter is done"
+
+
+@budget(load="pool", seconds=60)
+def test_a_chapter_logs_its_agreed_units_when_a_decide_ends_it_and_not_while_waiting(site, monkeypatch, caplog):
+    ids = agreed_watermark(site, monkeypatch)
+    caplog.set_level("INFO", logger=junk_stage.__name__)
+    run_part(site.cfg, process)
+    assert site.chapters() == [("junk", "waiting", "junk_decision")], "a waiting decide"
+    assert not [r for r in caplog.records if "agreement" in r.getMessage()], "a waiting decide logs nothing"
+    decide_junk(site.cfg, "keep")
+    run_part(site.cfg, process)
+    (line,) = [r.getMessage() for r in caplog.records if "agreement" in r.getMessage()]
+    (edit,) = edits(site)
+    agreed = [r for r in edit["strip_removed"] if r.get("decision") == ids[-1]]
+    assert agreed, "the bands are removed by the stand-in's decision"
+    for r in agreed:
+        assert f"block rows {r['start']}-{r['end']} junk by decisions {ids[0]} {ids[1]}" in line, line
+    assert "keep" not in line, "the kept blocks are the series' own decisions: not named"
+
+
+@budget(load="db", seconds=30)
+def test_an_agreed_chained_decision_removes_no_card_and_holds_nothing(site, monkeypatch):
+    """X's chained band decision and Y's plain one agree: the band goes, its card is not tried, nothing holds."""
+    data, sc = chained_strip(site, monkeypatch)
+    band = sc["blocks"][-2]  # panel e, in the tail half
+    first = tuple(sc["spans"][0])  # panel a's tiles where panel f lies: a card that would miss
+    card = chain_text("below", {**span_segment(strip_rows(data), first), "h": round(400 / 300, 4)}, src=None)
+    ids = agree(site.cfg, "block", band["sig"], chain=card)
+    for _ in range(2):  # the band removed, panel f below it is a tail piece, offered and kept in turn
+        decide_junk(site.cfg, "keep")
+        run_part(site.cfg, process)
+        assert site.chapters()[0][1] != "needs_human", "an agreed chain never holds a chapter"
+    (edit,) = edits(site)
+    assert {"start": band["start"], "end": band["end"], "why": "match", "decision": ids[-1], "hash": band["sig"]} in (
+        edit["strip_removed"]
+    ), edit
+    assert not [r for r in edit["strip_removed"] if r["why"] == "card"], "no card is removed"
+
+
+def standin(row_id, key, verdict="junk"):
+    """Return a stand-in row of an agreement of decisions 1 and row_id (row_id the newest)."""
+    return db.row(
+        id=row_id,
+        series_key="X",
+        kind="block",
+        key=key,
+        verdict=verdict,
+        decider=store.AGREEMENT,
+        chain=None,
+        agreeing=(1, row_id),
+    )
+
+
+def own_row(row_id, key, verdict="junk"):
+    return db.row(id=row_id, series_key="S", kind="block", key=key, verdict=verdict, decider="claude", chain=None)
+
+
+@budget()
+def test_a_stored_row_on_the_agreed_key_that_removed_nothing_does_not_bring_the_watermark_back():
+    removed: list[plan.RemovedRange] = [{"start": 0, "end": 10, "why": "match", "decision": 7, "hash": "h1"}]
+    memo: junk_stage.Memo = {("block", "h1"): standin(7, "K"), ("block", "h2"): own_row(9, "K")}
+    assert junk_stage.own_watermarks(["K"], removed, memo) == [], "only the agreement removed K: not remembered"
+    removed.append({"start": 20, "end": 30, "why": "match", "decision": 9, "hash": "h2"})
+    assert junk_stage.own_watermarks(["K"], removed, memo) == ["K"], "a stored row removed K too: remembered"
+
+
+def strip_of_blocks(*blocks) -> chapter_scan.StoredStripScan:
+    """Return a stored strip scan of these edge blocks [(start, end, sig)], nothing else read."""
+    return {
+        "layout": "strip",
+        "width": 300,
+        "height": 4000,
+        "gaps": [],
+        "spans": [],
+        "blocks": [{"start": a, "end": b, "where": "head", "sig": h, "joins": []} for a, b, h in blocks],
+        "measured": {},
+        "middle": [],
+        "marks": [],
+    }
+
+
+def applied_of(removed, problem=None):
+    edit: plan.ChapterEdit = {
+        "drop_pages": [],
+        "bands": [],
+        "join": [],
+        "split": False,
+        "split_pages": None,
+        "strip_removed": removed,
+        "blank": [],
+    }
+    return chapter_scan.Applied(edit, [], [], problem, [])
+
+
+@budget()
+def test_the_log_names_agreed_junk_of_a_refused_edit_and_only_kept_blocks_left_whole():
+    sc = strip_of_blocks((0, 100, "h1"), (200, 300, "h2"), (400, 500, "h3"))
+    memo: junk_stage.Memo = {
+        ("block", "h1"): standin(7, "K1"),
+        ("block", "h2"): standin(8, "K2", "keep"),
+        ("block", "h3"): standin(9, "K3", "keep"),
+    }
+    refused = junk_stage.agreed_units(sc, applied_of([], "junk removal would leave 0 px"), memo)
+    assert refused == ["block (edit refused) junk by decisions 1 7"], "the agreed junk behind a refusal, no keep"
+    removed: list[plan.RemovedRange] = [
+        {"start": 0, "end": 100, "why": "match", "decision": 7, "hash": "h1"},
+        {"start": 450, "end": 500, "why": "card", "decision": 3},
+    ]
+    got = junk_stage.agreed_units(sc, applied_of(removed), memo)
+    assert got == ["block rows 0-100 junk by decisions 1 7", "block rows 200-300 keep by decisions 1 8"], (
+        "a kept block a card range cuts into is not left whole: not named"
+    )

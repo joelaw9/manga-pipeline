@@ -10,6 +10,10 @@ marks.Template.key_text.
 An unsignable key (a signature whose every tile is a uniform image's) would match any blank or flat rows: a unit
 with one matches no decision, and no decision is written on one.
 
+Other series agree on a unit when 2 or more of them (AGREE_SERIES) hold active decisions of the kinds that act on it
+that match it, all of 1 verdict (SPEC "Junk decisions", decisions): Decisions.decide returns a stand-in row for it
+(decider AGREEMENT, no chain, the agreeing ids in `agreeing`), never written.
+
 Every lookup reads the store index (index): every active decision, each key parsed, cached for the process under the
 store's version (database id, largest decision id, largest act id) and read again when the version moves. Every writer
 moves it: a decision is inserted (a new id), or retired or restored by an act (a new act id); write transactions never
@@ -48,6 +52,10 @@ NEAR_KINDS = ("block", "band", "probe")  # the junk decisions the near rule comp
 ASPECT_BIN_MARGIN = 1.05
 ASPECT_BIN = ASPECT_BIN_MARGIN * -math.log(1 - max(images.ASPECT_TOLERANCE, images.NEAR_ASPECT_TOLERANCE))
 DECIDERS = ("import", "claude", "human")
+AGREEMENT = "agreement"  # the decider of a stand-in row: other series' agreement decides (Decisions.decide)
+AGREE_SERIES = 2  # how many other series must agree (plan phase-10-6 D5)
+NEVER_AGREED = ("piece",)  # unit kinds agreement never decides (D4)
+AGREED_JUNK_ONLY = ("frame", "logo")  # unit kinds agreement decides only to junk (D3: no agreed keep)
 # An active decision decides units; a superseded or retired one is history (SPEC "Junk decisions", decisions).
 ACTIVE = sql.SQL("superseded_by IS NULL AND retired_by IS NULL")
 
@@ -120,15 +128,32 @@ def is_signature(key: ParsedKey) -> TypeIs[images.Signature]:
     return not isinstance(key, (frames.Frame, marks.Template))
 
 
+def agreeing(row: db.Row) -> tuple[int, ...]:
+    """Return the ids of the decisions whose agreement a deciding row stands in for, sorted; () for a stored row."""
+    return row["agreeing"] if row["decider"] == AGREEMENT else ()
+
+
+def _tier(row: db.Row) -> int:
+    """Return a row's tier in lookup order, from the row alone: its scope (a stand-in's is agreement) and verdict."""
+    keep = row["verdict"] == "keep"
+    if row["decider"] == AGREEMENT:
+        return 3 if keep else 4
+    if row["series_key"] == GLOBAL:
+        return 2 if keep else 5
+    return 0 if keep else 1
+
+
 def in_lookup_order(rows: Iterable[db.Row]) -> list[db.Row]:
     """Return decision rows in lookup order.
 
-    The series' keeps, its junk, global keeps, global junk; within each, the pipeline's decisions (claude, human)
-    before the imported ones, then newest first. Keeps go first because matching is not transitive: a unit within reach
-    of a kept and a junk key stays kept, whichever is newer and whoever made it. Equal rows keep their given order.
+    The series' keeps, its junk, global keeps, the agreed keeps of other series, their agreed junk, global junk (a
+    stand-in row is agreed, any other row the series' unless global); within each, the pipeline's decisions (claude,
+    human) before the imported ones, then newest first. Keeps go first because matching is not transitive: a unit
+    within reach of a kept and a junk key stays kept, whichever is newer and whoever made it. Equal rows keep their
+    given order.
     """
     newest = sorted(rows, key=lambda r: r["decided_at"], reverse=True)
-    return sorted(newest, key=lambda r: (r["series_key"] == GLOBAL, r["verdict"] != "keep", r["decider"] == "import"))
+    return sorted(newest, key=lambda r: (_tier(r), r["decider"] == "import"))
 
 
 type Keyed = tuple[db.Row, ParsedKey]  # a decision row and its key parsed (parse_key)
@@ -158,7 +183,8 @@ class Index:
     """Every active decision, each key parsed (index_of): what every Decisions is built from.
 
     Per series key (GLOBAL included): its rows but cuts, and its cut rows apart, oldest first; the signature rows
-    (SIGNATURE_KINDS) binned by (kind, tile count, aspect bin) for the near rule.
+    (SIGNATURE_KINDS) binned by (kind, tile count, aspect bin) for the near rule and agreement; every frame and logo
+    row by kind, for agreement.
     """
 
     def __init__(self, rows: Iterable[db.Row]) -> None:
@@ -167,6 +193,7 @@ class Index:
         self._cuts: dict[str, list[db.Row]] = {}
         self._bins: dict[tuple[str, int, int], list[_Binned]] = {}
         self._ordered: dict[str, list[Keyed]] = {}
+        self._plain: dict[str, list[Keyed]] = {}
         for row in sorted(rows, key=lambda r: r["id"], reverse=True):  # newest id first: lookup order's tie order
             key = parse_key(row["kind"], row["key"])
             if row["kind"] == "cut":
@@ -177,6 +204,8 @@ class Index:
                 tiles, aspect = key
                 entry = _Binned(row, key, row["series_key"], row["verdict"])
                 self._bins.setdefault((row["kind"], len(tiles), _aspect_bin(aspect)), []).append(entry)
+            else:
+                self._plain.setdefault(row["kind"], []).append((row, key))
         for cut_rows in self._cuts.values():
             cut_rows.sort(key=lambda r: (r["decided_at"], r["id"]))
 
@@ -198,6 +227,13 @@ class Index:
         """Return the signature rows of these kinds with `tiles` tiles in aspect's bin and its 2 neighbours."""
         b = _aspect_bin(aspect)
         return [e for kind in kinds for n in (b - 1, b, b + 1) for e in self._bins.get((kind, tiles, n), [])]
+
+    def matching(self, kinds: Iterable[str], key: ParsedKey) -> list[db.Row]:
+        """Return the rows of these kinds, of every series and global, that match a unit's parsed key (matches)."""
+        if is_signature(key):
+            tiles, aspect = key
+            return [e.row for e in self.binned(kinds, len(tiles), aspect) if images.matches(e.sig, key)]
+        return [row for kind in kinds for row, stored in self._plain.get(kind, []) if matches(stored, key)]
 
 
 def index_of(rows: Iterable[db.Row]) -> Index:
@@ -281,7 +317,7 @@ def _near_cap(unit_kind: str, *, own: bool) -> int:
 
 
 class Decisions:
-    """The decisions that apply to 1 series (its own and the global ones), in lookup order (in_lookup_order)."""
+    """The decisions that apply to 1 series (its own, the global ones, other series' agreement), in lookup order."""
 
     def __init__(self, conn: db.Connection, key: str) -> None:
         """Return the Decisions of series key `key` over the store index."""
@@ -308,29 +344,64 @@ class Decisions:
         self._layered = [(row, k) for row, k in layered if row["kind"] != "cut"]
         self._cuts = idx.cuts(key)
         self._own = idx.ordered(key)
-        self._global = [] if key == GLOBAL else idx.ordered(GLOBAL)  # every series row ranks first (in_lookup_order)
+        # every series row ranks first, then the global keeps, agreement, the global junk (in_lookup_order)
+        found = [] if key == GLOBAL else idx.ordered(GLOBAL)
+        self._global_keep = [x for x in found if x[0]["verdict"] == "keep"]
+        self._global_junk = [x for x in found if x[0]["verdict"] != "keep"]
         if layered:
             added = [row for row, _ in layered if row["kind"] == "cut"]
             self._cuts = sorted([*self._cuts, *added], key=lambda r: (r["decided_at"], r["id"]))
             self._own = _ordered([*self._layered, *self._own])  # layered first: newest on a tie
 
     def _rows(self) -> Iterator[Keyed]:
-        """Yield the rows but cuts in lookup order: the series', then the global ones."""
-        return itertools.chain(self._own, self._global)
+        """Yield the stored rows but cuts in lookup order: the series', then the global ones."""
+        return itertools.chain(self._own, self._global_keep, self._global_junk)
 
     def cuts(self) -> list[db.Row]:
         """Return the series' active cut decisions, oldest first (decided_at, then id): the cut pool (junk.anchored)."""
         return list(self._cuts)
 
     def decide(self, kind: str, key: ParsedKey) -> db.Row | None:
-        """Return the deciding row for a unit of `kind` with parsed key `key`, or None (undecided)."""
+        """Return the deciding row for a unit of `kind` with parsed key `key`, or None (undecided).
+
+        The first in lookup order that matches: the series' rows, the global keeps, other series' agreement (_agreed),
+        the global junk.
+        """
         if is_signature(key) and images.unsignable(key):
             return None
         kinds = DECIDING[kind]
-        for row, stored in self._rows():
+        for row, stored in itertools.chain(self._own, self._global_keep):
+            if row["kind"] in kinds and matches(stored, key):
+                return row
+        agreed = self._agreed(kind, key)
+        if agreed is not None:
+            return agreed
+        for row, stored in self._global_junk:
             if row["kind"] in kinds and matches(stored, key):
                 return row
         return None
+
+    def _agreed(self, kind: str, key: ParsedKey) -> db.Row | None:
+        """Return the stand-in row of other series' agreement on a unit, or None.
+
+        Other series agree when the active decisions of the kinds that act on the unit, of neither this series nor
+        global, that match it come from AGREE_SERIES or more series and hold 1 verdict; never on a tail piece, and on
+        a frame or a logo only to junk. The stand-in is the newest agreeing row (decided_at, then id: its id names a
+        real decision) with decider AGREEMENT, no chain (it acts plain: D10) and `agreeing`, every agreeing id sorted.
+        """
+        if kind in NEVER_AGREED:
+            return None
+        found = self._index.matching(DECIDING[kind], key)
+        hits = [r for r in found if r["series_key"] not in (self.series_key, GLOBAL)]
+        verdicts = {r["verdict"] for r in hits}
+        if len({r["series_key"] for r in hits}) < AGREE_SERIES or len(verdicts) != 1:
+            return None
+        if verdicts == {"keep"} and kind in AGREED_JUNK_ONLY:
+            return None
+        newest = max(hits, key=lambda r: (r["decided_at"], r["id"]))
+        columns = dict(zip(newest.keys(), newest, strict=True))
+        ids = tuple(sorted(r["id"] for r in hits))
+        return db.row(**{**columns, "decider": AGREEMENT, "chain": None, "agreeing": ids})
 
     def judged_keep(self, sig: images.Signature) -> bool:
         """Return whether a tail piece is judged kept (W5, the bulk converter's Library.judged_keep).

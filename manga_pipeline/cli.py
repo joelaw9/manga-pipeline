@@ -513,7 +513,8 @@ def junk_show(cfg: config.Config, args: argparse.Namespace) -> None:
 def junk_decide(cfg: config.Config, args: argparse.Namespace) -> None:
     """Record a verdict on junk candidates, by claude under a review run, else by a human (`junk decide`), all or none.
 
-    --keep-rest (junk, inside a review): the rest of that series the review listed is kept.
+    --keep-rest (junk, inside a review): the rest of that series the review listed is kept. Then a warning for each
+    page keep that overrides a frame junk decision it leaves (A24, review.page_keeps_over).
     """
     review_id = os.environ.get(review.REVIEW_ID_VARIABLE)
     decider = "claude" if review_id else "human"
@@ -523,15 +524,17 @@ def junk_decide(cfg: config.Config, args: argparse.Namespace) -> None:
     with _junk_db(cfg) as conn:
         try:
             if args.keep_rest:
-                kept = review.decide_junk_keeping_rest(conn, args.ids, review_id, workflow.now(conn))
+                kept, overrides = review.decide_junk_keeping_rest(conn, args.ids, review_id, workflow.now(conn))
             else:
-                review.decide(conn, args.ids, args.verdict, review_id, workflow.now(conn))
+                overrides = review.decide(conn, args.ids, args.verdict, review_id, workflow.now(conn))
                 kept = []
         except review.Refused as e:
             raise workflow.Refused(str(e)) from None
     log.info("junk candidate(s) %s decided %s by %s", args.ids, args.verdict, decider)
     if kept:
         log.info("junk candidate(s) %s kept as the rest by %s", [r["id"] for r in kept], decider)
+    for o in overrides:
+        log.warning("%s", review.override_text(o))
 
 
 def _decision_line(row: db.Row, acts: dict[int, list[str]]) -> str:
@@ -570,7 +573,10 @@ def junk_rows(cfg: config.Config, args: argparse.Namespace) -> None:
 
 
 def junk_row(cfg: config.Config, args: argparse.Namespace) -> None:
-    """Print decisions with their kept images, or (--where) the sighted units each decides now (`junk row`)."""
+    """Print decisions with their kept images, or (--where) the sighted units each decides now (`junk row`).
+
+    An active frame junk decision also lists the page keeps that override it (A24, review.page_keeps_over).
+    """
     if args.series and not args.where:
         msg = "--series goes with --where"
         raise workflow.Refused(msg)
@@ -597,6 +603,9 @@ def junk_row(cfg: config.Config, args: argparse.Namespace) -> None:
                 print("\n".join(f"  {u.series_key}\t{u.identity}\t{u.kind}" for u in units) or "  no sighted unit")
             else:
                 print(f"  {candidates.kept_images(cfg, row['images'])}")
+                if row["kind"] == "frame" and row["verdict"] == "junk" and store.is_active(row):
+                    for o in review.page_keeps_over(conn, [row]):
+                        print(f"  {review.override_text(o)}")
 
 
 def junk_redecide(cfg: config.Config, args: argparse.Namespace) -> None:
@@ -931,7 +940,11 @@ def _junk_commands(command: argparse.ArgumentParser) -> None:
     redecide_.add_argument("ids", type=int, nargs="+", metavar="ROW", help="decision ids, re-decided together or not")
     redecide_.add_argument("verdict", choices=redecide.VERDICTS, help="the new verdict")
     redecide_.add_argument(
-        "--series", nargs="+", default=[], help="a global decision: decide it so in these series only"
+        "--series",
+        nargs="+",
+        default=[],
+        help="a global decision: decide it so in these series only; a series decision: these other series get their"
+        " own decision of the verdict (opting out of an agreement it is part of)",
     )
     redecide_.add_argument("--retire", action="store_true", help="a global decision: retire it, write nothing")
     redecide_.set_defaults(command="junk redecide")
