@@ -17,8 +17,9 @@ overlap (db.transaction). A script or schema step that changes junk_decision row
 no part runs (lock.IDLE exclusive), as scripts/mark_bundle_rows.py does, or a running process keeps its old index.
 """
 
+import itertools
 import math
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import NamedTuple, NotRequired, TypedDict, TypeIs
 
 import numpy as np
@@ -41,9 +42,11 @@ DECIDING: dict[str, tuple[str, ...]] = {
 }
 SIGNATURE_KINDS = ("block", "probe", "piece", "page", "band")  # keyed by an image signature
 NEAR_KINDS = ("block", "band", "probe")  # the junk decisions the near rule compares against
-# The index's aspect bins: 12 % wide (log scale), so 2 aspects the live rule (3 %) or the near rule (10 %) compares lie
-# in 1 bin or 2 adjacent ones: a query reads its own bin and both neighbours.
-ASPECT_BIN = math.log(1.12)
+# The index's aspect bins (log scale): at least as wide as the largest aspect ratio the live rule or the near rule
+# accepts (aspects within tolerance t of the larger differ by a ratio of at most 1 / (1 - t)), with a margin, so 2
+# aspects either rule compares lie in 1 bin or 2 adjacent ones: a query reads its own bin and both neighbours.
+ASPECT_BIN_MARGIN = 1.05
+ASPECT_BIN = ASPECT_BIN_MARGIN * -math.log(1 - max(images.ASPECT_TOLERANCE, images.NEAR_ASPECT_TOLERANCE))
 DECIDERS = ("import", "claude", "human")
 # An active decision decides units; a superseded or retired one is history (SPEC "Junk decisions", decisions).
 ACTIVE = sql.SQL("superseded_by IS NULL AND retired_by IS NULL")
@@ -159,7 +162,7 @@ class Index:
     """
 
     def __init__(self, rows: Iterable[db.Row]) -> None:
-        """File active decision rows, each key parsed (ValueError for one that does not parse)."""
+        """File active decision rows, each key parsed (ValueError, or OSError for a logo's, for one that does not)."""
         self._own: dict[str, list[Keyed]] = {}
         self._cuts: dict[str, list[db.Row]] = {}
         self._bins: dict[tuple[str, int, int], list[_Binned]] = {}
@@ -178,10 +181,13 @@ class Index:
             cut_rows.sort(key=lambda r: (r["decided_at"], r["id"]))
 
     def ordered(self, key: str) -> list[Keyed]:
-        """Return the rows but cuts of series key `key` and the global ones, in lookup order (built once per key)."""
+        """Return the rows but cuts of series key `key` alone, in lookup order (built once per key).
+
+        Every series row ranks before every global row (in_lookup_order), so a series' lookup is its rows, then the
+        global ones.
+        """
         if key not in self._ordered:
-            own = self._own.get(key, [])
-            self._ordered[key] = _ordered(own if key == GLOBAL else [*own, *self._own.get(GLOBAL, [])])
+            self._ordered[key] = _ordered(self._own.get(key, []))
         return self._ordered[key]
 
     def cuts(self, key: str) -> list[db.Row]:
@@ -195,13 +201,17 @@ class Index:
 
 
 def index_of(rows: Iterable[db.Row]) -> Index:
-    """Return the index of active decision rows, a pure function of them; ValueError for a key that does not parse."""
+    """Return the index of active decision rows, a pure function of them (Index's errors for a key that does not parse).
+
+    The name the plan's oracle replay builds 1 index per series with (plan phase-10-6, step 2).
+    """
     return Index(rows)
 
 
 VERSION = sql.SQL("""SELECT (SELECT value FROM meta WHERE key = 'database_id'), (SELECT max(id) FROM junk_decision),
     (SELECT max(id) FROM junk_act)""")
-_cached: list[tuple[Version, Index]] = []  # the process's store index under its version (index), at most 1
+_cached: list[tuple[Version, Index]] = []  # the process's store index under its version (index), at most 1: read
+# outside any transaction, so it names committed rows only
 
 
 def version(conn: db.Connection) -> Version:
@@ -213,24 +223,28 @@ def version(conn: db.Connection) -> Version:
 def index(conn: db.Connection) -> Index:
     """Return the store index, read again only when the store's version moved since this process last read it.
 
-    Inside the caller's transaction the version and the rows are read on it (the caller writes under the write lock or
-    reads 1 snapshot, and sees its own writes); outside one, in a repeatable-read transaction of its own, so the version
-    names exactly the rows read. Rows read in a transaction that then rolls back stay cached under its version: ids are
-    never reused, so the next committed write moves the version past them.
+    Outside a transaction the version and the rows are read in a repeatable-read transaction of its own, so the version
+    names exactly the rows read, and the index is cached. Inside the caller's transaction both are read on it (the
+    caller writes under the write lock or reads 1 snapshot, and sees its own writes), and nothing is cached: within 1
+    act a retirement or a restoration after a read moves no id, so rows read mid-transaction are not the version's,
+    and a rolled-back transaction's rows were never committed. There the cached index is used only when the version is
+    the cached one: the transaction has then written no decision and no act, and sees those committed rows.
     """
     if db.in_transaction(conn):
-        return _read(conn)
+        return _read(conn, keep=False)
     with conn.transaction():
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        return _read(conn)
+        return _read(conn, keep=True)
 
 
-def _read(conn: db.Connection) -> Index:
+def _read(conn: db.Connection, *, keep: bool) -> Index:
+    """Return the index of the rows conn sees: the cached one at its version, else built (and cached when keep)."""
     now = version(conn)
     if _cached and _cached[0][0] == now:
         return _cached[0][1]
     built = index_of(conn.execute(sql.SQL("SELECT * FROM junk_decision WHERE {}").format(ACTIVE)).fetchall())
-    _cached[:] = [(now, built)]
+    if keep:
+        _cached[:] = [(now, built)]
     return built
 
 
@@ -256,7 +270,11 @@ def decisions_of(conn: db.Connection, keys: Iterable[str]) -> Callable[[str], "D
 
 
 def _near_cap(unit_kind: str, *, own: bool) -> int:
-    """Return the near rule's cap: a probe unit's, else a decision's of the unit's series or global (own), else."""
+    """Return the near rule's largest tile distance for a unit of unit_kind and a decision.
+
+    NEAR_PROBE for a probe unit; else NEAR_THRESHOLD for a decision of the unit's series or a global one (own), and
+    NEAR_OTHER_SERIES for another series' decision.
+    """
     if unit_kind == "probe":
         return images.NEAR_PROBE
     return images.NEAR_THRESHOLD if own else images.NEAR_OTHER_SERIES
@@ -273,22 +291,32 @@ class Decisions:
     def of_rows(cls, idx: Index, key: str, layered: list[Keyed]) -> "Decisions":
         """Return the Decisions of series key `key` over index idx, with rows of the series layered on top.
 
-        layered: rows not in the store (junk cut's proposed decision), each key parsed; a layered cut row is in cuts().
+        layered: rows not in the store (junk cut's proposed decision), each key parsed, each of series key `key`
+        (ValueError otherwise); a layered cut row is in cuts().
         """
         self = cls.__new__(cls)
         self._set(idx, key, layered)
         return self
 
     def _set(self, idx: Index, key: str, layered: list[Keyed]) -> None:
+        stray = [row["id"] for row, _ in layered if row["series_key"] != key]
+        if stray:
+            msg = f"layered rows {stray} are not of series key {key!r}"
+            raise ValueError(msg)
         self.series_key = key
         self._index = idx
         self._layered = [(row, k) for row, k in layered if row["kind"] != "cut"]
         self._cuts = idx.cuts(key)
-        self._rows = idx.ordered(key)
+        self._own = idx.ordered(key)
+        self._global = [] if key == GLOBAL else idx.ordered(GLOBAL)  # every series row ranks first (in_lookup_order)
         if layered:
             added = [row for row, _ in layered if row["kind"] == "cut"]
             self._cuts = sorted([*self._cuts, *added], key=lambda r: (r["decided_at"], r["id"]))
-            self._rows = _ordered([*self._layered, *self._rows])  # layered first: newest on a tie
+            self._own = _ordered([*self._layered, *self._own])  # layered first: newest on a tie
+
+    def _rows(self) -> Iterator[Keyed]:
+        """Yield the rows but cuts in lookup order: the series', then the global ones."""
+        return itertools.chain(self._own, self._global)
 
     def cuts(self) -> list[db.Row]:
         """Return the series' active cut decisions, oldest first (decided_at, then id): the cut pool (junk.anchored)."""
@@ -299,7 +327,7 @@ class Decisions:
         if is_signature(key) and images.unsignable(key):
             return None
         kinds = DECIDING[kind]
-        for row, stored in self._rows:
+        for row, stored in self._rows():
             if row["kind"] in kinds and matches(stored, key):
                 return row
         return None
@@ -314,7 +342,7 @@ class Decisions:
             return False
         return any(
             row["kind"] == "piece" and row["verdict"] == "keep" and not row["bundle"] and matches(stored, sig)
-            for row, stored in self._rows
+            for row, stored in self._rows()
         )
 
     def near(self, sig: images.Signature, unit_kind: str) -> tuple[db.Row, int, float] | None:

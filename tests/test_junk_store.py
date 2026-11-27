@@ -2,6 +2,7 @@
 
 import base64
 import json
+import math
 import shutil
 
 import numpy as np
@@ -128,17 +129,67 @@ def test_frames_match_by_their_own_rule(conn):
 @budget(load="db")
 @pytest.mark.parametrize(
     ("scope", "unit_kind", "cap"),
-    [("S", "block", 8), ("", "block", 8), ("Other", "block", 6), ("S", "probe", 4), ("Other", "probe", 4)],
-    ids=["series", "global", "other-series", "probe-series", "probe-other-series"],
+    [
+        ("S", "block", 8),
+        ("", "block", 8),
+        ("Other", "block", 6),
+        ("S", "probe", 4),
+        ("", "probe", 4),
+        ("Other", "probe", 4),
+    ],
+    ids=["series", "global", "other-series", "probe-series", "probe-global", "probe-other-series"],
 )
 def test_near_caps_8_for_the_series_and_global_6_for_another_series_4_for_a_probe(conn, scope, unit_kind, cap):
-    """A junk decision is near a unit of series S within its cap, aspect within 10 %; 1 bit more is not near."""
+    """A junk decision is near a unit of series S within its cap, aspect within 10 %; 1 bit more is not near.
+
+    Both units are 5 % off the decision's aspect: past the live rule's 3 %, so no decision of the series matches them
+    and suppresses near; only the cap decides.
+    """
     put(conn, decision(scope, "block", sig(), "junk"))
     hit = store.Decisions(conn, "S").near(((flip(T, cap),), 1.05), unit_kind)
     assert hit is not None, f"a {scope or 'global'} junk decision {cap} bits from a {unit_kind} is near"
     assert hit[1] == cap, f"its distance is {cap}"
-    far = store.Decisions(conn, "S").near(((flip(T, cap + 1),), 1.0), unit_kind)
+    far = store.Decisions(conn, "S").near(((flip(T, cap + 1),), 1.05), unit_kind)
     assert far is None, f"{cap + 1} bits from a {unit_kind} is not near a {scope or 'global'} decision"
+
+
+@budget(load="db")
+def test_near_finds_a_decision_in_the_next_aspect_bin(conn):
+    """A decision at aspect 0.99 and a unit at 1.05 (6 % apart) lie in adjacent bins of the index: still near."""
+    bins = {math.floor(math.log(a) / store.ASPECT_BIN) for a in (0.99, 1.05)}
+    assert len(bins) == len((0.99, 1.05)), "the 2 aspects are in different bins"
+    put(conn, decision("S", "block", sig(aspect=0.99), "junk"))
+    hit = store.Decisions(conn, "S").near(((flip(T, 2),), 1.05), "block")
+    assert hit is not None, "a decision in the next aspect bin is near"
+
+
+@budget()
+def test_the_pipelines_decision_comes_before_an_imported_one_of_its_tier():
+    """2 series junk decisions match the unit: the pipeline's, older and chained, decides before a newer import."""
+    rows = [
+        db_row(
+            id=1,
+            series_key="S",
+            kind="block",
+            key=sig(),
+            verdict="junk",
+            decider="claude",
+            decided_at="2026-11-01T00:00:00+00:00",
+            chain="{}",
+        ),
+        db_row(
+            id=2,
+            series_key="S",
+            kind="block",
+            key=sig((flip(T, 1),)),
+            verdict="junk",
+            decider="import",
+            decided_at="2026-12-01T00:00:00+00:00",
+            chain=None,
+        ),
+    ]
+    got = present(store.Decisions.of_rows(store.index_of(rows), "S", []).decide("block", ((T,), 1.0)))
+    assert (got["id"], got["chain"]) == (1, "{}"), "the pipeline's decision decides, its chain with it"
 
 
 @budget(load="db")
@@ -823,3 +874,17 @@ def test_a_malformed_frame_or_logo_key_is_refused_on_write(conn, kind, key):
     with pytest.raises(ValueError, match="decision key"):
         put(conn, decision("S", kind, key, "junk"))
     assert one(conn, "SELECT count(*) FROM junk_decision") == 0, "nothing is written"
+
+
+@budget(load="db")
+def test_a_retirement_after_a_read_in_1_act_is_seen_by_the_next_read_and_after_commit(conn):
+    """Within 1 act the retirement moves no id: a read before it must not leave its rows for the reads after."""
+    unit = store.parse_key("block", sig())
+    put(conn, decision("S", "block", sig(), "junk"))
+    written = one(conn, "SELECT id FROM junk_decision")
+    with db.transaction(conn):
+        act = store.new_act(conn, "test", "2026-11-10T00:00:00+00:00")
+        assert store.Decisions(conn, "S").decide("block", unit) is not None, "read before the retirement: decided"
+        store.retire(conn, [written], act)
+        assert store.Decisions(conn, "S").decide("block", unit) is None, "read after it, in the act: retired"
+    assert store.Decisions(conn, "S").decide("block", unit) is None, "read after the commit: retired"
