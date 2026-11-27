@@ -22,7 +22,7 @@ from manga_pipeline.metadata import sources
 
 from tests.builders import config_file, problem_text, run_part
 from tests.test_junk_cut import oracle, real_head, sheets_of
-from tests.test_junk_stage import Site
+from tests.test_junk_stage import KEYWORD_TEXT, Site
 from tests.timing import budget
 from tests.world import World, cbz
 
@@ -349,7 +349,7 @@ def test_the_prompt_is_version_8_and_names_the_3_cut_forms():
 
 @pytest.fixture
 def site(tmp_path, monkeypatch):
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     return Site(tmp_path, monkeypatch)
 
 

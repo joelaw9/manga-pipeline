@@ -29,7 +29,7 @@ from manga_pipeline import cli, config, db, process, retention
 from manga_pipeline.junk import anchored, chains, cut, groups, ocr, review, store
 
 from tests.builders import config_file, present, run_part
-from tests.test_junk_stage import Site, edits, imported, panels_cbz, strip_logo_cbz
+from tests.test_junk_stage import KEYWORD_TEXT, Site, edits, imported, panels_cbz, strip_logo_cbz
 from tests.timing import budget
 from tests.world import cbz, decide_junk
 
@@ -41,7 +41,7 @@ PANELS = ["a", "b", "c", "d", "e", "f"]  # panels_cbz: page n's panels at rows 1
 
 @pytest.fixture
 def site(tmp_path, monkeypatch):
-    monkeypatch.setattr(ocr, "text", lambda _im, _device: "")
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     return Site(tmp_path, monkeypatch)
 
 

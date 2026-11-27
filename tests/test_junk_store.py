@@ -415,15 +415,7 @@ def imported_sightings(conn, numbers):
 
 
 @budget(load="db")
-def test_the_first_chapters_of_imported_sightings_go_by_chapter_number(conn):
-    imported_sightings(conn, (10, 2, 1, 3, 11))
-    assert candidates.first_identities(conn, "S") == {chapter(1), chapter(2), chapter(3)}, (
-        "sightings seen at the same time are ordered by chapter number, so 10 is not before 2"
-    )
-
-
-@budget(load="db")
-def test_a_first_chapter_of_a_series_offers_every_unmatched_edge_block(conn):
+def test_a_first_chapter_unit_with_no_other_reason_is_no_candidate(conn):
     imported_sightings(conn, (1, 2, 3))
     block: strip_units.BlockUnit = {
         "kind": "block",
@@ -433,19 +425,14 @@ def test_a_first_chapter_of_a_series_offers_every_unmatched_edge_block(conn):
         "where": "head",
         "probes": [],
     }
-    words = word_lists()
-    (pick,) = candidates.select(conn, "S", chapter(2), [block], words)
-    assert pick["reason"] == "a first chapter of the series", pick
-    assert candidates.select(conn, "S", chapter(4), [block], words) == [], "a later chapter offers nothing by rule (d)"
-    put(conn, decision("S", "piece", sig((flip(T, 20),)), "keep"))
-    (pick,) = candidates.select(conn, "S", chapter(2), [block], words)
-    assert pick["reason"] == "a first chapter of the series", "the series' decisions do not turn (d) off"
+    words: config.JunkConfig = {**word_lists(), "keywords": ["discord"]}
+    assert candidates.select(conn, "S", [block], words) == [], "a first chapter's plain block: no reason, not offered"
+    (pick,) = candidates.select(conn, "S", [{**block, "text": "join our discord"}], words)
+    assert pick["reason"].startswith("text 'discord'"), "a first chapter's block is offered by its other reasons"
 
 
 @budget(load="db")
 def test_the_rest_of_a_block_whose_edge_piece_is_junk_is_offered(conn):
-    put(conn, decision("S", "piece", sig((flip(T, 20),)), "keep"))  # rule (d) aside: chapter 9 is no first chapter
-    imported_sightings(conn, (1, 2, 3))
     rest: strip_units.BlockUnit = {
         "kind": "block",
         "sig": sig((flip(T, 60),)),
@@ -455,8 +442,8 @@ def test_the_rest_of_a_block_whose_edge_piece_is_junk_is_offered(conn):
         "probes": [],
     }
     words = word_lists()
-    assert candidates.select(conn, "S", chapter(9), [rest], words) == [], "a plain block with no reason: not offered"
-    (pick,) = candidates.select(conn, "S", chapter(9), [{**rest, "rest": True}], words)
+    assert candidates.select(conn, "S", [rest], words) == [], "a plain block with no reason: not offered"
+    (pick,) = candidates.select(conn, "S", [{**rest, "rest": True}], words)
     assert pick["reason"] == "the rest of a block whose edge piece is junk", pick
 
 
@@ -475,7 +462,6 @@ def test_a_band_on_page_2_recurs_with_page_1_bands_of_other_chapters(conn):
                 for n in (12, 13, 14, 15)
             ],
         )
-    put(conn, decision("S", "piece", sig((flip(T, 20),)), "keep"))  # rule (d) off
     unit: page_units.BandUnit = {
         "kind": "band",
         "key": band,
@@ -485,7 +471,7 @@ def test_a_band_on_page_2_recurs_with_page_1_bands_of_other_chapters(conn):
         "reasons": [],
     }
     words = word_lists()
-    (pick,) = candidates.select(conn, "S", chapter(15), [unit], words)
+    (pick,) = candidates.select(conn, "S", [unit], words)
     assert (pick["kind"], pick["reason"]) == ("band", "seen in 4 chapters"), pick
 
 
@@ -587,7 +573,7 @@ def test_an_unsignable_unit_is_never_offered_nor_a_blocks_unsignable_probe(conn)
         "box": [0, 0, 1, 1],
         "reasons": ["band"],
     }
-    assert candidates.select(conn, "S", chapter(2), [band], words) == [], "no decision could be written on it"
+    assert candidates.select(conn, "S", [band], words) == [], "no decision could be written on it"
     flat: strip_units.Piece = {"sig": sig((FLAT,), 0.2), "start": 0, "end": 60, "text": "read at scans"}
     banner: strip_units.Piece = {"sig": sig((flip(T, 9),), 0.2), "start": 60, "end": 120, "text": "more scans"}
     block: strip_units.BlockUnit = {
@@ -598,7 +584,7 @@ def test_an_unsignable_unit_is_never_offered_nor_a_blocks_unsignable_probe(conn)
         "where": "head",
         "probes": [flat, banner],
     }
-    (pick,) = candidates.select(conn, "S", chapter(2), [block], words)
+    (pick,) = candidates.select(conn, "S", [block], words)
     assert (pick["kind"], pick["key"]) == ("probe", banner["sig"]), "the unsignable probe is passed over for the next"
 
 
@@ -1020,8 +1006,6 @@ def test_a_retired_agreeing_decision_ends_the_agreement_for_the_next_decide(conn
 @budget(load="db")
 def test_an_agreed_probe_raises_its_blocks_rest_as_a_candidate(conn):
     """2 other series junk a block's edge piece: it is removed by agreement, and the rest is offered for it."""
-    put(conn, decision("S", "piece", sig((flip(T, 20),)), "keep"))  # rule (d) aside: chapter 9 is no first chapter
-    imported_sightings(conn, (1, 2, 3))
     piece, rest, whole = sig((FAR_TILES[0],)), sig((FAR_TILES[1],)), sig((FAR_TILES[2],))
     block: strip_units.EdgeBlock = {
         "start": 0,
@@ -1045,7 +1029,7 @@ def test_an_agreed_probe_raises_its_blocks_rest_as_a_candidate(conn):
     assert [(r["start"], r["end"], r["why"]) for r in removed] == [(0, 60, "match")], "the agreed piece is removed"
     assert store.agreeing(removed[0]["decision"]), "removed by the agreement's stand-in"
     assert (left[0]["start"], left[0].get("rest")) == (60, True), "the block's rest is left"
-    (pick,) = candidates.select(conn, "S", chapter(9), [{**left[0], "kind": "block"}], word_lists())
+    (pick,) = candidates.select(conn, "S", [{**left[0], "kind": "block"}], word_lists())
     assert pick["reason"] == "the rest of a block whose edge piece is junk", pick
 
 

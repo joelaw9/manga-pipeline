@@ -17,13 +17,12 @@ import shutil
 import time
 from collections.abc import Callable, Container, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
-from decimal import Decimal
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
 from PIL import Image
 
-from manga_pipeline import config, db, images, names, workflow
+from manga_pipeline import config, db, images, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.junk import logo_units, ocr, page_units, store, strip_units
 from manga_pipeline.replies import Json
@@ -31,7 +30,6 @@ from manga_pipeline.replies import Json
 log = logging.getLogger(__name__)
 
 RECUR_CHAPTERS = 3  # D5.2 (c): a unit matching units of this many chapters of the series is a candidate
-FIRST_CHAPTERS = 3  # D5.2 (d): the first chapters of a series offer every unmatched edge block
 UNIT_WIDTH = 1000  # px: the unit image's largest width
 CONTEXT_PX = 300  # px of strip above and below the unit in its context image
 CLOSED_KEEP = timedelta(hours=1)  # a candidate closed this long is deleted with its folder
@@ -115,29 +113,6 @@ def write_seen(conn: db.Connection, rows: Iterable[SeenRow]) -> None:
     )
 
 
-def chapter_order(identity: str) -> tuple[bool, Decimal | int, bool, tuple[int, str] | None, str]:
-    """Sort key of a chapter identity (names.identity) by season, then number; unnumbered last."""
-    _, season, _, number, _ = names.read_identity(identity)
-    return (
-        season is None,
-        Decimal(season) if season is not None else 0,
-        number is None,
-        names.number_key(number) if number is not None else (0, ""),
-        identity,
-    )
-
-
-def first_identities(conn: db.Connection, series_key: str, n: int = FIRST_CHAPTERS) -> set[str]:
-    """Return the first n distinct chapter identities of a series by first sighting.
-
-    Chapter order on a tie (every sighting imported from the bulk converter has the same time).
-    """
-    rows = conn.execute(
-        "SELECT identity, min(first_seen) FROM junk_seen WHERE series_key = %s GROUP BY identity", (series_key,)
-    ).fetchall()
-    return {r[0] for r in sorted(rows, key=lambda r: (r[1], chapter_order(r[0])))[:n]}
-
-
 def chapters_showing(conn: db.Connection, series_key: str, kind: str, key: str) -> int:
     """How many chapter identities of the series show a unit matching (kind, key)."""
     parsed = store.parse_key(kind, key)
@@ -189,17 +164,12 @@ def _flagged_probe(decisions: store.Decisions, block: strip_units.BlockUnit, wor
 
 
 def _block_candidate(
-    conn: db.Connection,
-    decisions: store.Decisions,
-    block: strip_units.BlockUnit,
-    words: ocr.WordLists,
-    *,
-    first_chapter: bool,
+    conn: db.Connection, decisions: store.Decisions, block: strip_units.BlockUnit, words: ocr.WordLists
 ) -> Candidate | None:
     """Return a strip edge block's candidate, or None.
 
     Its flagged probe, else the block when its key is signable and it is near, has a keyword, is the rest of a block
-    whose edge piece is junk, is in a first chapter of the series (first_chapter), or recurs; else None.
+    whose edge piece is junk, or recurs; else None.
     """
     probe = _flagged_probe(decisions, block, words)
     if probe is not None:
@@ -210,32 +180,27 @@ def _block_candidate(
     reasons = strip_reasons(decisions, block, "block", words)
     if block.get("rest"):
         reasons.append("the rest of a block whose edge piece is junk")
-    if first_chapter:
-        reasons.append("a first chapter of the series")
     reasons += _recurrence(conn, decisions.series_key, "block", key)
     return {"kind": "block", "key": key, "unit": block, "reason": "; ".join(reasons)} if reasons else None
 
 
-def select(
-    conn: db.Connection, series_key: str, identity: str, undecided: Iterable[Unit], words: ocr.WordLists
-) -> list[Candidate]:
+def select(conn: db.Connection, series_key: str, undecided: Iterable[Unit], words: ocr.WordLists) -> list[Candidate]:
     """Return the candidates among a chapter's undecided units: [{"kind", "key", "reason", "unit"}].
 
     Strip edge blocks: the first probe from the chapter edge that is near or has a keyword is offered instead of its
-    block; else the block when it is near, has a keyword, recurs, is the rest of a block whose edge piece is junk, or
-    its chapter is among the first of the series. Tail pieces always. Pages, frames and bands: their per-chapter
+    block; else the block when it is near, has a keyword, recurs, or is the rest of a block whose edge piece is junk.
+    Tail pieces always. Pages, frames and bands: their per-chapter
     reasons, or recurrence. Logos always; a logo variant offers the first of its representatives' keys that an existing
     candidate matches, else its first. Never a unit with an unsignable key (no decision could be written on it), a
     block's probe included.
     """
-    first_chapter = identity in first_identities(conn, series_key)
     decisions = store.Decisions(conn, series_key)
     out: list[Candidate] = []
     for u in undecided:
         kind, key = u["kind"], _key(u)
         found: Candidate | None
         if u["kind"] == "block":
-            found = _block_candidate(conn, decisions, u, words, first_chapter=first_chapter)
+            found = _block_candidate(conn, decisions, u, words)
         elif store.unsignable(kind, key):
             continue
         elif u["kind"] == "logo":
