@@ -9,6 +9,7 @@ import urllib.parse
 from collections.abc import Callable, Mapping, Sequence
 from typing import TypedDict, Unpack
 
+from manga_pipeline import names
 from manga_pipeline.metadata import episodes
 from manga_pipeline.metadata.episodes import Coverage, EpisodeRecord, SeasonRange
 from manga_pipeline.replies.sources import AniListMedia, Episode
@@ -192,19 +193,32 @@ def volumes(platform: PlatformList | None, numbers: Mapping[int, float]) -> tupl
 
 
 def chapter_titles(platform: PlatformList | None) -> dict[str, str]:
-    """{chapter number text: title} of the list's main episodes (the first of a number)."""
+    """{chapter number text: title} of the list's main episodes (the first titled one of a number), as chapters take it.
+
+    A leading season tag and a label of the chapter's own number go ("(S2) Ep. 63 - X" on 63 -> "X"); a label of
+    another number stays part of the title ("Episode 7 Begins" on 2); a title that is only a label gives none (the
+    number is left out); the rest is cleaned as file titles are (names.clean_marker_title).
+    """
     if platform is None:
         return {}
+    seen: set[str] = set()
     out: dict[str, str] = {}
     for e in platform["episodes"]:
-        if (
-            e["kind"] == episodes.MAIN
-            and (chapter := e["chapter"]) is not None
-            and (title := e["title"])
-            and chapter not in out
-        ):
-            out[chapter] = title
+        if e["kind"] == episodes.MAIN and (chapter := e["chapter"]) is not None and e["title"] and chapter not in seen:
+            seen.add(chapter)
+            if title := _chapter_title(e["title"], chapter):
+                out[chapter] = title
     return out
+
+
+def _chapter_title(stored: str, chapter: str) -> str:
+    rest = names.SEASON_TAG.sub("", stored, count=1)
+    if (label := episodes.LABEL.match(rest)) is not None:
+        if not rest[label.end() :].strip():
+            return ""
+        if float(label.group(1) or label.group(2)) == float(chapter):
+            stored = rest[label.end() :]
+    return names.clean_marker_title(stored)
 
 
 def side_titles(platform: PlatformList | None, side_count: int) -> dict[int, str]:

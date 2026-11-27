@@ -8,6 +8,7 @@ import argparse
 import errno
 import hashlib
 import io
+import json
 import logging
 import os
 import zipfile
@@ -33,9 +34,10 @@ from manga_pipeline import (
 )
 from manga_pipeline.errors import Unreachable
 from manga_pipeline.junk import candidates
-from manga_pipeline.stages import discover, validate
+from manga_pipeline.metadata import episodes, platforms
+from manga_pipeline.stages import discover, publish, validate
 
-from tests.builders import add_chapter, add_series, claimed, one
+from tests.builders import add_chapter, add_series, claimed, episode_record, one, platform_list
 from tests.timing import budget
 from tests.world import LIBRARY_ID, World, cbz
 
@@ -698,3 +700,101 @@ def test_intake_validates_every_download_before_any_conversion(world, monkeypatc
     assert len(downloads) == 4, "2 downloads through discover and validate"
     assert len(conversions_seen) == 6, "3 conversions through discover and validate"
     assert max(downloads) < min(conversions_seen), "every download is validated before any conversion"
+
+
+# --- names and titles (SPEC "Publishing", "Retroactive updates")
+
+
+def store_list(world, titles):
+    """Store a platform list for the series whose main episodes are {chapter number text: title}."""
+    eps = [episode_record(episodes.MAIN, n, t) for n, t in titles.items()]
+    with closing(db.connect(world.cfg)) as conn:
+        conn.execute(
+            "INSERT INTO fetched (series_id, source, kind, payload, payload_hash, fetched_at)"
+            " SELECT id, %s, %s, %s, 'x', '2026-11-01' FROM series",
+            (platforms.WEBTOONS, platforms.KIND, json.dumps(platform_list(eps))),
+        )
+
+
+def library_files(world):
+    return sorted(p.name for p in (world.library / SERIES).iterdir())
+
+
+@budget(load="db", seconds=30)
+def test_a_conversion_is_named_as_the_pipeline_names_a_file_taking_its_list_title_when_untitled(world):
+    names = ("Ch.1.cbz", "Ch.2 - Own.cbz", "S2 - Chapter 3.cbz", "Side Story 1.cbz")
+    adopt(world, {n: cbz(seed=n, pages=4) for n in names})
+    store_list(world, {"1": "Ep. 1 - Start", "2": "Listed", "3": "Wrong Season"})
+    set_cap(world, 4)
+    for part in (intake, process, export):
+        world.run(part)
+    assert {status for _, _, status in converting(world)} == {"done"}, "set up: all 4 converted"
+    assert sorted(world.rows("SELECT library_path, comicinfo_title FROM published_file")) == [
+        (f"library/{SERIES}/Ch.1 - Side Story 1.cbz", "Side Story 1"),
+        (f"library/{SERIES}/Ch.1 - Start.cbz", "Start"),
+        (f"library/{SERIES}/Ch.2 - Own.cbz", "Own"),
+        (f"library/{SERIES}/Ch.3.cbz", None),
+    ], "an untitled main file takes its list title, a titled one keeps its own, a seasonal one none, a side one its own"
+    assert library_files(world) == ["Ch.1 - Side Story 1.cbz", "Ch.1 - Start.cbz", "Ch.2 - Own.cbz", "Ch.3.cbz"], (
+        "each file renamed in place, the old names gone"
+    )
+
+
+@budget(load="db", seconds=30)
+def test_list_titles_false_keeps_an_untitled_conversion_untitled(world):
+    adopt(world, {"Ch.1.cbz": cbz(seed="a", pages=4)})
+    store_list(world, {"1": "Start"})
+    (config.abs_path(world.cfg["paths"]["naming_overrides"]) / f"{SERIES}.yaml").write_bytes(b"list_titles: false\n")
+    set_cap(world, 1)
+    for part in (intake, process, export):
+        world.run(part)
+    assert converting(world) == [("Ch.1.cbz", "publish", "done")], "SPEC 'Publishing': the series turns list titles off"
+
+
+@budget(load="db", seconds=30)
+def test_2_conversions_naming_1_file_in_1_export_publish_the_first_and_hold_the_second(world):
+    adopt(world, {"S1 - Chapter 1.cbz": cbz(seed="s1", pages=4), "S2 - Chapter 1.cbz": cbz(seed="s2", pages=4)})
+    set_cap(world, 2)
+    for part in (intake, process, export):
+        world.run(part)
+    got = sorted(world.rows("SELECT status FROM chapter WHERE published_file_id IS NOT NULL"))
+    assert got == [("done",), ("needs_human",)], "the second names a file the first has queued"
+    assert library_files(world) == ["Ch.1.cbz", "S2 - Chapter 1.cbz"], "never a failed rename, never an overwrite"
+    assert world.rows("SELECT count(*) FROM published_file WHERE pending_error IS NOT NULL") == [(0,)]
+
+
+@budget(load="db", seconds=30)
+def test_a_conversion_naming_a_file_already_in_the_folder_is_needs_human(world):
+    adopt(world, {"Ch.1.cbz": cbz(seed="a", pages=4)})
+    store_list(world, {"1": "Start"})
+    (world.library / SERIES / "Ch.1 - Start.cbz").write_bytes(b"a stray file")
+    set_cap(world, 1)
+    for part in (intake, process, export):
+        world.run(part)
+    assert world.rows("SELECT status FROM chapter WHERE published_file_id IS NOT NULL") == [("needs_human",)]
+    assert (world.library / SERIES / "Ch.1 - Start.cbz").read_bytes() == b"a stray file", "never overwritten"
+
+
+@budget(load="db", seconds=10)
+def test_a_new_chapter_naming_a_file_queued_for_another_is_needs_human(world):
+    adopt(world, {"Ch.1.cbz": cbz(seed="a", pages=4)})
+    queued = f"library/{SERIES}/Ch.9.cbz"
+    staged = config.abs_path(world.cfg["paths"]["staging"]) / "9.cbz"
+    staged.write_bytes(cbz(seed="9", pages=4))
+    with closing(db.connect(world.cfg)) as conn:
+        conn.execute(
+            "UPDATE published_file SET pending_path = %s, pending_staged = %s, pending_step = 0", (queued, queued)
+        )
+        chapter_id = add_chapter(
+            conn,
+            1,
+            '["grp", null, null, "9", ""]',
+            stage="publish",
+            library_path=queued,
+            staged_path=config.to_stored(world.cfg, staged),
+        )
+    stage(world, "export", chapter_id, publish.run)
+    assert world.rows("SELECT status FROM chapter WHERE id = %s", chapter_id) == [("needs_human",)], (
+        "SPEC 'Retroactive updates': a name another file's queued rewrite holds is never taken"
+    )
+    assert not (world.library / SERIES / "Ch.9.cbz").exists()

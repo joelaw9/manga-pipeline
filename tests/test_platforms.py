@@ -4,6 +4,7 @@ Which page a series' links name, the Tapas and Webtoons clients on replies recor
 platform-seasons basis and titles against the bulk converter's records.
 """
 
+import dataclasses
 import json
 from contextlib import closing
 from pathlib import Path
@@ -364,3 +365,73 @@ def test_a_titled_episode_past_the_finale_names_its_side_story():
 
     got = naming.resolve("tapas seasons", [row(0, 1.0), row(1, 2.0)], None, {}, platform)
     assert (got[1].kind, got[1].title) == (names.SIDE, "Side Story 1: After Story"), "as the bulk converter named it"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("stored", "chapter", "want"),
+    [
+        ("(S2) Ep. 63 - Megara's Scream", "63", "Megara's Scream"),
+        ("(S2) Episode 45", "45", None),
+        ("(S2) Episode 73", "74", None),
+        ("Episode 7 Begins", "2", "Episode 7 Begins"),
+        ("1. The Grand Sorcerer", "1", "The Grand Sorcerer"),
+        ("Prologue", "0", "Prologue"),
+        ("Day 1", "1", "Day 1"),
+        ("Epilogue", "40", "Epilogue"),
+        ("A New Beginning (1)", "3", "A New Beginning (1)"),
+        ("The Fall [END]", "9", "The Fall"),
+    ],
+)
+def test_a_list_title_drops_a_label_of_its_own_number_and_gives_none_when_only_a_label(stored, chapter, want):
+    got = platforms.chapter_titles(platform_list([episode_record(episodes.MAIN, chapter, stored)]))
+    assert got.get(chapter) == want, "SPEC 'Publishing': the list title a chapter takes"
+
+
+@budget(load="pure")
+def test_the_first_titled_episode_of_a_number_is_read_even_when_it_gives_no_title():
+    eps = [episode_record(episodes.MAIN, "5", "(S2) Episode 5"), episode_record(episodes.MAIN, "5", "Another")]
+    assert platforms.chapter_titles(platform_list(eps)) == {}, "a later episode of the number is not read"
+
+
+def _open_row(number, season=None):
+    return naming.Row(
+        key=number,
+        settled=False,
+        kind=names.MAIN,
+        number=number,
+        season=season,
+        src_volume=None,
+        volume=None,
+        volume_source=None,
+        marker_title="",
+        title="",
+        date=None,
+        order=int(number),
+    )
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("season", "overrides", "want"),
+    [(None, None, "Start"), (2, None, ""), (None, {"list_titles": False}, ""), (None, {"list_titles": True}, "Start")],
+)
+def test_an_untitled_chapter_takes_its_list_title_unless_it_has_a_season_or_its_series_turns_them_off(
+    season, overrides, want
+):
+    platform = platform_list([episode_record(episodes.MAIN, "1", "Ep. 1 - Start")])
+    got = naming.resolve(None, [_open_row(1.0, season)], overrides, {}, platform)
+    assert got[1.0].title == want, "SPEC 'Publishing': a seasonal chapter's number is not the list's"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("overrides", "want"), [(None, "Side Story 1: Snow Day"), ({"list_titles": False}, "Side Story 1")]
+)
+def test_list_titles_false_turns_off_a_specials_title_too(overrides, want):
+    platform = platform_list([episode_record(episodes.SPECIAL, "1", "Snow Day")])
+    side = dataclasses.replace(_open_row(1.0), kind=names.SIDE)
+    got = naming.resolve(None, [side], overrides, {}, platform)
+    assert got[1.0].title == want, (
+        "SPEC 'Publishing': list_titles false takes no title from the list, specials included"
+    )
