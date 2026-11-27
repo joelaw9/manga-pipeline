@@ -14,7 +14,8 @@ import pytest
 from PIL import Image
 
 from manga_pipeline import db, images, strip
-from manga_pipeline.junk import frames, page_units, store
+from manga_pipeline.junk import chapter_scan, frames, page_units, store
+from manga_pipeline.stages import junk as junk_stage
 
 from tests import pages as fx
 from tests.builders import db_row, present
@@ -769,3 +770,75 @@ def test_an_unsignable_band_is_no_band_and_its_edge_page_is_judged_as_a_page(tmp
     assert [u for u in out["undecided"] if u["kind"] == "band"] == [], "an unsignable band is no unit"
     (page,) = [u for u in out["undecided"] if u["page"] == 0]
     assert page["reasons"] == ["tall"], "its page is judged as a page"
+
+
+# ---------------------------------------------------------------- agreement on page units (plan phase-10-6, step 2)
+
+PAGE_KEY = images.sig_to_str(((0x0123456789ABCDEF,), ASPECT))
+FRAME_KEY = frames.key_text(frames.Frame(np.full(frames.CELLS * 3, 100, np.uint8), ASPECT))
+
+
+def stored(row_id, series_key, kind, verdict):
+    """Return an active imported decision row on PAGE_KEY (page) or FRAME_KEY (frame)."""
+    return db_row(
+        id=row_id,
+        series_key=series_key,
+        kind=kind,
+        key=PAGE_KEY if kind == "page" else FRAME_KEY,
+        verdict=verdict,
+        decider="import",
+        decided_at="2026-01-01T00:00:00+00:00",
+        chain=None,
+        bundle=False,
+    )
+
+
+def framed_scan() -> page_units.PageScan:
+    """hand_scan with edge page 5 keyed by PAGE_KEY and FRAME_KEY, the other edge pages uniform (no key)."""
+    sc = hand_scan()
+    sc["edges"] = [{"page": u["page"], "sig": None, "frame": None} for u in sc["edges"][:-1]]
+    sc["edges"].append({"page": 5, "sig": PAGE_KEY, "frame": FRAME_KEY})
+    return sc
+
+
+def lookup(rows):
+    """Return series S's decide_unit over an index of rows, memoized as the junk stage's (with its memo)."""
+    decisions = store.Decisions.of_rows(store.index_of(rows), "S", [])
+    memo: junk_stage.Memo = {}
+
+    def decide_unit(kind, text):
+        memo[kind, text] = decisions.decide(kind, store.parse_key(kind, text))
+        return memo[kind, text]
+
+    return decide_unit, memo
+
+
+@budget(load="pure")
+def test_an_agreed_page_keep_beats_an_agreed_frame_junk_on_1_edge_page():
+    rows = [stored(1, "A", "page", "keep"), stored(2, "B", "page", "keep")]
+    rows += [stored(3, "A", "frame", "junk"), stored(4, "B", "frame", "junk")]
+    decide_unit, _ = lookup(rows)
+    got = present(page_units.page_decision(edge(framed_scan(), 5), decide_unit))
+    assert (got["kind"], got["verdict"], store.agreeing(got)) == ("page", "keep", (1, 2)), "agreed keep ranks first"
+    out = page_units.decide(framed_scan(), decide_unit)
+    assert 5 not in out["edit"]["drop_pages"], "the page is kept"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("page", "want", "beaten"),
+    [
+        ("global junk", "frame of page 5 junk by decisions 3 4", "decisions 1"),
+        ("agreed keep", "page of page 5 keep by decisions 1 2", "decisions 3 4"),
+    ],
+    ids=["frame-wins", "page-wins"],
+)
+def test_the_log_names_the_frame_decision_that_won_not_the_page_row_it_beat(page, want, beaten):
+    """Both rows of an edge page are looked up; the log names only the one page_units.page_decision ranks first."""
+    pages = [stored(1, "", "page", "junk")] if page == "global junk" else [stored(1, "A", "page", "keep")]
+    pages += [] if page == "global junk" else [stored(2, "B", "page", "keep")]
+    decide_unit, memo = lookup([*pages, stored(3, "A", "frame", "junk"), stored(4, "B", "frame", "junk")])
+    sc = framed_scan()
+    applied = chapter_scan.apply(sc, decide_unit, [])
+    assert {("page", PAGE_KEY), ("frame", FRAME_KEY)} <= set(memo), "both of the page's rows were looked up"
+    assert junk_stage.agreed_units(sc, applied, memo) == [want], f"only the winner is named, not {beaten}"

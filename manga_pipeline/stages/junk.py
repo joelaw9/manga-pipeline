@@ -14,11 +14,13 @@ images are written: done with its chapter edit, waiting on junk_decision with it
 first), or needs_human (a chain or cut decision that should apply and does not; a removal that would leave too little;
 a candidate Claude was unsure of or past the review limit). A strip chapter's rest-of-card bundle (W5,
 strip_units.rest_members) is recorded with the candidates it waits on (junk_scan.bundles); a bundle whose members'
-decisions differ gives the chapter a note at Done.
+decisions differ gives the chapter a note at Done. A decide that ends the stage logs the units other series' agreement
+removed or kept (agreed_units); a watermark an agreement removed is not remembered.
 """
 
 import dataclasses
 import json
+import logging
 import shutil
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
@@ -39,8 +41,11 @@ from manga_pipeline import (
     volumes,
     workflow,
 )
+from manga_pipeline.convert import plan
 from manga_pipeline.db import sql
-from manga_pipeline.junk import candidates, chapter_scan, logo_units, ocr, page_units, store, strip_units
+from manga_pipeline.junk import candidates, chapter_scan, logo_units, marks, ocr, page_units, store, strip_units
+
+log = logging.getLogger(__name__)
 
 
 def read_scan(text: str) -> chapter_scan.Scan:
@@ -437,16 +442,21 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
     """
     sc = read_scan(row["scan"])
     decisions = store.Decisions(ctx.conn, key)
+    memo: Memo = {}
 
     def decide_unit(kind: str, text: str) -> db.Row | None:
-        return decisions.decide(kind, store.parse_key(kind, text))
+        if (kind, text) not in memo:
+            memo[kind, text] = decisions.decide(kind, store.parse_key(kind, text))
+        return memo[kind, text]
 
     known = ctx.conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
     render = pages.render if sc["layout"] == "strip" else None
     applied = chapter_scan.apply(sc, decide_unit, [r["key"] for r in known], decisions.cuts(), render)
+    applied = applied._replace(watermarks=own_watermarks(applied.watermarks, memo))
     members = strip_units.rest_members(applied.rest, lambda sig: decisions.judged_keep(images.sig_from_str(sig)))
     watermarks = [(key, k) for k in applied.watermarks]
     if applied.problem:
+        _log_agreed(chapter, agreed_units(sc, applied, memo))
 
         def too_much(conn: db.Connection) -> None:
             _refill(conn, chapter, key, 0)  # no candidate: the edit itself needs a person
@@ -454,6 +464,7 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
         return workflow.NeedsHuman(applied.problem, record=too_much)
     picks = candidates.select(ctx.conn, key, chapter["identity"], applied.undecided, ocr.word_lists(ctx.cfg["junk"]))
     if not picks:
+        _log_agreed(chapter, agreed_units(sc, applied, memo))
         return _finished(ctx, chapter, key, applied, members)
     limit = ctx.cfg["junk"]["review_limit"]
     rows = [candidates.find(ctx.conn, decisions, p["kind"], p["key"]) for p in picks]
@@ -468,6 +479,7 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
             _record_candidates(conn, chapter, [i for i in found if i is not None], bundle)
             _refill(conn, chapter, key, len(picks))
 
+        _log_agreed(chapter, agreed_units(sc, applied, memo))
         return workflow.NeedsHuman(held_reason(held, limit, bundle), record=hold)
     new = [p for p, r in zip(picks, rows, strict=True) if r is None]
     if new:
@@ -481,6 +493,96 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
         _refill(conn, chapter, key, len(picks))
 
     return workflow.Waiting("junk_decision", {"candidates": len(picks)}, record=wait)
+
+
+type Memo = dict[tuple[str, str], db.Row | None]  # a decide's lookups: (unit kind, key text) -> the deciding row
+
+
+def own_watermarks(found: Sequence[str], memo: Memo) -> list[str]:
+    """Return the watermark keys a decide found, but those an agreement removed (stand-in rows' keys): none is kept.
+
+    A key a stored row of the decide also decided stays.
+    """
+    rows = [r for r in memo.values() if r is not None]
+    agreed = {r["key"] for r in rows if store.agreeing(r)} - {r["key"] for r in rows if not store.agreeing(r)}
+    return [k for k in found if k not in agreed]
+
+
+def agreed_units(sc: chapter_scan.Scan, applied: chapter_scan.Applied, memo: Memo) -> list[str]:
+    """Return the units of a decide's result that other series' agreement removed or kept, each named.
+
+    From the decide's lookups (memo), the final row of each unit, no intermediate hit: a strip range removed by a
+    stand-in's decision, an edge block kept by one; an edge page's row as page_units.page_decision ranks it; a band's
+    row; a logo variant decided only by agreement (marks.resolve over its representatives). Each with its kind,
+    verdict and the agreeing decisions.
+    """
+    edit = applied.edit
+    if sc["layout"] == "strip":
+        out = _agreed_strip(sc, edit["strip_removed"], memo)
+        variants = logo_units.decide(sc["marks"], logo_units.strip_survives(edit["strip_removed"]), _stored(memo))
+    else:
+        out = [] if sc["split"] is True else _agreed_pages(sc, edit, memo)
+        variants = logo_units.decide(sc["marks"], logo_units.page_survives(edit), _stored(memo))
+    for unit in variants["undecided"]:  # undecided by stored rows alone: decided, if at all, by agreement
+        out += _named(f"logo on page {unit['page']}", marks.resolve([memo.get(("logo", k)) for k in unit["keys"]]))
+    return out
+
+
+def _named(what: str, row: db.Row | None) -> list[str]:
+    """Return [what, its verdict and the agreeing decisions] when a stand-in row decides it, else []."""
+    if row is None or not store.agreeing(row):
+        return []
+    return [f"{what} {row['verdict']} by decisions {' '.join(map(str, store.agreeing(row)))}"]
+
+
+def _stored(memo: Memo) -> store.DecideUnit:
+    """Return a lookup over memo that leaves out stand-in rows: what stored rows alone decide."""
+
+    def lookup(kind: str, text: str) -> db.Row | None:
+        row = memo.get((kind, text))
+        return None if row is None or store.agreeing(row) else row
+
+    return lookup
+
+
+def _agreed_strip(sc: chapter_scan.StoredStripScan, removed: Sequence[plan.RemovedRange], memo: Memo) -> list[str]:
+    """Return the strip ranges a stand-in's decision removed and the edge blocks one kept (agreed_units)."""
+    out: list[str] = []
+    for r in removed:
+        hits = [(kind, memo.get((kind, r["hash"]))) for kind in ("block", "probe")] if "hash" in r else []
+        kind, row = next(((k, x) for k, x in hits if x is not None and x["id"] == r.get("decision")), ("", None))
+        out += _named(f"{kind} rows {r['start']}-{r['end']}", row)
+    for b in sc["blocks"]:
+        row = memo.get(("block", b["sig"]))
+        if row is not None and row["verdict"] == "keep":
+            out += _named(f"block rows {b['start']}-{b['end']}", row)
+    return out
+
+
+def _agreed_pages(sc: page_units.PageScan, edit: plan.ChapterEdit, memo: Memo) -> list[str]:
+    """Return the edge pages and bands a stand-in row decides (agreed_units), as the band pass skips dropped pages."""
+
+    def lookup(kind: str, text: str) -> db.Row | None:
+        return memo.get((kind, text))
+
+    out: list[str] = []
+    skipped = set(edit["drop_pages"])
+    for u in sc["edges"]:
+        row = page_units.page_decision(u, lookup)
+        if row is not None:
+            out += _named(f"{row['kind']} of page {u['page']}", row)
+        if u["frame"] and lookup("frame", u["frame"]) is not None:
+            skipped.add(u["page"])
+    for page, listed in sc["bands"].items():
+        if int(page) not in skipped:
+            out += [x for band in listed for x in _named(f"band on page {page}", lookup("band", band["sig"]))]
+    return out
+
+
+def _log_agreed(chapter: db.Row, units: Sequence[str]) -> None:
+    """Log the units an agreement removed or kept in the result of a decide that ends the chapter's junk stage."""
+    if units:
+        log.info("chapter %s: by the agreement of other series: %s", chapter["id"], "; ".join(units))
 
 
 def _record_candidates(

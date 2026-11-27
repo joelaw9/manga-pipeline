@@ -191,7 +191,7 @@ def test_keep_rest_keeps_every_other_listed_open_candidate_of_the_series_but_uns
     b.candidate(FAR[3])
     listed(cfg, conn)
     review.decide(conn, [unsure], "unsure", "r1", AT)
-    kept = review.decide_junk_keeping_rest(conn, [junk], "r1", AT)
+    kept, _ = review.decide_junk_keeping_rest(conn, [junk], "r1", AT)
     assert [r["id"] for r in kept] == [rest], "the rest of A it listed, but the unsure one; B untouched"
     got = {(r["key"], r["verdict"]) for r in decisions(conn)}
     assert got == {(key(FAR[0]), "junk"), (key(FAR[1]), "keep")}, "junk on the named, keep on the rest"
@@ -205,7 +205,7 @@ def test_keep_rest_skips_a_probe_candidate_the_new_block_junk_covers(site):
     block = a.candidate(FAR[0], kind="block")
     probe = a.candidate(FAR[0] ^ 1, kind="probe")  # a block decision decides probes too, and 1 bit is near
     listed(cfg, conn)
-    kept = review.decide_junk_keeping_rest(conn, [block], "r1", AT)
+    kept, _ = review.decide_junk_keeping_rest(conn, [block], "r1", AT)
     assert kept == [], "the probe the new junk covers is not kept"
     assert [r["verdict"] for r in decisions(conn)] == ["junk"], "only the junk row"
     row = conn.execute("SELECT * FROM junk_candidate WHERE id = %s", (probe,)).fetchone()
@@ -288,7 +288,7 @@ def test_a_review_lists_once_and_keep_rest_keeps_only_what_it_was_shown(site):
     review.decide(conn, [first[0]], "keep", "r1", AT)
     again = [r["id"] for r in review.listing(conn, small, "r1")]
     assert again == first[1:], "a second list returns what the review listed and is still open, and nothing new"
-    kept = review.decide_junk_keeping_rest(conn, [first[1]], "r1", AT)
+    kept, _ = review.decide_junk_keeping_rest(conn, [first[1]], "r1", AT)
     assert [r["id"] for r in kept] == [first[2]], "--keep-rest keeps only what the review was shown"
     assert one(conn, "SELECT count(*) FROM junk_candidate WHERE review_id = 'r1'") == 3, "nothing new is marked"
 

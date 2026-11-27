@@ -4,14 +4,16 @@ Decisions are rows of junk_decision; sightings rows of junk_seen; series carry t
 name).
 """
 
+import json
 from contextlib import closing
 
+import numpy as np
 import pytest
 
 from manga_pipeline import cli, config, db
-from manga_pipeline.junk import candidates, redecide, review, store, where
+from manga_pipeline.junk import candidates, frames, redecide, review, store, where
 
-from tests.builders import add_series, adopted, config_file, one, present
+from tests.builders import add_chapter, add_series, adopted, config_file, one, present
 from tests.timing import budget
 
 AT = "2026-11-25T00:00:00+00:00"
@@ -194,8 +196,8 @@ def test_redecide_refuses_series_with_retire_and_options_on_a_series_row(site, t
     args = ["--config", path, "junk", "redecide", str(g), "keep", "--series", "S", "--retire"]
     assert cli.main(args) == 2, "--series with --retire is refused"
     assert "go apart" in capsys.readouterr().err, "the refusal says why"
-    with pytest.raises(review.Refused, match="are for global"):
-        redecide.redecide_in(conn, [s], "keep", ["T"], AT)
+    with pytest.raises(review.Refused, match="own: re-decide it without --series"):
+        redecide.redecide_in(conn, [s], "keep", ["S"], AT)
     with pytest.raises(review.Refused, match="no series has"):
         redecide.redecide_in(conn, [g], "keep", ["Nope"], AT)
 
@@ -277,7 +279,7 @@ def test_redecide_refuses_an_unknown_a_twice_named_or_a_same_verdict_decision(si
     g = decide(conn, "", FAR[1], "junk", "import")
     with pytest.raises(review.Refused, match="series is named twice"):
         redecide.redecide_in(conn, [g], "keep", ["S", "S"], AT)
-    with pytest.raises(review.Refused, match="are for global"):
+    with pytest.raises(review.Refused, match="--retire is for a global one"):
         redecide.retire_global(conn, [row], "keep", AT)
 
 
@@ -384,3 +386,181 @@ def test_redecide_refuses_a_cut_decision(site, tmp_path, capsys):
     assert "is a cut decision" in capsys.readouterr().err, "the refusal says why"
     with pytest.raises(review.Refused, match="is a cut decision"):
         redecide.redecide(conn, [row], "junk", AT)  # named before "junk already"
+
+
+# ---------------------------------------------------------------- agreement: its reach and D12 (b) (plan phase-10-6)
+
+
+def more_series(conn, *names):
+    """Add series with these rules keys."""
+    for name in names:
+        series = add_series(conn, name)
+        with db.transaction(conn):
+            conn.execute("UPDATE series SET folder = %s WHERE id = %s", (f"/lib/{name}", series))
+
+
+@budget(load="db")
+def test_junk_row_where_lists_the_series_an_agreement_reaches(site, tmp_path, capsys):
+    cfg, conn = site
+    more_series(conn, "U")
+    s, _t = decide(conn, "S", FAR[0], "junk"), decide(conn, "T", FAR[0] ^ 1, "junk")
+    seen(conn, "S", FAR[0], "c1")
+    seen(conn, "T", FAR[0], "c2")  # T's own decision decides it: no agreement in T
+    seen(conn, "U", FAR[0] ^ 1, "c3")  # S and T agree in U
+    seen(conn, "U", FAR[1], "c4")  # another unit
+    want = [where.Unit("S", "c1", "block"), where.Unit("U", "c3", "block")]
+    assert where.decided_by(conn, present(store.get(conn, s))) == want, "its series, and U where it agrees"
+    path = str(config_file(tmp_path, cfg))
+    capsys.readouterr()
+    assert cli.main(["--config", path, "junk", "row", str(s), "--where"]) == 0
+    assert "  U\tc3\tblock" in capsys.readouterr().out, "--where names the series an agreement reaches"
+
+
+@budget(load="db")
+def test_redecide_series_writes_a_decision_in_another_series_and_undo_retires_it(site):
+    _cfg, conn = site
+    more_series(conn, "U", "V")
+    s = decide(conn, "S", FAR[0], "junk")
+    decide(conn, "T", FAR[0], "junk")
+    assert deciding(conn, "U", FAR[0]) == "junk", "S and T agree in U"
+    act = redecide.redecide_in(conn, [s], "keep", ["U"], AT)
+    assert deciding(conn, "U", FAR[0]) == "keep", "U opts out with a keep of its own"
+    assert deciding(conn, "S", FAR[0]) == "junk", "S's decision stays"
+    assert deciding(conn, "V", FAR[0]) is None, "U's keep vetoes the agreement everywhere"
+    redecide.undo(conn, act, AT)
+    assert deciding(conn, "U", FAR[0]) == "junk", "undo retires U's decision: the agreement is back"
+
+
+@budget(load="db")
+def test_redecide_series_refuses_the_rows_own_series_a_piece_and_a_series_holding_the_key(site):
+    _cfg, conn = site
+    more_series(conn, "U")
+    s = decide(conn, "S", FAR[0], "junk")
+    held = decide(conn, "U", FAR[0], "junk")
+    with db.transaction(conn):
+        store.upsert(
+            conn,
+            [
+                {
+                    "series_key": "S",
+                    "kind": "piece",
+                    "key": key(FAR[1]),
+                    "verdict": "junk",
+                    "decider": "claude",
+                    "decided_at": AT,
+                    "source": None,
+                }
+            ],
+        )
+    piece = one(conn, "SELECT max(id) FROM junk_decision")
+    before = active(conn)
+    for ids, series, why in (
+        ([s], ["S"], "own: re-decide it without --series"),
+        ([piece], ["T"], "agreement never decides one"),
+        ([s], ["U"], f"its own decision {held}"),
+    ):
+        with pytest.raises(review.Refused, match=why):
+            redecide.redecide_in(conn, ids, "keep", series, AT)
+    assert active(conn) == before, "nothing is written"
+
+
+@budget(load="db")
+def test_redecide_series_refuses_2_rows_on_1_key_for_1_series(site):
+    _cfg, conn = site
+    more_series(conn, "U")
+    s, t = decide(conn, "S", FAR[0], "junk"), decide(conn, "T", FAR[0], "junk")
+    before = active(conn)
+    with pytest.raises(review.Refused, match=f"junk decisions {s} and {t} are on 1 key"):
+        redecide.redecide_in(conn, [s, t], "keep", ["U"], AT)
+    assert active(conn) == before, "refused before any write"
+
+
+# ---------------------------------------------------------------- A24: page keeps over a frame junk
+
+
+PAGE_SIG = key(FAR[2])
+FRAME = frames.key_text(frames.Frame(np.full(frames.CELLS * 3, 100, np.uint8), 1.42))
+
+
+def page_chapter(conn, series_key, identity):
+    """Add a waiting junk chapter of series series_key with a stored page scan: edge page 5 is PAGE_SIG and FRAME."""
+    (series_id,) = conn.execute("SELECT id FROM series WHERE rules_key = %s", (series_key,)).fetchone()
+    chapter = add_chapter(conn, series_id, identity, "junk", number=1)
+    edges = [{"page": i, "sig": None, "frame": None} for i in (0, 1, 3, 4)]
+    scan = {"layout": "pages", "split": False, "edges": [*edges, {"page": 5, "sig": PAGE_SIG, "frame": FRAME}]}
+    with db.transaction(conn):
+        conn.execute("UPDATE chapter SET status = 'waiting', waiting_on = 'junk_decision' WHERE id = %s", (chapter,))
+        conn.execute(
+            """INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at, candidates)
+            VALUES (%s, %s, 'd', %s, %s, '[]')""",
+            (chapter, series_id, json.dumps(scan), AT),
+        )
+    return chapter
+
+
+def write(conn, series_key, kind, key_text, verdict):
+    """Write 1 decision; return its id."""
+    with db.transaction(conn):
+        store.upsert(
+            conn,
+            [
+                {
+                    "series_key": series_key,
+                    "kind": kind,
+                    "key": key_text,
+                    "verdict": verdict,
+                    "decider": "import" if series_key == store.GLOBAL else "claude",  # globals come from the import
+                    "decided_at": AT,
+                    "source": None,
+                }
+            ],
+        )
+    return one(conn, "SELECT max(id) FROM junk_decision")
+
+
+def frame_candidate(conn, series_key, chapter):
+    """Add an open frame candidate on FRAME that chapter waits on; return its id."""
+    with db.transaction(conn):
+        cid = one(
+            conn,
+            """INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at)
+            VALUES (%s, 'frame', %s, 'recurs', 'f', %s) RETURNING id""",
+            (series_key, FRAME, AT),
+        )
+        conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps([cid]), chapter))
+    return cid
+
+
+@budget(load="db")
+@pytest.mark.parametrize("keep_rest", [False, True], ids=["decide", "keep-rest"])
+def test_decide_and_keep_rest_warn_of_page_keeps_overriding_a_frame_junk(site, keep_rest):
+    cfg, conn = site
+    chapter = page_chapter(conn, "S", "c1")
+    keep = write(conn, "S", "page", PAGE_SIG, "keep")
+    cid = frame_candidate(conn, "S", chapter)
+    if keep_rest:
+        review.listing(conn, cfg, "r1")
+        _kept, got = review.decide_junk_keeping_rest(conn, [cid], "r1", AT)
+    else:
+        got = review.decide(conn, [cid], "junk", None, AT)
+    frame = one(conn, "SELECT id FROM junk_decision WHERE kind = 'frame'")
+    assert got == [review.Override(frame, keep, "S", chapter, 5)], "the page keep that ranks first on page 5"
+    assert "junk redecide" in review.override_text(got[0]), "the warning says how to lift it"
+
+
+@budget(load="db")
+def test_junk_row_lists_the_page_keeps_overriding_a_global_frame_junk_in_every_series(site, tmp_path, capsys):
+    cfg, conn = site
+    more_series(conn, "U")
+    chapters = {s: page_chapter(conn, s, f"c-{s}") for s in ("S", "T", "U")}
+    keeps = {s: write(conn, s, "page", PAGE_SIG, "keep") for s in ("S", "T")}  # U has none: S and T agree there
+    g = write(conn, "", "frame", FRAME, "junk")
+    got = review.page_keeps_over(conn, present(store.get(conn, g)))
+    want = [review.Override(g, keeps[s], s, chapters[s], 5) for s in ("S", "T")]
+    want.append(review.Override(g, keeps["T"], "U", chapters["U"], 5))  # the agreement's stand-in: the newest keep
+    assert got == want, "each series' own page keep, and in U the agreed keep: each ranks before a global junk"
+    path = str(config_file(tmp_path, cfg))
+    capsys.readouterr()
+    assert cli.main(["--config", path, "junk", "row", str(g)]) == 0
+    out = capsys.readouterr().out
+    assert all(review.override_text(o) in out for o in want), out
