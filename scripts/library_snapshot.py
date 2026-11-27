@@ -28,7 +28,7 @@ from manga_pipeline import archive, config, db, errors, images, pause
 
 THREADS = 8  # share reads at once (plan step 0: 0.045 s per file from Celestia over SMB)
 HEAD = 64  # a page's first bytes: enough for images.detect but a VP8X WebP with a large chunk first
-REFUSED_UNDER = ("retention", "library", "staging")  # paths keys: purged or scanned, never a snapshot's folder
+REFUSED_UNDER = ("retention", "library", "staging", "scratch", "candidates")  # purged, emptied or scanned
 MISSING, UNREADABLE = "missing", "unreadable"
 
 
@@ -77,7 +77,7 @@ def page_format(z: zipfile.ZipFile, info: zipfile.ZipInfo) -> str:
     with z.open(info) as f:
         head = f.read(HEAD)
     fmt = images.detect(head)
-    if fmt == images.UNKNOWN and head[8:12] == b"WEBP" and info.file_size > len(head):
+    if fmt == images.UNKNOWN and head[:4] == b"RIFF" and head[8:12] == b"WEBP" and info.file_size > len(head):
         fmt = images.detect(z.read(info))
     return fmt
 
@@ -97,15 +97,17 @@ def file_formats(path: Path) -> tuple[int, dict[str, list[int]]]:
 def measure(cfg: config.Config, entry: FileEntry) -> FileEntry:
     """Return the entry with its file's bytes and formats, or its error (missing, unreadable).
 
-    Any other OSError (a dropped share's FileNotFoundError among them) is raised.
+    Unreadable: what reading a broken archive raises (archive.UNREADABLE). Any other OSError (a dropped share's
+    FileNotFoundError among them) is raised.
     """
+    path = config.to_local(cfg, entry["library_path"])
     try:
-        size, formats = file_formats(config.to_local(cfg, entry["library_path"]))
+        size, formats = file_formats(path)
     except FileNotFoundError as e:
         if errors.dropped_share(e):
             raise
         return {**entry, "bytes": None, "formats": None, "error": MISSING}
-    except zipfile.BadZipFile:
+    except archive.UNREADABLE:
         return {**entry, "bytes": None, "formats": None, "error": UNREADABLE}
     return {**entry, "bytes": size, "formats": formats, "error": None}
 
@@ -140,7 +142,7 @@ def rows(conn: db.Connection, series: Sequence[int] | None) -> list[FileEntry]:
 def measure_all(cfg: config.Config, entries: list[FileEntry]) -> list[FileEntry]:
     """Measure every entry on THREADS threads; an entry whose read raised OSError is measured once more, alone.
 
-    OSError when that second read fails too.
+    OSError naming the file when that second read fails too.
     """
 
     def first(entry: FileEntry) -> FileEntry | None:
@@ -149,9 +151,16 @@ def measure_all(cfg: config.Config, entries: list[FileEntry]) -> list[FileEntry]
         except OSError:
             return None
 
+    def again(entry: FileEntry) -> FileEntry:
+        try:
+            return measure(cfg, entry)
+        except OSError as e:
+            msg = f"{entry['library_path']}: {e}"
+            raise OSError(msg) from e
+
     with ThreadPoolExecutor(THREADS) as pool:
         done = list(pool.map(first, entries))
-    return [m if m is not None else measure(cfg, e) for e, m in zip(entries, done, strict=True)]
+    return [m if m is not None else again(e) for e, m in zip(entries, done, strict=True)]
 
 
 def summary(entries: list[FileEntry]) -> Summary:
@@ -176,7 +185,13 @@ def summary(entries: list[FileEntry]) -> Summary:
 
 
 def check_out(cfg: config.Config, out: Path) -> None:
-    """Raise RefusedError when OUT lies in a folder the pipeline purges or scans."""
+    """Raise RefusedError when OUT exists, its folder does not, or it lies in a folder the pipeline purges or scans."""
+    if out.exists():
+        msg = f"{out} exists: a snapshot is never overwritten"
+        raise RefusedError(msg)
+    if not out.parent.is_dir():
+        msg = f"{out.parent} is not a folder"
+        raise RefusedError(msg)
     where = out.resolve()
     for key in REFUSED_UNDER:
         folder = config.abs_path(cfg["paths"][key]).resolve()
@@ -188,14 +203,26 @@ def check_out(cfg: config.Config, out: Path) -> None:
 def take(cfg: config.Config, conn: db.Connection, out: Path, series: Sequence[int] | None) -> Snapshot:
     """Take the snapshot and write it to OUT (a .part file first, then replaced); return it.
 
-    RefusedError when the automation is not paused or OUT is in a refused folder; OSError when a file cannot be read.
+    RefusedError when the automation is not paused (or a scheduled run still holds it, or it was resumed meanwhile),
+    OUT is refused (check_out) or a listed series has no file; OSError when a file cannot be read.
     """
     check_out(cfg, out)
     paused = pause.paused(conn)
-    if paused is None:
-        msg = "the automation is not paused: run `state pause` first, so no file changes during the snapshot"
+    if paused is None or pause.waiting(conn):
+        msg = "the automation is not paused: run `state pause` to its end first, so no file changes meanwhile"
         raise RefusedError(msg)
-    entries = measure_all(cfg, rows(conn, series))
+    library = config.abs_path(cfg["paths"]["library"])
+    if not library.is_dir():  # an unmounted share: every file would read as missing
+        msg = f"the library folder {library} is not reachable"
+        raise RefusedError(msg)
+    found = rows(conn, series)
+    if missing := sorted(set(series or ()) - {e["series_id"] for e in found}):
+        msg = f"series without a published file: {missing}"
+        raise RefusedError(msg)
+    entries = measure_all(cfg, found)
+    if pause.paused(conn) != paused:
+        msg = "the automation was resumed during the snapshot: nothing written"
+        raise RefusedError(msg)
     snap: Snapshot = {
         "paused": paused,
         "series": None if series is None else list(series),
@@ -203,8 +230,11 @@ def take(cfg: config.Config, conn: db.Connection, out: Path, series: Sequence[in
         "files": entries,
     }
     part = out.with_name(out.name + ".part")
-    part.write_bytes(json.dumps(snap, indent=1, ensure_ascii=False).encode())
-    part.replace(out)
+    try:
+        part.write_bytes(json.dumps(snap, indent=1, ensure_ascii=False).encode())
+        part.replace(out)
+    finally:
+        part.unlink(missing_ok=True)
     return snap
 
 
@@ -224,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"refused: {e}\n")
         return 2
     except OSError as e:
-        sys.stderr.write(f"a file could not be read twice, nothing written: {e}\n")
+        sys.stderr.write(f"stopped, nothing written: {e}\n")
         return 1
     sys.stdout.write(json.dumps(snap["summary"], indent=2) + f"\nwritten: {args.out}\n")
     return 0

@@ -9,9 +9,10 @@ from contextlib import closing
 import pytest
 from PIL import Image
 
-from manga_pipeline import config, db, images, intake, pause
+from manga_pipeline import config, db, images, intake, lock, pause
 from scripts import library_snapshot
 
+from tests.builders import WinFileNotFoundError, config_file, present
 from tests.timing import budget
 from tests.world import World
 
@@ -85,6 +86,9 @@ def test_each_file_is_listed_with_its_bytes_and_pages_and_bytes_per_format(world
     assert {(e["origin"], e["state"], e["error"]) for e in snap["files"]} == {("bulk", "confirmed", None)}
     assert json.loads(out.read_bytes()) == snap, "written as returned"
     assert snap["summary"]["rows_read"] == snap["summary"]["files_read"] == 2
+    first, second = got["Vol.1 Ch.1.cbz"], got["Vol.1 Ch.2.cbz"]
+    assert snap["summary"]["formats"] == {"bulk": {**present(first["formats"]), **present(second["formats"])}}
+    assert snap["summary"]["bytes"] == {"bulk": present(first["bytes"]) + present(second["bytes"])}
 
 
 @budget(load="db", seconds=10)
@@ -134,5 +138,83 @@ def test_series_takes_only_the_listed_series_rows(world, tmp_path):
     paused(world)
     with closing(db.connect(world.cfg)) as conn:
         series_id = db.one_row(conn, "SELECT id FROM series", ())[0]
-    assert take(world, tmp_path / "s.json", [series_id + 1])["files"] == [], "another series' rows only"
+    with pytest.raises(library_snapshot.RefusedError, match="without a published file"):
+        take(world, tmp_path / "s.json", [series_id, series_id + 1])
     assert len(take(world, tmp_path / "t.json", [series_id])["files"]) == 2
+
+
+@budget(load="db", seconds=10)
+def test_a_broken_archive_member_is_listed_unreadable(world, tmp_path):
+    paused(world)
+    path = world.library / SERIES / "Vol.1 Ch.1.cbz"
+    data = bytearray(archive_of({"001.png": image("PNG") * 50}))
+    data[60:80] = bytes(20)  # inside the deflate stream: the archive opens, its member does not inflate
+    path.write_bytes(bytes(data))
+    assert by_name(take(world, tmp_path / "s.json"))["Vol.1 Ch.1.cbz"]["error"] == "unreadable", (
+        "archive.UNREADABLE: what reading a broken archive raises"
+    )
+
+
+@budget(load="db", seconds=10)
+def test_a_dropped_share_is_tried_again_not_listed_missing(world, tmp_path, monkeypatch):
+    paused(world)
+    real, failed = library_snapshot.file_formats, []
+
+    def dropped(path):
+        if not failed:
+            failed.append(path.name)
+            error = WinFileNotFoundError(2, "share gone")
+            error.winerror = 53
+            raise error
+        return real(path)
+
+    monkeypatch.setattr(library_snapshot, "file_formats", dropped)
+    snap = take(world, tmp_path / "s.json")
+    assert snap["summary"]["errors"] == {}, "a dropped share's FileNotFoundError is no missing file"
+
+
+@budget(load="db", seconds=10)
+def test_it_refuses_an_existing_out_a_missing_folder_and_while_a_scheduled_run_holds_the_automation(world, tmp_path):
+    paused(world)
+    (tmp_path / "s.json").write_bytes(b"{}")
+    with pytest.raises(library_snapshot.RefusedError, match="never overwritten"):
+        take(world, tmp_path / "s.json")
+    with pytest.raises(library_snapshot.RefusedError, match="not a folder"):
+        take(world, tmp_path / "nowhere" / "s.json")
+    library = config.abs_path(world.cfg["paths"]["library"])
+    library.rename(library.with_name("gone"))
+    with pytest.raises(library_snapshot.RefusedError, match="not reachable"):
+        take(world, tmp_path / "u.json")
+    library.with_name("gone").rename(library)
+    with (
+        closing(db.connect(world.cfg)) as other,
+        lock.held(other, world.cfg, [], lock.SHARED, automation=True),
+        pytest.raises(library_snapshot.RefusedError, match="not paused"),
+    ):
+        take(world, tmp_path / "t.json")
+
+
+@budget(load="db", seconds=10)
+def test_a_resume_during_the_snapshot_writes_nothing(world, tmp_path, monkeypatch):
+    paused(world)
+    real = library_snapshot.measure_all
+
+    def resumed(cfg, entries):
+        with closing(db.connect(world.cfg)) as conn:
+            pause.clear(conn)
+        return real(cfg, entries)
+
+    monkeypatch.setattr(library_snapshot, "measure_all", resumed)
+    with pytest.raises(library_snapshot.RefusedError, match="resumed"):
+        take(world, tmp_path / "s.json")
+    assert not list(tmp_path.glob("s.json*"))
+
+
+@budget(load="db", seconds=10)
+def test_main_exits_2_refused_and_0_written(world, tmp_path, capsys):
+    path = config_file(tmp_path, world.cfg)
+    out = tmp_path / "s.json"
+    assert library_snapshot.main([str(out), "--config", str(path)]) == 2, "not paused"
+    paused(world)
+    assert library_snapshot.main([str(out), "--config", str(path)]) == 0
+    assert '"files_read": 2' in capsys.readouterr().out
