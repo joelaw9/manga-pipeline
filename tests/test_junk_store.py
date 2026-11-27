@@ -1047,3 +1047,12 @@ def test_an_agreed_probe_raises_its_blocks_rest_as_a_candidate(conn):
     assert (left[0]["start"], left[0].get("rest")) == (60, True), "the block's rest is left"
     (pick,) = candidates.select(conn, "S", chapter(9), [{**left[0], "kind": "block"}], word_lists())
     assert pick["reason"] == "the rest of a block whose edge piece is junk", pick
+
+
+@budget()
+def test_1_other_series_and_a_global_decision_of_1_verdict_make_no_agreement():
+    rows = [stored(1, "A", "block", sig(), "junk"), stored(2, "", "block", sig((flip(T, 1),)), "junk")]
+    got = present(of(rows).decide("block", UNIT))
+    assert (got["id"], store.agreeing(got)) == (2, ()), "a global decision is no other series: the global junk decides"
+    with_b = present(of([*rows, stored(3, "B", "block", sig(), "junk")]).decide("block", UNIT))
+    assert store.agreeing(with_b) == (1, 3), "a 2nd series agrees, the global row not among them"

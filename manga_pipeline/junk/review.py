@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from typing import NamedTuple
 
 from manga_pipeline import config, db
-from manga_pipeline.junk import candidates, store
+from manga_pipeline.junk import candidates, chapter_scan, store
 from manga_pipeline.stages import junk as junk_stage
 
 REVIEW_ID_VARIABLE = "MANGA_JUNK_REVIEW_ID"  # set by junk review in Claude's environment
@@ -159,7 +159,7 @@ class Override(NamedTuple):
     """A page keep ranking first on an edge page whose frame a frame junk decision matches (A24).
 
     The frame junk decision's id, the page keep's id, and where: the series key, chapter id and page of a stored page
-    scan's edge page.
+    scan's edge page; for an agreed keep (a stand-in), its agreeing decisions' ids, else ().
     """
 
     frame: int
@@ -167,43 +167,76 @@ class Override(NamedTuple):
     series_key: str
     chapter: int
     page: int
+    agreeing: tuple[int, ...]
 
 
 def override_text(o: Override) -> str:
-    """Return the line naming an overriding page keep, as `junk decide` and `junk row` print it."""
+    """Return the line naming an overriding page keep, as `junk decide` and `junk row` print it, and how to lift it."""
+    where = f"series {o.series_key!r} chapter {o.chapter} page {o.page}, whose frame junk decision {o.frame} matches"
+    if not o.agreeing:
+        return f"page keep {o.keep} keeps {where}: it ranks first there (junk redecide {o.keep} junk lifts it)"
+    ids = ", ".join(map(str, o.agreeing))
     return (
-        f"page keep {o.keep} keeps series {o.series_key!r} chapter {o.chapter} page {o.page}, whose frame junk"
-        f" decision {o.frame} matches: the page keep ranks first there (junk redecide {o.keep} junk lifts it)"
+        f"page keeps {ids} of other series agree to keep {where}: the agreed keep ranks first there"
+        f" (junk redecide {o.agreeing[0]} junk --series {o.series_key} opts this series out)"
     )
 
 
-def page_keeps_over(conn: db.Connection, frame: db.Row) -> list[Override]:
+PAGE_SCANS = """SELECT js.chapter_id, js.scan, s.rules_key FROM junk_scan js JOIN series s ON s.id = js.series_id
+    WHERE s.rules_key IS NOT NULL AND js.scan::jsonb ->> 'layout' = 'pages' AND js.scan::jsonb ->> 'split' = 'false'"""
+
+
+def page_keeps_over(conn: db.Connection, frames: Sequence[db.Row]) -> list[Override]:
     """Return the page keeps that keep an edge page of a stored page scan whose frame a frame junk decision matches.
 
-    Over its series' stored page scans for a series decision, every series' for a global one: an edge page whose frame
-    the decision's key matches and whose page signature a page keep decides that ranks before the decision
-    (store.in_lookup_order). In chapter, then page order.
+    For each of frames (active frame junk decisions), over its series' stored page scans for a series decision, every
+    series' for a global one: an edge page whose frame the decision's key matches and whose page signature a page keep
+    decides that ranks before the decision (store.in_lookup_order). By decision, then chapter, then page; 1 read of
+    the scans and 1 lookup for all.
     """
-    query = "SELECT js.chapter_id, js.scan, s.rules_key FROM junk_scan js JOIN series s ON s.id = js.series_id"
-    params: tuple[str, ...] = ()
-    if frame["series_key"] != store.GLOBAL:
-        query += " WHERE s.rules_key = %s"
-        params = (frame["series_key"],)
-    scans = [r for r in conn.execute(query + " ORDER BY js.chapter_id", params) if r["rules_key"]]
+    if not frames:
+        return []
+    keys = {f["series_key"] for f in frames}
+    query = PAGE_SCANS
+    params: tuple[list[str], ...] = ()
+    if store.GLOBAL not in keys:
+        query, params = PAGE_SCANS + " AND s.rules_key = ANY(%s)", (sorted(keys),)
+    scans = conn.execute(query + " ORDER BY js.chapter_id", params).fetchall()
+    if not scans:
+        return []
     lookup = store.decisions_of(conn, {r["rules_key"] for r in scans})
+    read = [(r, junk_stage.read_scan(r["scan"])) for r in scans]
+    return [
+        o
+        for frame in frames
+        for r, sc in read
+        if frame["series_key"] in (store.GLOBAL, r["rules_key"])
+        for o in _edge_overrides(frame, r, sc, lookup(r["rules_key"]))
+    ]
+
+
+def _edge_overrides(
+    frame: db.Row, scan_row: db.Row, sc: chapter_scan.Scan, decisions: store.Decisions
+) -> list[Override]:
+    """Return the page keeps overriding frame junk decision frame on the edge pages of 1 stored page scan."""
+    if sc["layout"] == "strip" or sc["split"] is True:
+        return []
     stored = store.parse_key("frame", frame["key"])
     found: list[Override] = []
-    for r in scans:
-        sc = junk_stage.read_scan(r["scan"])
-        if sc["layout"] == "strip" or sc["split"] is True:
+    for u in sc["edges"]:
+        if not (u["frame"] and u["sig"]) or not store.matches(stored, store.parse_key("frame", u["frame"])):
             continue
-        for u in sc["edges"]:
-            if not (u["frame"] and u["sig"]) or not store.matches(stored, store.parse_key("frame", u["frame"])):
-                continue
-            page = lookup(r["rules_key"]).decide("page", store.parse_key("page", u["sig"]))
-            if page is not None and page["verdict"] == "keep" and store.in_lookup_order([frame, page])[0] is page:
-                found.append(Override(frame["id"], page["id"], r["rules_key"], r["chapter_id"], u["page"]))
+        page = decisions.decide("page", store.parse_key("page", u["sig"]))
+        if page is not None and page["verdict"] == "keep" and store.in_lookup_order([frame, page])[0] is page:
+            where = (scan_row["rules_key"], scan_row["chapter_id"], u["page"])
+            found.append(Override(frame["id"], page["id"], *where, store.agreeing(page)))
     return found
+
+
+def overrides_of(conn: db.Connection, written: Sequence[store.Decision]) -> list[Override]:
+    """Return the page keeps overriding the frame junk decisions active on the keys of decisions written (A24)."""
+    active = [store.active_on(conn, d["series_key"], d["kind"], d["key"]) for d in written if d["kind"] == "frame"]
+    return page_keeps_over(conn, [row for row in active if row is not None and row["verdict"] == "junk"])
 
 
 def decision(row: db.Row, verdict: str, decider: str, at: str) -> store.Decision:
@@ -230,12 +263,11 @@ def _open_all(conn: db.Connection, candidate_ids: Sequence[int], review_id: str 
 
 def _record(
     conn: db.Connection, rows: Sequence[db.Row], verdict: str, review_id: str | None, at: str
-) -> list[Override]:
+) -> list[store.Decision]:
     """Record verdict on rows in the caller's transaction: a decision on each key, or the unsure mark.
 
     A decision on a candidate of a waiting chapter's bundle of more than 1 member (candidates.bundles) carries the
-    bundle mark (SPEC "Junk decisions": a marked keep protects no gap). Returns the page keeps overriding each frame
-    junk decision active on a key it wrote (page_keeps_over).
+    bundle mark (SPEC "Junk decisions": a marked keep protects no gap). Returns the decisions written ([] for unsure).
     """
     if verdict == "unsure":
         db.executemany(conn, "UPDATE junk_candidate SET verdict = 'unsure' WHERE id = %s", [(r["id"],) for r in rows])
@@ -248,18 +280,13 @@ def _record(
         d["bundle"] = r["id"] in bundled
         written.append(d)
     store.upsert(conn, written)
-    overrides: list[Override] = []
-    for d in written:
-        row = store.active_on(conn, d["series_key"], d["kind"], d["key"]) if d["kind"] == "frame" else None
-        if row is not None and row["verdict"] == "junk":
-            overrides += page_keeps_over(conn, row)
-    return overrides
+    return written
 
 
 def decide(
     conn: db.Connection, candidate_ids: Sequence[int], verdict: str, review_id: str | None, at: str
 ) -> list[Override]:
-    """Record a verdict on open candidates in 1 transaction, all or none; return the page keeps overriding it (_record).
+    """Record a verdict on open candidates in 1 transaction, all or none; return the page keeps overriding it.
 
     By claude under a review id (only candidates that review listed), else a human. junk / keep become series-scoped
     decisions on their keys; unsure marks them (their chapters become needs_human at the next process run).
@@ -269,7 +296,7 @@ def decide(
         raise Refused(msg)
     with db.transaction(conn):
         rows = _open_all(conn, candidate_ids, review_id)
-        return _record(conn, rows, verdict, review_id, at)
+        return overrides_of(conn, _record(conn, rows, verdict, review_id, at))
 
 
 def decide_junk_keeping_rest(
@@ -279,7 +306,7 @@ def decide_junk_keeping_rest(
 
     Only inside a review. After the junk rows are written, every other candidate of that series the review listed that
     is still open (a candidate the new rows cover is not) and not unsure is kept. Returns the kept rows and the page
-    keeps overriding the junk (_record).
+    keeps overriding the junk, read once both are written (a page keep it writes counts).
     """
     if not review_id:
         msg = "--keep-rest is for a review: a person names every candidate"
@@ -290,7 +317,7 @@ def decide_junk_keeping_rest(
         if len(series) != 1:
             msg = f"--keep-rest takes candidates of 1 series, got {sorted(series)}"
             raise Refused(msg)
-        overrides = _record(conn, rows, "junk", review_id, at)
+        junk = _record(conn, rows, "junk", review_id, at)
         rest = conn.execute(
             """SELECT * FROM junk_candidate WHERE review_id = %s AND review_open = 1 AND series_key = %s
             AND verdict IS NULL AND NOT (id = ANY(%s)) ORDER BY id""",
@@ -299,4 +326,5 @@ def decide_junk_keeping_rest(
         lookup = store.by_series(conn)  # read after the junk rows: a candidate they cover is not kept
         kept = [r for r in rest if candidates.is_open(conn, r, lookup)]
         _record(conn, kept, "keep", review_id, at)
+        overrides = overrides_of(conn, junk)
     return kept, overrides

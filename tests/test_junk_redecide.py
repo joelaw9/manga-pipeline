@@ -544,7 +544,7 @@ def test_decide_and_keep_rest_warn_of_page_keeps_overriding_a_frame_junk(site, k
     else:
         got = review.decide(conn, [cid], "junk", None, AT)
     frame = one(conn, "SELECT id FROM junk_decision WHERE kind = 'frame'")
-    assert got == [review.Override(frame, keep, "S", chapter, 5)], "the page keep that ranks first on page 5"
+    assert got == [review.Override(frame, keep, "S", chapter, 5, ())], "the page keep that ranks first on page 5"
     assert "junk redecide" in review.override_text(got[0]), "the warning says how to lift it"
 
 
@@ -555,12 +555,64 @@ def test_junk_row_lists_the_page_keeps_overriding_a_global_frame_junk_in_every_s
     chapters = {s: page_chapter(conn, s, f"c-{s}") for s in ("S", "T", "U")}
     keeps = {s: write(conn, s, "page", PAGE_SIG, "keep") for s in ("S", "T")}  # U has none: S and T agree there
     g = write(conn, "", "frame", FRAME, "junk")
-    got = review.page_keeps_over(conn, present(store.get(conn, g)))
-    want = [review.Override(g, keeps[s], s, chapters[s], 5) for s in ("S", "T")]
-    want.append(review.Override(g, keeps["T"], "U", chapters["U"], 5))  # the agreement's stand-in: the newest keep
+    got = review.page_keeps_over(conn, [present(store.get(conn, g))])
+    want = [review.Override(g, keeps[s], s, chapters[s], 5, ()) for s in ("S", "T")]
+    agreed = (keeps["S"], keeps["T"])
+    want.append(review.Override(g, keeps["T"], "U", chapters["U"], 5, agreed))  # the stand-in: the newest keep
+    assert f"junk redecide {keeps['S']} junk --series U opts this series out" in review.override_text(want[-1]), (
+        "an agreed keep is lifted in U alone: S's own keep is not changed"
+    )
     assert got == want, "each series' own page keep, and in U the agreed keep: each ranks before a global junk"
     path = str(config_file(tmp_path, cfg))
     capsys.readouterr()
     assert cli.main(["--config", path, "junk", "row", str(g)]) == 0
     out = capsys.readouterr().out
     assert all(review.override_text(o) in out for o in want), out
+
+
+@budget(load="db")
+def test_keep_rest_counts_a_page_keep_it_writes_over_the_frame_junk(site):
+    """--keep-rest keeps the page candidate the review listed: that keep overrides the frame junk written with it."""
+    cfg, conn = site
+    chapter = page_chapter(conn, "S", "c1")
+    cid = frame_candidate(conn, "S", chapter)
+    with db.transaction(conn):
+        page = one(
+            conn,
+            """INSERT INTO junk_candidate (series_key, kind, key, reason, folder, created_at)
+            VALUES ('S', 'page', %s, 'recurs', 'p', %s) RETURNING id""",
+            (PAGE_SIG, AT),
+        )
+        conn.execute("UPDATE junk_scan SET candidates = %s WHERE chapter_id = %s", (json.dumps([cid, page]), chapter))
+    review.listing(conn, cfg, "r1")
+    kept, got = review.decide_junk_keeping_rest(conn, [cid], "r1", AT)
+    assert [r["id"] for r in kept] == [page], "the page candidate is kept as the rest"
+    keep = one(conn, "SELECT id FROM junk_decision WHERE kind = 'page'")
+    frame = one(conn, "SELECT id FROM junk_decision WHERE kind = 'frame'")
+    assert got == [review.Override(frame, keep, "S", chapter, 5, ())], "the keep written by --keep-rest counts"
+
+
+@budget(load="db")
+def test_junk_decide_through_the_cli_prints_the_page_keep_warning(site, tmp_path, capsys):
+    cfg, conn = site
+    chapter = page_chapter(conn, "S", "c1")
+    keep = write(conn, "S", "page", PAGE_SIG, "keep")
+    cid = frame_candidate(conn, "S", chapter)
+    path = str(config_file(tmp_path, cfg))
+    capsys.readouterr()
+    assert cli.main(["--config", path, "junk", "decide", str(cid), "junk"]) == 0
+    captured = capsys.readouterr()
+    assert f"page keep {keep} keeps series 'S' chapter {chapter} page 5" in captured.out + captured.err, captured
+
+
+@budget(load="db")
+def test_redecide_series_on_a_series_decision_through_the_cli(site, tmp_path, capsys):
+    cfg, conn = site
+    more_series(conn, "U")
+    s = decide(conn, "S", FAR[0], "junk")
+    decide(conn, "T", FAR[0], "junk")
+    path = str(config_file(tmp_path, cfg))
+    capsys.readouterr()
+    assert cli.main(["--config", path, "junk", "redecide", str(s), "keep", "--series", "U"]) == 0
+    assert deciding(conn, "U", FAR[0]) == "keep", "U opts out of S and T's agreement through the CLI"
+    assert deciding(conn, "S", FAR[0]) == "junk", "S's decision stays"

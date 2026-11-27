@@ -14,7 +14,7 @@ import pytest
 from PIL import Image
 
 from manga_pipeline import db, images, strip
-from manga_pipeline.junk import chapter_scan, frames, page_units, store
+from manga_pipeline.junk import chapter_scan, frames, marks, page_units, store
 from manga_pipeline.stages import junk as junk_stage
 
 from tests import pages as fx
@@ -842,3 +842,48 @@ def test_the_log_names_the_frame_decision_that_won_not_the_page_row_it_beat(page
     applied = chapter_scan.apply(sc, decide_unit, [])
     assert {("page", PAGE_KEY), ("frame", FRAME_KEY)} <= set(memo), "both of the page's rows were looked up"
     assert junk_stage.agreed_units(sc, applied, memo) == [want], f"only the winner is named, not {beaten}"
+
+
+@budget(3.0, load="fs")
+def test_the_log_names_an_agreed_band_and_logo_and_no_band_left_uncropped(tmp_path):
+    sc = banded_chapter(tmp_path, 2)
+    (b,) = sc["bands"]["2"]
+    template = marks.Template(np.full((20, 40, 3), 200, np.uint8), np.ones((20, 40), bool)).key_text()
+    sc["marks"] = [
+        {
+            "page": 3,
+            "tight": [10, 10, 50, 30],
+            "box": [0, 0, 60, 40],
+            "fill": [0, 0, 0],
+            "ring_frac": 1.0,
+            "template": template,
+        }
+    ]
+    rows = [
+        db_row(
+            id=i,
+            series_key=s,
+            kind=k,
+            key=key,
+            verdict="junk",
+            decider="import",
+            decided_at="2026-01-01T00:00:00+00:00",
+            chain=None,
+            bundle=False,
+        )
+        for i, s, k, key in (
+            (1, "A", "band", b["sig"]),
+            (2, "B", "band", b["sig"]),
+            (3, "A", "logo", template),
+            (4, "B", "logo", template),
+        )
+    ]
+    decide_unit, memo = lookup(rows)
+    applied = chapter_scan.apply(sc, decide_unit, [])
+    assert applied.edit["bands"], "the agreed band is cropped off"
+    got = junk_stage.agreed_units(sc, applied, memo)
+    assert got == ["band on page 2 junk by decisions 1 2", "logo on page 3 junk by decisions 3 4"], got
+    uncropped = applied._replace(edit={**applied.edit, "bands": []})  # as when its junk bands leave too little
+    assert junk_stage.agreed_units(sc, uncropped, memo) == ["logo on page 3 junk by decisions 3 4"], (
+        "a band its page keeps whole is not named as cropped"
+    )

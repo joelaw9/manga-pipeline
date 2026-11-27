@@ -452,7 +452,7 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
     known = ctx.conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
     render = pages.render if sc["layout"] == "strip" else None
     applied = chapter_scan.apply(sc, decide_unit, [r["key"] for r in known], decisions.cuts(), render)
-    applied = applied._replace(watermarks=own_watermarks(applied.watermarks, memo))
+    applied = applied._replace(watermarks=own_watermarks(applied.watermarks, applied.edit["strip_removed"], memo))
     members = strip_units.rest_members(applied.rest, lambda sig: decisions.judged_keep(images.sig_from_str(sig)))
     watermarks = [(key, k) for k in applied.watermarks]
     if applied.problem:
@@ -498,24 +498,45 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
 type Memo = dict[tuple[str, str], db.Row | None]  # a decide's lookups: (unit kind, key text) -> the deciding row
 
 
-def own_watermarks(found: Sequence[str], memo: Memo) -> list[str]:
-    """Return the watermark keys a decide found, but those an agreement removed (stand-in rows' keys): none is kept.
+def own_watermarks(found: Sequence[str], removed: Sequence[plan.RemovedRange], memo: Memo) -> list[str]:
+    """Return the watermark keys a decide found, but those only an agreement removed: none of them is remembered.
 
-    A key a stored row of the decide also decided stays.
+    From the rows that removed the strip ranges (_removing): a key a stand-in removed is dropped unless a stored row
+    of the decide removed a range of that key too.
     """
-    rows = [r for r in memo.values() if r is not None]
-    agreed = {r["key"] for r in rows if store.agreeing(r)} - {r["key"] for r in rows if not store.agreeing(r)}
+    rows = _removing(removed, memo)
+    agreed = {r["key"] for _, r in rows if store.agreeing(r)} - {r["key"] for _, r in rows if not store.agreeing(r)}
     return [k for k in found if k not in agreed]
+
+
+def _removing(removed: Sequence[plan.RemovedRange], memo: Memo) -> list[tuple[str, db.Row]]:
+    """Return (unit kind, deciding row) of each removed strip range a block or probe lookup of the decide decided."""
+    out: list[tuple[str, db.Row]] = []
+    for r in removed:
+        for kind in ("block", "probe"):
+            row = memo.get((kind, r["hash"])) if "hash" in r else None
+            if row is not None and row["id"] == r.get("decision"):
+                out.append((kind, row))
+                break
+    return out
 
 
 def agreed_units(sc: chapter_scan.Scan, applied: chapter_scan.Applied, memo: Memo) -> list[str]:
     """Return the units of a decide's result that other series' agreement removed or kept, each named.
 
     From the decide's lookups (memo), the final row of each unit, no intermediate hit: a strip range removed by a
-    stand-in's decision, an edge block kept by one; an edge page's row as page_units.page_decision ranks it; a band's
-    row; a logo variant decided only by agreement (marks.resolve over its representatives). Each with its kind,
-    verdict and the agreeing decisions.
+    stand-in's decision, an edge block left whole and kept by one; an edge page's row as page_units.page_decision
+    ranks it; a band's row (a junk band only when its page is cropped); a logo variant decided only by agreement
+    (marks.resolve over its representatives). Each with its kind, verdict and the agreeing decisions. A refused edit
+    (applied.problem) names each agreed junk the decide looked up, and nothing kept.
     """
+    if not any(r is not None and store.agreeing(r) for r in memo.values()):
+        return []
+    if applied.problem:
+        refused = {(kind, r["agreeing"]): r for (kind, _), r in memo.items() if r is not None and store.agreeing(r)}
+        return [
+            x for (kind, _), r in refused.items() if r["verdict"] == "junk" for x in _named(f"{kind} (edit refused)", r)
+        ]
     edit = applied.edit
     if sc["layout"] == "strip":
         out = _agreed_strip(sc, edit["strip_removed"], memo)
@@ -546,15 +567,18 @@ def _stored(memo: Memo) -> store.DecideUnit:
 
 
 def _agreed_strip(sc: chapter_scan.StoredStripScan, removed: Sequence[plan.RemovedRange], memo: Memo) -> list[str]:
-    """Return the strip ranges a stand-in's decision removed and the edge blocks one kept (agreed_units)."""
+    """Return the strip ranges a stand-in's decision removed and the edge blocks one kept (agreed_units).
+
+    A kept block is named only when no removed range (a probe's, a card's, a cut's) touches it: it is left whole.
+    """
     out: list[str] = []
     for r in removed:
-        hits = [(kind, memo.get((kind, r["hash"]))) for kind in ("block", "probe")] if "hash" in r else []
-        kind, row = next(((k, x) for k, x in hits if x is not None and x["id"] == r.get("decision")), ("", None))
-        out += _named(f"{kind} rows {r['start']}-{r['end']}", row)
+        found = _removing([r], memo)
+        out += [x for kind, row in found for x in _named(f"{kind} rows {r['start']}-{r['end']}", row)]
     for b in sc["blocks"]:
         row = memo.get(("block", b["sig"]))
-        if row is not None and row["verdict"] == "keep":
+        whole = all(r["end"] <= b["start"] or r["start"] >= b["end"] for r in removed)
+        if row is not None and row["verdict"] == "keep" and whole:
             out += _named(f"block rows {b['start']}-{b['end']}", row)
     return out
 
@@ -567,6 +591,7 @@ def _agreed_pages(sc: page_units.PageScan, edit: plan.ChapterEdit, memo: Memo) -
 
     out: list[str] = []
     skipped = set(edit["drop_pages"])
+    cropped = {b["page"] for b in edit["bands"]}  # a page whose junk bands would leave too little is not
     for u in sc["edges"]:
         row = page_units.page_decision(u, lookup)
         if row is not None:
@@ -574,8 +599,15 @@ def _agreed_pages(sc: page_units.PageScan, edit: plan.ChapterEdit, memo: Memo) -
         if u["frame"] and lookup("frame", u["frame"]) is not None:
             skipped.add(u["page"])
     for page, listed in sc["bands"].items():
-        if int(page) not in skipped:
-            out += [x for band in listed for x in _named(f"band on page {page}", lookup("band", band["sig"]))]
+        if int(page) in skipped:
+            continue
+        rows = [lookup("band", band["sig"]) for band in listed]
+        out += [
+            x
+            for r in rows
+            if r is not None and (r["verdict"] == "keep" or int(page) in cropped)
+            for x in _named(f"band on page {page}", r)
+        ]
     return out
 
 

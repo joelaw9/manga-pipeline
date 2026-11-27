@@ -604,7 +604,7 @@ def junk_row(cfg: config.Config, args: argparse.Namespace) -> None:
             else:
                 print(f"  {candidates.kept_images(cfg, row['images'])}")
                 if row["kind"] == "frame" and row["verdict"] == "junk" and store.is_active(row):
-                    for o in review.page_keeps_over(conn, row):
+                    for o in review.page_keeps_over(conn, [row]):
                         print(f"  {review.override_text(o)}")
 
 
@@ -940,7 +940,11 @@ def _junk_commands(command: argparse.ArgumentParser) -> None:
     redecide_.add_argument("ids", type=int, nargs="+", metavar="ROW", help="decision ids, re-decided together or not")
     redecide_.add_argument("verdict", choices=redecide.VERDICTS, help="the new verdict")
     redecide_.add_argument(
-        "--series", nargs="+", default=[], help="a global decision: decide it so in these series only"
+        "--series",
+        nargs="+",
+        default=[],
+        help="a global decision: decide it so in these series only; a series decision: these other series get their"
+        " own decision of the verdict (opting out of an agreement it is part of)",
     )
     redecide_.add_argument("--retire", action="store_true", help="a global decision: retire it, write nothing")
     redecide_.set_defaults(command="junk redecide")

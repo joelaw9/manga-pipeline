@@ -18,7 +18,7 @@ from manga_pipeline import cli, config, db, errors, export, identify, intake, pr
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import plan
-from manga_pipeline.junk import anchored, candidates, chains, logo_units, ocr, redecide, review, store
+from manga_pipeline.junk import anchored, candidates, chains, chapter_scan, logo_units, ocr, redecide, review, store
 from manga_pipeline.metadata import sources
 from manga_pipeline.stages import convert as convert_stage
 from manga_pipeline.stages import junk as junk_stage
@@ -1574,9 +1574,10 @@ def test_a_chapter_logs_its_agreed_units_when_a_decide_ends_it_and_not_while_wai
     run_part(site.cfg, process)
     (line,) = [r.getMessage() for r in caplog.records if "agreement" in r.getMessage()]
     (edit,) = edits(site)
-    for r in edit["strip_removed"]:
-        if r.get("decision") == ids[-1]:
-            assert f"block rows {r['start']}-{r['end']} junk by decisions {ids[0]} {ids[1]}" in line, line
+    agreed = [r for r in edit["strip_removed"] if r.get("decision") == ids[-1]]
+    assert agreed, "the bands are removed by the stand-in's decision"
+    for r in agreed:
+        assert f"block rows {r['start']}-{r['end']} junk by decisions {ids[0]} {ids[1]}" in line, line
     assert "keep" not in line, "the kept blocks are the series' own decisions: not named"
 
 
@@ -1597,3 +1598,78 @@ def test_an_agreed_chained_decision_removes_no_card_and_holds_nothing(site, monk
         edit["strip_removed"]
     ), edit
     assert not [r for r in edit["strip_removed"] if r["why"] == "card"], "no card is removed"
+
+
+def standin(row_id, key, verdict="junk"):
+    """Return a stand-in row of an agreement of decisions 1 and row_id (row_id the newest)."""
+    return db.row(
+        id=row_id,
+        series_key="X",
+        kind="block",
+        key=key,
+        verdict=verdict,
+        decider=store.AGREEMENT,
+        chain=None,
+        agreeing=(1, row_id),
+    )
+
+
+def own_row(row_id, key, verdict="junk"):
+    return db.row(id=row_id, series_key="S", kind="block", key=key, verdict=verdict, decider="claude", chain=None)
+
+
+@budget()
+def test_a_stored_row_on_the_agreed_key_that_removed_nothing_does_not_bring_the_watermark_back():
+    removed: list[plan.RemovedRange] = [{"start": 0, "end": 10, "why": "match", "decision": 7, "hash": "h1"}]
+    memo: junk_stage.Memo = {("block", "h1"): standin(7, "K"), ("block", "h2"): own_row(9, "K")}
+    assert junk_stage.own_watermarks(["K"], removed, memo) == [], "only the agreement removed K: not remembered"
+    removed.append({"start": 20, "end": 30, "why": "match", "decision": 9, "hash": "h2"})
+    assert junk_stage.own_watermarks(["K"], removed, memo) == ["K"], "a stored row removed K too: remembered"
+
+
+def strip_of_blocks(*blocks) -> chapter_scan.StoredStripScan:
+    """Return a stored strip scan of these edge blocks [(start, end, sig)], nothing else read."""
+    return {
+        "layout": "strip",
+        "width": 300,
+        "height": 4000,
+        "gaps": [],
+        "spans": [],
+        "blocks": [{"start": a, "end": b, "where": "head", "sig": h, "joins": []} for a, b, h in blocks],
+        "measured": {},
+        "middle": [],
+        "marks": [],
+    }
+
+
+def applied_of(removed, problem=None):
+    edit: plan.ChapterEdit = {
+        "drop_pages": [],
+        "bands": [],
+        "join": [],
+        "split": False,
+        "split_pages": None,
+        "strip_removed": removed,
+        "blank": [],
+    }
+    return chapter_scan.Applied(edit, [], [], problem, [])
+
+
+@budget()
+def test_the_log_names_agreed_junk_of_a_refused_edit_and_only_kept_blocks_left_whole():
+    sc = strip_of_blocks((0, 100, "h1"), (200, 300, "h2"), (400, 500, "h3"))
+    memo: junk_stage.Memo = {
+        ("block", "h1"): standin(7, "K1"),
+        ("block", "h2"): standin(8, "K2", "keep"),
+        ("block", "h3"): standin(9, "K3", "keep"),
+    }
+    refused = junk_stage.agreed_units(sc, applied_of([], "junk removal would leave 0 px"), memo)
+    assert refused == ["block (edit refused) junk by decisions 1 7"], "the agreed junk behind a refusal, no keep"
+    removed: list[plan.RemovedRange] = [
+        {"start": 0, "end": 100, "why": "match", "decision": 7, "hash": "h1"},
+        {"start": 450, "end": 500, "why": "card", "decision": 3},
+    ]
+    got = junk_stage.agreed_units(sc, applied_of(removed), memo)
+    assert got == ["block rows 0-100 junk by decisions 1 7", "block rows 200-300 keep by decisions 1 8"], (
+        "a kept block a card range cuts into is not left whole: not named"
+    )
