@@ -113,7 +113,7 @@ def platform_list(conn: db.Connection, series_id: int) -> platforms.PlatformList
 
 def _published(conn: db.Connection, series_id: int) -> list[naming.Row[naming.RowKey]]:
     out: list[naming.Row[naming.RowKey]] = []
-    for r in conn.execute("SELECT * FROM published_file WHERE series_id = %s", (series_id,)):
+    for r in conn.execute("SELECT * FROM published_file WHERE series_id = %s ORDER BY id", (series_id,)):
         if r["comicinfo_number"] is None:
             continue
         _, season, side, _, _ = names.read_identity(r["identity"])

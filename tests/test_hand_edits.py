@@ -149,6 +149,8 @@ def test_a_malformed_edit_file_changes_nothing_and_names_every_problem(world):
 @budget(load="db", seconds=30)
 def test_an_edit_out_of_volume_order_is_refused(world):
     library(world)
+    with closing(db.connect(world.cfg)) as conn:  # chapter 1's row rewritten: stored after chapter 2's
+        conn.execute("UPDATE published_file SET size = size WHERE id = (SELECT min(id) FROM published_file)")
     with pytest.raises(workflow.Refused) as refused:
         edit(world, {"1": {"volume": 2}})  # chapter 2 stays in volume 1
     assert str(refused.value) == "chapter '2': volume 1 is out of order with chapter 1 in volume 2", "1 line per clash"
