@@ -5,7 +5,7 @@ Runs 1 real junk review on fixture chapters, apart from the pipeline: a scratch 
 holds 3 chapters at junk, made from synthetic images: story panels of noise, then the same 2 tail blocks, a scanlator
 credit ("join our discord": a keyword reason, junk) and an official localization credit ("translated by" a publisher:
 keyword `translat`, and in all 3 chapters; keep). `process` opens their candidates, then `junk review` runs with the
-real Claude. It passes when the review's result is `ok`, it read at least 4 images and ran `show` at least twice, the
+real Claude. It passes when the review's result is `ok`, it read at least 4 images and showed both candidates, the
 credit is junk and the localization credit keep; a verdict miss runs it once more from scratch, a second miss fails.
 
 The scratch config is config.yaml.example with the test login, every path under the scratch folder, and from this
@@ -48,7 +48,7 @@ LOGIN = {"host": "localhost", "port": 5432, "user": "mp_test", "password": "mp_t
 SERIES = "Smoke Strip"
 CREDIT = ("JOIN OUR DISCORD", "for early chapters")  # junk
 LOCALIZATION = ("Translated by Lezhin Entertainment", "Lettering by Kim Min")  # keep: an official credit
-MIN_READS, MIN_SHOWS = 4, 2  # each candidate's 2 images; show on each
+MIN_READS, MIN_SHOWN = 4, 2  # each candidate's 2 images; show on each
 WIDTH, PAGE_H, PAGES = 800, 2000, 3
 TOOLS = ("avifenc", "avifdec", "jpegtran", "oxipng", "vship")  # config.ToolsConfig
 Run = Callable[[Path, list[str]], None]  # runs 1 pipeline command with a config file
@@ -163,7 +163,7 @@ def judge(cfg: config.Config) -> tuple[list[str], bool, bool]:
             d = candidates.covering(decisions, row)
             verdicts[which].append(d["verdict"] if d is not None else row["verdict"] or "undecided")
     line = result["value"] if result is not None else "no review ran"
-    counts = {name: int(n) for name, _, n in (p.partition(" ") for p in line.split(", ")) if name in ("reads", "shows")}
+    counts = {name: int(n) for name, _, n in (p.partition(" ") for p in line.split(", ")) if name in ("reads", "shown")}
     lines = [
         f"chapters: {', '.join('/'.join(str(v) for v in c) for c in waiting)}",
         f"review: {line}",
@@ -174,7 +174,7 @@ def judge(cfg: config.Config) -> tuple[list[str], bool, bool]:
     acted = (
         line.startswith("ok")
         and counts.get("reads", 0) >= MIN_READS
-        and counts.get("shows", 0) >= MIN_SHOWS
+        and counts.get("shown", 0) >= MIN_SHOWN
         and bool(verdicts["credit"])
         and bool(verdicts["localization"])
         and not verdicts["other"]  # the fixture opens exactly the 2

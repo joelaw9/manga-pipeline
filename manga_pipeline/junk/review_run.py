@@ -304,10 +304,11 @@ def contexts(lines: list[ClaudeReply]) -> str:
 
 
 def acts(lines: list[ClaudeReply], prefix: str) -> str:
-    """Return the images Claude read and the `show` calls it ran, from its assistant lines (a run cut short has them).
+    """Return the images Claude read and the candidates its `show` calls named, from its assistant lines.
 
-    Each tool use counts once by its id: a message's content blocks arrive as lines sharing the message's id, and 1
-    message may hold several tool uses. A `show` call is a Bash command starting with the review's own `show`.
+    A run cut short has them too. Each tool use counts once by its id: a message's content blocks arrive as lines
+    sharing the message's id, and 1 message may hold several tool uses. A `show` call is a Bash command starting with
+    the review's own `show`; 1 call may name several candidates, and a candidate named again counts once.
     """
     uses: dict[str, ContentBlock] = {}
     for line in lines:
@@ -320,12 +321,10 @@ def acts(lines: list[ClaudeReply], prefix: str) -> str:
     reads = sum(
         1 for u in uses.values() if u.get("name") == "Read" and u.get("input", {}).get("file_path", "").endswith(".png")
     )
-    shows = sum(
-        1
-        for u in uses.values()
-        if u.get("name") == "Bash" and u.get("input", {}).get("command", "").startswith(f"{prefix} show ")
-    )
-    return f"reads {reads}, shows {shows}"
+    show = f"{prefix} show "
+    commands = (u.get("input", {}).get("command", "") for u in uses.values() if u.get("name") == "Bash")
+    shown = {c for command in commands if command.startswith(show) for c in command[len(show) :].split()}
+    return f"reads {reads}, shown {len(shown)}"
 
 
 def usage(lines: list[ClaudeReply], reply: ClaudeReply) -> str:

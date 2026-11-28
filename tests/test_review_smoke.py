@@ -17,7 +17,7 @@ from tests.builders import adopted
 from tests.test_w5_scripts import AT, candidate
 from tests.timing import budget
 
-OK = "ok: 8 turn(s), 17 s, 84742 tokens, start 17919, peak 23734 of 1000000, reads 4, shows 2"  # a real line
+OK = "ok: 8 turn(s), 17 s, 84742 tokens, start 17919, peak 23734 of 1000000, reads 4, shown 2"  # a real line
 
 
 def unit(cfg, conn, n, text, verdict):
@@ -44,7 +44,7 @@ def unit(cfg, conn, n, text, verdict):
         (OK, "keep", "keep", (False, True)),  # a verdict miss: run again
         (OK, "junk", None, (False, True)),
         (OK.replace("reads 4", "reads 3"), "junk", "keep", (False, False)),  # read too few images
-        (OK.replace("shows 2", "shows 1"), "junk", "keep", (False, False)),  # show not run on each
+        (OK.replace("shown 2", "shown 1"), "junk", "keep", (False, False)),  # show not run on each
         (OK.replace("ok: 8 turn(s),", "error: claude exited 1;"), "junk", "keep", (False, False)),
     ],
 )
@@ -92,7 +92,7 @@ def test_the_scratch_config_holds_the_test_login_and_every_path_under_its_folder
     folder.mkdir()
     cfg = config.load(review_smoke.scratch_config(config.load(), folder), env={})
     assert dict(cfg["database"]) == {**review_smoke.LOGIN, "name": review_smoke.DATABASE}, "the test server only"
-    paths = {k: v for k, v in cfg["paths"].items() if k != "kavita_path_map"}
+    paths = {k: str(v) for k, v in cfg["paths"].items() if k != "kavita_path_map"}
     assert paths, "it has paths"
     assert all(Path(v).is_relative_to(folder) for v in paths.values()), paths
     assert Path(cfg["logging"]["dir"]).is_relative_to(folder)

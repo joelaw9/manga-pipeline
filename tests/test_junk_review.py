@@ -209,7 +209,7 @@ def test_a_run_cut_short_records_the_contexts_it_reached(world, tmp_path):
     assert code == 1
     with closing(db.connect(cfg)) as conn:
         meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
-    assert meta["junk-review.last_result"] == "error: claude exited 3; start 500, peak 700, reads 0, shows 0", (
+    assert meta["junk-review.last_result"] == "error: claude exited 3; start 500, peak 700, reads 0, shown 0", (
         "a run with no result still records the first call's context and the largest"
     )
 
@@ -229,7 +229,7 @@ def test_the_review_result_records_turns_seconds_tokens_start_and_peak(world, tm
     with closing(db.connect(cfg)) as conn:
         meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
     assert meta["junk-review.last_result"] == (
-        "ok: 3 turn(s), 4 s, 915 tokens, start 500, peak 700 of 1000000, reads 0, shows 0"
+        "ok: 3 turn(s), 4 s, 915 tokens, start 500, peak 700 of 1000000, reads 0, shown 0"
     ), "the result names turns, seconds, tokens, the first call's context and the largest (each message once)"
 
 
@@ -238,7 +238,7 @@ def review_log(cfg):
 
 
 @budget(load="subprocess", seconds=20)
-def test_the_review_counts_images_read_show_calls_and_unsure_verdicts(world, tmp_path, monkeypatch):
+def test_the_review_counts_images_read_candidates_shown_and_unsure_verdicts(world, tmp_path, monkeypatch):
     monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "INFO")
     with closing(db.connect(world.cfg)) as conn, db.transaction(conn):  # an earlier review's unsure mark
         conn.execute(
@@ -252,13 +252,32 @@ def test_the_review_counts_images_read_show_calls_and_unsure_verdicts(world, tmp
     assert code == 0
     with closing(db.connect(cfg)) as conn:
         result = one(conn, "SELECT value FROM meta WHERE key = 'junk-review.last_result'")
-    assert result.endswith(", reads 3, shows 1"), (
+    assert result.endswith(", reads 3, shown 1"), (
         "each image read counts once (each line is printed twice), 2 in 1 message included; a file that is no image"
-        " does not; a show call counts,"
+        " does not; the candidate a show call named counts,"
         " another junk command (the list) does not"
     )
     assert "1 candidate(s) reviewed, 1 unsure" in review_log(cfg), (
         "the log line counts this review's unsure verdicts, not an earlier review's"
+    )
+
+
+@budget()
+def test_the_review_counts_each_candidate_its_show_calls_named_once():
+    prefix = review_run.join_command(["python", "-m", "manga_pipeline.cli", "--config", "C:/x/r.yaml", "junk"])
+
+    def bash(n, command) -> review_run.ClaudeReply:
+        return {
+            "type": "assistant",
+            "message": {
+                "id": f"m{n}",
+                "content": [{"type": "tool_use", "id": f"t{n}", "name": "Bash", "input": {"command": command}}],
+            },
+        }
+
+    lines = [bash(1, f"{prefix} show 11 12 13"), bash(2, f"{prefix} show 12"), bash(3, f"{prefix} decide 11 junk")]
+    assert review_run.acts(lines, prefix) == "reads 0, shown 3", (
+        "1 call naming 3 candidates counts each; a candidate shown again counts once; another junk command none"
     )
 
 
@@ -269,7 +288,7 @@ def test_a_review_cut_short_still_counts_what_it_read(world, tmp_path, monkeypat
     code, cfg = review_cmd(tmp_path, world.cfg, exe)
     assert code == 1
     log_text = review_log(cfg)
-    assert "error: claude exited 3; start 0, peak 0, reads 1, shows 1" in log_text, "a run cut short counts its acts"
+    assert "error: claude exited 3; start 0, peak 0, reads 1, shown 1" in log_text, "a run cut short counts its acts"
     assert "1 candidate(s) reviewed, 0 unsure" in log_text, "an error review still counts its candidates"
 
 
