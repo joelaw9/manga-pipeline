@@ -317,3 +317,15 @@ def test_a_missing_part_holds_the_join_for_a_person(world):
     assert world.rows("SELECT status, attempts FROM chapter WHERE join_parts IS NOT NULL") == [("needs_human", 0)], (
         "held at once, not retried"
     )
+
+
+@budget(load="db", seconds=60)
+def test_a_joined_file_has_no_original(world):
+    published(world, "Chapter 3.1", "Chapter 3.2")
+    assert world.rows(
+        "SELECT count(original) FROM published_file WHERE library_path LIKE %s", f"library/{SERIES}/Ch.3.%%"
+    ) == [(2,)], "set up: each part recorded its own download"
+    world.run(export)  # joins them
+    assert world.rows("SELECT original FROM published_file WHERE library_path = %s", f"library/{SERIES}/Ch.3.cbz") == [
+        (None,)
+    ], "its pages come from several downloads: no single original (SPEC 'Retroactive updates')"

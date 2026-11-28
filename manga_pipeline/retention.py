@@ -3,6 +3,7 @@
 `put` moves a download to <paths.retention>/<source>/<title>/<file> (a taken name: the first free
 "<stem> (<n>)<suffix>") and touches it, or deletes it when
 export.retention_days is 0; `purge` deletes what is older than the period. Both are safe to run again after a crash.
+`kept` puts a download and returns where it is kept.
 """
 
 import errno
@@ -19,18 +20,19 @@ log = logging.getLogger(__name__)
 DAY = 86400
 
 
-def put(cfg: config.Config, download: Path) -> None:
-    """Remove a download (a Path under <paths.downloads>/mangas) the retention way.
+def put(cfg: config.Config, download: Path) -> Path | None:
+    """Remove a download (a Path under <paths.downloads>/mangas) the retention way; return where it was moved.
 
-    A download already gone counts as removed (a crash after the move, before its outcome was recorded).
+    A download already gone counts as removed (a crash after the move, before its outcome was recorded): None, as for
+    one deleted at export.retention_days 0.
     """
     if not errors.exists(download):
         log.info("retention: %s is already gone", download)
-        return
+        return None
     if cfg["export"]["retention_days"] == 0:
         download.unlink()
         log.info("retention: deleted %s", download)
-        return
+        return None
     folder = _folder(cfg, download)
     folder.mkdir(parents=True, exist_ok=True)
     target, n = folder / download.name, 1
@@ -40,6 +42,19 @@ def put(cfg: config.Config, download: Path) -> None:
     os.utime(download)  # the period runs from the move, not from the download; touched first, so a crash keeps it
     download.replace(target)
     log.info("retention: moved %s to %s", download, target)
+    return target
+
+
+def kept(cfg: config.Config, download: Path, content_digest: str) -> Path | None:
+    """Put a download the retention way; return where it is kept.
+
+    Where put moved it; else, gone already (a retry after a crash past the move), the kept file with this content
+    digest; None when export.retention_days is 0 (deleted) or none is found.
+    """
+    target = put(cfg, download)
+    if target is not None or cfg["export"]["retention_days"] == 0:
+        return target
+    return find(cfg, download, content_digest)
 
 
 def find(cfg: config.Config, download: Path, content_digest: str) -> Path | None:
@@ -60,15 +75,15 @@ def _folder(cfg: config.Config, download: Path) -> Path:
     return config.abs_path(cfg["paths"]["retention"]) / download.parent.parent.name / download.parent.name
 
 
-def put_library(cfg: config.Config, file: Path) -> None:
-    """Keep a library file about to be replaced (SPEC "Retroactive updates") the retention way.
+def put_library(cfg: config.Config, file: Path) -> Path | None:
+    """Keep a library file about to be replaced (SPEC "Retroactive updates") the retention way; return the link.
 
     The way is a hard link to it under <paths.retention>/library-files/<its folder below the library root>/ (a free
     "(n)" name, as put picks), its retention period starting now; the library keeps the file until the replace.
-    Nothing when export.retention_days is 0.
+    Nothing (None) when export.retention_days is 0.
     """
     if cfg["export"]["retention_days"] == 0:
-        return
+        return None
     root = config.abs_path(cfg["paths"]["library"])
     folder = config.abs_path(cfg["paths"]["retention"]) / "library-files" / file.parent.relative_to(root)
     folder.mkdir(parents=True, exist_ok=True)
@@ -79,6 +94,7 @@ def put_library(cfg: config.Config, file: Path) -> None:
     os.link(file, target)
     os.utime(target)  # 1 inode with the library file until the replace: the period runs from now
     log.info("retention: kept %s as %s", file, target)
+    return target
 
 
 def purge(cfg: config.Config, now: float | None = None) -> int:

@@ -28,11 +28,13 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
     if not _indexed(ctx, series, chapter):
         return workflow.Waiting("kavita_scan")
     workflow.holds_claim(ctx, chapter)
-    retention.put(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]))
+    kept = retention.kept(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]), chapter["content_digest"])
+    original = None if kept is None else config.to_stored(ctx.cfg, kept)
 
     def record(conn: db.Connection) -> None:
         conn.execute(
-            "UPDATE published_file SET state = 'confirmed' WHERE library_path = %s", (chapter["library_path"],)
+            "UPDATE published_file SET state = 'confirmed', original = %s WHERE library_path = %s",
+            (original, chapter["library_path"]),
         )
 
     return workflow.Done(record)

@@ -52,7 +52,8 @@ CODE = hashlib.sha256(b"".join((Path(__file__).parent / m).read_bytes() for m in
 SERIES_LEVEL = (comicinfo_stage.OWN - {"Notes", "PageCount", "BlackAndWhite"}) | {"Series", "LocalizedSeries", "Volume"}
 # Columns of a queued rewrite on its published_file row, cleared together.
 PENDING = ("pending_path", "pending_staged", "pending_size", "pending_volume", "pending_volume_source", "pending_step",
-           "pending_cover", "pending_copy", "pending_title", "pending_unedited", "pending_parts")  # fmt: skip
+           "pending_cover", "pending_copy", "pending_title", "pending_unedited", "pending_parts",
+           "pending_previous")  # fmt: skip
 PROGRESS = ("carry_pages_read", "carry_old_pages", "carry_new_pages", "carry_page_shift", "carry_kavita_modified")
 CARRY = (*PROGRESS, "carry_cover")
 # Open rewrite chapters and better copies (both name their file): the cap export.rewrites_open counts them. A chapter
@@ -546,9 +547,10 @@ def publish_run(ctx: workflow.Context, chapter: db.Row) -> workflow.Done | workf
     elif copy:
         values = publish.row_values(conn, chapter)
         cover, shift = values["cover_state"], copy_shift(read, old_pages, new_pages)
-        pending_copy = json.dumps({"values": values, "digest": chapter["content_digest"]})
         workflow.holds_claim(ctx, chapter)
-        retention.put(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]))
+        kept = retention.kept(ctx.cfg, config.to_local(ctx.cfg, chapter["download_path"]), chapter["content_digest"])
+        original = None if kept is None else config.to_stored(ctx.cfg, kept)
+        pending_copy = json.dumps({"values": values, "digest": chapter["content_digest"], "original": original})
     else:
         cover, shift = converted["cover_state"] if converted else None, new_pages - old_pages
         pending_copy = None
@@ -661,9 +663,9 @@ def finish_all(ctx: workflow.Context) -> None:
 def finish(ctx: workflow.Context, row: db.Row) -> None:
     """Do the file acts of 1 queued rewrite, each recorded on the row once done (pending_step).
 
-    So a retry starts at the next: 1 the staged file's time set to now; 2 the old file hard-linked into retention; 3 the
-    staged file renamed over the target; 4 a renamed file's old name removed; 5 the row takes the new path, size and
-    volume.
+    So a retry starts at the next: 1 the staged file's time set to now; 2 the old file hard-linked into retention
+    (pending_previous names the link); 3 the staged file renamed over the target; 4 a renamed file's old name removed;
+    5 the row takes the new path, size and volume (a better copy's original and previous too).
     """
     cfg, conn = ctx.cfg, ctx.conn
     staged = config.to_local(cfg, row["pending_staged"])
@@ -680,7 +682,12 @@ def finish(ctx: workflow.Context, row: db.Row) -> None:
         os.utime(staged)  # the rename keeps it: Kavita skips a file it judges unchanged by its date
         step = record_step(conn, row["id"], STEP_DATED)
     if step < STEP_RETAINED:
-        retention.put_library(cfg, old)
+        kept = retention.put_library(cfg, old)
+        with db.transaction(conn):  # a crash before the step's record makes another link, and records that one
+            conn.execute(
+                "UPDATE published_file SET pending_previous = %s WHERE id = %s",
+                (None if kept is None else config.to_stored(cfg, kept), row["id"]),
+            )
         step = record_step(conn, row["id"], STEP_RETAINED)
     if step < STEP_RENAMED:
         if target != old and errors.exists(target):
@@ -722,7 +729,8 @@ def _settle(conn: db.Connection, row: db.Row) -> None:
     """Do finish's last act: the row takes the new path, size, volume, title and cover (a better copy's values too).
 
     Its pending fields are cleared; the series is due a scan. A join's row then becomes chapter N (_joined); a better
-    copy's holds no parts.
+    copy's holds no parts, and records its original and the old file's retention link as its previous version (SPEC
+    "Retroactive updates").
     """
     with db.transaction(conn):
         if row["pending_parts"]:
@@ -731,6 +739,8 @@ def _settle(conn: db.Connection, row: db.Row) -> None:
             conn.execute("UPDATE published_file SET joined_parts = NULL WHERE id = %s", (row["id"],))
         if row["pending_copy"]:  # a better copy: the row describes it now (SPEC "Retroactive updates")
             values = {k: v for k, v in row["pending_copy"]["values"].items() if k not in ("size", "cover_state")}
+            # Its original always: a copy queued before originals were recorded carries none, not the earlier one.
+            values["original"] = row["pending_copy"].get("original")
             conn.execute(
                 sql.SQL("UPDATE published_file SET {} WHERE id = %s").format(
                     sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(c)) for c in values)
@@ -742,6 +752,7 @@ def _settle(conn: db.Connection, row: db.Row) -> None:
                 comicinfo_volume = pending_volume, volume_source = pending_volume_source,
                 comicinfo_title = pending_title, unedited = pending_unedited,
                 cover_state = coalesce(pending_cover, cover_state),
+                previous = CASE WHEN pending_copy IS NOT NULL THEN pending_previous ELSE previous END,
                 {}, pending_error = NULL, pending_attempts = 0,
                 indexed_since = %s, wait_charges = 0
             WHERE id = %s""").format(_set_null(PENDING)),
@@ -763,8 +774,8 @@ def _joined(conn: db.Connection, row: db.Row) -> None:
     """Make a join's first file chapter N, inside _settle's transaction.
 
     Its identity and number N; page count, junk, strip length and page hashes the files' sums (none when a file has
-    none), its median width the smallest, its bits per pixel the page-weighted mean; the parts it holds. The chapters
-    naming the other files name it; their rows go.
+    none), its median width the smallest, its bits per pixel the page-weighted mean; the parts it holds; no original
+    (its pages come from several downloads). The chapters naming the other files name it; their rows go.
     """
     ids = [row["id"], *row["pending_parts"]]
     files = conn.execute("SELECT * FROM published_file WHERE id = ANY(%s)", (ids,)).fetchall()
@@ -774,7 +785,7 @@ def _joined(conn: db.Connection, row: db.Row) -> None:
     conn.execute(
         """UPDATE published_file f SET identity = %(identity)s, comicinfo_number = %(whole)s, joined_parts = %(top)s,
             pages_in = s.pages_in, junk = s.junk, strip_length = s.strip_length, median_page_width = s.width,
-            page_phashes = s.phashes, bpp = s.bpp, pages_out = NULL
+            page_phashes = s.phashes, bpp = s.bpp, pages_out = NULL, original = NULL
         FROM (SELECT
                 CASE WHEN bool_and(pages_in IS NOT NULL) THEN sum(pages_in) END AS pages_in,
                 CASE WHEN bool_and(junk IS NOT NULL) THEN sum(junk) END AS junk,
