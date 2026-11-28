@@ -206,11 +206,16 @@ def volume_cover(ctx: workflow.Context, series_id: int, volume: float) -> tuple[
         )
         if row is not None and row["sha256"] != sha256:  # a new image: the files holding the old one take it
             held, stale = f"volume:{names.fmt_num(volume)}", f"stale:{names.fmt_num(volume)}"
+            # a file's previous version too (previous_values' before): a restore puts its cover state back
             ctx.conn.execute(
                 """UPDATE published_file SET
                     cover_state = CASE WHEN cover_state = %(held)s THEN %(stale)s ELSE cover_state END,
-                    pending_cover = CASE WHEN pending_cover = %(held)s THEN %(stale)s ELSE pending_cover END
-                WHERE series_id = %(series)s AND %(held)s IN (cover_state, pending_cover)""",
+                    pending_cover = CASE WHEN pending_cover = %(held)s THEN %(stale)s ELSE pending_cover END,
+                    previous_values = CASE WHEN previous_values #>> '{before,cover_state}' = %(held)s
+                        THEN jsonb_set(previous_values, '{before,cover_state}', to_jsonb(%(stale)s::text))
+                        ELSE previous_values END
+                WHERE series_id = %(series)s AND (%(held)s IN (cover_state, pending_cover)
+                    OR previous_values #>> '{before,cover_state}' = %(held)s)""",
                 {"held": held, "stale": stale, "series": series_id},
             )
             log.info("%s: series %s volume %s cover: a new image at MangaDex (%s)", ctx.part, series_id, volume, url)

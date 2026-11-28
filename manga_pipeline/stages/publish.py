@@ -41,6 +41,9 @@ class FileValues(TypedDict):
     cover_state: str
 
 
+ROW_VALUES = tuple(FileValues.__annotations__)  # row_values' columns, in order
+
+
 def row_values(conn: db.Connection, chapter: db.Row) -> FileValues:
     """Return {published_file column: value} of a chapter's download as publish records it.
 
@@ -135,7 +138,8 @@ def run(ctx: workflow.Context, chapter: db.Row) -> workflow.OUTCOMES:
 
     def record(conn: db.Connection) -> None:
         values: dict[str, object] = {"library_path": library_path, "state": "unconfirmed", **row_values(conn, chapter)}
-        values |= {"original": None, "previous": None, "pending_previous": None}  # a reused row's are a gone file's
+        # a reused row's are a gone file's
+        values |= {"original": None, "previous": None, "previous_values": None, "pending_previous": None}
         values["unedited"] = None if chapter["naming_unedited"] is None else json.dumps(chapter["naming_unedited"])
         # A row already at the target describes a file that is gone (the target was free): the new file replaces it.
         conn.execute(

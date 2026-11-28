@@ -81,11 +81,29 @@ RENAME_BUSY = sql.SQL("""(EXISTS (SELECT 1 FROM published_file f WHERE f.series_
         AND (c.status = 'claimed' OR (c.stage IN ('publish', 'confirm') AND c.status <> 'done'))))""")
 # finish's file acts, each recorded in published_file.pending_step once done
 STEP_DATED, STEP_RETAINED, STEP_RENAMED, STEP_OLD_REMOVED, STEP_PARTS_REMOVED = 1, 2, 3, 4, 5
+# The columns of a file version (previous_values' "before"): what a restore writes back.
+VERSION = tuple(
+    dict.fromkeys((*publish.ROW_VALUES, "library_path", "size", "comicinfo_volume", "volume_source", "comicinfo_title",
+                   "cover_state", "unedited", "original", "joined_parts"))
+)  # fmt: skip
+# What a replace by a download chapter leaves that a rewrite, a join or a series rename changes (previous_values'
+# "after"): a restore is refused once one differs. cover_volume: rewrite_covers.cover_volume of cover_state.
+COMPARED = ("comicinfo_series", "comicinfo_title", "comicinfo_volume", "cover_volume", "joined_parts")
 
 
 def _set_null(columns: Iterable[str]) -> sql.Composed:
     """`column = NULL, ...` of columns, an SQL SET list."""
     return sql.SQL(", ").join(sql.SQL("{} = NULL").format(sql.Identifier(c)) for c in columns)
+
+
+def compared(file: db.Row) -> dict[str, object]:
+    """Return a published file's COMPARED values (a stale:V cover and a volume:V cover are the same volume's)."""
+    return {c: rewrite_covers.cover_volume(file["cover_state"]) if c == "cover_volume" else file[c] for c in COMPARED}
+
+
+def is_restore(row: db.Row) -> bool:
+    """Return whether a row's queued replace is a restore (`rewrite restore`)."""
+    return bool(row["pending_copy"] and row["pending_copy"].get("restore"))
 
 
 # --- the comparison
@@ -666,6 +684,9 @@ def finish(ctx: workflow.Context, row: db.Row) -> None:
     So a retry starts at the next: 1 the staged file's time set to now; 2 the old file hard-linked into retention
     (pending_previous names the link); 3 the staged file renamed over the target; 4 a renamed file's old name removed;
     5 the row takes the new path, size and volume (a better copy's original and previous too).
+
+    A restore's staged file is a hard link to the previous version, made here while it is missing before the rename
+    (_restore_renamed tells a crash after the rename apart).
     """
     cfg, conn = ctx.cfg, ctx.conn
     staged = config.to_local(cfg, row["pending_staged"])
@@ -673,11 +694,10 @@ def finish(ctx: workflow.Context, row: db.Row) -> None:
     old = config.to_local(cfg, row["library_path"])
     step = row["pending_step"]
     if step < STEP_RENAMED and not errors.exists(staged):
-        if not _renamed(row, target, old):
-            _clear(conn, row["id"])
-            log.warning("%s: rewrite of %s dropped: its staged file is gone", ctx.part, row["library_path"])
+        resumed = _staged_gone(ctx, row, step)
+        if resumed is None:
             return
-        step = record_step(conn, row["id"], STEP_RENAMED)  # renamed in before a crash recorded it
+        step = resumed
     if step < STEP_DATED:
         os.utime(staged)  # the rename keeps it: Kavita skips a file it judges unchanged by its date
         step = record_step(conn, row["id"], STEP_DATED)
@@ -715,6 +735,28 @@ def _remove_parts(cfg: config.Config, conn: db.Connection, members: Sequence[int
             path.unlink()
 
 
+def _staged_gone(ctx: workflow.Context, row: db.Row, step: int) -> int | None:
+    """Go on with a queued rewrite whose staged file is missing before its rename; return its step, None once dropped.
+
+    Renamed in before a crash recorded it: STEP_RENAMED is recorded. A restore not renamed in makes its staged link
+    (again); any other rewrite not renamed in is given up.
+    """
+    cfg, conn = ctx.cfg, ctx.conn
+    staged = config.to_local(cfg, row["pending_staged"])
+    target = config.to_local(cfg, row["pending_path"])
+    old = config.to_local(cfg, row["library_path"])
+    if is_restore(row):
+        if step >= STEP_RETAINED and _restore_renamed(cfg, row, target, old):
+            return record_step(conn, row["id"], STEP_RENAMED)
+        _link_previous(cfg, row["pending_copy"]["previous"], staged)
+        return step
+    if _renamed(row, target, old):
+        return record_step(conn, row["id"], STEP_RENAMED)
+    _clear(conn, row["id"])
+    log.warning("%s: rewrite of %s dropped: its staged file is gone", ctx.part, row["library_path"])
+    return None
+
+
 def _renamed(row: db.Row, target: Path, old: Path) -> bool:
     """Return whether a queued rewrite whose staged file is gone was renamed over its target before a crash recorded it.
 
@@ -725,14 +767,58 @@ def _renamed(row: db.Row, target: Path, old: Path) -> bool:
     return is_new(target, row)
 
 
+def _restore_renamed(cfg: config.Config, row: db.Row, target: Path, old: Path) -> bool:
+    """Return whether a restore whose staged link is gone after its retention act was renamed over its target.
+
+    A new name: when it holds a file of the queued size, as for any rewrite (_renamed). The same name: when the target
+    is not the file the retention act linked (pending_previous: compared by inode, no file read) and has the queued
+    size; RuntimeError when that link is unknown or gone: a person must look.
+    """
+    if target != old:
+        return _renamed(row, target, old)
+    if not errors.exists(target):
+        return False
+    kept = None if row["pending_previous"] is None else config.to_local(cfg, row["pending_previous"])
+    if kept is None or not errors.exists(kept):
+        msg = f"cannot tell whether the restore's rename ran: check {target} by hand"
+        raise RuntimeError(msg)
+    return not target.samefile(kept) and target.stat().st_size == row["pending_size"]
+
+
+def _link_previous(cfg: config.Config, previous: str, staged: Path) -> None:
+    """Make a restore's staged file: a hard link to the previous version. RuntimeError when it is gone."""
+    source = config.to_local(cfg, previous)
+    if not errors.exists(source):
+        msg = f"its previous version {previous} is gone"
+        raise RuntimeError(msg)
+    os.link(source, staged)
+
+
+def _version(conn: db.Connection, file_id: int) -> dict[str, object]:
+    """Return a published file's VERSION values as stored now."""
+    file = db.one_row(conn, "SELECT * FROM published_file WHERE id = %s", (file_id,))
+    return {c: file[c] for c in VERSION}
+
+
+def _record_previous(conn: db.Connection, file_id: int, before: dict[str, object]) -> None:
+    """Record previous_values once a replace has written the row: its previous, the replaced version, COMPARED now."""
+    file = db.one_row(conn, "SELECT * FROM published_file WHERE id = %s", (file_id,))
+    values = {"previous": file["previous"], "before": before, "after": compared(file)}
+    conn.execute("UPDATE published_file SET previous_values = %s WHERE id = %s", (json.dumps(values), file_id))
+
+
 def _settle(conn: db.Connection, row: db.Row) -> None:
     """Do finish's last act: the row takes the new path, size, volume, title and cover (a better copy's values too).
 
     Its pending fields are cleared; the series is due a scan. A join's row then becomes chapter N (_joined); a better
-    copy's holds no parts, and records its original and the old file's retention link as its previous version (SPEC
-    "Retroactive updates").
+    copy's holds no parts, and records its original and the old file's retention link as its previous version, with
+    that version's row (previous_values; SPEC "Retroactive updates"). A restore settles apart (_settle_restore).
     """
+    if is_restore(row):
+        _settle_restore(conn, row)
+        return
     with db.transaction(conn):
+        before = _version(conn, row["id"]) if row["pending_copy"] else None
         if row["pending_parts"]:
             _joined(conn, row)
         elif row["pending_copy"]:
@@ -758,6 +844,33 @@ def _settle(conn: db.Connection, row: db.Row) -> None:
             WHERE id = %s""").format(_set_null(PENDING)),
             (workflow.now(conn), row["id"]),
         )
+        if before is not None:
+            _record_previous(conn, row["id"], before)
+        conn.execute("UPDATE series SET scan_due = 1 WHERE id = %s", (row["series_id"],))
+
+
+def _settle_restore(conn: db.Connection, row: db.Row) -> None:
+    """Do a restore's last act: the row takes the restored version's values (SPEC "Retroactive updates").
+
+    In 1 transaction: its VERSION values as stored, NULL and JSON included, but its path and size, the queued ones,
+    and its cover, the queued one (a stale:V a cover refresh set meanwhile kept); the version it undoes becomes its
+    previous version. Its pending fields and error are cleared; the series is due a scan.
+    """
+    with db.transaction(conn):
+        undone = _version(conn, row["id"])
+        values = row["pending_copy"]["values"]
+        kept = [c for c in VERSION if c not in ("library_path", "size", "cover_state", "unedited")]
+        conn.execute(
+            sql.SQL("""UPDATE published_file SET {kept}, unedited = %s, library_path = pending_path,
+                size = pending_size, cover_state = pending_cover, previous = pending_previous,
+                {pending}, pending_error = NULL, pending_attempts = 0, wait_charges = 0, indexed_since = %s
+            WHERE id = %s""").format(
+                kept=sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(c)) for c in kept),
+                pending=_set_null(PENDING),
+            ),
+            (*(values[c] for c in kept), _json(values["unedited"]), workflow.now(conn), row["id"]),
+        )
+        _record_previous(conn, row["id"], undone)
         conn.execute("UPDATE series SET scan_due = 1 WHERE id = %s", (row["series_id"],))
 
 
@@ -843,9 +956,9 @@ def _give_up_copy(conn: db.Connection, row: db.Row) -> None:
     """Give up a better copy's queued replacement (its staged file gone, or `rewrite drop`).
 
     The copy's handled record says dropped, not published; its download stays in retention. Inside the caller's
-    transaction.
+    transaction. A restore made no handled record: nothing to give up.
     """
-    if row["pending_copy"] is None:
+    if row["pending_copy"] is None or is_restore(row):
         return
     values = row["pending_copy"]["values"]
     conn.execute(
