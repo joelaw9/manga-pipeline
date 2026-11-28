@@ -18,7 +18,6 @@ import contextlib
 import hashlib
 import itertools
 import json
-import math
 import os
 import shutil
 import time
@@ -26,12 +25,13 @@ from collections.abc import Collection, Generator, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Literal, NamedTuple
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from manga_pipeline import archive, config, db, errors, images, page_store, retention, strip, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.junk import anchored as an
-from manga_pipeline.junk import chains, chapter_scan, groups, review, store, strip_units
+from manga_pipeline.junk import chains, chapter_scan, groups, review, sheet_draw, store, strip_units
+from manga_pipeline.junk.sheet_draw import BAR_X, FONT_PX, LABEL_X, RED, SheetPage
 from manga_pipeline.replies import Json
 from manga_pipeline.stages import junk as junk_stage
 
@@ -49,7 +49,7 @@ NEW_ADDED = "9999-12-31T23:59:59+00:00"  # its decided_at there (NEW_ADDED)
 CHECKED_RECENT = 200
 CONTEXT = 300  # strip rows shown above and below a proposal sheet's range, or a span sheet's candidate unit
 SHEET_W = 400  # proposal sheet width (px)
-GREEN, BLUE, ORANGE, RED, GREY = (0, 170, 0), (0, 90, 255), (255, 140, 0), (220, 0, 0), (128, 128, 128)
+GREEN, BLUE, ORANGE = (0, 170, 0), (0, 90, 255), (255, 140, 0)
 COLOUR: dict[Kind, Colour] = {"cut": GREEN, "keep": BLUE}
 DIGEST_HEX = 16  # hex digits of a digest
 SCRATCH = "junk-cut"  # <paths.scratch>/junk-cut/<pid>/: a call's sheets (outside a review) and its pages (x/)
@@ -57,11 +57,8 @@ SCRATCH_AGE = 86400  # s: an earlier call's scratch folder older than this is re
 RULER_W = 64  # span sheet: the row ruler's column (px), a row number every RULER_STEP rows
 RULER_STEP = 100
 # span sheet: the span labels' column is LABEL_LANES lanes (so near spans' labels do not overlap), then 1 lane of the
-# removed ranges' labels; a label's bar lies BAR_X into its lane, its text LABEL_X, LABEL_PAD px left after it
+# removed ranges' labels (sheet_draw)
 LABEL_LANES = 3
-BAR_X, LABEL_X, LABEL_PAD = 4, 9, 4
-WASH = 0.5  # span sheet: a removed row's pixels blended this far toward GREY
-FONT_PX = 14
 TOKEN_PARTS = 3  # CHAPTER:START:END
 REGION_ARGS = 2  # --spans CHAPTER head|tail
 UNIT_KINDS = ("block", "probe")  # the candidates --spans ID and --edge take (strip units with an edge)
@@ -963,10 +960,6 @@ def _check(cfg: config.Config, p: Plan, work: Path, dest: Path) -> Checked:
 # ---------------------------------------------------------------- sheets
 
 
-def _font() -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    return ImageFont.load_default(size=FONT_PX)
-
-
 def _sheet(s: Strip, rows: strip.Rows, marks: Sequence[Mark]) -> Image.Image:
     """Return strip rows [a, b) +- CONTEXT at SHEET_W wide, marks outlined.
 
@@ -1012,53 +1005,12 @@ def _named_sheets(p: Plan, checked: Checked, dest: Path) -> list[Path]:
 def lane_widths(height: int) -> tuple[int, int]:
     """Return a span sheet's label lane width and its removed lane's, for a strip `height` rows long.
 
-    Each fits its longest label (START:END, `removed START:END`) after LABEL_X, with LABEL_PAD px to spare.
+    Each fits its longest label (START:END, `removed START:END`): sheet_draw.lane_width.
     """
-    font = _font()
-
-    def fit(label: str) -> int:
-        return LABEL_X + math.ceil(font.getlength(label)) + LABEL_PAD
-
-    return fit(f"{height}:{height}"), fit(f"removed {height}:{height}")
+    return sheet_draw.lane_width([f"{height}:{height}"]), sheet_draw.lane_width([f"removed {height}:{height}"])
 
 
-class SheetPage(NamedTuple):
-    """1 span sheet: strip rows [a, b) drawn `scale` times, `height` px tall."""
-
-    a: int
-    b: int
-    scale: float
-    height: int
-
-    def y(self, row: int) -> int:
-        """Return a strip row's y on the sheet (its last row for a row past the end)."""
-        return min(self.height - 1, round((row - self.a) * self.scale))
-
-    def bottom(self, end: int) -> int:
-        """Return the y of the last sheet row a range ending at strip row `end` covers (at most the last row)."""
-        return round((min(end, self.b) - self.a) * self.scale) - 1
-
-    def last_text(self) -> int:
-        """Return the lowest y a label's top may take and still show whole on the sheet."""
-        return max(0, self.height - FONT_PX - 2)
-
-    def shows(self, rows: strip.Rows) -> bool:
-        """Return whether strip rows [x, y) lie partly on this sheet."""
-        return rows[1] > self.a and rows[0] < self.b
-
-
-def _washed(im: Image.Image, pg: SheetPage, removed: Sequence[strip.Rows]) -> Image.Image:
-    """Return a sheet's strip image with the removed rows blended WASH toward GREY."""
-    for x, y in (r for r in removed if pg.shows(r)):
-        top, bottom = round((max(x, pg.a) - pg.a) * pg.scale), round((min(y, pg.b) - pg.a) * pg.scale)
-        if bottom > top:
-            box = (0, top, im.width, bottom)
-            part = im.crop(box)
-            im.paste(Image.blend(part, Image.new("RGB", part.size, GREY), WASH), box[:2])
-    return im
-
-
-def _ruler(draw: ImageDraw.ImageDraw, pg: SheetPage, font: ImageFont.FreeTypeFont | ImageFont.ImageFont) -> None:
+def _ruler(draw: ImageDraw.ImageDraw, pg: SheetPage, font: sheet_draw.Font) -> None:
     for r in range(-(-pg.a // RULER_STEP) * RULER_STEP, pg.b, RULER_STEP):
         draw.line((RULER_W - 12, pg.y(r), RULER_W - 1, pg.y(r)), fill="black")
         draw.text((2, max(0, pg.y(r) - FONT_PX // 2)), str(r), fill="black", font=font)
@@ -1066,7 +1018,7 @@ def _ruler(draw: ImageDraw.ImageDraw, pg: SheetPage, font: ImageFont.FreeTypeFon
 
 def _span_labels(draw: ImageDraw.ImageDraw, pg: SheetPage, spans: Sequence[strip.Rows], left: int, lane: int) -> None:
     """Label each span on the sheet START:END in blue, in lanes from x `left`, `lane` px wide."""
-    font = _font()
+    font = sheet_draw.font()
     for k, (x0, x1) in enumerate(spans):
         if not pg.shows((x0, x1)):
             continue
@@ -1074,21 +1026,6 @@ def _span_labels(draw: ImageDraw.ImageDraw, pg: SheetPage, spans: Sequence[strip
         top = pg.y(max(x0, pg.a))
         draw.line((x + BAR_X, top, x + BAR_X, max(top, pg.bottom(x1))), fill=BLUE, width=3)
         draw.text((x + LABEL_X, min(top, pg.last_text())), f"{x0}:{x1}", fill=BLUE, font=font)
-
-
-def _removed_labels(draw: ImageDraw.ImageDraw, pg: SheetPage, removed: Sequence[strip.Rows], left: int) -> None:
-    """Label each removed range on the sheet `removed START:END` in grey, in its lane at x `left`.
-
-    A label starts below the one before it, so the labels of near ranges do not overlap, and never below the sheet's
-    last text line, so it is always readable.
-    """
-    font, below = _font(), 0
-    for x0, x1 in (r for r in removed if pg.shows(r)):
-        top = pg.y(max(x0, pg.a))
-        draw.line((left + BAR_X, top, left + BAR_X, max(top, pg.bottom(x1))), fill=GREY, width=3)
-        at = min(max(top, below), pg.last_text())
-        draw.text((left + LABEL_X, at), f"removed {x0}:{x1}", fill=GREY, font=font)
-        below = at + FONT_PX + 2
 
 
 def _span_sheets(s: Strip, window: strip.Rows, decided: Decided, dest: Path, stem: str) -> list[Path]:
@@ -1107,18 +1044,21 @@ def _span_sheets(s: Strip, window: strip.Rows, decided: Decided, dest: Path, ste
     per = max(1, int(min(groups.SHEET_LONG_EDGE, groups.SHEET_PIXELS // sheet_w) / scale))
     seeds = _in_window(decided["seeds"], window)
     removed = an.merged((r["start"], r["end"]) for r in decided["removed"])
-    font = _font()
+    font = sheet_draw.font()
     out: list[Path] = []
     starts = list(range(lo, hi, per))
     for n, a in enumerate(starts, 1):
         b = min(hi, a + per)
         pg = SheetPage(a, b, scale, max(1, round((b - a) * scale)))
         sheet = Image.new("RGB", (sheet_w, pg.height), "white")
-        sheet.paste(_washed(s.render(a, b).convert("RGB").resize((img_w, pg.height)), pg, removed), (RULER_W, 0))
+        sheet.paste(
+            sheet_draw.washed(s.render(a, b).convert("RGB").resize((img_w, pg.height)), pg, removed), (RULER_W, 0)
+        )
         draw = ImageDraw.Draw(sheet)
         _ruler(draw, pg, font)
         _span_labels(draw, pg, s.layout.spans, RULER_W + img_w, lane)
-        _removed_labels(draw, pg, removed, RULER_W + img_w + LABEL_LANES * lane)
+        labelled = [(r, f"removed {r[0]}:{r[1]}") for r in removed]
+        sheet_draw.removed_labels(draw, pg, labelled, RULER_W + img_w + LABEL_LANES * lane)
         last = n == len(starts)
         for sd in (sd for sd in seeds if a <= sd["pos"] < b or (last and sd["pos"] == b)):
             draw.line((RULER_W, pg.y(sd["pos"]), RULER_W + img_w - 1, pg.y(sd["pos"])), fill=RED, width=2)

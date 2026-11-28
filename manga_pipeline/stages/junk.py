@@ -21,11 +21,13 @@ removed or kept (agreed_units); a watermark an agreement removed is not remember
 import dataclasses
 import json
 import logging
+import math
 import shutil
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
+from typing import NamedTuple
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from manga_pipeline import (
     archive,
@@ -43,7 +45,19 @@ from manga_pipeline import (
 )
 from manga_pipeline.convert import plan
 from manga_pipeline.db import sql
-from manga_pipeline.junk import candidates, chapter_scan, logo_units, marks, ocr, page_units, store, strip_units
+from manga_pipeline.junk import (
+    anchored,
+    candidates,
+    chapter_scan,
+    groups,
+    logo_units,
+    marks,
+    ocr,
+    page_units,
+    sheet_draw,
+    store,
+    strip_units,
+)
 
 log = logging.getLogger(__name__)
 
@@ -402,6 +416,9 @@ def _finished(
 
 
 MIXED_NOTE = "rest of card mixed:"  # a chapter note's start: its bundle's members' decisions differ
+BAR_W, BAR_LANE = 6, 14  # px: the red bar beside a strip unit's rows in its context image, and its lane
+BOX_W = 4  # px: the red box round a page unit (its page, or a band) in its context image
+PAGE_CONTEXT_H, PAGE_GAP = 800, 8  # px: a page unit's context pages' height (at most) and the gap between them
 
 
 def rest_note(members: Sequence[strip_units.RestPiece]) -> str | None:
@@ -483,7 +500,7 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
         return workflow.NeedsHuman(held_reason(held, limit, bundle), record=hold)
     new = [p for p, r in zip(picks, rows, strict=True) if r is None]
     if new:
-        write_images(ctx, chapter, key, new, pages)
+        write_images(ctx, chapter, key, draw_candidates(new, pages, applied.edit["strip_removed"]))
     at = workflow.now(ctx.conn)
 
     def wait(conn: db.Connection) -> None:
@@ -699,35 +716,68 @@ def open_copy_over(ctx: workflow.Context, chapter: db.Row) -> bool:
 # ---------------------------------------------------------------- candidate images
 
 
-def write_images(
-    ctx: workflow.Context, chapter: db.Row, key: str, picks: Sequence[candidates.Candidate], pages: Pages
-) -> None:
-    """Write the images of new candidates (SPEC "Junk decisions", candidates).
+class Drawn(NamedTuple):
+    """A new candidate's images, drawn: its unit and context images, its position and the removed ranges shown."""
+
+    pick: candidates.Candidate
+    unit: Image.Image
+    context: Image.Image
+    position: candidates.Position
+    removed: list[candidates.Removed]
+
+
+def draw_candidates(
+    picks: Sequence[candidates.Candidate], pages: Pages, removed: Sequence[plan.RemovedRange]
+) -> Iterator[Drawn]:
+    """Draw the images of new candidates, 1 at a time (SPEC "Junk decisions", candidates).
 
     From the decide's pages (extracted once per decide; the decide removes them). A strip unit is rendered over the
-    download's content pages (strip.content_indexes of its page names), as the scan laid them.
+    download's content pages (strip.content_indexes of its page names), as the scan laid them; removed: the strip
+    ranges the decide's edit takes out, washed in a strip unit's context.
     """
     paths, names, sizes = pages.files()
     content = strip.content_indexes(names)
     for p in picks:
         unit = p["unit"]
+        near: list[candidates.Removed] = []
         if "logo" in unit:  # a logo variant
             page = images.open_flat(paths[unit["page"]])[0].convert("RGB")
             unit_im, context_im = logo_units.review_images(page, unit["logo"])
+            position: candidates.Position = {"page": unit["page"], "box": unit["logo"]["box"]}
+            if "rows" in unit["logo"]:
+                position["rows"] = unit["logo"]["rows"]
         elif "start" in unit:  # a strip unit: an edge block, its probe or a tail piece
-            unit_im, context_im = _strip_images(content, paths, sizes, unit)
+            unit_im, context_im, near, height = _strip_images(content, paths, sizes, unit, removed)
+            position = {"where": unit["where"], "rows": [unit["start"], unit["end"]], "height": height}
         else:  # a page unit: an edge page or frame, or a band
             unit_im, context_im = _page_images(paths, unit)
+            position = {"page": unit["page"]}
+            if "box" in unit:
+                position |= {"where": unit["where"], "box": unit["box"]}
+        yield Drawn(p, unit_im, context_im, position, near)
+
+
+def write_images(ctx: workflow.Context, chapter: db.Row, key: str, drawn: Iterable[Drawn]) -> None:
+    """Write new candidates' folders from their drawn images (SPEC "Junk decisions", candidates).
+
+    info.json records where the unit sits, the removed ranges its context shows and the decisions its reason cites.
+    """
+    for d in drawn:
+        p = d.pick
         info: candidates.CandidateInfo = {
             "series": key,
             "kind": p["kind"],
             "reason": p["reason"],
             "text": p["unit"].get("text", ""),
             "chapters": candidates.chapters_showing(ctx.conn, key, seen_kind(p["kind"]), p["key"]),
+            "chapter": int(chapter["id"]),
+            "position": d.position,
+            "removed": d.removed,
+            "cited": p.get("cited", []),
         }
         name = candidates.folder_name(key, p["kind"], p["key"], chapter)
         workflow.holds_claim(ctx, chapter)  # after rendering, immediately before the folder is written
-        candidates.write_images(ctx.cfg, name, unit_im, context_im, info)
+        candidates.write_images(ctx.cfg, name, d.unit, d.context, info)
         p["folder"] = name  # the row join opens names it
 
 
@@ -741,28 +791,85 @@ def _strip_images(
     paths: Sequence[Path],
     sizes: Sequence[strip.Size],
     u: strip_units.BlockUnit | strip_units.PieceUnit | candidates.ProbeUnit,
-) -> tuple[Image.Image, Image.Image]:
+    removed: Sequence[plan.RemovedRange],
+) -> tuple[Image.Image, Image.Image, list[candidates.Removed], int]:
+    """Return a strip unit's image, its context image, the removed ranges the context shows and the strip's height."""
     width, laid, height = strip.strip_layout([sizes[i] for i in content])
     pages: list[strip.StripPage] = [{**p, "path": str(paths[i])} for p, i in zip(laid, content, strict=True)]
     unit_im = strip.render_rows(pages, width, u["start"], u["end"])
     lo, hi = max(0, u["start"] - candidates.CONTEXT_PX), min(height, u["end"] + candidates.CONTEXT_PX)
-    return unit_im, strip.render_rows(pages, width, lo, hi)
+    near: list[candidates.Removed] = []
+    for r in (r for r in removed if r["end"] > lo and r["start"] < hi):
+        shown: candidates.Removed = {"start": r["start"], "end": r["end"], "why": r["why"]}
+        if "decision" in r:
+            shown["decision"] = r["decision"]
+        near.append(shown)
+    context = strip_context(strip.render_rows(pages, width, lo, hi), (lo, hi), (u["start"], u["end"]), near)
+    return unit_im, context, near, height
+
+
+def removed_label(r: candidates.Removed) -> str:
+    """Return a removed range's label on a candidate's context: its rows and its decision, or its rule."""
+    return f"removed {r['start']}:{r['end']} " + (f"decision {r['decision']}" if "decision" in r else r["why"])
+
+
+def strip_context(
+    im: Image.Image, window: strip.Rows, unit: strip.Rows, removed: Sequence[candidates.Removed]
+) -> Image.Image:
+    """Return a strip unit's context image: strip rows `window` (im), the unit's rows marked by a red bar on the left.
+
+    Every removed range washed grey and labelled on the right (removed_label). Drawn at the size the reader is sent
+    (at most candidates.UNIT_WIDTH wide, groups.SHEET_LONG_EDGE long and groups.SHEET_PIXELS), so the bar and the
+    labels keep their width.
+    """
+    labelled = [((r["start"], r["end"]), removed_label(r)) for r in removed]
+    right = sheet_draw.lane_width([t for _, t in labelled]) if labelled else 0
+    w, h = im.size
+    lanes = BAR_LANE + right  # unscaled: (w s + lanes) h s <= SHEET_PIXELS, solved for s
+    by_area = (math.sqrt((lanes * h) ** 2 + 4 * w * h * groups.SHEET_PIXELS) - lanes * h) / (2 * w * h)
+    scale = min(1.0, (candidates.UNIT_WIDTH - lanes) / w, groups.SHEET_LONG_EDGE / h, by_area)
+    pg = sheet_draw.SheetPage(window[0], window[1], scale, _px(h * scale))
+    strip_im = im.convert("RGB").resize((_px(w * scale), pg.height))
+    strip_im = sheet_draw.washed(strip_im, pg, anchored.merged(r for r, _ in labelled))
+    out = Image.new("RGB", (BAR_LANE + strip_im.width + right, pg.height), "white")
+    out.paste(strip_im, (BAR_LANE, 0))
+    draw = ImageDraw.Draw(out)
+    x0 = (BAR_LANE - BAR_W) // 2
+    draw.rectangle((x0, pg.y(unit[0]), x0 + BAR_W - 1, max(pg.y(unit[0]), pg.bottom(unit[1]))), fill=sheet_draw.RED)
+    sheet_draw.removed_labels(draw, pg, labelled, BAR_LANE + strip_im.width)
+    return out
+
+
+def _px(size: float) -> int:
+    """Return a scaled size in whole pixels, rounded down (so a bound it was scaled to holds), at least 1."""
+    return max(1, int(size + 1e-6))
 
 
 def _page_images(
     paths: Sequence[Path], u: page_units.PageUnit | page_units.BandUnit
 ) -> tuple[Image.Image, Image.Image]:
+    """Return a page unit's image (its page, or a band's crop) and its page among its neighbours, the unit boxed red.
+
+    The neighbours are drawn PAGE_CONTEXT_H high, lower when that is wider than candidates.UNIT_WIDTH, so the context is
+    never scaled after the box is drawn.
+    """
     i = u["page"]
     page = images.open_flat(paths[i])[0].convert("RGB")
     unit_im = page.crop(_box(u["box"])) if "box" in u else page  # a band's crop
-    near = [images.open_flat(paths[j])[0].convert("RGB") for j in (i - 1, i, i + 1) if 0 <= j < len(paths)]
-    h = 800
-    near = [im.resize((max(1, round(im.width * h / im.height)), h)) for im in near]
-    context = Image.new("RGB", (sum(im.width for im in near) + 8 * (len(near) - 1), h), "white")
+    near = [(j, images.open_flat(paths[j])[0].convert("RGB")) for j in (i - 1, i, i + 1) if 0 <= j < len(paths)]
+    gaps = PAGE_GAP * (len(near) - 1)
+    h = _px(min(PAGE_CONTEXT_H, (candidates.UNIT_WIDTH - gaps) / sum(im.width / im.height for _, im in near)))
+    near = [(j, im.resize((_px(im.width * h / im.height), h))) for j, im in near]
+    context = Image.new("RGB", (sum(im.width for _, im in near) + gaps, h), "white")
+    draw = ImageDraw.Draw(context)
     x = 0
-    for im in near:
+    for j, im in near:
         context.paste(im, (x, 0))
-        x += im.width + 8
+        if j == i:
+            scale = h / page.height
+            x0, y0, x1, y1 = [round(v * scale) for v in u["box"]] if "box" in u else [0, 0, im.width, h]
+            draw.rectangle((x + x0, y0, x + max(x0, x1 - 1), max(y0, y1 - 1)), outline=sheet_draw.RED, width=BOX_W)
+        x += im.width + PAGE_GAP
     return unit_im, context
 
 

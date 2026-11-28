@@ -22,7 +22,7 @@ from typing import NotRequired, TypedDict
 
 from PIL import Image
 
-from manga_pipeline import config, db, images, workflow
+from manga_pipeline import config, db, images, strip, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.junk import logo_units, ocr, page_units, store, strip_units
 from manga_pipeline.replies import Json
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 RECUR_CHAPTERS = 3  # D5.2 (c): a unit matching units of this many chapters of the series is a candidate
 UNIT_WIDTH = 1000  # px: the unit image's largest width
-CONTEXT_PX = 300  # px of strip above and below the unit in its context image
+CONTEXT_PX = 700  # px of strip above and below the unit in its context image
 CLOSED_KEEP = timedelta(hours=1)  # a candidate closed this long is deleted with its folder
 ORPHAN_KEEP_S = 24 * 3600  # a folder no row names is removed once this old (another machine may be recording it)
 
@@ -52,13 +52,15 @@ class ProbeUnit(strip_units.Piece):
 class Candidate(TypedDict):
     """A candidate among a chapter's undecided units (select): its kind, key text, unit and reason.
 
-    folder: the folder its images were written to, once written.
+    cited: the decisions its reason names (a near decision); folder: the folder its images were written to, once
+    written.
     """
 
     kind: str
     key: str
     unit: Unit | ProbeUnit
     reason: str
+    cited: NotRequired[list[int]]
     folder: NotRequired[str]
 
 
@@ -78,14 +80,43 @@ def folder_name(series_key: str, kind: str, key: str, chapter: db.Row) -> str:
     return f"{unit}-{workflow.claim_name(chapter)}"
 
 
+class Position(TypedDict):
+    """Where a candidate's opening occurrence sits in its chapter.
+
+    A strip unit: its edge (where), rows [start, end) and the strip's height. A page unit: its page (download index),
+    a band's edge and box. A logo: its page and box, and its tight box's rows in a strip.
+    """
+
+    where: NotRequired[str]
+    rows: NotRequired[list[int]]
+    height: NotRequired[int]
+    page: NotRequired[int]
+    box: NotRequired[list[int]]
+
+
+class Removed(strip.RowRange):
+    """A removed strip range a candidate's context shows: why, and the decision that removed it (none for a rule's)."""
+
+    why: str
+    decision: NotRequired[int]
+
+
 class CandidateInfo(TypedDict):
-    """A candidate folder's info.json: its series key, kind, reason, OCR text and how many chapters show it."""
+    """A candidate folder's info.json: its series key, kind, reason, OCR text and how many chapters show it.
+
+    Written since 10.8 (an older folder has none): the opening chapter's id, the occurrence's position there, the
+    removed ranges its context shows and the decisions its reason cites.
+    """
 
     series: str
     kind: str
     reason: str
     text: str
     chapters: int
+    chapter: NotRequired[int]
+    position: NotRequired[Position]
+    removed: NotRequired[list[Removed]]
+    cited: NotRequired[list[int]]
 
 
 def folder(cfg: config.Config, name: str) -> Path:
@@ -120,21 +151,25 @@ def chapters_showing(conn: db.Connection, series_key: str, kind: str, key: str) 
     return len({ident for k, ident in rows if store.matches(store.parse_key(kind, k), parsed)})
 
 
-def strip_reasons(decisions: store.Decisions, unit: strip_units.Piece, kind: str, words: ocr.WordLists) -> list[str]:
-    """Why a strip unit of kind (block, probe) is a candidate (near, OCR keywords); [] when neither.
+def strip_reasons(
+    decisions: store.Decisions, unit: strip_units.Piece, kind: str, words: ocr.WordLists
+) -> tuple[list[str], list[int]]:
+    """Why a strip unit of kind (block, probe) is a candidate (near, OCR keywords), and the decisions cited; ([], []).
 
     decisions: the series' store.Decisions.
     """
     out: list[str] = []
+    cited: list[int] = []
     hit = decisions.near(images.sig_from_str(unit["sig"]), kind)
     if hit is not None:
         row, d, diff = hit
         out.append(f"near decision {row['id']} ({row['series_key'] or 'global'}) distance {d}, aspect {diff:.1%}")
+        cited.append(int(row["id"]))
     if text := unit.get("text"):
         terms = ocr.text_hits(text, unit["end"] - unit["start"], words)
         if terms:
             out.append(f'text {", ".join(repr(t) for t in terms)}: "{ocr.normalize(text)[:160]}"')
-    return out
+    return out, cited
 
 
 def _key(unit: Unit) -> str:
@@ -156,11 +191,12 @@ def _flagged_probe(decisions: store.Decisions, block: strip_units.BlockUnit, wor
     The probe is the first from the chapter edge; near and keyword are strip_reasons'.
     """
     probes = [p for p in block["probes"] if not store.unsignable("probe", p["sig"])]
-    flagged = next(((p, why) for p in probes for why in [strip_reasons(decisions, p, "probe", words)] if why), None)
+    flagged = next(((p, r) for p in probes for r in [strip_reasons(decisions, p, "probe", words)] if r[0]), None)
     if flagged is None:
         return None
-    probe, why = flagged
-    return {"kind": "probe", "key": probe["sig"], "unit": {**probe, "where": block["where"]}, "reason": "; ".join(why)}
+    probe, (why, cited) = flagged
+    unit: ProbeUnit = {**probe, "where": block["where"]}
+    return {"kind": "probe", "key": probe["sig"], "unit": unit, "reason": "; ".join(why), "cited": cited}
 
 
 def _block_candidate(
@@ -177,11 +213,13 @@ def _block_candidate(
     key = _key(block)
     if store.unsignable("block", key):
         return None
-    reasons = strip_reasons(decisions, block, "block", words)
+    reasons, cited = strip_reasons(decisions, block, "block", words)
     if block.get("rest"):
         reasons.append("the rest of a block whose edge piece is junk")
     reasons += _recurrence(conn, decisions.series_key, "block", key)
-    return {"kind": "block", "key": key, "unit": block, "reason": "; ".join(reasons)} if reasons else None
+    if not reasons:
+        return None
+    return {"kind": "block", "key": key, "unit": block, "reason": "; ".join(reasons), "cited": cited}
 
 
 def select(conn: db.Connection, series_key: str, undecided: Iterable[Unit], words: ocr.WordLists) -> list[Candidate]:
@@ -420,7 +458,7 @@ def _fit(im: Image.Image, width: int = UNIT_WIDTH) -> Image.Image:
 def write_images(
     cfg: config.Config, name: str, unit_im: Image.Image, context_im: Image.Image, info: CandidateInfo
 ) -> Path:
-    """Write a candidate's folder: unit.png, context.png, info.json (reason, OCR text, chapters).
+    """Write a candidate's folder: unit.png, context.png, info.json (CandidateInfo).
 
     Replaces an older folder of the same name whole.
     """
