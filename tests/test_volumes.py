@@ -263,9 +263,16 @@ def test_join_parts_is_read_from_the_file_and_true_without_it(tmp_path):
 
 
 @budget(load="fs")
-@pytest.mark.parametrize("key", ["join_parts", "list_titles"])
+@pytest.mark.parametrize("key", ["join_parts", "source_titles"])
 @pytest.mark.parametrize("value", ["'no'", "0", ""])
 def test_a_switch_that_is_not_true_or_false_is_an_override_error(tmp_path, key, value):
     write_override(tmp_path, "Solo Leveling", f"{key}: {value}\n")
     with pytest.raises(volumes.OverrideError, match=key):
+        volumes.override_file(tmp_path, "Solo Leveling")
+
+
+@budget(load="fs")
+def test_the_former_list_titles_key_is_refused_naming_source_titles(tmp_path):
+    write_override(tmp_path, "Solo Leveling", "list_titles: false\n")
+    with pytest.raises(volumes.OverrideError, match="source_titles"):
         volumes.override_file(tmp_path, "Solo Leveling")

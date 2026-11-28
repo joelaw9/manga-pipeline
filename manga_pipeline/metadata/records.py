@@ -44,3 +44,6 @@ STORED = {
     "mangadex_covers": ("mangadex", "covers"),
     "anilist": ("anilist", "media"),
 }
+# The (source, kind) a series' MangaDex English chapter list is stored under: outside STORED and the data hash, as a
+# platform list (a new chapter is not a data change). Its payload: [[chapter number, title or ""]] in upload order.
+MANGADEX_LIST = ("mangadex", "chapters")

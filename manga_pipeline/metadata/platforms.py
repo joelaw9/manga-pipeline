@@ -206,12 +206,13 @@ def chapter_titles(platform: PlatformList | None) -> dict[str, str]:
     for e in platform["episodes"]:
         if e["kind"] == episodes.MAIN and (chapter := e["chapter"]) is not None and e["title"] and chapter not in seen:
             seen.add(chapter)
-            if title := _chapter_title(e["title"], chapter):
+            if title := entry_title(e["title"], chapter):
                 out[chapter] = title
     return out
 
 
-def _chapter_title(stored: str, chapter: str) -> str:
+def entry_title(stored: str, chapter: str) -> str:
+    """Return a list entry's title as a chapter takes it ("" for none): a platform list's and MangaDex's entries."""
     rest = names.SEASON_TAG.sub("", stored, count=1)
     if (label := episodes.LABEL.match(rest)) is not None:
         if not rest[label.end() :].strip():

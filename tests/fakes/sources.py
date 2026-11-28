@@ -50,6 +50,9 @@ class FakeMangaDex(_Fake, sources.MangaDex):
     def latest_chapter_date(self, md_id):
         return self._fake_get("latest", md_id)
 
+    def chapter_list(self, md_id):
+        return self._fake_get("chapters", md_id) or []
+
     def cover_image(self, md_id, file_name):
         return self.images[(md_id, file_name)]
 

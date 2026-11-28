@@ -37,8 +37,8 @@ class Overrides(TypedDict, total=False):
     ("1-53", "54", "94-", "-53", 54); volume_starts {volume: first chapter}, or null (check_starts; not with volumes);
     series_group a name or a non-empty list of names; layout "strip" or "pages" in any case and spacing, or null; name
     the series' name, a non-empty text (SPEC "Retroactive updates", Series names); join_parts true or false (SPEC
-    "Retroactive updates", Split chapters); list_titles true or false (SPEC "Publishing": false, its chapters take no
-    platform list title).
+    "Retroactive updates", Split chapters); source_titles true or false (SPEC "Publishing": false, its chapters take
+    no title from its platform list or MangaDex). list_titles, its former name, is refused.
     """
 
     volumes: dict[int | str, str | int | float] | None
@@ -47,7 +47,7 @@ class Overrides(TypedDict, total=False):
     layout: str | None
     name: str
     join_parts: bool
-    list_titles: bool
+    source_titles: bool
 
 
 def layout(data: Overrides) -> str | None:
@@ -106,6 +106,13 @@ def _check_bool(key: str, value: Yaml) -> None:
         raise ValueError(msg)
 
 
+def _no_old_keys(data: Mapping[str, Yaml]) -> None:
+    """Raise ValueError for a key renamed since: list_titles is source_titles (titles from the list and MangaDex)."""
+    if "list_titles" in data:
+        msg = "overrides list_titles is now source_titles (titles from the platform list and MangaDex)"
+        raise ValueError(msg)
+
+
 def _check_name(value: Yaml) -> None:
     """Raise ValueError unless value is a non-empty text."""
     if not isinstance(value, str) or not value.strip():
@@ -140,7 +147,8 @@ def override_file(overrides: Path, folder_name: str) -> Overrides | None:
             _group_names(data["series_group"])
         if "name" in data:
             _check_name(data["name"])
-        for key in ("join_parts", "list_titles"):
+        _no_old_keys(data)
+        for key in ("join_parts", "source_titles"):
             if key in data:
                 _check_bool(key, data[key])
         layout(data)

@@ -801,3 +801,48 @@ def test_ids_that_already_disagree_stop_the_check_before_a_description_id_is_fet
     assert world.rows("SELECT status FROM series WHERE id = %s", sid) == [("needs_human",)]
     assert world.sources.calls == [], "no source is asked, the description's either"
     assert not [r for r in ids_of(world, sid) if r[0] == "mangadex"], "no description id stored"
+
+
+def on_mangadex(world, chapters):
+    """Make Solo Leveling's Kavita links name MangaDex entry MD, whose English feed holds chapters."""
+    kavita_id = world.kavita_series("Solo Leveling")
+    world.kavita.metadata_rows[kavita_id] = {"webLinks": f"https://mangadex.org/title/{MD}"}
+    world.sources.mangadex.records[("manga", MD)] = {"id": MD, "attributes": {}}
+    world.sources.mangadex.records[("chapters", MD)] = chapters
+    return kavita_id
+
+
+def stored_list(world):
+    return world.rows("SELECT payload FROM fetched WHERE source = 'mangadex' AND kind = 'chapters'")
+
+
+@budget(load="db")
+def test_a_check_stores_the_mangadex_chapter_list_outside_the_data_version(world):
+    on_mangadex(world, [["1", "Start"]])
+    world.run(intake)
+    assert stored_list(world) == [([["1", "Start"]],)], "stored with the check"
+    world.sources.mangadex.records[("chapters", MD)] = [["1", "Start"], ["2", "Next"]]
+    execute(world, "UPDATE series_check SET next_check_at = '2000-01-01T00:00:00+00:00'")
+    world.run(intake)
+    assert stored_list(world) == [([["1", "Start"], ["2", "Next"]],)], "replaced"
+    assert world.rows("SELECT data_version FROM series_check") == [(1,)], "a new chapter is no data change"
+
+
+@budget(load="db")
+def test_a_failed_mangadex_feed_ends_the_check_and_no_mangadex_record_removes_the_stored_list(world, monkeypatch):
+    on_mangadex(world, [["1", "Start"]])
+
+    def down(_md_id):
+        msg = "mangadex"
+        raise http.Unreachable(msg, "down")
+
+    with monkeypatch.context() as m:
+        m.setattr(world.sources.mangadex, "chapter_list", down)
+        world.run(intake)
+    assert (checks(world), stored_list(world)) == ([], []), "nothing stored: the check stays due"
+    world.run(intake)
+    assert stored_list(world) == [([["1", "Start"]],)]
+    del world.sources.mangadex.records[("manga", MD)]
+    execute(world, "UPDATE series_check SET next_check_at = '2000-01-01T00:00:00+00:00'")
+    world.run(intake)
+    assert stored_list(world) == [], "a series MangaDex no longer has keeps no list of it"

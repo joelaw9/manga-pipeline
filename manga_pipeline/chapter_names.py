@@ -12,6 +12,7 @@ from pathlib import Path
 from manga_pipeline import comicinfo, config, db, errors, names, volumes, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import naming, platforms
+from manga_pipeline.metadata.records import MANGADEX_LIST
 
 OPEN = ("ready", "claimed", "waiting")  # an unnamed needs_human chapter may never be published: no number
 # A series' open download chapters, the resolver's open rows (params: series, open = list(OPEN)); a chapter at confirm
@@ -22,7 +23,7 @@ OPEN_WHERE = sql.SQL(
     AND (status = ANY(%(open)s) OR (status = 'needs_human' AND naming_kind IS NOT NULL))"""
 )
 type Inputs = tuple[
-    list[naming.Row[naming.RowKey]], volumes.Overrides | None, dict[str, str | None], platforms.PlatformList | None
+    list[naming.Row[naming.RowKey]], volumes.Overrides | None, naming.MangaDex, platforms.PlatformList | None
 ]
 
 
@@ -74,21 +75,32 @@ def inputs(
     *,
     planned: Sequence[naming.Row[naming.RowKey]] = (),
 ) -> Inputs:
-    """(rows, override mapping or None, MangaDex volume map, stored platform list or None) of the series.
+    """(rows, override mapping or None, stored MangaDex data, stored platform list or None) of the series.
 
     planned: published rows not stored yet (an adoption's files), added to the stored ones.
     """
     overrides = volumes.override_file(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
-    row = ctx.conn.execute(
-        "SELECT payload FROM fetched WHERE series_id = %s AND source = 'mangadex' AND kind = 'aggregate'",
-        (series["id"],),
-    ).fetchone()
-    mangadex = naming.mangadex_volumes(row["payload"] if row else None)
+    mangadex = mangadex_data(ctx.conn, series["id"])
     platform = platform_list(ctx.conn, series["id"])
     # ponytail: each call reads every open unnamed chapter's ComicInfo.xml; a series with hundreds of open chapters
     # (a back catalogue) costs that many reads per chapter; store the read fields at validate if that bites
     rows = [*_published(ctx.conn, series["id"]), *planned, *_open(ctx, series["id"], downloads or {})]
     return rows, overrides, mangadex, platform
+
+
+def mangadex_data(conn: db.Connection, series_id: int) -> naming.MangaDex:
+    """Return the series' stored MangaDex volumes and English titles (none of either when not stored)."""
+    aggregate = conn.execute(
+        "SELECT payload FROM fetched WHERE series_id = %s AND source = 'mangadex' AND kind = 'aggregate'", (series_id,)
+    ).fetchone()
+    source, kind = MANGADEX_LIST
+    chapters = conn.execute(
+        "SELECT payload FROM fetched WHERE series_id = %s AND source = %s AND kind = %s", (series_id, source, kind)
+    ).fetchone()
+    return naming.MangaDex(
+        naming.mangadex_volumes(aggregate["payload"] if aggregate else None),
+        naming.mangadex_titles(chapters["payload"] if chapters else None),
+    )
 
 
 def platform_list(conn: db.Connection, series_id: int) -> platforms.PlatformList | None:

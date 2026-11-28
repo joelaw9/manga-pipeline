@@ -72,7 +72,7 @@ def new_side(number, *, src_volume=None, title="", date=None, order=0) -> Row[tu
 
 def named(basis, rows, overrides=None, mangadex=None):
     """{(kind, number): Naming} of the open rows."""
-    return {(k[2], k[1]): v for k, v in resolve(basis, rows, overrides, mangadex or {}).items()}
+    return {(k[2], k[1]): v for k, v in resolve(basis, rows, overrides, naming.MangaDex(mangadex or {})).items()}
 
 
 def volume_of(basis, rows, number, overrides=None, mangadex=None):
@@ -278,7 +278,7 @@ def test_volume_starts_give_a_new_chapter_its_volume_over_mangadex():
 @budget(load="pure")
 def test_volume_starts_make_a_new_series_an_override_series():
     rows = [new(1), new(4.5), new(6)]
-    assert naming.choose(rows, {"volume_starts": {1: 1, 2: 5}}, {}) == volumes.OVERRIDE, (
+    assert naming.choose(rows, {"volume_starts": {1: 1, 2: 5}}, naming.MangaDex({})) == volumes.OVERRIDE, (
         "a file that volumes a main chapter is the basis when nothing before it in the order does"
     )
 
@@ -286,8 +286,8 @@ def test_volume_starts_make_a_new_series_an_override_series():
 @budget(load="pure")
 def test_volume_starts_cover_as_the_same_ranges_do():
     rows = [settled(1, 1, "override"), settled(2, 1, "override"), settled(3, 2, "override")]
-    starts = naming.covered_volumes("override", rows, {"volume_starts": {1: 1, 2: 3}}, {})
-    ranges = naming.covered_volumes("override", rows, {"volumes": {1: "1-2", 2: "3-"}}, {})
+    starts = naming.covered_volumes("override", rows, {"volume_starts": {1: 1, 2: 3}}, naming.MangaDex({}))
+    ranges = naming.covered_volumes("override", rows, {"volumes": {1: "1-2", 2: "3-"}}, naming.MangaDex({}))
     assert starts == ranges == {1, 2}, "a volume start's volume is covered as an override range's is"
 
 
@@ -309,13 +309,13 @@ def test_a_filler_out_of_order_among_its_own_fills_is_not_used():
 )
 def test_a_volume_that_is_not_whole_is_a_volume_error(basis, row, mangadex):
     with pytest.raises(VolumeError, match=r"chapter 3: volume (2\.5|1\.5)"):
-        resolve(basis, [settled(1, 1, basis), row], None, mangadex or {})
+        resolve(basis, [settled(1, 1, basis), row], None, naming.MangaDex(mangadex or {}))
 
 
 @budget(load="pure")
 def test_an_override_basis_without_its_file_is_a_volume_error():
     with pytest.raises(VolumeError, match="override file"):
-        resolve("override", [settled(1, 1, "override"), new(2)], None, {})
+        resolve("override", [settled(1, 1, "override"), new(2)], None, naming.MangaDex({}))
 
 
 @budget(load="pure")
@@ -331,7 +331,7 @@ def test_a_missing_override_file_on_another_basis_is_no_override():
 def test_side_stories_arriving_together_number_after_the_settled_ones():
     rows = [settled(1, 1, "override"), settled(2, 2, "override"), settled_side(1, 3)]
     rows += [new_side(10, order=1), new_side(2, order=2)]  # "Extra 10", "Extra 2": no title
-    got = resolve("override", rows, OVERRIDE_1_2, {})
+    got = resolve("override", rows, OVERRIDE_1_2, naming.MangaDex({}))
     side = {k[1]: (v.volume, v.number, v.title, v.volume_source) for k, v in got.items()}
     assert side == {2: (3, 2.0, "Side Story 2", "side"), 10: (3, 3.0, "Side Story 3", "side")}, (
         "new side stories take the settled side volume and number on, in number order (2 before 10)"
@@ -371,7 +371,7 @@ def test_side_stories_order_by_source_volume_then_number_then_date():
         new_side(5, title="a", date="2024-02-01", order=2),
         new_side(5.5, title="c", date="2024-01-01", order=3),
     ]
-    got = sorted((v.number, v.title) for v in resolve("none", rows, None, {}).values())
+    got = sorted((v.number, v.title) for v in resolve("none", rows, None, naming.MangaDex({})).values())
     assert got == [(1.0, "Side Story 1: a"), (2.0, "Side Story 2: c"), (3.0, "Side Story 3: b")], (
         "no source volume counts as 0; then the number"
     )
@@ -410,7 +410,7 @@ def test_only_the_first_of_2_new_chapters_of_a_covered_volume_opens_it():
     ],
 )
 def test_a_covered_volume_comes_from_mangadex_or_the_override(basis, rows, overrides, mangadex, want):
-    got = [v.opens_covered_volume for v in resolve(basis, rows, overrides, mangadex or {}).values()]
+    got = [v.opens_covered_volume for v in resolve(basis, rows, overrides, naming.MangaDex(mangadex or {})).values()]
     assert got == [want], "MangaDex, override or a confirmed filename volume, opened by its first new chapter"
 
 
@@ -549,7 +549,7 @@ def test_a_records_last_chapters_resolve_as_the_bulk_converter_named_them(path):
         for c in fixture["chapters"]
         if c["volume_source"] == naming.MANGADEX
     }
-    got = resolve(fixture["basis"], _rows(fixture), fixture["overrides"], mangadex)
+    got = resolve(fixture["basis"], _rows(fixture), fixture["overrides"], naming.MangaDex(mangadex))
     for k, c in enumerate(fixture["chapters"]):
         if c["open"]:
             want = (c["kind"], names.to_volume(c["volume"]), float(c["number"]), c["title"], _opens(fixture, k))

@@ -15,6 +15,7 @@ import itertools
 from collections.abc import Hashable, Iterable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import TypedDict
 
 from manga_pipeline import names, volumes
@@ -169,26 +170,59 @@ def apply_edit[K: Hashable](row: Row[K], edits: Mapping[EditKey, Edit]) -> Row[K
     return row
 
 
+@dataclass(frozen=True)
+class MangaDex:
+    """A series' stored MangaDex data the resolver reads: {chapter number: volume} and {chapter number: English title}.
+
+    volumes: mangadex_volumes' map of the stored aggregate; titles: mangadex_titles' map of the stored chapter list.
+    """
+
+    volumes: Mapping[str, str | None]
+    titles: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])
+
+
+def titles_on(overrides: volumes.Overrides | None) -> bool:
+    """Return whether the series' chapters take titles from outside their files: false when source_titles is false."""
+    return (overrides or {}).get("source_titles", True)
+
+
 def title_list(
     platform: platforms.PlatformList | None, overrides: volumes.Overrides | None
 ) -> platforms.PlatformList | None:
-    """Return the platform list chapters take titles from: none when the override file sets list_titles false."""
-    return platform if (overrides or {}).get("list_titles", True) else None
+    """Return the platform list chapters take titles from: none when the override file sets source_titles false."""
+    return platform if titles_on(overrides) else None
 
 
-def list_title(titles: Mapping[str, str], number: float, season: int | None) -> str:
-    """Return a main chapter's title from its list's titles (platforms.chapter_titles); "" for a chapter with a season.
+def outside_titles(
+    platform: platforms.PlatformList | None, mangadex_titles: Mapping[str, str], overrides: volumes.Overrides | None
+) -> tuple[dict[str, str], Mapping[str, str]]:
+    """Return the titles main chapters may take from outside their files: (list's, MangaDex's), none when switched off.
+
+    The 1 owner of the switch (titles_on) over both sources; source_title picks from what this returns.
+    """
+    if not titles_on(overrides):
+        return {}, {}
+    return platforms.chapter_titles(platform), mangadex_titles
+
+
+def source_title(
+    list_titles: Mapping[str, str], mangadex_titles: Mapping[str, str], number: float, season: int | None
+) -> str:
+    """Return a main chapter's title from outside its file: its list's, else MangaDex's; "" for a chapter with a season.
 
     A list numbers on across seasons, a season's chapters may start again: a number is not a seasonal chapter's key.
     """
-    return "" if season is not None else titles.get(names.fmt_num(number), "")
+    if season is not None:
+        return ""
+    key = names.fmt_num(number)
+    return list_titles.get(key) or mangadex_titles.get(key, "")
 
 
 def resolve[K: Hashable](  # noqa: PLR0913  # 7 inputs the resolver itself uses
     basis: str | None,
     rows: Sequence[Row[K]],
     overrides: volumes.Overrides | None,
-    mangadex: Mapping[str, str | None],
+    mangadex: MangaDex,
     platform: platforms.PlatformList | None = None,
     *,
     fill: AbstractSet[K] = frozenset(),
@@ -197,10 +231,10 @@ def resolve[K: Hashable](  # noqa: PLR0913  # 7 inputs the resolver itself uses
     """Return {row key: Naming} for the open rows of 1 series.
 
     basis: the record's series.naming.basis (None: no volume); overrides: the override file's mapping, or None when
-    the series has none; mangadex: mangadex_volumes' map; platform: the stored platform list (metadata/platforms.py),
-    or None; fill: keys of open rows that are published files holding no volume, named only to fill it (SPEC
-    "Retroactive updates": their caller takes a whole volume of a main chapter or nothing, so they raise no
-    VolumeError).
+    the series has none; mangadex: the series' stored MangaDex data; platform: the stored platform list
+    (metadata/platforms.py), or None; fill: keys of open rows that are published files holding no volume, named only
+    to fill it (SPEC "Retroactive updates": their caller takes a whole volume of a main chapter or nothing, so they
+    raise no VolumeError).
     edits: {edit_key: Edit} of the series, applied over every source: the settled rows as their edits make them, an
     open row's edited volume before everything its volume decides (the volumes around it, covers, side-story
     volumes), an edited title over its own.
@@ -221,7 +255,9 @@ def resolve[K: Hashable](  # noqa: PLR0913  # 7 inputs the resolver itself uses
     past = _past_finale(rows, main, seasons)
     main, side = [i for i in main if i not in past], side + sorted(past, key=lambda i: (rows[i].number, rows[i].order))
     # the rows' numbers are the same in every pass below, so the outside sources' volumes are read once
-    sources = _Sources(_override_volumes(override, rows, main), _mangadex_volumes(mangadex, rows, main), seasons)
+    sources = _Sources(
+        _override_volumes(override, rows, main), _mangadex_volumes(mangadex.volumes, rows, main), seasons
+    )
     settled = {i: (rows[i].volume, rows[i].volume_source) for i in main if rows[i].settled}
     # An open chapter's edited volume is fixed first, as a settled one's: the volumes around it are named from it.
     pinned = {
@@ -249,11 +285,11 @@ def resolve[K: Hashable](  # noqa: PLR0913  # 7 inputs the resolver itself uses
     out: dict[K, Naming] = {}
     covered = _opens_covered(rows, _covered_firsts(basis, main, vol, (sources.override, sources.mangadex)))
     listed = title_list(platform, override)
-    titles = platforms.chapter_titles(listed)
+    titles, md_titles = outside_titles(platform, mangadex.titles, override)
     for i in main:
         if not rows[i].settled:
             v, source = opened[i]
-            title = rows[i].title or list_title(titles, rows[i].number, rows[i].season)
+            title = rows[i].title or source_title(titles, md_titles, rows[i].number, rows[i].season)
             e = edits.get(edit_key(names.MAIN, rows[i].season, rows[i].number))
             title = e.title if e is not None and e.title is not None else title
             out[rows[i].key] = Naming(names.MAIN, v, rows[i].number, title, source, i in covered)
@@ -290,7 +326,7 @@ def _past_finale[K: Hashable](
 def choose[K: Hashable](  # noqa: PLR0911  # 1 priority chain
     rows: Sequence[Row[K]],
     overrides: volumes.Overrides | None,
-    mangadex: Mapping[str, str | None],
+    mangadex: MangaDex,
     platform: platforms.PlatformList | None = None,
 ) -> str:
     """Choose a new series' volume basis (SPEC "Publishing"), once, over its chapters known then.
@@ -309,7 +345,7 @@ def choose[K: Hashable](  # noqa: PLR0911  # 1 priority chain
         return SEASON_MARKERS
     if platform and any(platforms.volumes(platform, {i: rows[i].number for i in main})):
         return f"{platform['name']} seasons"
-    if main and len(_mangadex_volumes(mangadex, rows, main)) / len(main) >= MANGADEX_SHARE:
+    if main and len(_mangadex_volumes(mangadex.volumes, rows, main)) / len(main) >= MANGADEX_SHARE:
         return MANGADEX
     if _override_volumes(override, rows, main):
         return OVERRIDE
@@ -331,6 +367,26 @@ def mangadex_volumes(aggregate: MangaDexAggregate | None) -> dict[str, str | Non
             n = episodes.norm_number(chapter.get("chapter"))
             if n is not None and out.get(n) is None:
                 out[n] = v
+    return out
+
+
+def mangadex_titles(chapters: Sequence[Sequence[str]] | None) -> dict[str, str]:
+    """Return {chapter number: English title} from a stored MangaDex chapter list ([number, title] in upload order).
+
+    A number's title is its first entry's that platforms.entry_title keeps (a bare label gives none, a later entry's
+    may). None for every number when the series is numbered in parts: over its distinct numbers, those N.k with N.1
+    listed outnumber the whole ones (MangaDex splitting chapters the files hold whole).
+    """
+    pairs = list(chapters or [])
+    numbers = {Decimal(n) for n, _ in pairs}
+    whole = sum(1 for n in numbers if n == n.to_integral_value())
+    parts = sum(1 for n in numbers if n != n.to_integral_value() and Decimal(int(n)) + Decimal("0.1") in numbers)
+    if parts > whole:
+        return {}
+    out: dict[str, str] = {}
+    for number, title in pairs:
+        if number not in out and (kept := platforms.entry_title(title, number)):
+            out[number] = kept
     return out
 
 
@@ -600,7 +656,7 @@ def covered_volumes[K: Hashable](
     basis: str | None,
     rows: Sequence[Row[K]],
     override: volumes.Overrides,
-    mangadex: Mapping[str, str | None],
+    mangadex: MangaDex,
 ) -> set[float]:
     """Return the covered volumes (SPEC "Volume covers") of rows as they stand.
 
@@ -611,7 +667,7 @@ def covered_volumes[K: Hashable](
         (i for i, r in enumerate(rows) if r.kind == names.MAIN), key=lambda i: (rows[i].number, rows[i].order)
     )
     vol = {i: (rows[i].volume, rows[i].volume_source) for i in main}
-    maps = (_override_volumes(override, rows, main), _mangadex_volumes(mangadex, rows, main))
+    maps = (_override_volumes(override, rows, main), _mangadex_volumes(mangadex.volumes, rows, main))
     return set(_covered_firsts(basis, main, vol, maps))
 
 
