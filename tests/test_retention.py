@@ -27,8 +27,9 @@ def test_put_moves_the_download_under_its_source_and_title_and_touches_it(tmp_pa
     cfg = with_days(site_cfg(tmp_path), 7)
     download = a_download(cfg)
     os.utime(download, (1, 1))
-    retention.put(cfg, download)
+    moved = retention.put(cfg, download)
     kept = config.abs_path(cfg["paths"]["retention"]) / "Src (EN)" / "Title" / "ch1.cbz"
+    assert moved == kept, "put says where it kept the download"
     assert not download.exists(), "the download is moved, not copied"
     assert kept.read_bytes() == b"cbz", "the download is moved, not copied"
     assert kept.stat().st_mtime > time.time() - 60, "the period runs from the move"
@@ -53,10 +54,10 @@ def test_put_keeps_every_download_of_1_name(tmp_path):
 def test_put_with_period_0_deletes_and_a_missing_download_counts_as_removed(tmp_path):
     cfg = with_days(site_cfg(tmp_path), 0)
     download = a_download(cfg)
-    retention.put(cfg, download)
+    assert retention.put(cfg, download) is None, "deleted: kept nowhere"
     assert not download.exists()
     assert not any(config.abs_path(cfg["paths"]["retention"]).iterdir()), "period 0 keeps nothing"
-    retention.put(cfg, download)  # gone already: a crash after the delete, before the outcome
+    assert retention.put(cfg, download) is None  # gone already: a crash after the delete, before the outcome
 
 
 @budget(load="fs")
@@ -95,3 +96,17 @@ def test_find_returns_the_kept_file_of_a_download_by_its_content_digest(tmp_path
     assert kept is not None, "a download kept under a taken name is found by its pages"
     assert kept.name == "ch1 (2).cbz", "a download kept under a taken name is found by its pages"
     assert retention.find(cfg, download, "c" * 64) is None, "no kept file has those pages"
+
+
+@budget(load="fs")
+def test_kept_finds_a_download_put_aside_before_a_crash_by_its_content_digest(tmp_path):
+    cfg = with_days(site_cfg(tmp_path), 7)
+    download = a_download(cfg)
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        z.writestr("001.png", b"page")
+    download.write_bytes(data.getvalue())
+    digest = archive.pages_digest(download)
+    moved = retention.put(cfg, download)  # the move done; the crash before its outcome was recorded
+    assert retention.kept(cfg, download, digest) == moved, "the retry finds the kept file by its pages"
+    assert retention.kept(cfg, download, "0" * 64) is None, "never another download of its name"
