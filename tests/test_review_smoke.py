@@ -13,7 +13,7 @@ from manga_pipeline.junk import candidates
 from scripts import review_smoke
 
 from tests import pg
-from tests.builders import adopted
+from tests.builders import adopted, config_file
 from tests.test_w5_scripts import AT, candidate
 from tests.timing import budget
 
@@ -122,12 +122,24 @@ def test_the_commands_get_the_token_alone_of_the_pipelines_variables(monkeypatch
     monkeypatch.setenv(review_smoke.TOKEN, "from the environment")
     monkeypatch.setenv(f"{config.ENV_PREFIX}_DATABASE_HOST", "the pipeline's server")
     monkeypatch.setenv("SMOKE_OTHER", "kept")
+    monkeypatch.setenv(f"{config.ENV_PREFIX.lower()}_database_name", "the pipeline's")
     got = {}
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: got.update(argv=argv, env=kw["env"]))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: got.update(argv=argv, env=kw["env"], check=kw["check"]))
     review_smoke.command(tmp_path / "config.yaml", ["process"], "the machine's")
     assert [k for k in got["env"] if k.startswith(config.ENV_PREFIX)] == [review_smoke.TOKEN], (
         "no other MANGA_PIPELINE_ variable reaches a command: the scratch config alone says where it works"
     )
     assert got["env"][review_smoke.TOKEN] == "the machine's", "the token is the machine config's"
+    assert got["check"] is False, "a failed command is judged from what it recorded, not raised"
     assert got["env"]["SMOKE_OTHER"] == "kept", "every other variable is kept: Python and Claude need them"
     assert got["argv"][-3:] == ["--config", str(tmp_path / "config.yaml"), "process"], "the scratch config's command"
+
+
+@budget()
+def test_a_machine_that_cannot_start_claude_is_refused_before_anything_is_built(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(review_smoke, "smoke", lambda *_a: pytest.fail("nothing runs"))
+    cfg = {**config.load(), "junk": {**config.load()["junk"], "claude_token": "  "}}
+    assert review_smoke.main(["--config", str(config_file(tmp_path, cfg))]) == 2, (
+        "a blank token: preflight's Claude check"
+    )
+    assert "junk.claude_token" in capsys.readouterr().err

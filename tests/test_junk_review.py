@@ -275,9 +275,15 @@ def test_the_review_counts_each_candidate_its_show_calls_named_once():
             },
         }
 
-    lines = [bash(1, f"{prefix} show 11 12 13"), bash(2, f"{prefix} show 12"), bash(3, f"{prefix} decide 11 junk")]
+    lines = [
+        bash(1, f"{prefix} show 11 12 13"),
+        bash(2, f"{prefix} show 12 2>&1 'x y'"),
+        bash(3, f"{prefix} decide 14 junk"),
+        bash(4, f"{prefix} show 15 'unclosed"),
+    ]
     assert review_run.acts(lines, prefix) == "reads 0, shown 3", (
-        "1 call naming 3 candidates counts each; a candidate shown again counts once; another junk command none"
+        "1 call naming 3 candidates counts each; a candidate shown again counts once; a word that is no id (a redirect,"
+        " quoted text) none; another junk command none; a call whose quoting does not parse none"
     )
 
 

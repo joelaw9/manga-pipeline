@@ -308,7 +308,8 @@ def acts(lines: list[ClaudeReply], prefix: str) -> str:
 
     A run cut short has them too. Each tool use counts once by its id: a message's content blocks arrive as lines
     sharing the message's id, and 1 message may hold several tool uses. A `show` call is a Bash command starting with
-    the review's own `show`; 1 call may name several candidates, and a candidate named again counts once.
+    the review's own `show`; its candidates are the arguments that are whole numbers, as `junk show` reads them (1 call
+    may name several; a candidate named again counts once; a call whose quoting does not parse names none).
     """
     uses: dict[str, ContentBlock] = {}
     for line in lines:
@@ -323,8 +324,17 @@ def acts(lines: list[ClaudeReply], prefix: str) -> str:
     )
     show = f"{prefix} show "
     commands = (u.get("input", {}).get("command", "") for u in uses.values() if u.get("name") == "Bash")
-    shown = {c for command in commands if command.startswith(show) for c in command[len(show) :].split()}
+    shown = {c for command in commands if command.startswith(show) for c in _ids(command[len(show) :])}
     return f"reads {reads}, shown {len(shown)}"
+
+
+def _ids(args: str) -> list[int]:
+    """Return the whole-number arguments of a show call's argument text; none when its quoting does not parse."""
+    try:
+        words = shlex.split(args)
+    except ValueError:  # an unclosed quote: no candidate it names can be read
+        return []
+    return [int(w) for w in words if w.isdecimal()]
 
 
 def usage(lines: list[ClaudeReply], reply: ClaudeReply) -> str:

@@ -17,7 +17,7 @@ nothing of the pipeline's.
 
 Usage, from the project root:
 python -m scripts.review_smoke [--config PATH]
-Exit 0 passed; 1 failed; 2 the machine's config has no Claude token.
+Exit 0 passed; 1 failed; 2 the machine's config cannot start Claude (preflight's check: its path, its token).
 """
 
 import argparse
@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from manga_pipeline import config, db, fleet, state
+from manga_pipeline import config, db, fleet, preflight, state
 from manga_pipeline.db import sql
 from manga_pipeline.junk import candidates, store
 from scripts import set_config
@@ -188,7 +188,7 @@ def command(cfg_path: Path, args: list[str], token: str) -> None:
 
     Its exit is not checked: a failed review (exit 1) is judged from what it recorded, as any other.
     """
-    env = {k: v for k, v in os.environ.items() if not k.startswith(f"{config.ENV_PREFIX}_")} | {TOKEN: token}
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(f"{config.ENV_PREFIX}_")} | {TOKEN: token}
     subprocess.run(
         [sys.executable, "-m", "manga_pipeline.cli", "--config", str(cfg_path), *args],
         env=env,
@@ -243,9 +243,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", help="this machine's config file (default: config.yaml)")
     args = parser.parse_args(argv)
     machine = config.load(args.config)
+    problem = preflight.claude_settings(machine)  # the review's own check: its Claude path and token
     token = machine["junk"]["claude_token"]
-    if token is None or not token.strip():
-        sys.stderr.write(f"error: junk.claude_token is not set (nor {TOKEN}): Claude cannot log in\n")
+    if problem is not None or token is None:
+        sys.stderr.write(f"error: {problem}\n")
         return 2
     lines, passed = smoke(machine, functools.partial(command, token=token))
     sys.stdout.write("".join(f"{line}\n" for line in [*lines, "passed" if passed else "failed"]))
