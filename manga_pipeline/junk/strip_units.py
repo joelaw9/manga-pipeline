@@ -976,3 +976,16 @@ def decide(
         "seeds": seeds_left(layout, everything, got["matches"] + late["matches"]),
         "rest": remnant_gaps(signed, taken, holes),
     }
+
+
+def matching_units(sc: StripScan, key: str) -> list[strip.Rows]:
+    """Return the scan's strip units (edge blocks, their pieces and remainders) whose signature matches key, sorted."""
+    want = images.sig_from_str(key)
+    units: list[tuple[int, int, str]] = []
+    for b in sc["blocks"]:
+        units.append((b["start"], b["end"], b["sig"]))
+        for j in b["joins"]:
+            units.append((j["start"], j["end"], j["sig"]))
+            if j["rest"] is not None:
+                units.append((j["rest"]["start"], j["rest"]["end"], j["rest"]["sig"]))
+    return sorted({(a, b) for a, b, sig in units if images.matches(want, images.sig_from_str(sig))})

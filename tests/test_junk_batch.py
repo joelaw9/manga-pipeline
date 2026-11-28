@@ -3,6 +3,7 @@
 Candidates are rows made open by a junk chapter waiting on them; their images are small PNGs.
 """
 
+import json
 from contextlib import closing
 
 import pytest
@@ -36,6 +37,22 @@ def site(tmp_path):
         yield cfg, conn
 
 
+# a strip scan with no units: the candidates are added by hand
+EMPTY_STRIP = json.dumps(
+    {
+        "layout": "strip",
+        "width": 100,
+        "height": 100,
+        "gaps": [],
+        "spans": [],
+        "blocks": [],
+        "measured": {},
+        "middle": [],
+        "marks": [],
+    }
+)
+
+
 class Series:
     """A series with 1 junk chapter that waits on every candidate added to it."""
 
@@ -49,8 +66,8 @@ class Series:
             )
             conn.execute(
                 """INSERT INTO junk_scan (chapter_id, series_id, content_digest, scan, scanned_at, candidates)
-                SELECT id, series_id, 'd', '{}', %s, '[]' FROM chapter WHERE id = %s""",
-                (AT, self.chapter),
+                SELECT id, series_id, 'd', %s, %s, '[]' FROM chapter WHERE id = %s""",
+                (EMPTY_STRIP, AT, self.chapter),
             )
 
     def candidate(self, tile, kind="block", size=(200, 100)):

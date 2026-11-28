@@ -31,6 +31,7 @@ from manga_pipeline.junk import (
     sheet_draw,
     store,
 )
+from manga_pipeline.junk import show as show_module
 from manga_pipeline.metadata import sources
 from manga_pipeline.stages import convert as convert_stage
 from manga_pipeline.stages import junk as junk_stage
@@ -541,6 +542,68 @@ def test_a_middle_bands_context_of_3_pages_fits_the_width_before_its_box_is_draw
     x0, y0, x1, _ = (round(v * h / sizes[1][1]) for v in present(present(info.get("position")).get("box")))
     edge = [context.getpixel((x + (x0 + x1) // 2, y0 + d)) for d in range(junk_stage.BOX_W)]
     assert edge == [sheet_draw.RED] * junk_stage.BOX_W, "the band's top edge boxed red, 4 px thick"
+
+
+def show(site, tmp_path, capsys, cid):
+    """Return what `junk show CID` prints."""
+    assert cli.main(["--config", str(config_file(tmp_path, site.cfg)), "junk", "show", str(cid)]) == 0
+    return capsys.readouterr().out
+
+
+@budget(load="db", seconds=30)
+def test_show_lists_a_blocks_waiting_chapters_with_rows_its_sightings_and_its_cited_decisions(
+    site, tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
+    select = candidates.select
+    monkeypatch.setattr(candidates, "select", lambda *a: [{**p, "cited": [777777]} for p in select(*a)])
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    for n in (2, 3):
+        site.download("Long", n, strip_cbz(f"s{n}"))
+    site.parts()
+    first, second = (r[0] for r in site.rows("SELECT id FROM chapter ORDER BY id"))
+    (credit,) = [c for c in open_candidates(site) if len(site.rows(WAITING, c["id"])) == 2]  # in both chapters
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):
+        conn.execute(
+            """INSERT INTO junk_decision (id, series_key, kind, key, verdict, decider, decided_at)
+            VALUES (777777, 'Long', 'block', %s, 'junk', 'import', '2026-11-01T00:00:00+00:00')""",
+            ("0" * 16 + "|9.0",),
+        )
+        conn.execute(  # an imported sighting: an identity no chapter holds
+            """INSERT INTO junk_seen (series_key, kind, key, identity, first_seen, origin)
+            VALUES ('Long', 'block', %s, 'imported 1', '2026-01-01T00:00:00+00:00', 'import')""",
+            (credit["key"],),
+        )
+    out = show(site, tmp_path, capsys, credit["id"])
+    assert f"waiting chapters 2: {first} rows 3100:3500, {second} rows 3100:3500" in out, out
+    assert f"seen in 3 chapters: {first}, {second}; 1 with no chapter" in out, out
+    assert "cited decision 777777 (Long): junk by import; images: no images kept" in out, out
+    assert f"position: chapter {first} tail rows 3100:3500 of 3600" in out, out
+
+
+WAITING = "SELECT chapter_id FROM junk_scan WHERE candidates::jsonb @> to_jsonb(%s::bigint)"
+
+
+@budget(load="pool", seconds=60)
+def test_show_lists_a_bands_waiting_chapters_without_rows_and_an_old_folder_has_no_position(site, tmp_path, capsys):
+    site.download("Alpha", 2, band_cbz("w2", on=3))
+    site.parts()
+    ((chapter,),) = site.rows("SELECT id FROM chapter")
+    (band,) = open_candidates(site)
+    out = show(site, tmp_path, capsys, band["id"])
+    assert f"waiting chapters 1: {chapter}\n" in out, "a band's waiting chapters by id: no rows"
+    assert f"seen in 1 chapters: {chapter}\n" in out, out
+    with closing(db.connect(site.cfg)) as conn:
+        probe = show_module.seen_line(conn, db.row(kind="probe", series_key="Alpha", key="x"))
+    assert probe == "seen: not recorded for a probe", "a kind junk_seen does not record is not counted as 0"
+    info_path = candidates.folder(site.cfg, band["folder"]) / "info.json"
+    info = json.loads(info_path.read_bytes())
+    old = {k: info[k] for k in ("series", "kind", "reason", "text", "chapters")}  # a folder written before 10.8
+    info_path.write_bytes(json.dumps(old).encode())
+    out = show(site, tmp_path, capsys, band["id"])
+    assert "position: not recorded" in out, out
+    assert "removed " not in out, "no removed ranges recorded: none printed"
 
 
 @budget(load="db", seconds=10)

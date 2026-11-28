@@ -310,7 +310,13 @@ def test_inside_a_review_a_cut_takes_only_a_chapter_of_a_series_it_listed(site, 
     assert run("junk", "list")[0] == 0
     code, _, err = run("junk", "cut", *oracle(listed))
     assert code == 0, err
-    for argv in (oracle(other), [*oracle(other), "--record", "0" * cut.DIGEST_HEX], ["--spans", str(other), "tail"]):
+    refused = (
+        oracle(other),
+        [*oracle(other), "--record", "0" * cut.DIGEST_HEX],
+        ["--spans", str(other), "tail"],
+        ["--spans", str(other), "0:100"],
+    )
+    for argv in refused:
         code, _, err = run("junk", "cut", *argv)
         assert (code, f"chapter {other}: this review listed no candidate of its series" in err) == (2, True), err
     monkeypatch.delenv(review.REVIEW_ID_VARIABLE)
@@ -394,6 +400,8 @@ def test_a_chapter_of_a_pages_series_is_refused(site, run):
     site.parts()
     ((chapter,),) = site.rows("SELECT id FROM chapter")
     code, _, err = run("junk", "cut", f"{chapter}:0:100")
+    assert (code, "is not a strip" in err) == (2, True), err
+    code, _, err = run("junk", "cut", "--spans", str(chapter), "0:100")
     assert (code, "is not a strip" in err) == (2, True), err
 
 
@@ -531,7 +539,7 @@ def test_a_cut_naming_only_kept_ranges_or_a_chapter_without_readable_pages_is_re
         (["--spans", "1", "--record", "abc"], "draws sheets only"),
         (["--edge", "1", "below", "--credit"], "go with ranges"),
         (["--edge", "x", "below"], "not ID above|below"),
-        (["--spans", "1", "middle"], "not ID or CHAPTER head|tail"),
+        (["--spans", "1", "middle"], "not ID, CHAPTER head|tail or CHAPTER A:B"),
         (["1:10:5"], "START must be below END"),
         (["1:a:5"], "not CHAPTER:START:END"),
     ],
@@ -817,6 +825,26 @@ def test_spans_of_a_candidate_pick_a_waiting_chapter_and_its_sheets_stay_within_
     assert code == 0, err
     assert f"chapter {chapter}: tail rows" in out, out
     assert_within_bounds(sheets_of(out))
+
+
+@budget(load="db", seconds=60)
+def test_spans_of_a_window_mark_each_open_candidates_unit_and_refuse_over_6000_rows(site, run):
+    chapter = real_head(site)
+    ((cid,),) = site.rows("SELECT id FROM junk_candidate")
+    unit = f"{111612 - CROP}:{111684 - CROP}"
+    code, out, err = run("junk", "cut", "--spans", str(chapter), f"{111612 - CROP - 50}:{111684 - CROP + 50}")
+    assert code == 0, err
+    assert out.startswith(f"chapter {chapter}: rows {111612 - CROP - 50}:{111684 - CROP + 50} of"), out
+    assert f"candidate {cid}: unit {unit}" in out, "the open candidate's unit in the window is named"
+    (path,) = sheets_of(out)
+    with Image.open(path) as im:
+        bar = np.asarray(im.convert("RGB"))[:, cut.RULER_W - cut.MARK_W : cut.RULER_W]
+    green = np.flatnonzero((bar == cut.GREEN).all(axis=(1, 2)))
+    assert (green.min(), green.max()) == (50, 50 + 111684 - 111612 - 1), "a green bar on exactly the unit's rows"
+    code, out, err = run("junk", "cut", "--spans", str(chapter), "0:40")
+    assert (code, "candidate " not in out) == (0, True), "a window without the unit marks nothing"
+    code, _, err = run("junk", "cut", "--spans", str(chapter), "0:6001")
+    assert (code, "at most 6000 rows" in err) == (2, True), err
 
 
 @budget(load="db", seconds=60)
