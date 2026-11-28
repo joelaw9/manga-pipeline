@@ -1,7 +1,6 @@
 """What a removed strip range looks like on a sheet (SPEC "Junk decisions": decision commands, candidates).
 
-Its rows washed toward grey, and a grey bar and label beside them: drawn on `junk cut`'s span sheets and on a strip
-candidate's context image.
+Its rows washed toward grey, and a grey bar and label beside them.
 """
 
 import math

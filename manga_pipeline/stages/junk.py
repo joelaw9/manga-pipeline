@@ -23,7 +23,7 @@ import json
 import logging
 import math
 import shutil
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -418,6 +418,7 @@ def _finished(
 MIXED_NOTE = "rest of card mixed:"  # a chapter note's start: its bundle's members' decisions differ
 BAR_W, BAR_LANE = 6, 14  # px: the red bar beside a strip unit's rows in its context image, and its lane
 BOX_W = 4  # px: the red box round a page unit (its page, or a band) in its context image
+PAGE_CONTEXT_H, PAGE_GAP = 800, 8  # px: a page unit's context pages' height (at most) and the gap between them
 
 
 def rest_note(members: Sequence[strip_units.RestPiece]) -> str | None:
@@ -727,8 +728,8 @@ class Drawn(NamedTuple):
 
 def draw_candidates(
     picks: Sequence[candidates.Candidate], pages: Pages, removed: Sequence[plan.RemovedRange]
-) -> list[Drawn]:
-    """Draw the images of new candidates (SPEC "Junk decisions", candidates).
+) -> Iterator[Drawn]:
+    """Draw the images of new candidates, 1 at a time (SPEC "Junk decisions", candidates).
 
     From the decide's pages (extracted once per decide; the decide removes them). A strip unit is rendered over the
     download's content pages (strip.content_indexes of its page names), as the scan laid them; removed: the strip
@@ -736,7 +737,6 @@ def draw_candidates(
     """
     paths, names, sizes = pages.files()
     content = strip.content_indexes(names)
-    out: list[Drawn] = []
     for p in picks:
         unit = p["unit"]
         near: list[candidates.Removed] = []
@@ -754,11 +754,10 @@ def draw_candidates(
             position = {"page": unit["page"]}
             if "box" in unit:
                 position |= {"where": unit["where"], "box": unit["box"]}
-        out.append(Drawn(p, unit_im, context_im, position, near))
-    return out
+        yield Drawn(p, unit_im, context_im, position, near)
 
 
-def write_images(ctx: workflow.Context, chapter: db.Row, key: str, drawn: Sequence[Drawn]) -> None:
+def write_images(ctx: workflow.Context, chapter: db.Row, key: str, drawn: Iterable[Drawn]) -> None:
     """Write new candidates' folders from their drawn images (SPEC "Junk decisions", candidates).
 
     info.json records where the unit sits, the removed ranges its context shows and the decisions its reason cites.
@@ -849,14 +848,19 @@ def _px(size: float) -> int:
 def _page_images(
     paths: Sequence[Path], u: page_units.PageUnit | page_units.BandUnit
 ) -> tuple[Image.Image, Image.Image]:
-    """Return a page unit's image (its page, or a band's crop) and its page among its neighbours, the unit boxed red."""
+    """Return a page unit's image (its page, or a band's crop) and its page among its neighbours, the unit boxed red.
+
+    The neighbours are drawn PAGE_CONTEXT_H high, lower when that is wider than candidates.UNIT_WIDTH, so the context is
+    never scaled after the box is drawn.
+    """
     i = u["page"]
     page = images.open_flat(paths[i])[0].convert("RGB")
     unit_im = page.crop(_box(u["box"])) if "box" in u else page  # a band's crop
     near = [(j, images.open_flat(paths[j])[0].convert("RGB")) for j in (i - 1, i, i + 1) if 0 <= j < len(paths)]
-    h = 800
-    near = [(j, im.resize((max(1, round(im.width * h / im.height)), h))) for j, im in near]
-    context = Image.new("RGB", (sum(im.width for _, im in near) + 8 * (len(near) - 1), h), "white")
+    gaps = PAGE_GAP * (len(near) - 1)
+    h = _px(min(PAGE_CONTEXT_H, (candidates.UNIT_WIDTH - gaps) / sum(im.width / im.height for _, im in near)))
+    near = [(j, im.resize((_px(im.width * h / im.height), h))) for j, im in near]
+    context = Image.new("RGB", (sum(im.width for _, im in near) + gaps, h), "white")
     draw = ImageDraw.Draw(context)
     x = 0
     for j, im in near:
@@ -865,7 +869,7 @@ def _page_images(
             scale = h / page.height
             x0, y0, x1, y1 = [round(v * scale) for v in u["box"]] if "box" in u else [0, 0, im.width, h]
             draw.rectangle((x + x0, y0, x + max(x0, x1 - 1), max(y0, y1 - 1)), outline=sheet_draw.RED, width=BOX_W)
-        x += im.width + 8
+        x += im.width + PAGE_GAP
     return unit_im, context
 
 
