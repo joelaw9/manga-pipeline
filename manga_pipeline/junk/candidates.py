@@ -144,11 +144,16 @@ def write_seen(conn: db.Connection, rows: Iterable[SeenRow]) -> None:
     )
 
 
-def chapters_showing(conn: db.Connection, series_key: str, kind: str, key: str) -> int:
-    """How many chapter identities of the series show a unit matching (kind, key)."""
+def identities_showing(conn: db.Connection, series_key: str, kind: str, key: str) -> set[str]:
+    """Return the chapter identities of the series that show a unit matching (kind, key)."""
     parsed = store.parse_key(kind, key)
     rows = conn.execute("SELECT key, identity FROM junk_seen WHERE series_key = %s AND kind = %s", (series_key, kind))
-    return len({ident for k, ident in rows if store.matches(store.parse_key(kind, k), parsed)})
+    return {ident for k, ident in rows if store.matches(store.parse_key(kind, k), parsed)}
+
+
+def chapters_showing(conn: db.Connection, series_key: str, kind: str, key: str) -> int:
+    """How many chapter identities of the series show a unit matching (kind, key)."""
+    return len(identities_showing(conn, series_key, kind, key))
 
 
 def strip_reasons(

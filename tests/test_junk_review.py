@@ -380,11 +380,19 @@ def test_the_junk_command_prefix_is_posix_with_forward_slashes():
 
 
 @budget(load="pure")
-def test_the_prompt_is_version_8_and_names_the_3_cut_forms():
+def test_the_prompt_is_version_9_and_names_its_show_and_cut_forms():
     text = review_run.PROMPT.read_text(encoding="utf-8")
-    assert "prompt version 8" in text, "the version the cut text came in"
-    for form in ("{prefix} cut --spans ID", "{prefix} cut CHAPTER:START:END[:keep]", "--record DIGEST"):
-        assert form in text, f"the prompt names the cut form {form!r}"
+    assert "prompt version 9" in text, "the version the show and spans window text came in"
+    forms = (
+        "{prefix} show ID [ID ...]",
+        "{prefix} cut --spans ID",
+        "{prefix} cut --spans CHAPTER A:B",
+        "{prefix} cut --spans CHAPTER head|tail",
+        "{prefix} cut CHAPTER:START:END[:keep]",
+        "--record DIGEST",
+    )
+    for form in forms:
+        assert form in text, f"the prompt names the form {form!r}"
 
 
 @pytest.fixture

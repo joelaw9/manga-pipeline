@@ -48,7 +48,7 @@ from manga_pipeline import (
 )
 from manga_pipeline.clients import kavita, suwayomi
 from manga_pipeline.db import sql
-from manga_pipeline.junk import backup, candidates, cut, groups, redecide, review, review_run, store, where
+from manga_pipeline.junk import backup, candidates, cut, groups, redecide, review, review_run, show, store, where
 from manga_pipeline.metadata import audit, human, importer, naming, sources
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
@@ -510,7 +510,7 @@ def junk_list(cfg: config.Config, args: argparse.Namespace) -> None:
 
 
 def junk_show(cfg: config.Config, args: argparse.Namespace) -> None:
-    """Print open junk candidates' reason, chapters, OCR text and image paths (`junk show`), all or none."""
+    """Print open junk candidates as junk/show.py words them (`junk show`), all or none."""
     review_id = os.environ.get(review.REVIEW_ID_VARIABLE)
     with _junk_db(cfg) as conn:
         try:
@@ -518,14 +518,7 @@ def junk_show(cfg: config.Config, args: argparse.Namespace) -> None:
         except review.Refused as e:
             raise workflow.Refused(str(e)) from None
         for row in rows:
-            folder = _folder(cfg, row)
-            info = candidates.read_info(folder)
-            print(f"candidate {row['id']}: {row['kind']} of series {row['series_key']}")
-            print(f"why: {row['reason']}")
-            print(f"chapters: {review.chapters(conn, row['id'])}")
-            print(f"text: {info['text'] or '-'}")
-            print(f"unit: {folder / 'unit.png'}")
-            print(f"context: {folder / 'context.png'}")
+            print("\n".join(show.lines(cfg, conn, row)))
 
 
 def junk_decide(cfg: config.Config, args: argparse.Namespace) -> None:
@@ -982,7 +975,10 @@ def _junk_commands(command: argparse.ArgumentParser) -> None:
     cut_ = junk.add_parser("cut", help="span sheets, and cut or card-side proposals and their record")
     cut_.add_argument("ranges", nargs="*", metavar="CHAPTER:START:END[:keep]", help="strip rows of a chapter to cut")
     cut_.add_argument(
-        "--spans", nargs="+", metavar="ARG", help="ID (an open block or probe candidate) or CHAPTER head|tail: sheets"
+        "--spans",
+        nargs="+",
+        metavar="ARG",
+        help="ID (an open block or probe candidate), CHAPTER head|tail or CHAPTER A:B: sheets",
     )
     cut_.add_argument("--edge", nargs=2, metavar=("ID", "SIDE"), help="a card side above|below on a candidate")
     cut_.add_argument("--credit", action="store_true", help="the cut's tail ranges are tail bands")
