@@ -9,11 +9,12 @@ than 2 SHOWN items is cut to its first and last SHOWN, with its total.
 from collections.abc import Sequence
 
 from manga_pipeline import config, db, images, strip
-from manga_pipeline.junk import candidates, strip_units
+from manga_pipeline.db import sql
+from manga_pipeline.junk import candidates, chapter_scan, strip_units
 from manga_pipeline.stages import junk as junk_stage
 
 SHOWN = 5  # a list's first and last items shown
-SEEN_KINDS = ("block", "page", "frame", "band")  # the kinds junk_seen records (chapter_scan.seen_units)
+STRIP_KINDS = ("block", "probe", "piece")  # the kinds shown with their rows in each waiting chapter
 
 
 def lines(cfg: config.Config, conn: db.Connection, row: db.Row) -> list[str]:
@@ -53,47 +54,58 @@ def position_line(info: candidates.CandidateInfo) -> str:
 
 
 def removed_lines(info: candidates.CandidateInfo) -> list[str]:
-    """Return the removed ranges its context shows, each with its decision or its rule."""
-    return [
-        f"removed {r['start']}:{r['end']} " + (f"decision {r['decision']}" if "decision" in r else r["why"])
-        for r in info.get("removed", [])
-    ]
+    """Return the removed ranges its context shows, labelled as its context labels them."""
+    return [junk_stage.removed_label(r) for r in info.get("removed", [])]
 
 
 def cited_lines(cfg: config.Config, conn: db.Connection, info: candidates.CandidateInfo) -> list[str]:
-    """Each decision its reason cites: id, series, verdict, decider and its kept images (or why there are none)."""
+    """Return each decision its reason cites: id, series, verdict, decider, kept images, and whether it still stands.
+
+    A decision is never deleted (a retired or superseded one keeps its row), so each cited id has its row.
+    """
     out: list[str] = []
     for decision in info.get("cited", []):
-        d = conn.execute(
-            "SELECT id, series_key, verdict, decider, images FROM junk_decision WHERE id = %s", (decision,)
-        ).fetchone()
-        if d is None:
-            out.append(f"cited decision {decision}: gone")
-            continue
+        d = db.one_row(
+            conn,
+            """SELECT id, series_key, verdict, decider, images, retired_by, superseded_by
+            FROM junk_decision WHERE id = %s""",
+            (decision,),
+        )
         scope = d["series_key"] or "global"
         kept = candidates.kept_images(cfg, d["images"])
-        out.append(f"cited decision {d['id']} ({scope}): {d['verdict']} by {d['decider']}; images: {kept}")
+        status = (
+            f"retired by act {d['retired_by']}; "
+            if d["retired_by"] is not None
+            else f"superseded by decision {d['superseded_by']}; "
+            if d["superseded_by"] is not None
+            else ""
+        )
+        out.append(f"cited decision {d['id']} ({scope}): {d['verdict']} by {d['decider']}; {status}images: {kept}")
     return out
 
 
 def waiting_line(conn: db.Connection, row: db.Row) -> str:
-    """Return the chapters waiting on the candidate by id, with the rows of its matching units (strip units only)."""
-    scans = conn.execute(
-        "SELECT chapter_id, scan FROM junk_scan WHERE candidates::jsonb @> to_jsonb(%s::bigint) ORDER BY chapter_id",
-        (row["id"],),
-    ).fetchall()
-    items = [_waiting_item(int(s["chapter_id"]), s["scan"], row["kind"], row["key"]) for s in scans]
-    return f"waiting chapters {len(items)}: {_bounded(items)}"
+    """Return the chapters waiting on the candidate (candidates.WAITING_SCANS) by id.
 
-
-def _waiting_item(chapter: int, scan_text: str, kind: str, key: str) -> str:
-    sc = junk_stage.read_scan(scan_text)
-    if sc["layout"] != "strip" or kind not in ("block", "probe", "piece"):
-        return str(chapter)
-    rows = (
-        piece_units(sc, key) if kind == "piece" else strip_units.matching_units(sc, key)
-    )  # a piece cut inside a block at decide time is in no scan: listed without rows
-    return f"{chapter}" + (" rows " + ",".join(f"{a}:{b}" for a, b in rows) if rows else "")
+    For a strip block, probe or piece, each shown chapter with the rows of its units matching the candidate; only the
+    shown chapters' scans are read.
+    """
+    query = sql.SQL("SELECT js.chapter_id FROM {} AND js.candidates::jsonb @> to_jsonb(%s::bigint) ORDER BY 1")
+    ids = [int(r[0]) for r in conn.execute(query.format(candidates.WAITING_SCANS), (row["id"],))]
+    listed = shown(ids)
+    rows: dict[int, list[strip.Rows]] = {}
+    if row["kind"] in STRIP_KINDS:
+        for r in conn.execute("SELECT chapter_id, scan FROM junk_scan WHERE chapter_id = ANY(%s)", (listed,)):
+            sc = junk_stage.read_scan(r["scan"])
+            if sc["layout"] == "strip":  # a piece cut inside a block at decide time is in no scan: no rows
+                found = (
+                    piece_units(sc, row["key"])
+                    if row["kind"] == "piece"
+                    else strip_units.matching_units(sc, row["key"])
+                )
+                rows[int(r["chapter_id"])] = found
+    items = [f"{c}" + (" rows " + ",".join(f"{a}:{b}" for a, b in rows[c]) if rows.get(c) else "") for c in listed]
+    return f"waiting chapters {len(ids)}: {joined(items, len(ids))}"
 
 
 def piece_units(sc: strip_units.StripScan, key: str) -> list[strip.Rows]:
@@ -109,28 +121,33 @@ def piece_units(sc: strip_units.StripScan, key: str) -> list[strip.Rows]:
 
 def seen_line(conn: db.Connection, row: db.Row) -> str:
     """Return how many chapters of the series showed a matching unit, with their ids; a kind junk_seen records."""
-    if row["kind"] not in SEEN_KINDS:
+    if row["kind"] not in chapter_scan.SEEN_KINDS:
         return f"seen: not recorded for a {row['kind']}"
     identities = candidates.identities_showing(conn, row["series_key"], row["kind"], row["key"])
     held = dict(
         conn.execute(
             """SELECT ch.identity, max(ch.id) FROM chapter ch JOIN series s ON s.id = ch.series_id
             WHERE s.rules_key = %s AND ch.identity = ANY(%s) AND ch.download_path IS NOT NULL
-            GROUP BY ch.identity""",
+            AND ch.content_digest IS NOT NULL GROUP BY ch.identity""",
             (row["series_key"], sorted(identities)),
         ).fetchall()
     )
     ids = sorted(int(held[i]) for i in identities if i in held)
     none = len(identities) - len(ids)
-    return f"seen in {len(identities)} chapters: {_bounded([str(i) for i in ids])}" + (
+    return f"seen in {len(identities)} chapters: {joined([str(i) for i in shown(ids)], len(ids))}" + (
         f"; {none} with no chapter" if none else ""
     )
 
 
-def _bounded(items: Sequence[str]) -> str:
-    """Return items joined, cut to the first and last SHOWN with how many are left out between."""
+def shown(items: Sequence[int]) -> list[int]:
+    """Return the items a list shows: all of them, or its first and last SHOWN when it has more than 2 SHOWN."""
+    return list(items) if len(items) <= 2 * SHOWN else [*items[:SHOWN], *items[-SHOWN:]]
+
+
+def joined(items: Sequence[str], total: int) -> str:
+    """Return a list's shown items (shown) joined, how many of its `total` are left out between its first and last."""
     if not items:
         return "none"
-    if len(items) <= 2 * SHOWN:
+    if total == len(items):
         return ", ".join(items)
-    return ", ".join([*items[:SHOWN], f"... {len(items) - 2 * SHOWN} more ...", *items[-SHOWN:]])
+    return ", ".join([*items[:SHOWN], f"... {total - len(items)} more ...", *items[SHOWN:]])

@@ -845,6 +845,11 @@ def test_spans_of_a_window_mark_each_open_candidates_unit_and_refuse_over_6000_r
     assert (code, "candidate " not in out) == (0, True), "a window without the unit marks nothing"
     code, _, err = run("junk", "cut", "--spans", str(chapter), "0:6001")
     assert (code, "at most 6000 rows" in err) == (2, True), err
+    height = int(out.splitlines()[0].rsplit(" ", 1)[1])
+    code, out, err = run("junk", "cut", "--spans", str(chapter), f"{height - 10}:{height + 50}")
+    assert (code, out.splitlines()[0]) == (0, f"chapter {chapter}: rows {height - 10}:{height} of {height}"), err
+    code, _, err = run("junk", "cut", "--spans", str(chapter), f"{height + 1}:{height + 50}")
+    assert (code, "past its strip's end" in err) == (2, True), err
 
 
 @budget(load="db", seconds=60)

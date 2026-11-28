@@ -1083,14 +1083,20 @@ def _drawn_sheets(s: Strip, window: strip.Rows, decided: Decided) -> list[SpanSh
 
 
 def _marked(sheets: Sequence[SpanSheet], marks: Sequence[UnitMark]) -> None:
-    """Mark each unit of `marks` on the sheets showing it: a green bar in the ruler, its candidate id beside it."""
+    """Mark each unit of `marks` on the sheets showing it: a green bar in the ruler, its candidate id beside it.
+
+    An id starts below the one before it (marks in row order), so the ids of units starting near each other do not
+    overlap.
+    """
     font = sheet_draw.font()
     for sh in sheets:
         draw = ImageDraw.Draw(sh.image)
-        for a, b, candidate in (m for m in marks if sh.page.shows((m[0], m[1]))):
+        below = 0
+        for a, b, candidate in sorted(m for m in marks if sh.page.shows((m[0], m[1]))):
             top = sh.page.y(max(a, sh.page.a))
             draw.rectangle((RULER_W - MARK_W, top, RULER_W - 1, max(top, sh.page.bottom(b))), fill=GREEN)
-            at = (2, min(top, sh.page.last_text()))
+            at = (2, min(max(top, below), sh.page.last_text()))
+            below = at[1] + FONT_PX + 2
             draw.rectangle(draw.textbbox(at, f"#{candidate}", font=font), fill="white")
             draw.text(at, f"#{candidate}", fill=GREEN, font=font)
 
@@ -1118,7 +1124,7 @@ def _in_window(seeds: Sequence[an.Seed], window: strip.Rows) -> list[an.Seed]:
 
 
 def spans(cfg: config.Config, values: Sequence[str], review_id: str | None) -> list[str]:
-    """`junk cut --spans ID` or `--spans CHAPTER head|tail`: draw span sheets; return the lines to print."""
+    """`junk cut --spans ID`, `--spans CHAPTER head|tail` or `--spans CHAPTER A:B`: draw span sheets; return lines."""
     with _workspace(cfg) as work:
         if len(values) == 1 and values[0].isdecimal():
             return _candidate_spans(cfg, int(values[0]), review_id, work)

@@ -580,6 +580,44 @@ def test_show_lists_a_blocks_waiting_chapters_with_rows_its_sightings_and_its_ci
     assert f"seen in 3 chapters: {first}, {second}; 1 with no chapter" in out, out
     assert "cited decision 777777 (Long): junk by import; images: no images kept" in out, out
     assert f"position: chapter {first} tail rows 3100:3500 of 3600" in out, out
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):  # a newer import supersedes it; 1 chapter drops
+        conn.execute(
+            """INSERT INTO junk_decision (id, series_key, kind, key, verdict, decider, decided_at)
+            VALUES (777778, 'Long', 'block', %s, 'keep', 'import', '2026-11-02T00:00:00+00:00')""",
+            ("1" * 16 + "|9.0",),
+        )
+        conn.execute("UPDATE junk_decision SET superseded_by = 777778 WHERE id = 777777")
+        conn.execute("UPDATE chapter SET status = 'done', waiting_on = NULL, wait_data = NULL WHERE id = %s", (first,))
+    out = show(site, tmp_path, capsys, credit["id"])
+    assert "superseded by decision 777778; images:" in out, "a cited decision no longer standing says so"
+    assert f"waiting chapters 1: {second} rows 3100:3500\n" in out, "a done chapter waits no more"
+
+
+@budget()
+def test_show_lists_cut_a_long_list_to_its_first_and_last_5():
+    ids = list(range(1, 13))
+    assert show_module.shown(ids) == [1, 2, 3, 4, 5, 8, 9, 10, 11, 12], "the first and last 5 of 12"
+    assert show_module.joined([str(i) for i in show_module.shown(ids)], 12) == (
+        "1, 2, 3, 4, 5, ... 2 more ..., 8, 9, 10, 11, 12"
+    ), "how many are left out, between"
+    assert show_module.joined(["1", "2"], 2) == "1, 2", "a short list whole"
+    assert show_module.joined([], 0) == "none"
+
+
+@budget()
+def test_show_labels_removed_ranges_as_the_context_does_and_finds_a_pieces_rows():
+    info: candidates.CandidateInfo = {
+        "series": "S",
+        "kind": "piece",
+        "reason": "r",
+        "text": "",
+        "chapters": 1,
+        "removed": [{"start": 0, "end": 9, "why": "match", "decision": 4}, {"start": 9, "end": 20, "why": "join"}],
+    }
+    assert show_module.removed_lines(info) == ["removed 0:9 decision 4", "removed 9:20 join"]
+    sig = "0123456789abcdef|0.5"
+    sc = json.loads(json.dumps({"measured": {"40:60": {"sig": sig}, "70:90": {"sig": None}, "10:30": {"sig": sig}}}))
+    assert show_module.piece_units(sc, sig) == [(10, 30), (40, 60)], "the measured pieces of its signature, sorted"
 
 
 WAITING = "SELECT chapter_id FROM junk_scan WHERE candidates::jsonb @> to_jsonb(%s::bigint)"
