@@ -17,7 +17,7 @@ Suwayomi to Kavita manga pipeline: junk removal, metadata, bad-download repair, 
 
 ## Parts
 
-3 commands (`intake`, `process`, `export`) share the work by chapter stage; the database is the only hand-off, and each runs from its own 10-minute timer; `process` runs on several machines, never 2 in 1 series at once; work that replaces an adopted file is picked after every other chapter. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#parts)
+3 commands (`intake`, `process`, `export`) share the work by chapter stage; the database is the only hand-off, and each runs from its own 10-minute timer; `process` runs on several machines, never 2 in 1 series at once; work that replaces an adopted file, or rebuilds a file from its original, is picked after every other chapter. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#parts)
 
 ## State
 

@@ -53,11 +53,20 @@ SCANNED = sql.SQL("""EXISTS (SELECT 1 FROM junk_scan js CROSS JOIN LATERAL (SELE
     JOIN series_conversion sc ON sc.series_id = js.series_id
     WHERE js.chapter_id = {c}.id AND js.series_id = {c}.series_id AND js.content_digest = {c}.content_digest
     AND jsonb_typeof(j.doc -> 'marks') = 'array' AND j.doc ->> 'layout' = sc.layout)""")
-# A chapter {c} that replaces an adopted file (SPEC "State"): it names a published file of origin library, as its
-# conversion or a better copy that took it. Picked after every other chapter; it holds back only other such chapters in
-# the claim gates. Fill {c} with sql.Identifier(alias).
-REPLACES_ADOPTED = sql.SQL("""EXISTS (SELECT 1 FROM published_file adopted_file
-    WHERE adopted_file.id = {c}.published_file_id AND adopted_file.origin = 'library')""")
+# Below paths.staging: the folders of the links that are conversions' and rebuilds' downloads (SPEC "State").
+LINK_FOLDER = "adopted"
+# A chapter {c} whose download is such a link (stored paths are fixed text: "staging/<folder>/..."); a chapter with no
+# download (a rewrite, a join) is not one: false, never null.
+_LINKED = f"starts_with(coalesce({{c}}.download_path, ''), 'staging/{LINK_FOLDER}/')"
+_ADOPTED_FILE = """EXISTS (SELECT 1 FROM published_file adopted_file
+    WHERE adopted_file.id = {c}.published_file_id AND adopted_file.origin = 'library')"""
+# A chapter {c} that replaces an adopted file, or a rebuild (SPEC "State"): it names a published file of origin
+# library (its conversion, or a better copy that took it), or its download is a link of its file (a rebuild). Picked
+# after every other chapter; it holds back only other such chapters in the claim gates. Fill {c} with
+# sql.Identifier(alias).
+REPLACES_ADOPTED = sql.SQL(f"({_ADOPTED_FILE} OR {_LINKED})")
+# A rebuild {c} (SPEC "Retroactive updates"): its download is a link of a file not of origin library.
+REBUILD = sql.SQL(f"({_LINKED} AND NOT {_ADOPTED_FILE})")
 # A chapter {c} that failed less than RETRY_PAUSE ago is claimed by no machine (SPEC "Chapter stages"). Fill {c} with
 # sql.Identifier(alias).
 RETRY_PAUSE = timedelta(minutes=5)

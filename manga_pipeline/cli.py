@@ -21,6 +21,7 @@ from pathlib import Path
 from manga_pipeline import (
     archive,
     config,
+    conversions,
     db,
     errors,
     export,
@@ -114,6 +115,8 @@ RENAME_CHECKS = (*RESET_CHECKS, *NAMES_CHECKS)
 # source survey, measure and search read the clients and scope; survey and measure read library files.
 SOURCE_READ_CHECKS = SMOKE_CHECKS
 SOURCE_MEASURE_CHECKS = (*SMOKE_CHECKS, preflight.SHARE_FOLDERS_PRESENT)
+# rewrite rebuild reads originals in retention and queues work that keeps the replaced files there.
+REBUILD_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SHARE_FOLDERS_PRESENT, preflight.SHARE_SPACE)
 # source sample reads library files and runs the junk stage's scan and OCR in the scratch folder.
 SAMPLE_CHECKS = (
     *LOCKED_CHECKS,
@@ -374,6 +377,21 @@ def rewrite_drop(cfg: config.Config, args: argparse.Namespace) -> None:
     if row["pending_staged"]:
         config.to_local(cfg, row["pending_staged"]).unlink(missing_ok=True)
     log.info("published file %s: rewrite dropped", args.file_id)
+
+
+def rewrite_rebuild(cfg: config.Config, args: argparse.Namespace) -> None:
+    """Give each named file a rebuild from its original (`rewrite rebuild`); print what was queued and each file not.
+
+    conversions.NotQueuedError (exit 1) when a file is listed.
+    """
+    with _database(cfg, "rebuild files in") as conn:
+        queued, listed = conversions.rebuild(cfg, conn, args.file_ids)
+    print(f"rebuilds queued {queued}, listed {len(listed)}")
+    for line in listed:
+        print(line)
+    if listed:
+        msg = f"{len(listed)} file(s) not queued"
+        raise conversions.NotQueuedError(msg)
 
 
 def rewrite_retry(cfg: config.Config, args: argparse.Namespace) -> None:
@@ -749,6 +767,7 @@ COMMANDS = {
     "naming diff": Command((), None, None, (), _unlocked(naming_diff)),
     "rewrite drop": Command((), None, None, (), _unlocked(rewrite_drop)),
     "rewrite retry": Command((), None, None, (), _unlocked(rewrite_retry)),
+    "rewrite rebuild": Command((), None, None, REBUILD_CHECKS, _unlocked(rewrite_rebuild)),
     "metadata import": Command(("intake",), S, None, IMPORT_CHECKS, metadata_import),
     "metadata audit": Command((), None, None, LINK_CHECKS, _unlocked(metadata_audit)),
     "junk list": Command((), None, None, (), _unlocked(junk_list)),
@@ -896,6 +915,9 @@ def _rewrite_commands(command: argparse.ArgumentParser) -> None:
     retry_rewrite = rewrites.add_parser("retry", help="try a failed rewrite again from its next step")
     retry_rewrite.add_argument("file_id", type=int, help="published file id")
     retry_rewrite.set_defaults(command="rewrite retry")
+    rebuild = rewrites.add_parser("rebuild", help="rebuild pipeline files from their originals in retention")
+    rebuild.add_argument("file_ids", type=int, nargs="+", metavar="FILE_ID", help="published file ids")
+    rebuild.set_defaults(command="rewrite rebuild")
 
 
 def _metadata_commands(command: argparse.ArgumentParser) -> None:
@@ -1137,7 +1159,7 @@ def _run(
         return 4
     except config.ConfigError as e:  # a database setting, checked where the database is opened
         p.error(str(e))
-    except (smoke.SmokeError, review_run.ReviewError, rename.RenameError) as e:
+    except (smoke.SmokeError, review_run.ReviewError, rename.RenameError, conversions.NotQueuedError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     except Exception:
