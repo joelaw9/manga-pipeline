@@ -497,6 +497,12 @@ def test_a_conversion_replaces_its_file_end_to_end_with_origin_pipeline_and_its_
     assert library.read_bytes() != data, "the library file is replaced"
     retained = list((config.abs_path(world.cfg["paths"]["retention"]) / "library-files").rglob("Ch.1.cbz"))
     assert [archive.pages_digest(p) for p in retained] == [original], "the old bytes kept the retention way"
+    ((values, previous),) = world.rows("SELECT previous_values, previous FROM published_file")
+    assert (values["previous"], values["before"]["origin"], values["after"]["joined_parts"]) == (
+        previous,
+        "library",
+        None,
+    ), "the replaced version's row is recorded with its previous version"
     assert converting(world) == [("Ch.1.cbz", "publish", "done")]
     world.run(intake)
     assert not list((config.abs_path(world.cfg["paths"]["staging"]) / "adopted").iterdir()), "the link is gone"

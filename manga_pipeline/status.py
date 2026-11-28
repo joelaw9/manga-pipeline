@@ -191,9 +191,13 @@ def _conversions(conn: db.Connection) -> list[str]:
     """Count the adopted files not converted, the conversions and the rebuilds open; list each adopted file left as is.
 
     Left as it is: not busy, and named only by done chapters (SPEC "State"). Why: its last chapter's drop reason, or
-    "replacement given up" for one done at publish without a drop.
+    "replacement given up" for one done at publish without a drop. A restored adopted file (`rewrite restore`; only a
+    restore sets an adopted file's previous version) is counted on 1 line instead.
     """
     adopted = db.one_row(conn, "SELECT count(*) FROM published_file WHERE origin = 'library'")[0]
+    restored = db.one_row(
+        conn, "SELECT count(*) FROM published_file WHERE origin = 'library' AND previous IS NOT NULL"
+    )[0]
     rebuild = workflow.REBUILD.format(c=sql.Identifier("chapter"))
     counts = db.one_row(
         conn,
@@ -208,7 +212,7 @@ def _conversions(conn: db.Connection) -> list[str]:
         sql.SQL("""SELECT p.id, p.library_path, c.id AS chapter_id, c.stage, c.last_error FROM published_file p
         JOIN (SELECT DISTINCT ON (published_file_id) * FROM chapter WHERE published_file_id IS NOT NULL
             ORDER BY published_file_id, id DESC) c ON c.published_file_id = p.id
-        WHERE p.origin = 'library' AND NOT {busy} ORDER BY p.id""").format(
+        WHERE p.origin = 'library' AND p.previous IS NULL AND NOT {busy} ORDER BY p.id""").format(
             busy=rewrite.BUSY.format(p=sql.Identifier("p"))
         )
     ).fetchall()
@@ -218,6 +222,8 @@ def _conversions(conn: db.Connection) -> list[str]:
     if counts["rebuilds"]:
         rebuilds, at_junk, held = counts["rebuilds"], counts["at_junk"], counts["held"]
         lines.append(f"  {rebuilds} rebuild(s) open ({at_junk} waiting at junk, {held} needs_human)")
+    if restored:
+        lines.append(f"  {restored} restored adopted file(s), not converted again until a person acts")
     for r in rows:
         dropped = (r["last_error"] or "").startswith("dropped")
         why = "replacement given up" if r["stage"] == "publish" and not dropped else r["last_error"]
