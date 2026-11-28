@@ -270,7 +270,8 @@ def test_a_kept_scan_missing_a_field_exits_1_naming_the_file(site, tmp_path, cap
     assert code == 1, "a kept scan the decide cannot read stops the command"
     err = capsys.readouterr().err
     assert f"error: file {file}: its kept scan cannot be decided" in err, "cli's handled path prints the 1 error line"
-    assert "Traceback" not in err, "a handled LateError, not an unexpected error logged with its traceback"
+    # not "Traceback": a logging handler an earlier test in this worker left on a closed stream prints one of its own
+    assert "LateError" not in err, "a handled LateError, not an unexpected error logged with its traceback"
 
 
 @budget(load="db", seconds=60)
