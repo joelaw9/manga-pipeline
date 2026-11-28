@@ -2,6 +2,8 @@
 
 Each KEY=VALUE names a key of config.yaml.example by its dotted path (export.rewrites_open) and gives its value as YAML
 text for 1 value, written into the file as given. Only that value's text changes: comments, order and formatting stay.
+A block list's text, from the key's `:` to its last item, is replaced whole, so the new value sits on the key's line
+(a comment on that line stays, after the value; comments between the items go with them).
 A key missing from the file is added as a new line at the end of its section, which must exist as a block mapping;
 no section is ever created, and a key whose value in the file is a mapping or a block scalar is refused.
 
@@ -36,6 +38,7 @@ import yaml
 from manga_pipeline import config
 
 BLOCK_SCALAR = frozenset({"|", ">"})
+LINE_BREAKS = "\r\n\x85\u2028\u2029"  # YAML's line breaks, as PyYAML reads them
 
 
 class RefusedError(Exception):
@@ -70,12 +73,18 @@ def parse(n: int, item: str) -> tuple[str, list[str], str]:
     return key, parts, value
 
 
-def _child(node: yaml.Node, part: str) -> yaml.Node | None:
-    """Return the value node of a mapping node's key part, None when the node is no mapping or lacks the key."""
+def _pair(node: yaml.Node | None, part: str) -> tuple[yaml.Node, yaml.Node] | None:
+    """Return the (key, value) nodes of a mapping node's key part, None when the node is no mapping or lacks the key."""
     if not isinstance(node, yaml.MappingNode):
         return None
     pairs: list[tuple[yaml.Node, yaml.Node]] = node.value
-    return next((v for k, v in pairs if isinstance(k, yaml.ScalarNode) and k.value == part), None)
+    return next(((k, v) for k, v in pairs if isinstance(k, yaml.ScalarNode) and k.value == part), None)
+
+
+def _child(node: yaml.Node, part: str) -> yaml.Node | None:
+    """Return the value node of a mapping node's key part, None when the node is no mapping or lacks the key."""
+    pair = _pair(node, part)
+    return None if pair is None else pair[1]
 
 
 def _walk(root: yaml.Node, parts: list[str]) -> yaml.Node | None:
@@ -99,6 +108,22 @@ def _last(node: yaml.Node) -> yaml.Node:
     return node
 
 
+def _line_end(text: str, i: int) -> int:
+    """Return the index of the first YAML line break at or after i, or the text's length."""
+    return next((n for n in range(i, len(text)) if text[n] in LINE_BREAKS), len(text))
+
+
+def _value_indicator_end(text: str, key_node: yaml.Node) -> int:
+    """Return the index right after the `:` that follows a mapping key.
+
+    Only blanks, line breaks and comments (`? key  # a: b`) lie between a key and its `:`.
+    """
+    i: int = key_node.end_mark.index
+    while text[i] != ":":
+        i = _line_end(text, i) if text[i] == "#" else i + 1
+    return i + 1
+
+
 def _block_scalar(node: yaml.Node) -> bool:
     return isinstance(node, yaml.ScalarNode) and node.style in BLOCK_SCALAR
 
@@ -116,25 +141,37 @@ def compose(text: str, where: str) -> yaml.Node:
     return root
 
 
-def edit(text: str, key: str, parts: list[str], value: str) -> tuple[str, str]:
-    """Return (the text with the key set to the value text, "set" / "added" / "unchanged")."""
-    root = compose(text, "the config file")
-    target = _walk(root, parts)
+def _replace(text: str, key: str, pair: tuple[yaml.Node, yaml.Node], value: str) -> tuple[str, str]:
+    """Return (the text with the key's value replaced by the value text, "set" / "unchanged")."""
+    key_node, target = pair
     if isinstance(target, yaml.MappingNode):
         msg = f"{key}: a mapping in the file, not a value"
         raise RefusedError(msg)
-    if target is not None:
-        last = _last(target)
-        if _block_scalar(last):
-            msg = f"{key}: a block scalar in the file; edit it by hand"
-            raise RefusedError(msg)
-        start, end = target.start_mark.index, last.end_mark.index
-        if start == end:  # an empty value (null): `key:` or `key:   # comment`
-            return f"{text[:start]} {value}{text[end:]}", "set"
-        if text[start:end] == value:
-            return text, "unchanged"
-        return text[:start] + value + text[end:], "set"
+    last = _last(target)
+    if _block_scalar(last):
+        msg = f"{key}: a block scalar in the file; edit it by hand"
+        raise RefusedError(msg)
+    start, end = target.start_mark.index, last.end_mark.index
+    if isinstance(target, yaml.SequenceNode) and not target.flow_style:
+        # its items may sit on later lines at the key's indent: the value goes right after the key's `:`
+        colon = _value_indicator_end(text, key_node)
+        rest = text[colon : _line_end(text, colon)]
+        comment = rest if rest.lstrip().startswith("#") else ""  # a comment on the key's line stays, after the value
+        return f"{text[:colon]} {value}{comment}{text[end:]}", "set"
+    if start == end:  # an empty value (null): `key:` or `key:   # comment`
+        return f"{text[:start]} {value}{text[end:]}", "set"
+    if text[start:end] == value:
+        return text, "unchanged"
+    return text[:start] + value + text[end:], "set"
+
+
+def edit(text: str, key: str, parts: list[str], value: str) -> tuple[str, str]:
+    """Return (the text with the key set to the value text, "set" / "added" / "unchanged")."""
+    root = compose(text, "the config file")
     parent = _walk(root, parts[:-1])
+    pair = _pair(parent, parts[-1])
+    if pair is not None:
+        return _replace(text, key, pair, value)
     if parent is None:
         msg = f"{key}: its section {'.'.join(parts[:-1])} is missing from the file"
         raise RefusedError(msg)

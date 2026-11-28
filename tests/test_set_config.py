@@ -66,13 +66,24 @@ def test_several_keys_are_set_in_1_run(cfg_file, capsys):
     assert capsys.readouterr().out == "set preflight.min_share_free_mb\nset export.rewrites_open\n"
 
 
+@pytest.mark.parametrize("items", ["    - A\n    - B  # b", "  - A\n  - B  # b"], ids=["indented", "indentless"])
 @budget(load="fs")
-def test_a_block_list_is_replaced_whole(cfg_file):
-    text = replace_line(cfg_file.read_text(encoding="utf-8"), "  only: []", "  only:\n    - A\n    - B  # b")
-    cfg_file.write_bytes(text.encode())
+def test_a_block_list_is_replaced_whole_after_its_keys_colon(cfg_file, items):
+    full = cfg_file.read_text(encoding="utf-8")
+    cfg_file.write_bytes(replace_line(full, "  only: []", f"  only:\n{items}").encode())
     assert run(cfg_file, "series.only=[C]") == 0
-    assert "  only:\n    [C]  # b\n" in cfg_file.read_text(encoding="utf-8"), "the items replaced, the rest kept"
+    expected = replace_line(full, "  only: []", "  only: [C]  # b")
+    assert cfg_file.read_bytes() == expected.encode(), "the value on the key's line, the items gone, the rest kept"
     assert config.load(cfg_file, env={})["series"]["only"] == ["C"], "the new list loads"
+
+
+@budget(load="fs")
+def test_a_comment_on_a_block_lists_key_line_is_kept(cfg_file):
+    full = cfg_file.read_text(encoding="utf-8")
+    cfg_file.write_bytes(replace_line(full, "  only: []", "  only:   # keep\n  - A\n  - B").encode())
+    assert run(cfg_file, "series.only=[C]") == 0
+    expected = replace_line(full, "  only: []", "  only: [C]   # keep")
+    assert cfg_file.read_bytes() == expected.encode(), "the key line's comment stays, after the new value"
 
 
 @pytest.mark.parametrize(
