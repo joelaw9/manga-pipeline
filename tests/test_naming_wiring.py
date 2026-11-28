@@ -268,3 +268,21 @@ def test_a_fractional_volume_is_only_read_against_a_file_name_volume(world, basi
     ((stage, status, error),) = world.rows("SELECT stage, status, last_error FROM chapter")
     assert (stage, status) == want[:2], f"{basis}: {stage}: {error}"
     assert want[2] in error, f"{basis}: {stage}: {error}"
+
+
+@budget(load="db", seconds=3)
+def test_a_new_untitled_chapter_takes_its_mangadex_title(world):
+    world.kavita_series("Solo Leveling")
+    manga = world.manga("Solo Leveling")
+    world.download(manga, "Chapter 3", scanlator="Grp")
+    world.run(intake)
+    with closing(db.connect(world.cfg)) as conn:
+        conn.execute(
+            "INSERT INTO fetched (series_id, source, kind, payload, payload_hash, fetched_at)"
+            " VALUES (1, 'mangadex', 'chapters', %s, 'x', '2026-11-01')",
+            (json.dumps([["3", "The Third"]]),),
+        )
+        series = db.one_row(conn, "SELECT * FROM series WHERE id = 1")
+        new = db.one_row(conn, "SELECT id FROM chapter WHERE stage <> 'confirm'")[0]
+        got = chapter_names.resolve(world.context(conn, "process"), series)
+    assert got[new].title == "The Third", "SPEC 'Publishing': an untitled chapter takes MangaDex's title"

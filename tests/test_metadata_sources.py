@@ -134,3 +134,21 @@ def test_search_mangadex_without_a_mangaupdates_id_asks_nothing():
     service = CannedService("mangadex")
     assert search.mangadex(sources.MangaDex(service), ["Yona"], {}) is None, "no MangaUpdates id, no MangaDex id"
     assert service.sent == [], "MangaDex is not searched without a MangaUpdates id to confirm a hit"
+
+
+@budget(load="pure")
+def test_mangadex_chapter_list_reads_every_page_keeps_untitled_entries_and_skips_unnumbered_ones():
+    first = [{"attributes": {"publishAt": "x", "chapter": "01", "title": "Start"}}] * 499 + [
+        {"attributes": {"publishAt": "x", "chapter": "Extra", "title": "Omake"}}
+    ]
+    second = [{"attributes": {"publishAt": "x", "chapter": "17.50", "title": None}}]
+    service = CannedService(
+        "mangadex", {f"/manga/{MD_ID}/feed?": Each([{"data": first, "total": 501}, {"data": second, "total": 501}])}
+    )
+    got = sources.MangaDex(service).chapter_list(MD_ID)
+    assert got[0] == ["1", "Start"], "the number as fmt_num gives it"
+    assert got[-1] == ["17.5", ""], "an untitled entry is kept: the parts rule counts every number"
+    assert len(got) == 500, "a chapter that is no number is left out"
+    sent = [path for _, path, _ in service.sent]
+    assert all("translatedLanguage%5B%5D=en" in p and "order%5BcreatedAt%5D=asc" in p for p in sent)
+    assert [p.rsplit("offset=", 1)[1].split("&")[0] for p in sent] == ["0", "500"]

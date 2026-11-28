@@ -264,7 +264,10 @@ def test_an_edited_volume_names_the_chapters_around_it_and_a_side_storys_title_k
     rows = [settled(1, 1, "mangadex"), new(2), new(3), new_side(1)]
     edits: dict[tuple, naming.Edit] = {naming.edit_key(names.MAIN, None, 2): naming.Edit(None, 3)}
     edits[naming.edit_key(names.SIDE, None, 1)] = naming.Edit("Beach Day", None)
-    got = {(k[2], k[1]): v for k, v in naming.resolve("mangadex", rows, None, {"3": "3"}, edits=edits).items()}
+    got = {
+        (k[2], k[1]): v
+        for k, v in naming.resolve("mangadex", rows, None, naming.MangaDex({"3": "3"}), edits=edits).items()
+    }
     assert (got[(names.MAIN, 2)].volume, got[(names.MAIN, 2)].volume_source) == (3, "edit")
     assert got[(names.MAIN, 2)].opens_covered_volume, "a hand-given volume is covered"
     assert got[(names.SIDE, 1)].volume == 4, "side stories go after the highest main volume, the edited one included"
@@ -283,7 +286,7 @@ def test_an_edit_back_to_the_sources_volume_restores_their_source():
 def test_an_open_chapter_edited_to_its_sources_volume_keeps_their_source():
     rows = [settled(1, 1, "filename"), new(2, src_volume="2")]
     edits = {naming.edit_key(names.MAIN, None, 2): naming.Edit(None, 2)}
-    (got,) = naming.resolve("filename", rows, None, {}, edits=edits).values()
+    (got,) = naming.resolve("filename", rows, None, naming.MangaDex({}), edits=edits).values()
     assert (got.volume, got.volume_source, got.opens_covered_volume) == (2, "filename", False)
 
 
@@ -360,7 +363,10 @@ def test_a_disorder_the_series_already_has_does_not_block_an_edit_and_naming_dif
 def test_an_open_chapters_edited_volume_names_the_open_chapters_after_it():
     rows = [settled(1, 1, "season markers"), settled(2, 1, "season markers"), new(3), new(4), new(5)]
     edits = {naming.edit_key(names.MAIN, None, 3): naming.Edit(None, 2)}
-    got = {k[1]: v.volume for k, v in naming.resolve("season markers", rows, None, {}, edits=edits).items()}
+    got = {
+        k[1]: v.volume
+        for k, v in naming.resolve("season markers", rows, None, naming.MangaDex({}), edits=edits).items()
+    }
     assert got == {3: 2, 4: 2, 5: 2}, (
         "the edited chapter 3 ends volume 1 at chapter 2 as a recorded season volume: the chapters after it follow"
     )

@@ -339,7 +339,7 @@ def cover_changes(rows, moved, **kw):
     Its files moved as _plan moves them.
     """
     now = rewrite_plan.moved_rows(rows, moved)
-    return rewrite_plan.cover_changes(now, naming.covered_volumes("override", now, {}, {}), **kw)
+    return rewrite_plan.cover_changes(now, naming.covered_volumes("override", now, {}, naming.MangaDex({})), **kw)
 
 
 @budget(load="pure", seconds=1)

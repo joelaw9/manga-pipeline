@@ -201,7 +201,7 @@ def test_a_side_story_title_does_not_depend_on_the_order_chapters_are_named_in()
         )
 
     rows = [row(0, 1.0, "Side Story 1: First", settled=True), row(1, 2.0, "", settled=False)]
-    got = naming.resolve(naming.NONE, rows, None, {}, platform)
+    got = naming.resolve(naming.NONE, rows, None, naming.MangaDex({}), platform)
     assert got[1].title == "Side Story 2: Second", "2 specials, 2 side stories (1 published): titles keyed by n"
 
 
@@ -210,7 +210,7 @@ def test_a_side_story_title_does_not_depend_on_the_order_chapters_are_named_in()
 def test_a_platform_series_last_chapters_resolve_as_the_bulk_converter_named_them(path):
     fixture = json.loads(path.read_text(encoding="utf-8"))
     platform = stored_list(fixture["platform"]["name"], fixture["platform"]["ref"])
-    got = naming.resolve(fixture["basis"], _rows(fixture), None, {}, platform)
+    got = naming.resolve(fixture["basis"], _rows(fixture), None, naming.MangaDex({}), platform)
     for k, c in enumerate(fixture["chapters"]):
         if c["open"]:
             want = (c["kind"], names.to_volume(c["volume"]), float(c["number"]), c["title"])
@@ -226,7 +226,7 @@ def test_a_new_series_whose_volumes_come_from_its_platform_gets_the_platform_bas
     rows = [r._replace(settled=False) if hasattr(r, "_replace") else r for r in _rows({**fixture, "chapters": [
         {**c, "open": True} for c in fixture["chapters"]]})]  # fmt: skip
     rows = [r for r in rows if r.src_volume is None and not r.season]  # nothing but the platform volumes them
-    assert naming.choose(rows, None, {}, platform) == fixture["basis"]
+    assert naming.choose(rows, None, naming.MangaDex({}), platform) == fixture["basis"]
 
 
 # the check: storing the list, and the wait it holds a platform-basis chapter in
@@ -363,7 +363,7 @@ def test_a_titled_episode_past_the_finale_names_its_side_story():
             order=key,
         )
 
-    got = naming.resolve("tapas seasons", [row(0, 1.0), row(1, 2.0)], None, {}, platform)
+    got = naming.resolve("tapas seasons", [row(0, 1.0), row(1, 2.0)], None, naming.MangaDex({}), platform)
     assert (got[1].kind, got[1].title) == (names.SIDE, "Side Story 1: After Story"), "as the bulk converter named it"
 
 
@@ -414,24 +414,70 @@ def _open_row(number, season=None):
 @budget(load="pure")
 @pytest.mark.parametrize(
     ("season", "overrides", "want"),
-    [(None, None, "Start"), (2, None, ""), (None, {"list_titles": False}, ""), (None, {"list_titles": True}, "Start")],
+    [
+        (None, None, "Start"),
+        (2, None, ""),
+        (None, {"source_titles": False}, ""),
+        (None, {"source_titles": True}, "Start"),
+    ],
 )
 def test_an_untitled_chapter_takes_its_list_title_unless_it_has_a_season_or_its_series_turns_them_off(
     season, overrides, want
 ):
     platform = platform_list([episode_record(episodes.MAIN, "1", "Ep. 1 - Start")])
-    got = naming.resolve(None, [_open_row(1.0, season)], overrides, {}, platform)
+    got = naming.resolve(None, [_open_row(1.0, season)], overrides, naming.MangaDex({}), platform)
     assert got[1.0].title == want, "SPEC 'Publishing': a seasonal chapter's number is not the list's"
 
 
 @budget(load="pure")
 @pytest.mark.parametrize(
-    ("overrides", "want"), [(None, "Side Story 1: Snow Day"), ({"list_titles": False}, "Side Story 1")]
+    ("overrides", "want"), [(None, "Side Story 1: Snow Day"), ({"source_titles": False}, "Side Story 1")]
 )
-def test_list_titles_false_turns_off_a_specials_title_too(overrides, want):
+def test_source_titles_false_turns_off_a_specials_title_too(overrides, want):
     platform = platform_list([episode_record(episodes.SPECIAL, "1", "Snow Day")])
     side = dataclasses.replace(_open_row(1.0), kind=names.SIDE)
-    got = naming.resolve(None, [side], overrides, {}, platform)
+    got = naming.resolve(None, [side], overrides, naming.MangaDex({}), platform)
     assert got[1.0].title == want, (
-        "SPEC 'Publishing': list_titles false takes no title from the list, specials included"
+        "SPEC 'Publishing': source_titles false takes no title from the list, specials included"
     )
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("chapters", "want"),
+    [
+        ([["5", "Chapter 5"], ["5", "The Duel"], ["5", "Other Group's Title"]], {"5": "The Duel"}),
+        ([["1", ""], ["2", "Two"]], {"2": "Two"}),
+        ([["1", "A"], ["1.1", "B"], ["1.2", "C"], ["2.1", "D"], ["2.2", "E"]], {}),
+        ([["1", "A"], ["1.5", "Extra"], ["2", "B"]], {"1": "A", "1.5": "Extra", "2": "B"}),
+        (None, {}),
+    ],
+    ids=["first-kept-entry", "untitled-entry", "numbered-in-parts", "extras-are-no-parts", "none-stored"],
+)
+def test_mangadex_titles_take_each_numbers_first_kept_title_unless_the_series_is_numbered_in_parts(chapters, want):
+    assert naming.mangadex_titles(chapters) == want, "SPEC 'Publishing': MangaDex chapter titles"
+
+
+@budget(load="pure")
+@pytest.mark.parametrize(
+    ("listed", "season", "overrides", "want"),
+    [
+        ("List Title", None, None, "List Title"),
+        (None, None, None, "MangaDex Title"),
+        (None, 2, None, ""),
+        (None, None, {"source_titles": False}, ""),
+    ],
+    ids=["list-first", "mangadex-fills", "seasonal-none", "switched-off"],
+)
+def test_an_untitled_chapter_takes_its_list_title_else_mangadexs(listed, season, overrides, want):
+    eps = [episode_record(episodes.MAIN, "1", listed)] if listed else []
+    md = naming.MangaDex({}, {"1": "MangaDex Title"})
+    got = naming.resolve(None, [_open_row(1.0, season)], overrides, md, platform_list(eps))
+    assert got[1.0].title == want, "SPEC 'Publishing': own title, list title, MangaDex title"
+
+
+@budget(load="pure")
+def test_a_side_story_takes_no_mangadex_title():
+    side = dataclasses.replace(_open_row(1.0), kind=names.SIDE)
+    got = naming.resolve(None, [side], None, naming.MangaDex({}, {"1": "MangaDex Title"}), None)
+    assert got[1.0].title == "Side Story 1", "MangaDex titles main chapters only"

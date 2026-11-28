@@ -118,8 +118,8 @@ def _file(ctx: workflow.Context, chapter: db.Row) -> db.Row:
 def _copy_name(ctx: workflow.Context, series: db.Row, chapter: db.Row) -> naming.Naming | None:
     """Return a better copy's naming: its file's as it is now (SPEC "Retroactive updates"), not resolved.
 
-    An untitled main file takes its platform list title as a new chapter does (naming.list_title), an untitled side
-    file "Side Story <n>". None for any other chapter.
+    An untitled main file takes its platform list or MangaDex title as a new chapter does (naming.source_title), an
+    untitled side file "Side Story <n>". None for any other chapter.
     """
     if chapter["published_file_id"] is None:
         return None
@@ -131,9 +131,11 @@ def _copy_name(ctx: workflow.Context, series: db.Row, chapter: db.Row) -> naming
     elif not title:
         overrides = volumes.override_file(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
         listed = naming.title_list(chapter_names.platform_list(ctx.conn, series["id"]), overrides)
+        on = naming.titles_on(overrides)
+        md_titles: Mapping[str, str] = chapter_names.mangadex_data(ctx.conn, series["id"]).titles if on else {}
         season = names.read_identity(f["identity"])[1]
-        title = naming.list_title(
-            platforms.chapter_titles(listed), number, None if season is None else int(float(season))
+        title = naming.source_title(
+            platforms.chapter_titles(listed), md_titles, number, None if season is None else int(float(season))
         )
     volume = names.to_volume(f["comicinfo_volume"])
     return naming.Naming(f["kind"], volume, number, title, f["volume_source"], opens_covered_volume=False)

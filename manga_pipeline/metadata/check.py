@@ -18,7 +18,7 @@ from typing import TypeIs
 from manga_pipeline import config, db, notify, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.metadata import covers, ids, platforms, refresh, search, series_name, sources
-from manga_pipeline.metadata.records import SOURCE_RECORDS, STORED, Records
+from manga_pipeline.metadata.records import MANGADEX_LIST, SOURCE_RECORDS, STORED, Records
 from manga_pipeline.replies.kavita import SeriesMetadata
 from manga_pipeline.replies.sources import AniListMedia, MangaBakaSeries, MangaUpdatesSeries
 from manga_pipeline.replies.suwayomi import Manga
@@ -136,6 +136,7 @@ def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool
     platform = _platform(clients, series, kavita_meta, records, _stored_platform(conn, series_id))
     if _scrub(platform):
         log.warning("series %s (%s): platform list: %s", series_id, series["name"], SCRUBBED)
+    md_list = None if records["mangadex"] is None else clients.mangadex.chapter_list(records["mangadex"]["id"])
     refresh.completed(ctx, series_id, manga_rows)
     last = _last_update(ctx, clients, manga_rows, records)
     complete = any(m["status"] == refresh.COMPLETED for m in manga_rows) or (
@@ -149,6 +150,7 @@ def run(ctx: workflow.Context, clients: sources.Sources, series_id: int) -> bool
         retitled = _title_change(conn, series, records["anilist"])
         changed = _store(conn, series_id, known, records, now)
         _store_platform(conn, series_id, platform, now)
+        store_mangadex_list(conn, series_id, md_list, now)
         if cover is not None:
             covers.store(conn, series_id, cover)
         version = db.one_row(
@@ -353,6 +355,23 @@ def _store_platform(conn: db.Connection, series_id: int, platform: platforms.Pla
                 _hash(platform, platform["name"], platforms.KIND),
                 now,
             ),
+        )
+
+
+def store_mangadex_list(conn: db.Connection, series_id: int, chapters: list[list[str]] | None, now: str) -> None:
+    """Store the series' MangaDex English chapter list (records.MANGADEX_LIST), replacing the stored one.
+
+    Outside the data hash, as the platform list: a new chapter is not a data change. None (no MangaDex record) removes
+    the stored list. Its texts are scrubbed as every stored record's.
+    """
+    source, kind = MANGADEX_LIST
+    conn.execute("DELETE FROM fetched WHERE series_id = %s AND source = %s AND kind = %s", (series_id, source, kind))
+    if chapters is not None:
+        _scrub(chapters)
+        conn.execute(
+            """INSERT INTO fetched (series_id, source, kind, payload, payload_hash, fetched_at)
+            VALUES (%s, %s, %s, %s, %s, %s)""",
+            (series_id, source, kind, json.dumps(chapters), _hash(chapters, source, kind), now),
         )
 
 

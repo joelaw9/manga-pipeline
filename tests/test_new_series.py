@@ -216,7 +216,9 @@ def test_a_new_series_basis_is_the_first_source_that_volumes_it(chapters, mangad
         )
         for i, (kind, number, season, marker) in enumerate(chapters)
     ]  # fmt: skip
-    assert naming.choose(rows, override, mangadex) == want, "the bulk converter's order for a series it meets first"
+    assert naming.choose(rows, override, naming.MangaDex(mangadex)) == want, (
+        "the bulk converter's order for a series it meets first"
+    )
 
 
 @budget(load="db", seconds=2)

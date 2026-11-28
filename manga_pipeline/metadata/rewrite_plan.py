@@ -21,7 +21,7 @@ def changes(
     basis: str | None,
     rows: Sequence[naming.Row[naming.RowKey]],
     overrides: volumes.Overrides | None,
-    mangadex: Mapping[str, str | None],
+    mangadex: naming.MangaDex,
     platform: platforms.PlatformList | None = None,
 ) -> dict[int, tuple[float, str]]:
     """Return {published file id: (volume, volume source)} for every published main row whose volume should change.
@@ -132,7 +132,7 @@ def differences(
     basis: str | None,
     rows: Sequence[naming.Row[naming.RowKey]],
     overrides: volumes.Overrides | None,
-    mangadex: Mapping[str, str | None],
+    mangadex: naming.MangaDex,
     platform: platforms.PlatformList | None = None,
 ) -> dict[int, tuple[float | None, float | None]]:
     """Return {published file id: (stored volume, the volume the sources give now)} the sources would move.
@@ -259,7 +259,7 @@ def _reopened(  # noqa: PLR0913  # the resolver's inputs: 1 place resolves the r
     basis: str | None,
     rows: Sequence[naming.Row[naming.RowKey]],
     overrides: volumes.Overrides | None,
-    mangadex: Mapping[str, str | None],
+    mangadex: naming.MangaDex,
     platform: platforms.PlatformList | None,
     *,
     ids: Sequence[int],

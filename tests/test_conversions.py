@@ -741,10 +741,10 @@ def test_a_conversion_is_named_as_the_pipeline_names_a_file_taking_its_list_titl
 
 
 @budget(load="db", seconds=30)
-def test_list_titles_false_keeps_an_untitled_conversion_untitled(world):
+def test_source_titles_false_keeps_an_untitled_conversion_untitled(world):
     adopt(world, {"Ch.1.cbz": cbz(seed="a", pages=4)})
     store_list(world, {"1": "Start"})
-    (config.abs_path(world.cfg["paths"]["naming_overrides"]) / f"{SERIES}.yaml").write_bytes(b"list_titles: false\n")
+    (config.abs_path(world.cfg["paths"]["naming_overrides"]) / f"{SERIES}.yaml").write_bytes(b"source_titles: false\n")
     set_cap(world, 1)
     for part in (intake, process, export):
         world.run(part)
@@ -798,3 +798,26 @@ def test_a_new_chapter_naming_a_file_queued_for_another_is_needs_human(world):
         "SPEC 'Retroactive updates': a name another file's queued rewrite holds is never taken"
     )
     assert not (world.library / SERIES / "Ch.9.cbz").exists()
+
+
+def store_mangadex_list(world, chapters):
+    """Store a MangaDex English chapter list ([[number, title]]) for the series."""
+    with closing(db.connect(world.cfg)) as conn:
+        conn.execute(
+            "INSERT INTO fetched (series_id, source, kind, payload, payload_hash, fetched_at)"
+            " SELECT id, 'mangadex', 'chapters', %s, 'x', '2026-11-01' FROM series",
+            (json.dumps(chapters),),
+        )
+
+
+@budget(load="db", seconds=30)
+def test_an_untitled_conversion_takes_mangadexs_title_after_the_lists(world):
+    adopt(world, {"Ch.1.cbz": cbz(seed="a", pages=4), "Ch.2.cbz": cbz(seed="b", pages=4)})
+    store_list(world, {"1": "Listed"})
+    store_mangadex_list(world, [["1", "Not Taken"], ["2", "Chapter 2"], ["2", "From MangaDex"]])
+    set_cap(world, 2)
+    for part in (intake, process, export):
+        world.run(part)
+    assert library_files(world) == ["Ch.1 - Listed.cbz", "Ch.2 - From MangaDex.cbz"], (
+        "SPEC 'Publishing': the list title first, else MangaDex's first descriptive one"
+    )

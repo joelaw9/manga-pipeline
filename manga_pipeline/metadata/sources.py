@@ -17,6 +17,7 @@ from html.parser import HTMLParser
 from http import HTTPStatus
 from typing import NotRequired, TypedDict, override
 
+from manga_pipeline import names
 from manga_pipeline.clients import http
 from manga_pipeline.replies.sources import (
     AniListHit,
@@ -46,6 +47,7 @@ MANGADEX_RATINGS = [("contentRating[]", r) for r in ("safe", "suggestive", "erot
 SEARCH_RESULTS = 10
 IMAGE_TIMEOUT = 120  # seconds
 COVER_PAGE = 100  # the largest page of covers MangaDex serves
+FEED_PAGE = 500  # the largest page of a manga's feed MangaDex serves
 ANILIST_MEDIA = """query ($id: Int) { Media(id: $id, type: MANGA) {
   id idMal format status title { romaji english native } synonyms description genres
   tags { name rank isMediaSpoiler } coverImage { extraLarge } startDate { year month day }
@@ -90,9 +92,11 @@ class _MangaDexCovers(TypedDict):
 
 
 class _MangaDexPublished(TypedDict):
-    """A feed chapter's attributes: its publish time (ISO text)."""
+    """A feed chapter's attributes: its publish time (ISO text), its chapter number and title (either may be null)."""
 
     publishAt: str
+    chapter: NotRequired[str | None]
+    title: NotRequired[str | None]
 
 
 class _MangaDexFeedChapter(TypedDict):
@@ -102,9 +106,10 @@ class _MangaDexFeedChapter(TypedDict):
 
 
 class _MangaDexReply[T](TypedDict):
-    """MangaDex's reply envelope: the data."""
+    """MangaDex's reply envelope: the data, and a list's total (a page of a list only)."""
 
     data: T
+    total: NotRequired[int]
 
 
 class _AniListMediaData(TypedDict):
@@ -301,6 +306,33 @@ class MangaDex:
         )
         chapters = self._get(f"/manga/{md_id}/feed?{query}", _mangadex_feed)["data"]
         return chapters[0]["attributes"]["publishAt"] if chapters else None
+
+    def chapter_list(self, md_id: str) -> list[list[str]]:
+        """Return the manga's English chapters as [chapter number, title or ""], in upload order, every page.
+
+        The number as names.fmt_num gives it; an entry whose chapter is no number is left out.
+        """
+        out: list[list[str]] = []
+        offset = 0
+        while True:
+            query = urllib.parse.urlencode(
+                [
+                    ("translatedLanguage[]", "en"),
+                    ("order[createdAt]", "asc"),
+                    ("limit", FEED_PAGE),
+                    ("offset", offset),
+                    ("includeFuturePublishAt", 0),
+                    *MANGADEX_RATINGS,
+                ]
+            )
+            page = self._get(f"/manga/{md_id}/feed?{query}", _mangadex_feed)
+            for c in page["data"]:
+                raw = (c["attributes"].get("chapter") or "").strip()
+                if names.CI_NUMBER.fullmatch(raw):
+                    out.append([names.fmt_num(raw), (c["attributes"].get("title") or "").strip()])
+            offset += len(page["data"])
+            if not page["data"] or offset >= page.get("total", 0):
+                return out
 
     def search(self, name: str) -> list[MangaDexManga]:
         """Return the manga records of MangaDex's title search for name: every content rating, cover art included."""
