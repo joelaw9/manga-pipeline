@@ -139,7 +139,7 @@ def _published(conn: db.Connection, series_id: int) -> list[naming.Row[naming.Ro
 def _open(ctx: workflow.Context, series_id: int, downloads: Mapping[int, str]) -> list[naming.Row[naming.RowKey]]:
     out: list[naming.Row[naming.RowKey]] = []
     chapters = ctx.conn.execute(
-        sql.SQL("SELECT * FROM chapter WHERE {open}").format(open=OPEN_WHERE),
+        sql.SQL("SELECT * FROM chapter WHERE {open} ORDER BY id").format(open=OPEN_WHERE),
         {"series": series_id, "open": list(OPEN)},
     )
     for c in chapters:

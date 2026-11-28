@@ -167,9 +167,13 @@ def retry(cfg: config.Config, args: argparse.Namespace) -> None:
 def _database(cfg: config.Config, what: str) -> closing[db.Connection]:
     """Return a connection to the built database, for a command that never builds one (SPEC "State")."""
     if not db.built(cfg):
-        msg = f"no database {cfg['database']['name']} built yet: nothing to {what}"
-        raise workflow.Refused(msg)
+        raise _no_database(cfg, what)
     return closing(db.connect(cfg))
+
+
+def _no_database(cfg: config.Config, what: str) -> workflow.Refused:
+    """Return the refusal of a command that finds no database built (exit 2)."""
+    return workflow.Refused(f"no database {cfg['database']['name']} built yet: nothing to {what}")
 
 
 PAUSE_POLL = 10  # seconds between state pause's looks at the scheduled runs still running
@@ -181,8 +185,7 @@ def _unbuilt_refused(cfg: config.Config, what: str) -> db.Connection:
     try:
         return db.open_database(cfg, builds=False)
     except db.NoDatabaseError:
-        msg = f"no database {cfg['database']['name']} built yet: nothing to {what}"
-        raise workflow.Refused(msg) from None
+        raise _no_database(cfg, what) from None
 
 
 def state_pause(cfg: config.Config, _args: argparse.Namespace) -> None:
@@ -498,8 +501,7 @@ def junk_late(cfg: config.Config, _args: argparse.Namespace) -> None:
     late.LateError (exit 1) for a kept scan the decide cannot read.
     """
     if not db.built(cfg):
-        msg = f"no database {cfg['database']['name']} built yet: nothing to list"
-        raise workflow.Refused(msg)
+        raise _no_database(cfg, "list")
     with closing(db.read_only(cfg)) as conn:
         _lines(late.run(cfg, conn))
 

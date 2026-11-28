@@ -37,7 +37,7 @@ class _UnreadableError(Exception):
     """A strip file's original cannot be read for a render: the file is listed with why, the run goes on."""
 
 
-class Kept(NamedTuple):
+class Candidate(NamedTuple):
     """A candidate file as 1 snapshot read it: its row's fields, its edit, its kept scan and (strip) its page rows."""
 
     id: int
@@ -53,7 +53,7 @@ class Series(NamedTuple):
     """1 series as 1 snapshot read it: its layout, its candidate files and today's decide inputs."""
 
     layout: str
-    files: list[Kept]
+    files: list[Candidate]
     inputs: junk_stage.DecideInputs
 
 
@@ -63,6 +63,7 @@ def run(cfg: config.Config, conn: db.Connection) -> list[str]:
     LateError for a kept scan the decide cannot read or apply; Unreachable when the share drops.
     """
     params = workflow.scope_params(cfg)
+    store.index(conn)  # read once, outside the snapshots: each series' snapshot reuses it while no decision changes
     with conn.transaction():
         series_ids = [
             r[0] for r in conn.execute(sql.SQL("SELECT DISTINCT f.series_id {} ORDER BY 1").format(CANDIDATES), params)
@@ -94,7 +95,7 @@ def _read(conn: db.Connection, series_id: int, params: workflow.ScopeParams) -> 
     ).fetchall()
     strip = series["layout"] == "strip"
     files = [
-        Kept(
+        Candidate(
             r["id"],
             r["library_path"],
             r["original"],
@@ -109,11 +110,15 @@ def _read(conn: db.Connection, series_id: int, params: workflow.ScopeParams) -> 
     return Series(series["layout"], files, inputs)
 
 
-def _judge(cfg: config.Config, series: Series, kept: Kept) -> str | None:
+def _judge(cfg: config.Config, series: Series, kept: Candidate) -> str | None:
     """Return why the file is listed (late, refused, layout changed, original unreadable), else None."""
     try:
-        sc = junk_stage.read_scan(kept.scan)
         stored = plan.check_edit(kept.edit)
+    except plan.EditError as e:
+        msg = f"file {kept.id}: its edit cannot be read: {e}"
+        raise LateError(msg) from e
+    try:
+        sc = junk_stage.read_scan(kept.scan)
         layout = sc["layout"]
     except Exception as e:
         msg = f"file {kept.id}: its kept scan cannot be read: {e!r}"
@@ -130,19 +135,21 @@ def _judge(cfg: config.Config, series: Series, kept: Kept) -> str | None:
             found = differences(stored, now.edit)
             if not found:
                 return None
-            cause = "decisions"
-            if set(kept.watermarks) != set(series.inputs.watermarks):
-                then = _apply(kept, sc, series.inputs, kept.watermarks, render)
-                cause = _cause(stored, then, now.edit)
         except _UnreadableError as e:
             return str(e)
+        why = "decisions"
+        if set(kept.watermarks) != set(series.inputs.watermarks):
+            try:
+                why = cause(stored, _apply(kept, sc, series.inputs, kept.watermarks, render), now.edit)
+            except _UnreadableError as e:
+                why = f"not told: {e}"
     finally:
         original.remove()
-    return f"{', '.join(found)} (cause {cause}); {_original(cfg, kept)}"
+    return f"{', '.join(found)} (cause {why}); {_original(cfg, kept)}"
 
 
 def _apply(
-    kept: Kept,
+    kept: Candidate,
     sc: chapter_scan.Scan,
     inputs: junk_stage.DecideInputs,
     watermarks: Sequence[str],
@@ -158,7 +165,7 @@ def _apply(
         raise LateError(msg) from e
 
 
-def _cause(stored: plan.ChapterEdit, then: chapter_scan.Applied, now: plan.ChapterEdit) -> str:
+def cause(stored: plan.ChapterEdit, then: chapter_scan.Applied, now: plan.ChapterEdit) -> str:
     """Return a late file's cause from the decide with its kept watermark keys (then) and with today's (now).
 
     "watermarks" when today's decisions with the kept keys give its edit, "decisions" when the keys learned since change
@@ -176,7 +183,7 @@ def _cause(stored: plan.ChapterEdit, then: chapter_scan.Applied, now: plan.Chapt
 class _Original:
     """A strip file's original, extracted on the first render into <paths.scratch>/junk-late/<pid>/, at most once."""
 
-    def __init__(self, cfg: config.Config, kept: Kept) -> None:
+    def __init__(self, cfg: config.Config, kept: Candidate) -> None:
         """Hold the file whose original is extracted on first use."""
         self._cfg, self._kept = cfg, kept
         self._work = config.abs_path(cfg["paths"]["scratch"]) / FOLDER / str(os.getpid())
@@ -186,7 +193,12 @@ class _Original:
         """Return the image of strip rows [start, end) over the original's content pages."""
         if self._render is None:
             self._render = chapter_scan.renderer(self._extract())
-        return self._render(start, end)
+        try:
+            with workflow.share_errors():
+                return self._render(start, end)
+        except (OSError, *archive.UNREADABLE) as e:  # a page that does not decode: read only now
+            msg = f"its original {self._kept.original} cannot be read: {e}"
+            raise _UnreadableError(msg) from e
 
     def _extract(self) -> chapter_scan.Extracted:
         stored = self._kept.original
@@ -207,7 +219,7 @@ class _Original:
         shutil.rmtree(self._work, ignore_errors=True)
 
 
-def _original_problem(cfg: config.Config, kept: Kept) -> str | None:
+def _original_problem(cfg: config.Config, kept: Candidate) -> str | None:
     """Return why the file's original cannot be read here (none recorded, unusable here, gone), else None."""
     if kept.original is None:
         return "no original recorded"
@@ -219,7 +231,7 @@ def _original_problem(cfg: config.Config, kept: Kept) -> str | None:
     return None
 
 
-def _original(cfg: config.Config, kept: Kept) -> str:
+def _original(cfg: config.Config, kept: Candidate) -> str:
     """Return whether the file's original is still in retention, as a listed line ends."""
     return _original_problem(cfg, kept) or "original in retention"
 

@@ -13,11 +13,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from manga_pipeline import cli, config, db, export, intake, process, rewrite, state, workflow
+from manga_pipeline import cli, config, db, export, intake, process, rewrite, state, strip, workflow
 from manga_pipeline.convert import plan
 from manga_pipeline.errors import Unreachable
+from manga_pipeline.junk import chapter_scan, ocr, redecide, review, store
 from manga_pipeline.junk import late as junk_late
-from manga_pipeline.junk import ocr, redecide, review, store
 
 from tests.builders import config_file, site_cfg
 from tests.test_better_copies import copy, through
@@ -268,7 +268,17 @@ def test_a_kept_scan_missing_a_field_exits_1_naming_the_file(site, tmp_path, cap
     path = str(config_file(tmp_path, site.cfg))
     code = cli_main(path, "junk", "late")
     assert code == 1, "a kept scan the decide cannot read stops the command"
-    assert f"file {file}: its kept scan cannot be decided" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert f"error: file {file}: its kept scan cannot be decided" in err, "cli's handled path prints the 1 error line"
+    assert "Traceback" not in err, "a handled LateError, not an unexpected error logged with its traceback"
+
+
+@budget(load="db", seconds=60)
+def test_an_edit_that_cannot_be_read_stops_the_command_naming_the_edit(site):
+    file = credit(site, "keep")
+    site.rows("UPDATE chapter_edit SET edit = '{}' RETURNING 1")
+    with pytest.raises(junk_late.LateError, match=f"file {file}: its edit cannot be read"):
+        late(site)
 
 
 @budget(load="db", seconds=10)
@@ -394,6 +404,28 @@ def test_a_watermark_learned_since_lists_the_tail_piece_kept_anew_by_watermarks(
 
 
 @budget(load="pool", seconds=90)
+def test_a_cause_the_2nd_decide_cannot_tell_keeps_the_differences(site, monkeypatch):
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
+    file = marked(site, ["a3", "b3", "c3", "d3", "mark", "f3"])
+    ((key,),) = site.rows("SELECT key FROM junk_decision WHERE decider = 'import'")
+    site.rows("INSERT INTO junk_watermark (series_key, key) VALUES ('Long', %s) RETURNING key", key)
+    ((original,),) = site.rows("SELECT original FROM published_file WHERE id = %s", file)
+    config.to_local(site.cfg, original).write_bytes(b"not a zip")
+    real, calls = chapter_scan.apply, []
+
+    def apply(sc, decide_unit, watermarks, cuts=(), render=None):
+        calls.append(watermarks)
+        if len(calls) == 2 and render is not None:  # the decide with the kept keys tries a chain: reads the original
+            render(0, 10)
+        return real(sc, decide_unit, watermarks, cuts, render)
+
+    monkeypatch.setattr(chapter_scan, "apply", apply)
+    (line,) = listed(site)
+    assert "rows kept anew " in line, "the differences the 1st decide found are kept"
+    assert f"(cause not told: its original {original} cannot be read: " in line, line
+
+
+@budget(load="pool", seconds=90)
 def test_a_strip_decide_now_refused_is_listed_with_why(site, monkeypatch):
     monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
     marked(site, ["a2", "b2", "c2", "d2", "mark", "mark"])
@@ -433,6 +465,17 @@ def test_a_cut_decision_recorded_after_done_lists_the_rows_read_from_the_origina
     work = config.abs_path(site.cfg["paths"]["scratch"]) / junk_late.FOLDER
     assert not work.exists() or not any(work.iterdir()), "the extracted original is removed when its file is done"
     ((original,),) = site.rows("SELECT original FROM published_file WHERE id = %s", file)
+
+    def truncated(*_args, **_kwargs):  # what Pillow raises for a page whose pixels end early, read at the render
+        msg = "image file is truncated"
+        raise OSError(msg)
+
+    with monkeypatch.context() as m:
+        m.setattr(strip, "render_rows", truncated)
+        lines = late(site)
+    assert lines[0].startswith(f"file {file} "), lines
+    assert "cannot be read: image file is truncated" in lines[0], "a page that fails at the render: listed, no stop"
+    assert lines[-1] == "files with a kept scan 1, listed 1", "the run goes on"
     config.to_local(site.cfg, original).write_bytes(b"not a zip")
     lines = late(site)
     assert lines[0].startswith(f"file {file} "), lines
@@ -519,6 +562,21 @@ def test_each_kind_of_difference_is_named_with_its_rows_or_pages():
         "split False -> True",
         "split_pages None -> 4",
     ]
+
+
+def applied(edit_, problem=None):
+    return chapter_scan.Applied(edit_, [], [], problem, [])
+
+
+@budget(load="pure", seconds=1)
+def test_the_cause_is_named_by_the_decide_with_the_kept_watermark_keys():
+    stored = edit()
+    rows = edit(strip_removed=[{"start": 0, "end": 10, "why": "match"}])
+    more = edit(strip_removed=[{"start": 0, "end": 20, "why": "match"}])
+    assert junk_late.cause(stored, applied(stored), rows) == "watermarks", "the kept keys give its edit"
+    assert junk_late.cause(stored, applied(rows), rows) == "decisions", "the keys learned since change nothing"
+    assert junk_late.cause(stored, applied(rows), more) == "both", "each changes something"
+    assert junk_late.cause(stored, applied(stored, "refused"), rows) == "both", "refused with the kept keys"
 
 
 # ---------------------------------------------------------------- published_file.junk_chapter
