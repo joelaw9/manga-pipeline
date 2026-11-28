@@ -858,7 +858,8 @@ def _settle_restore(conn: db.Connection, row: db.Row) -> None:
     """
     with db.transaction(conn):
         undone = _version(conn, row["id"])
-        values = row["pending_copy"]["values"]
+        # a version recorded before junk_chapter was (schema 0084) lacks it: NULL
+        values = {"junk_chapter": None} | row["pending_copy"]["values"]
         kept = [c for c in VERSION if c not in ("library_path", "size", "cover_state", "unedited")]
         conn.execute(
             sql.SQL("""UPDATE published_file SET {kept}, unedited = %s, library_path = pending_path,
@@ -888,7 +889,8 @@ def _joined(conn: db.Connection, row: db.Row) -> None:
 
     Its identity and number N; page count, junk, strip length and page hashes the files' sums (none when a file has
     none), its median width the smallest, its bits per pixel the page-weighted mean; the parts it holds; no original
-    (its pages come from several downloads). The chapters naming the other files name it; their rows go.
+    and no junk chapter (its pages come from several downloads). The chapters naming the other files name it; their
+    rows go.
     """
     ids = [row["id"], *row["pending_parts"]]
     files = conn.execute("SELECT * FROM published_file WHERE id = ANY(%s)", (ids,)).fetchall()
@@ -898,7 +900,7 @@ def _joined(conn: db.Connection, row: db.Row) -> None:
     conn.execute(
         """UPDATE published_file f SET identity = %(identity)s, comicinfo_number = %(whole)s, joined_parts = %(top)s,
             pages_in = s.pages_in, junk = s.junk, strip_length = s.strip_length, median_page_width = s.width,
-            page_phashes = s.phashes, bpp = s.bpp, pages_out = NULL, original = NULL
+            page_phashes = s.phashes, bpp = s.bpp, pages_out = NULL, original = NULL, junk_chapter = NULL
         FROM (SELECT
                 CASE WHEN bool_and(pages_in IS NOT NULL) THEN sum(pages_in) END AS pages_in,
                 CASE WHEN bool_and(junk IS NOT NULL) THEN sum(junk) END AS junk,

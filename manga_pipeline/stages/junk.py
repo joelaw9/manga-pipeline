@@ -12,7 +12,8 @@ chapter of a series is scanned before any is decided. A chapter with a current s
 extracted again (once per decide, removed when it ends) only when a chain or a cut decision is tried or candidate
 images are written: done with its chapter edit, waiting on junk_decision with its candidates (their images written
 first), or needs_human (a chain or cut decision that should apply and does not; a removal that would leave too little;
-a candidate Claude was unsure of or past the review limit). A strip chapter's rest-of-card bundle (W5,
+a candidate Claude was unsure of or past the review limit). Done keeps the scan and the watermark keys its decide used
+on the chapter's edit row (SPEC "Junk decisions"). A strip chapter's rest-of-card bundle (W5,
 strip_units.rest_members) is recorded with the candidates it waits on (junk_scan.bundles); a bundle whose members'
 decisions differ gives the chapter a note at Done. A decide that ends the stage logs the units other series' agreement
 removed or kept (agreed_units); a watermark an agreement removed is not remembered.
@@ -367,41 +368,54 @@ def _remember(conn: db.Connection, watermarks: Iterable[tuple[str, str]]) -> Non
     )
 
 
-def _finished(
-    ctx: workflow.Context,
-    chapter: db.Row,
-    key: str,
-    applied: chapter_scan.Applied,
-    members: list[strip_units.RestPiece],
-) -> workflow.OUTCOMES:
-    """Return the outcome of a chapter that offers no candidate.
+class Kept(NamedTuple):
+    """What Done keeps on the chapter's edit row (SPEC "Junk decisions"): its scan and its decide's watermark keys.
 
-    The library copy check's (library_copy.after_junk: a duplicate dropped, or held needs_human for 2 published files,
-    a volume that cannot be read, another chapter or a better copy of a busy file: no edit kept), else Done with its
-    chapter edit and its rest-of-card note (rest_note) in place of an earlier one.
+    scan: the junk_scan row's text; watermarks: the series' known watermark keys the decide was given.
+    """
+
+    scan: str
+    watermarks: list[str]
+
+
+def _copy_closed(
+    chapter: db.Row, key: str, applied: chapter_scan.Applied, copy: workflow.Dropped | workflow.NeedsHuman
+) -> workflow.Dropped | workflow.NeedsHuman:
+    """Return the library copy check's outcome of a chapter that offers no candidate (library_copy.after_junk).
+
+    A duplicate dropped, or held needs_human for 2 published files, a volume that cannot be read, another chapter or a
+    better copy of a busy file: no edit kept.
+    """
+    watermarks = [(key, k) for k in applied.watermarks]
+
+    def closed(conn: db.Connection) -> None:
+        _remember(conn, watermarks)
+        _refill(conn, chapter, key, 0)  # no candidate: the copy check decides it
+        if isinstance(copy, workflow.Dropped):  # a held copy keeps its scan for its retry
+            conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
+        if copy.record:
+            copy.record(conn)
+
+    return dataclasses.replace(copy, record=closed)
+
+
+def _done(
+    chapter: db.Row, key: str, applied: chapter_scan.Applied, members: list[strip_units.RestPiece], kept: Kept
+) -> workflow.Done:
+    """Return Done with the chapter's edit and its kept scan with the time; its junk_scan row goes.
+
+    Its rest-of-card note (rest_note) takes the place of an earlier one.
     """
     edit, watermarks = applied.edit, [(key, k) for k in applied.watermarks]
-    copy = library_copy.after_junk(ctx, chapter, edit)
-    if copy is not None:
-
-        def closed(conn: db.Connection) -> None:
-            _remember(conn, watermarks)
-            _refill(conn, chapter, key, 0)  # no candidate: the copy check decides it
-            if isinstance(copy, workflow.Dropped):  # a held copy keeps its scan for its retry
-                conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
-            if copy.record:
-                copy.record(conn)
-
-        return dataclasses.replace(copy, record=closed)
 
     def done(conn: db.Connection) -> None:
         _remember(conn, watermarks)
         _refill(conn, chapter, key, 0)
-        values = (chapter["id"], json.dumps(edit))
         conn.execute(
-            "INSERT INTO chapter_edit (chapter_id, edit) VALUES (%s, %s) ON CONFLICT"
-            " (chapter_id) DO UPDATE SET edit = excluded.edit",
-            values,
+            """INSERT INTO chapter_edit (chapter_id, edit, scan, scan_watermarks, scan_at) VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (chapter_id) DO UPDATE SET edit = excluded.edit, scan = excluded.scan,
+                scan_watermarks = excluded.scan_watermarks, scan_at = excluded.scan_at""",
+            (chapter["id"], json.dumps(edit), kept.scan, json.dumps(kept.watermarks), workflow.now(conn)),
         )
         conn.execute("DELETE FROM junk_scan WHERE chapter_id = %s", (chapter["id"],))
         text = db.one_row(conn, "SELECT notes FROM chapter WHERE id = %s", (chapter["id"],))[0]
@@ -459,16 +473,10 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
     """
     sc = read_scan(row["scan"])
     decisions = store.Decisions(ctx.conn, key)
-    memo: Memo = {}
-
-    def decide_unit(kind: str, text: str) -> db.Row | None:
-        if (kind, text) not in memo:
-            memo[kind, text] = decisions.decide(kind, store.parse_key(kind, text))
-        return memo[kind, text]
-
-    known = ctx.conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
+    inputs = decide_inputs(ctx.conn, decisions)
+    memo = inputs.memo
     render = pages.render if sc["layout"] == "strip" else None
-    applied = chapter_scan.apply(sc, decide_unit, [r["key"] for r in known], decisions.cuts(), render)
+    applied = chapter_scan.apply(sc, inputs.decide_unit, inputs.watermarks, inputs.cuts, render)
     applied = applied._replace(watermarks=own_watermarks(applied.watermarks, applied.edit["strip_removed"], memo))
     members = strip_units.rest_members(applied.rest, lambda sig: decisions.judged_keep(images.sig_from_str(sig)))
     watermarks = [(key, k) for k in applied.watermarks]
@@ -482,7 +490,10 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
     picks = candidates.select(ctx.conn, key, applied.undecided, ocr.word_lists(ctx.cfg["junk"]))
     if not picks:
         _log_agreed(chapter, agreed_units(sc, applied, memo))
-        return _finished(ctx, chapter, key, applied, members)
+        copy = library_copy.after_junk(ctx, chapter, applied.edit)
+        if copy is not None:
+            return _copy_closed(chapter, key, applied, copy)
+        return _done(chapter, key, applied, members, Kept(row["scan"], inputs.watermarks))
     limit = ctx.cfg["junk"]["review_limit"]
     rows = [candidates.find(ctx.conn, decisions, p["kind"], p["key"]) for p in picks]
     held = [r for r in rows if r is not None and (r["verdict"] == "unsure" or candidates.stuck(r, limit))]
@@ -513,6 +524,34 @@ def _decided(ctx: workflow.Context, chapter: db.Row, key: str, row: db.Row, page
 
 
 type Memo = dict[tuple[str, str], db.Row | None]  # a decide's lookups: (unit kind, key text) -> the deciding row
+
+
+class DecideInputs(NamedTuple):
+    """A decide's inputs but its scan: the decision lookup, its memo, the known watermark keys and the cut decisions.
+
+    The lookup is over the series' decisions, each answer kept in memo; the watermark keys sorted; the cut decisions as
+    store.Decisions.cuts gives them.
+    """
+
+    decide_unit: store.DecideUnit
+    memo: Memo
+    watermarks: list[str]
+    cuts: list[db.Row]
+
+
+def decide_inputs(conn: db.Connection, decisions: store.Decisions) -> DecideInputs:
+    """Return a decide's inputs over a series' decisions, read now (its watermark keys)."""
+    memo: Memo = {}
+
+    def decide_unit(kind: str, text: str) -> db.Row | None:
+        if (kind, text) not in memo:
+            memo[kind, text] = decisions.decide(kind, store.parse_key(kind, text))
+        return memo[kind, text]
+
+    known = conn.execute(
+        "SELECT key FROM junk_watermark WHERE series_key = %s ORDER BY key", (decisions.series_key,)
+    ).fetchall()
+    return DecideInputs(decide_unit, memo, [r["key"] for r in known], decisions.cuts())
 
 
 def own_watermarks(found: Sequence[str], removed: Sequence[plan.RemovedRange], memo: Memo) -> list[str]:

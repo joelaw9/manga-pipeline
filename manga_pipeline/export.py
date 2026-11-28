@@ -1,9 +1,9 @@
 """Part export (SPEC "Parts", "Publishing").
 
-Empties expired retention files, adds ComicInfo.xml, publishes series by series (each Kavita series only while its files
-lie in its recorded folder), then does what needs Kavita: ends kavita_scan waits, confirms, publishes the new series
-that are ready, writes series fields when no scan is awaited, and requests at most 1 library scan. Last, it sends the
-queued reports to Discord (SPEC "Needs human").
+Empties expired retention files and clears the kept junk scans past retention, adds ComicInfo.xml, publishes series
+by series (each Kavita series only while its files lie in its recorded folder), then does what needs Kavita: ends
+kavita_scan waits, confirms, publishes the new series that are ready, writes series fields when no scan is awaited, and
+requests at most 1 library scan. Last, it sends the queued reports to Discord (SPEC "Needs human").
 """
 
 import logging
@@ -42,6 +42,7 @@ def _work(ctx: workflow.Context) -> None:
     """Do the run's work; the retroactive rewrites run in it too (SPEC "Retroactive updates")."""
     with workflow.share_errors():
         retention.purge(ctx.cfg)
+    clear_kept_scans(ctx)
     # The comparison (SPEC "Retroactive updates"): rewrite chapters for comicinfo and publish below
     rewrite.compare(ctx)
     joins.queue(ctx)  # SPEC "Split chapters": under the same cap
@@ -66,6 +67,17 @@ def _work(ctx: workflow.Context) -> None:
         with workflow.share_errors():
             kavita_write.run(ctx)
     request_scan(ctx)
+
+
+def clear_kept_scans(ctx: workflow.Context) -> None:
+    """Clear the kept junk scans older than export.retention_days (SPEC "Junk decisions"), in 1 statement."""
+    cutoff = workflow.after(workflow.now(ctx.conn), -timedelta(days=ctx.cfg["export"]["retention_days"]))
+    with db.transaction(ctx.conn):
+        ctx.conn.execute(
+            """UPDATE chapter_edit SET scan = NULL, scan_watermarks = NULL, scan_at = NULL
+            WHERE scan IS NOT NULL AND scan_at <= %s""",
+            (cutoff,),
+        )
 
 
 # A stage a new series' chapter is still on its way through (SPEC "Publishing": it lands whole)
