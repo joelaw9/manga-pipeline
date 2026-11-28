@@ -17,7 +17,7 @@ Suwayomi to Kavita manga pipeline: junk removal, metadata, bad-download repair, 
 
 ## Parts
 
-3 commands (`intake`, `process`, `export`) share the work by chapter stage; the database is the only hand-off, and each runs from its own 10-minute timer; `process` runs on several machines, never 2 in 1 series at once; work that replaces an adopted file is picked after every other chapter. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#parts)
+3 commands (`intake`, `process`, `export`) share the work by chapter stage; the database is the only hand-off, and each runs from its own 10-minute timer; `process` runs on several machines, never 2 in 1 series at once; work that replaces an adopted file, or rebuilds a file from its original, is picked after every other chapter. Rules: [docs/spec/pipeline.md](docs/spec/pipeline.md#parts)
 
 ## State
 
@@ -81,7 +81,7 @@ How often a series is checked depends on the time since its last published updat
 
 ## Retroactive updates
 
-A check can change what is already published: series-level fields go through the Kavita API; a file is rewritten (and renamed) only when its volume is filled, its override file's range or volume start gives another, its cover should change or a hand edit (`series edit`) changes its title or volume, with the reader's progress carried, and pages are never re-encoded; `series rename` gives a series its name (Series names) in Kavita, its files and its folder; a run of published parts N.1 … N.k is joined into chapter N (Split chapters). Rules: [docs/spec/metadata.md](docs/spec/metadata.md#retroactive-updates)
+A check can change what is already published: series-level fields go through the Kavita API; a file is rewritten (and renamed) only when its volume is filled, its override file's range or volume start gives another, its cover should change or a hand edit (`series edit`) changes its title or volume, with the reader's progress carried, and pages are never re-encoded; `series rename` gives a series its name (Series names) in Kavita, its files and its folder; a run of published parts N.1 … N.k is joined into chapter N (Split chapters); `rewrite rebuild` rebuilds a pipeline file from its original under today's rules. Rules: [docs/spec/metadata.md](docs/spec/metadata.md#retroactive-updates)
 
 ## Publishing
 

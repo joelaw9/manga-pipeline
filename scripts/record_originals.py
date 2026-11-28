@@ -18,26 +18,10 @@ import sys
 import time
 from collections.abc import Sequence
 from contextlib import closing
-from pathlib import PurePosixPath
 
-from manga_pipeline import config, db, lock, retention, workflow
+from manga_pipeline import config, conversions, db, lock, retention, workflow
 
 BATCH = 500
-
-
-def last_downloads(conn: db.Connection, series_id: int) -> dict[str, list[db.Row]]:
-    """Return the series' done, undropped download chapters by their download's stem."""
-    rows = conn.execute(
-        """SELECT id, download_path, content_digest FROM chapter
-        WHERE series_id = %s AND kind = 'download' AND status = 'done' AND download_path IS NOT NULL
-            AND content_digest IS NOT NULL AND coalesce(last_error, '') NOT LIKE 'dropped%%'
-        ORDER BY id""",
-        (series_id,),
-    ).fetchall()
-    by_stem: dict[str, list[db.Row]] = {}
-    for r in rows:
-        by_stem.setdefault(PurePosixPath(r["download_path"]).stem, []).append(r)
-    return by_stem
 
 
 def originals(cfg: config.Config, conn: db.Connection, *, write: bool) -> tuple[int, list[str]]:
@@ -53,7 +37,7 @@ def originals(cfg: config.Config, conn: db.Connection, *, write: bool) -> tuple[
     chapters, series = dict[str, list[db.Row]](), None
     for file in files:
         if file["series_id"] != series:
-            series, chapters = file["series_id"], last_downloads(conn, file["series_id"])
+            series, chapters = file["series_id"], conversions.download_chapters(conn, file["series_id"])
         named = chapters.get(file["source_name"], [])
         if len(named) != 1:  # none, or 2 (a given-up copy of the same name is done and not dropped): never guessed
             ids = [c["id"] for c in named]

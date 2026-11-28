@@ -1,4 +1,4 @@
-"""Adopted files' conversions (SPEC "State"): the queue that gives each adopted file its chapter, and its link.
+"""Adopted files' conversions (SPEC "State") and rebuilds (SPEC "Retroactive updates"): their chapters and links.
 
 `queue` gives a download chapter to each adopted file that is confirmed, in an ok series in scope, not busy and named
 by no chapter, in order of series and number, while fewer than export.rewrites_open chapters that replace an adopted
@@ -7,6 +7,10 @@ file are open (counted apart from the rewrites; needs_human ones count). It only
 A conversion's download is a hard link to its library file, <paths.staging>/adopted/<published file id>/<file name>:
 `link` makes it for the discover stage, before the download is read; `clean_links` removes the link folders no open
 chapter's download is in. Only `intake` runs them, on the LXC, where staging and the library are 1 filesystem.
+
+`rebuild` gives a pipeline file (or a converted adopted one) a rebuild: the same chapter, whose download is a hard link
+to the file's original in retention, named as that download was (<source name><suffix>), so discover parses the
+identity its first publish had. `download_chapters` finds a file's download chapters by name.
 """
 
 import logging
@@ -18,12 +22,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from manga_pipeline import config, db, errors, rewrite, workflow
+from manga_pipeline import comicinfo, config, db, errors, names, rewrite, workflow
 from manga_pipeline.db import sql
 
 log = logging.getLogger(__name__)
 
-FOLDER = "adopted"  # below paths.staging: the link folders
+FOLDER = workflow.LINK_FOLDER  # below paths.staging: the link folders
 # The chapters that replace an adopted file and are not done (needs_human ones included): the count the cap compares.
 OPEN = sql.SQL("status <> 'done' AND {}").format(workflow.REPLACES_ADOPTED.format(c=sql.Identifier("chapter")))
 # An adopted file p of series s that gets a conversion: confirmed, not busy, named by no chapter, its series ok and in
@@ -70,7 +74,7 @@ def queue(cfg: config.Config, conn: db.Connection, series: Sequence[int] | None 
     if done.queued or done.left:
         opened = db.one_row(conn, sql.SQL("SELECT count(*) FROM chapter WHERE {}").format(OPEN))[0]
         log.info(
-            "conversions: %d queued; %d adopted file(s) left: %d chapters replacing adopted files are open, the cap "
+            "conversions: %d queued; %d adopted file(s) left: %d conversions and rebuilds are open, the cap "
             "is %d (export.rewrites_open)",
             done.queued.total(),
             done.left.total(),
@@ -108,23 +112,30 @@ def link_path(cfg: config.Config, file: db.Row) -> Path:
 
 
 def link(ctx: workflow.Context, chapter: db.Row) -> str | None:
-    """Make the conversion's download, a hard link to its file; return None once linked, else why it cannot be.
+    """Make the chapter's download, a hard link; return None once linked, else why it cannot be.
 
-    A file at the link path that is the library file is kept; any other file there is removed unread; anything that is
-    not a file is a link error, never removed. A missing library file, or a link that cannot be made, gives the
-    reason. A dropped share raises Unreachable("share").
+    An adopted file's conversion links the library file; any other file's (a rebuild) links its original, never the
+    published file. A file at the link path that is the source is kept; any other file there is removed unread;
+    anything that is not a file is a link error, never removed. A missing source, or a link that cannot be made, gives
+    the reason. A dropped share raises Unreachable("share").
     """
     file_id = chapter["published_file_id"]
-    file = db.one_row(ctx.conn, "SELECT library_path FROM published_file WHERE id = %s", (file_id,))
-    source = config.to_local(ctx.cfg, file["library_path"])
+    file = db.one_row(ctx.conn, "SELECT library_path, origin, original FROM published_file WHERE id = %s", (file_id,))
+    if file["origin"] == "library":
+        what, stored = "the adopted file", file["library_path"]
+    elif file["original"] is None:
+        return f"published file {file_id} records no original: a rebuild never links the published file"
+    else:
+        what, stored = "the original", file["original"]
+    source = config.to_local(ctx.cfg, stored)
     target = config.to_local(ctx.cfg, chapter["download_path"])
     try:
         with workflow.share_errors():
             if not errors.exists(source):
-                return f"the adopted file {file['library_path']} is missing"
+                return f"{what} {stored} is missing"
             return _link(ctx, chapter, source, target)
     except OSError as e:
-        return f"the adopted file {file['library_path']} cannot be linked as {chapter['download_path']}: {e}"
+        return f"{what} {stored} cannot be linked as {chapter['download_path']}: {e}"
 
 
 def _link(ctx: workflow.Context, chapter: db.Row, source: Path, target: Path) -> str | None:
@@ -173,3 +184,140 @@ def clean_links(cfg: config.Config, conn: db.Connection) -> None:
             log.warning("conversions: %s not removed, tried again next run: %s", entry, e)
         else:
             log.info("conversions: removed %s: no open chapter's download is in it", entry)
+
+
+class NotQueuedError(Exception):
+    """A file `rewrite rebuild` named was not queued (exit 1); each is listed with why."""
+
+
+def download_chapters(conn: db.Connection, series_id: int) -> dict[str, list[db.Row]]:
+    """Return the series' done download chapters, not dropped, by their download's stem, newest first."""
+    rows = conn.execute(
+        """SELECT id, download_path, content_digest, source, source_url, suwayomi_chapter_id FROM chapter
+        WHERE series_id = %s AND kind = 'download' AND status = 'done' AND download_path IS NOT NULL
+            AND content_digest IS NOT NULL AND coalesce(last_error, '') NOT LIKE 'dropped%%'
+        ORDER BY id DESC""",
+        (series_id,),
+    ).fetchall()
+    by_stem: dict[str, list[db.Row]] = {}
+    for r in rows:
+        by_stem.setdefault(PurePosixPath(r["download_path"]).stem, []).append(r)
+    return by_stem
+
+
+def rebuild_link_path(cfg: config.Config, file: db.Row) -> Path:
+    """Return a rebuild's link: <paths.staging>/adopted/<file id>/<its source name><its original's suffix>."""
+    suffix = PurePosixPath(file["original"]).suffix
+    return config.abs_path(cfg["paths"]["staging"]) / FOLDER / str(file["id"]) / f"{file['source_name']}{suffix}"
+
+
+# A file f of series s a rebuild may take now (SPEC "Retroactive updates"; workflow.SCOPE's parameters).
+REBUILDABLE = sql.SQL("""f.origin = 'pipeline' AND f.state = 'confirmed' AND f.joined_parts IS NULL
+    AND f.original IS NOT NULL AND NOT {busy} AND s.status = 'ok' AND {scope}""").format(
+    busy=rewrite.BUSY.format(p=sql.Identifier("f")), scope=workflow.SCOPE
+)
+
+
+def rebuild(cfg: config.Config, conn: db.Connection, file_ids: Sequence[int]) -> tuple[int, list[str]]:
+    """Give each named file a rebuild; return (queued, [listed file: why]).
+
+    Each file's share reads come first, outside any transaction; then 1 transaction re-checks it and inserts its
+    chapter. A dropped share raises Unreachable("share").
+    """
+    queued, listed, seen = 0, list[str](), set[int]()
+    for file_id in file_ids:
+        if file_id in seen:
+            listed.append(f"file {file_id}: named twice")
+            continue
+        seen.add(file_id)
+        why = _rebuild_one(cfg, conn, file_id)
+        if why is None:
+            queued += 1
+        else:
+            listed.append(f"file {file_id}: {why}")
+    if queued:
+        log.info("rebuilds: %d queued", queued)
+    return queued, listed
+
+
+def _rebuild_one(cfg: config.Config, conn: db.Connection, file_id: int) -> str | None:
+    """Queue 1 file's rebuild; return None when queued, else why not."""
+    file = conn.execute("SELECT * FROM published_file WHERE id = %s", (file_id,)).fetchone()
+    why = None if file is None else _lasting(file)
+    if file is None or why is not None:
+        return why or "no such published file"
+    original = config.to_local(cfg, file["original"])
+    with workflow.share_errors():
+        if not errors.exists(original):
+            return f"its original {file['original']} is no longer in retention"
+        number = comicinfo.download_number(original)
+    parsed = names.identity(names.parse(file["source_name"], number))
+    if parsed != file["identity"]:
+        return f"its identity {file['identity']} would be parsed as {parsed} (first published from a re-download)"
+    named = [
+        c
+        for c in download_chapters(conn, file["series_id"]).get(file["source_name"], [])
+        if c["source"] == file["source"]
+    ]
+    chapter = named[0] if named else None
+    params: dict[str, object] = {**workflow.scope_params(cfg), "file": file_id, "original": file["original"]}
+    with db.transaction(conn):
+        ok = conn.execute(
+            sql.SQL("""SELECT 1 FROM published_file f JOIN series s ON s.id = f.series_id
+            WHERE f.id = %(file)s AND f.original = %(original)s AND {rebuildable}""").format(rebuildable=REBUILDABLE),
+            params,
+        ).fetchone()
+        if ok is None:
+            return _passing(cfg, conn, file_id)
+        new = workflow.NewChapter(
+            file["series_id"],
+            file["identity"],
+            config.to_stored(cfg, rebuild_link_path(cfg, file)),
+            suwayomi_chapter_id=None if chapter is None else chapter["suwayomi_chapter_id"],
+            source=file["source"],
+            source_url=None if chapter is None else chapter["source_url"],
+            published_file_id=file_id,
+        )
+        if workflow.add_chapter(conn, new) is None:
+            return "queued"
+    return None
+
+
+def _lasting(file: db.Row) -> str | None:
+    """Return why a file can never be rebuilt as it is, else None."""
+    if file["origin"] != "pipeline":
+        return f"origin {file['origin']}: only a pipeline file is rebuilt"
+    if file["state"] != "confirmed":
+        return "not confirmed yet"
+    if file["joined_parts"] is not None:
+        return "a joined file: no single original"
+    if file["original"] is None:
+        return "no original recorded"
+    if file["source_name"] is None:
+        return "no source name recorded: its download's name is unknown"
+    return None
+
+
+def _passing(cfg: config.Config, conn: db.Connection, file_id: int) -> str:
+    """Return why a file a rebuild could take is not taken now (its row re-read in the caller's transaction)."""
+    row = conn.execute(
+        sql.SQL("""SELECT f.*, s.status AS series_status, {scope} AS in_scope,
+            EXISTS (SELECT 1 FROM chapter c WHERE c.published_file_id = f.id AND c.status <> 'done'
+                AND {rebuild}) AS rebuilding,
+            {busy} AS busy
+        FROM published_file f JOIN series s ON s.id = f.series_id WHERE f.id = %(file)s""").format(
+            scope=workflow.SCOPE,
+            rebuild=workflow.REBUILD.format(c=sql.Identifier("c")),
+            busy=rewrite.BUSY.format(p=sql.Identifier("f")),
+        ),
+        {**workflow.scope_params(cfg), "file": file_id},
+    ).fetchone()
+    if row is None:  # a join removed it since it was read
+        return "no such published file"
+    if row["rebuilding"]:
+        return "queued"
+    if row["series_status"] != "ok" or not row["in_scope"]:
+        return f"its series is {row['series_status']}" if row["in_scope"] else "its series is out of scope"
+    if row["busy"]:
+        return "busy"
+    return _lasting(row) or "changed since it was read: name it again"
