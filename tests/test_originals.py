@@ -265,3 +265,32 @@ def test_the_backfill_waits_for_no_part(world, tmp_path):
     path = str(config_file(tmp_path, world.cfg))
     with running(world.cfg, "intake"):
         assert record_originals.main(["--config", path]) == 3
+
+
+@budget(load="db", seconds=20)
+def test_the_backfill_lists_a_file_2_chapters_could_name(world, tmp_path, capsys):
+    confirmed_chapter_3(world)
+    world.rows("UPDATE published_file SET original = NULL WHERE library_path LIKE '%%Ch.3.cbz' RETURNING id")
+    world.rows(  # a done, undropped chapter of the same download name: a given-up copy, say
+        """INSERT INTO chapter (series_id, kind, identity, number, download_path, stage, status, content_digest,
+            discovered_at, updated_at)
+        SELECT series_id, kind, identity, number, download_path, stage, status, content_digest, discovered_at,
+            updated_at
+        FROM chapter WHERE kind = 'download' RETURNING id"""
+    )
+    path = str(config_file(tmp_path, world.cfg))
+    assert record_originals.main(["--config", path]) == 1
+    assert "2 done download chapters named" in capsys.readouterr().out, "listed, never guessed"
+    assert file_row(world, "Ch.3.cbz")["original"] is None, "nothing recorded"
+
+
+@budget(load="db", seconds=20)
+def test_the_backfill_lists_a_file_whose_download_is_not_in_retention(world, tmp_path, capsys):
+    confirmed_chapter_3(world)
+    kept = kept_file(world, file_row(world, "Ch.3.cbz")["original"])
+    world.rows("UPDATE published_file SET original = NULL WHERE library_path LIKE '%%Ch.3.cbz' RETURNING id")
+    kept.unlink()  # purged
+    path = str(config_file(tmp_path, world.cfg))
+    assert record_originals.main(["--config", path]) == 1
+    assert "download is not in retention" in capsys.readouterr().out
+    assert file_row(world, "Ch.3.cbz")["original"] is None
