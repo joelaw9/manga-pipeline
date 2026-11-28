@@ -100,8 +100,11 @@ def scan_pages(pages: Extracted, uniform: Sequence[bool], aspects: Sequence[floa
     return page_units.scan(pages.paths, pages.names, pages.sizes, uniform, aspects)
 
 
+SEEN_KINDS = ("block", "page", "frame", "band")  # the kinds seen_units records
+
+
 def seen_units(sc: Scan) -> list[tuple[str, str]]:
-    """Return the units [(kind, key)] a scan records as seen in its chapter (junk_seen)."""
+    """Return the units [(kind, key)] a scan records as seen in its chapter (junk_seen), of SEEN_KINDS."""
     if sc["layout"] == "strip":
         return [("block", b["sig"]) for b in sc["blocks"]]
     if sc["split"] is True:

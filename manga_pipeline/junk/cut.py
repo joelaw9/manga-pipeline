@@ -30,7 +30,7 @@ from PIL import Image, ImageDraw
 from manga_pipeline import archive, config, db, errors, images, page_store, retention, strip, workflow
 from manga_pipeline.db import sql
 from manga_pipeline.junk import anchored as an
-from manga_pipeline.junk import chains, chapter_scan, groups, review, sheet_draw, store, strip_units
+from manga_pipeline.junk import candidates, chains, chapter_scan, groups, review, sheet_draw, store, strip_units
 from manga_pipeline.junk.sheet_draw import BAR_X, FONT_PX, LABEL_X, RED, SheetPage
 from manga_pipeline.replies import Json
 from manga_pipeline.stages import junk as junk_stage
@@ -40,6 +40,7 @@ type Kind = Literal["cut", "keep"]
 type Colour = tuple[int, int, int]
 type Mark = tuple[int, int, Colour, int]
 type Decided = strip_units.StripDecision
+type UnitMark = tuple[int, int, int]  # a span sheet's marked unit: rows [start, end) and its candidate's id
 
 NEW_ROW = 10**12  # the proposed decision's id in a decide: the newest of all (the bulk converter's NEW_ROW)
 NEW_ADDED = "9999-12-31T23:59:59+00:00"  # its decided_at there (NEW_ADDED)
@@ -56,11 +57,12 @@ SCRATCH = "junk-cut"  # <paths.scratch>/junk-cut/<pid>/: a call's sheets (outsid
 SCRATCH_AGE = 86400  # s: an earlier call's scratch folder older than this is removed at the next call
 RULER_W = 64  # span sheet: the row ruler's column (px), a row number every RULER_STEP rows
 RULER_STEP = 100
+MARK_W = 5  # span sheet: a marked unit's green bar in the ruler (px)
 # span sheet: the span labels' column is LABEL_LANES lanes (so near spans' labels do not overlap), then 1 lane of the
 # removed ranges' labels (sheet_draw)
 LABEL_LANES = 3
 TOKEN_PARTS = 3  # CHAPTER:START:END
-REGION_ARGS = 2  # --spans CHAPTER head|tail
+REGION_ARGS = 2  # --spans CHAPTER head|tail, or CHAPTER A:B
 UNIT_KINDS = ("block", "probe")  # the candidates --spans ID and --edge take (strip units with an edge)
 DRAWN = ("cut", "card")  # why a range the proposed decision removes is listed: its cut or its card
 
@@ -1035,6 +1037,18 @@ def _span_sheets(s: Strip, window: strip.Rows, decided: Decided, dest: Path, ste
     (END exclusive: the range to name), the rows removed (merged) washed grey and labelled `removed START:END`, the
     seeds in the window marked in red (one at the window's end on its last row). Return their paths.
     """
+    return _save_sheets(_drawn_sheets(s, window, decided), dest, stem)
+
+
+class SpanSheet(NamedTuple):
+    """1 span sheet drawn: the strip rows it shows (its SheetPage) and its image."""
+
+    page: SheetPage
+    image: Image.Image
+
+
+def _drawn_sheets(s: Strip, window: strip.Rows, decided: Decided) -> list[SpanSheet]:
+    """Draw the span sheets of strip rows `window` as `decided` leaves it (_span_sheets), not yet saved."""
     lo, hi = window
     lane, removed_lane = lane_widths(s.layout.height)
     labels = LABEL_LANES * lane + removed_lane
@@ -1045,7 +1059,7 @@ def _span_sheets(s: Strip, window: strip.Rows, decided: Decided, dest: Path, ste
     seeds = _in_window(decided["seeds"], window)
     removed = an.merged((r["start"], r["end"]) for r in decided["removed"])
     font = sheet_draw.font()
-    out: list[Path] = []
+    out: list[SpanSheet] = []
     starts = list(range(lo, hi, per))
     for n, a in enumerate(starts, 1):
         b = min(hi, a + per)
@@ -1064,8 +1078,34 @@ def _span_sheets(s: Strip, window: strip.Rows, decided: Decided, dest: Path, ste
             draw.line((RULER_W, pg.y(sd["pos"]), RULER_W + img_w - 1, pg.y(sd["pos"])), fill=RED, width=2)
             label = f"seed {sd['side']} {sd['pos']} ({sd['kind']})"
             draw.text((RULER_W + 4, max(0, pg.y(sd["pos"]) - FONT_PX - 2)), label, fill=RED, font=font)
+        out.append(SpanSheet(pg, sheet))
+    return out
+
+
+def _marked(sheets: Sequence[SpanSheet], marks: Sequence[UnitMark]) -> None:
+    """Mark each unit of `marks` (in row order) on the sheets showing it: a green bar in the ruler, its candidate id.
+
+    An id starts below the one before it, so the ids of units starting near each other do not overlap.
+    """
+    font = sheet_draw.font()
+    for sh in sheets:
+        draw = ImageDraw.Draw(sh.image)
+        below = 0
+        for a, b, candidate in (m for m in marks if sh.page.shows((m[0], m[1]))):
+            top = sh.page.y(max(a, sh.page.a))
+            draw.rectangle((RULER_W - MARK_W, top, RULER_W - 1, max(top, sh.page.bottom(b))), fill=GREEN)
+            y, below = sheet_draw.stacked(sh.page, top, below)
+            at = (2, y)
+            draw.rectangle(draw.textbbox(at, f"#{candidate}", font=font), fill="white")
+            draw.text(at, f"#{candidate}", fill=GREEN, font=font)
+
+
+def _save_sheets(sheets: Sequence[SpanSheet], dest: Path, stem: str) -> list[Path]:
+    """Save drawn span sheets as `<stem>-<n>.png` in dest; return their paths."""
+    out: list[Path] = []
+    for n, sh in enumerate(sheets, 1):
         path = dest / f"{stem}-{n}.png"
-        images.save_png(sheet, path)
+        images.save_png(sh.image, path)
         out.append(path)
     return out
 
@@ -1083,27 +1123,16 @@ def _in_window(seeds: Sequence[an.Seed], window: strip.Rows) -> list[an.Seed]:
 
 
 def spans(cfg: config.Config, values: Sequence[str], review_id: str | None) -> list[str]:
-    """`junk cut --spans ID` or `--spans CHAPTER head|tail`: draw span sheets; return the lines to print."""
+    """`junk cut --spans ID`, `--spans CHAPTER head|tail` or `--spans CHAPTER A:B`: draw span sheets; return lines."""
     with _workspace(cfg) as work:
         if len(values) == 1 and values[0].isdecimal():
             return _candidate_spans(cfg, int(values[0]), review_id, work)
         if len(values) == REGION_ARGS and values[0].isdecimal() and values[1] in ("head", "tail"):
             return _region_spans(cfg, int(values[0]), values[1], review_id, work)
-    msg = f"--spans {' '.join(values)}: not ID or CHAPTER head|tail"
+        if len(values) == REGION_ARGS and values[0].isdecimal() and (rows := _rows_arg(values[1])) is not None:
+            return _window_spans(cfg, int(values[0]), rows, review_id, work)
+    msg = f"--spans {' '.join(values)}: not ID, CHAPTER head|tail or CHAPTER A:B"
     raise workflow.Refused(msg)
-
-
-def _candidate_units(sc: strip_units.StripScan, key: str) -> list[strip.Rows]:
-    """Return the scan's strip units (edge blocks, their pieces and remainders) whose signature matches key, sorted."""
-    want = images.sig_from_str(key)
-    units: list[tuple[int, int, str]] = []
-    for b in sc["blocks"]:
-        units.append((b["start"], b["end"], b["sig"]))
-        for j in b["joins"]:
-            units.append((j["start"], j["end"], j["sig"]))
-            if j["rest"] is not None:
-                units.append((j["rest"]["start"], j["rest"]["end"], j["rest"]["sig"]))
-    return sorted({(a, b) for a, b, sig in units if images.matches(want, images.sig_from_str(sig))})
 
 
 def _candidate_spans(cfg: config.Config, candidate: int, review_id: str | None, work: Path) -> list[str]:
@@ -1119,7 +1148,7 @@ def _candidate_spans(cfg: config.Config, candidate: int, review_id: str | None, 
     if s is None:
         msg = f"junk candidate {candidate}: no chapter waiting on it has a current strip scan and a usable download"
         raise workflow.Refused(msg)
-    units = _candidate_units(s.scan, cand["key"])
+    units = strip_units.matching_units(s.scan, cand["key"])
     if not units:
         msg = f"junk candidate {candidate}: no unit of chapter {s.row['id']} matches its key"
         raise workflow.Refused(msg)
@@ -1135,6 +1164,53 @@ def _candidate_spans(cfg: config.Config, candidate: int, review_id: str | None, 
         stem = f"spans-{s.row['id']}-{a}-{b}"
         lines += [f"sheet: {p}" for p in _span_sheets(s, window, decided, dest, stem)]
     return lines
+
+
+def _rows_arg(text: str) -> strip.Rows | None:
+    """Return strip rows `A:B` (A < B, whole numbers) as (A, B), else None."""
+    first, sep, last = text.partition(":")
+    if not (sep and first.isdecimal() and last.isdecimal()) or int(first) >= int(last):
+        return None
+    return int(first), int(last)
+
+
+def _window_spans(cfg: config.Config, chapter: int, rows: strip.Rows, review_id: str | None, work: Path) -> list[str]:
+    """Draw a strip chapter's rows A:B (at most EDGE_PX, clamped to the strip), its seeds there marked.
+
+    Each unit in the window matching an open block or probe candidate of its series (strip_units.matching_units) is
+    marked with its candidate id.
+    """
+    if rows[1] - rows[0] > strip_units.EDGE_PX:
+        msg = f"--spans {chapter} {rows[0]}:{rows[1]}: at most {strip_units.EDGE_PX} rows at a time"
+        raise workflow.Refused(msg)
+    with _snapshot(cfg) as conn:
+        series = _in_review_scope(conn, _series_of(conn, [chapter]), [chapter], review_id)
+        inp = _inputs(conn, series, [chapter])
+        key = store.series_key(series)
+        open_units = [
+            (r["id"], r["key"])
+            for r in candidates.open_rows(conn)
+            if r["series_key"] == key and r["kind"] in UNIT_KINDS
+        ]
+    s = _named_strip(cfg, inp, chapter, work)
+    window = (min(rows[0], s.layout.height), min(rows[1], s.layout.height))
+    if window[0] >= window[1]:
+        msg = f"chapter {chapter}: rows {rows[0]}:{rows[1]} lie past its strip's end ({s.layout.height} rows)"
+        raise workflow.Refused(msg)
+    marks = sorted(
+        (a, b, int(cid))
+        for cid, unit_key in open_units
+        for a, b in strip_units.matching_units(s.scan, unit_key)
+        if b > window[0] and a < window[1]
+    )
+    sheets = _drawn_sheets(s, window, _decide(s, _rules(inp)))
+    _marked(sheets, marks)
+    saved = _save_sheets(sheets, _sheet_folder(cfg, review_id, work), f"spans-{chapter}-{window[0]}-{window[1]}")
+    return [
+        f"chapter {chapter}: rows {window[0]}:{window[1]} of {s.layout.height}",
+        *(f"candidate {cid}: unit {a}:{b}" for a, b, cid in marks),
+        *(f"sheet: {p}" for p in saved),
+    ]
 
 
 def _region_spans(cfg: config.Config, chapter: int, region: str, review_id: str | None, work: Path) -> list[str]:
