@@ -26,7 +26,7 @@ import pytest
 from PIL import Image, ImageFont
 
 from manga_pipeline import cli, config, db, process, retention
-from manga_pipeline.junk import anchored, chains, cut, groups, ocr, review, store
+from manga_pipeline.junk import anchored, chains, cut, groups, ocr, review, sheet_draw, store
 
 from tests.builders import config_file, present, run_part
 from tests.test_junk_stage import KEYWORD_TEXT, Site, edits, imported, panels_cbz, strip_logo_cbz
@@ -832,7 +832,7 @@ def test_span_sheets_wash_the_removed_rows_grey_and_leave_the_kept_rows(site, ru
         sheet = np.asarray(im.convert("RGB"), np.int16)
     cols = slice(300, 700)  # right of the seed labels drawn on the image
     shown = sheet[:, cut.RULER_W + cols.start : cut.RULER_W + cols.stop]
-    washed = (strip[240, cols] + np.array(cut.GREY)) / 2
+    washed = (strip[240, cols] + np.array(sheet_draw.GREY)) / 2
     assert np.abs(shown[240] - washed).max() <= 1, "a removed row (a notice line) is washed half grey"
     assert (shown[105] == strip[105, cols]).all(), "a kept row (a credit line) is drawn as it is"
     assert (shown[20] == strip[20, cols]).all(), "a kept row above the removal too"
@@ -861,11 +861,11 @@ def test_span_sheets_name_each_removed_range_in_its_lane(site, run):
 def test_a_6_digit_strips_span_label_fits_its_lane_in_the_last_lane():
     height = 123456
     lane, removed_lane = cut.lane_widths(height)
-    font = ImageFont.load_default(size=cut.FONT_PX)  # the font the sheets draw with
+    font = ImageFont.load_default(size=sheet_draw.FONT_PX)  # the font the sheets draw with
     column = cut.LABEL_LANES * lane + removed_lane
-    last_span = (cut.LABEL_LANES - 1) * lane + cut.LABEL_X + font.getlength(f"{height}:{height}")
+    last_span = (cut.LABEL_LANES - 1) * lane + sheet_draw.LABEL_X + font.getlength(f"{height}:{height}")
     assert last_span <= cut.LABEL_LANES * lane, "a span label ends inside its lane, the last lane's too"
-    last = cut.LABEL_LANES * lane + cut.LABEL_X + font.getlength(f"removed {height}:{height}")
+    last = cut.LABEL_LANES * lane + sheet_draw.LABEL_X + font.getlength(f"removed {height}:{height}")
     assert last <= column, "a removed range's label ends inside the label column"
 
 

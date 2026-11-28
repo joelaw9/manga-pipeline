@@ -422,6 +422,23 @@ def test_a_first_chapter_unit_with_no_other_reason_is_no_candidate(conn):
 
 
 @budget(load="db")
+def test_a_block_near_a_junk_decision_cites_it(conn):
+    put(conn, decision("S", "block", sig(), "junk"))
+    decided = one(conn, "SELECT id FROM junk_decision")
+    block: strip_units.BlockUnit = {
+        "kind": "block",
+        "sig": sig((flip(T, 7),)),
+        "start": 0,
+        "end": 300,
+        "where": "head",
+        "probes": [],
+    }
+    (pick,) = candidates.select(conn, "S", [block], word_lists())
+    assert pick["reason"].startswith(f"near decision {decided} "), pick
+    assert pick.get("cited") == [decided], "the decision its reason names, by id"
+
+
+@budget(load="db")
 def test_the_rest_of_a_block_whose_edge_piece_is_junk_is_offered(conn):
     rest: strip_units.BlockUnit = {
         "kind": "block",

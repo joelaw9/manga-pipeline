@@ -18,7 +18,19 @@ from manga_pipeline import cli, config, db, errors, export, identify, intake, pr
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.convert import plan
-from manga_pipeline.junk import anchored, candidates, chains, chapter_scan, logo_units, ocr, redecide, review, store
+from manga_pipeline.junk import (
+    anchored,
+    candidates,
+    chains,
+    chapter_scan,
+    groups,
+    logo_units,
+    ocr,
+    redecide,
+    review,
+    sheet_draw,
+    store,
+)
 from manga_pipeline.metadata import sources
 from manga_pipeline.stages import convert as convert_stage
 from manga_pipeline.stages import junk as junk_stage
@@ -388,6 +400,92 @@ def test_a_strip_chapter_whose_junk_would_leave_too_little_needs_a_human(site, m
     assert status == "needs_human", "a removal that would leave too little: a person decides"
     assert "junk removal would leave" in reason, reason
     assert waited_on == 0, "that first decide counts in the junk refill, with no candidate"
+
+
+def candidate_files(site, row):
+    """Return an open candidate's info.json and its context image (RGB)."""
+    dest = candidates.folder(site.cfg, row["folder"])
+    return candidates.read_info(dest), Image.open(dest / "context.png").convert("RGB")
+
+
+@budget(load="db", seconds=30)
+def test_a_strip_candidates_context_shows_700_rows_each_side_with_a_red_bar_on_its_rows(site, monkeypatch):
+    monkeypatch.setattr(ocr, "text", lambda _im, _device: KEYWORD_TEXT)
+    site.world.kavita_series("Long", layout="strip")
+    site.mangas["Long"] = site.world.manga("Long")
+    site.download("Long", 2, strip_cbz("c2"))
+    site.parts()
+    ((chapter_id,),) = site.rows("SELECT id FROM chapter")
+    got = open_candidates(site)
+    assert got, "the keyword blocks are offered"
+    windows = []
+    for row in got:
+        info, context = candidate_files(site, row)
+        pos = present(info.get("position"))
+        start, end = present(pos.get("rows"))
+        lo, hi = max(0, start - 700), min(3600, end + 700)
+        windows.append(hi - lo)
+        where = pos.get("where")
+        assert (info.get("chapter"), where in {"head", "tail"}, pos.get("height")) == (chapter_id, True, 3600), info
+        scale = min(1.0, groups.SHEET_LONG_EDGE / (hi - lo))  # a narrow strip: only its length scales it
+        pg = sheet_draw.SheetPage(lo, hi, scale, round((hi - lo) * scale))
+        assert context.height == pg.height, "700 rows above and below the unit, clamped at the strip's ends"
+        bar = [y for y in range(context.height) if context.getpixel((junk_stage.BAR_LANE // 2, y)) == sheet_draw.RED]
+        assert bar == list(range(pg.y(start), pg.bottom(end) + 1)), "the red bar beside exactly the unit's rows"
+        assert info.get("cited") == [], "a keyword reason cites no decision"
+    assert min(windows) < 3600, "the context is a window of the strip, not the whole strip"
+
+
+@budget()
+def test_a_strip_context_washes_and_labels_each_removed_range_and_fits_the_reader():
+    colour = (50, 150, 250)
+    removed: list[candidates.Removed] = [
+        {"start": 1100, "end": 1200, "why": "match", "decision": 42},
+        {"start": 2000, "end": 2050, "why": "blank"},
+    ]
+    labels = [junk_stage.removed_label(r) for r in removed]
+    assert labels == ["removed 1100:1200 decision 42", "removed 2000:2050 blank"], "a decision's id, else its rule"
+    out = junk_stage.strip_context(Image.new("RGB", (300, 1400), colour), (1000, 2400), (1700, 1800), removed)
+    lane = junk_stage.BAR_LANE
+    assert out.size == (lane + 300 + sheet_draw.lane_width(labels), 1400), "bar lane, strip 1:1, label lane"
+    washed = tuple(round((c + g) / 2) for c, g in zip(colour, sheet_draw.GREY, strict=True))
+    for row, want in ((1150, washed), (2020, washed), (1300, colour), (1650, colour)):
+        got = np.asarray(out)[row - 1000, lane + 150].tolist()
+        assert all(abs(a - b) <= 1 for a, b in zip(got, want, strict=True)), (row, got, want)
+    label_lane = out.crop((lane + 300, 100, out.width, 200))
+    assert sheet_draw.GREY in {c for _, c in present(label_lane.getcolors(10000))}, "the decision range is labelled"
+    tall = junk_stage.strip_context(Image.new("RGB", (900, 4400), colour), (0, 4400), (700, 3700), [])
+    assert tall.width <= candidates.UNIT_WIDTH, tall.size
+    assert tall.height <= groups.SHEET_LONG_EDGE, tall.size
+    assert tall.width * tall.height <= groups.SHEET_PIXELS, "drawn at the size the reader is sent: not scaled again"
+    reds = [x for x in range(lane) if tall.getpixel((x, tall.height // 2)) == sheet_draw.RED]
+    assert len(reds) >= 4, "the bar is at least 4 px wide where the reader sees it"
+    labelled = junk_stage.strip_context(Image.new("RGB", (980, 1500), colour), (0, 1500), (100, 400), removed[:1])
+    assert labelled.width <= candidates.UNIT_WIDTH, labelled.size
+    assert labelled.width * labelled.height <= groups.SHEET_PIXELS, "the label lane counts in the pixels, unscaled"
+
+
+@budget(load="pool", seconds=60)
+def test_a_page_candidates_context_boxes_its_page_and_a_bands_context_its_band(site):
+    data = band_cbz("e2", on=0)
+    site.download("Alpha", 2, data)
+    site.parts()
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        page_h = Image.open(io.BytesIO(z.read("001.png"))).height
+    got = open_candidates(site)
+    assert sorted(c["kind"] == "band" for c in got) == [False, True], "the edge page and its band are both offered"
+    for row in got:
+        info, context = candidate_files(site, row)
+        assert context.width <= candidates.UNIT_WIDTH, "drawn 1:1, so the box is where it is drawn"
+        pos = present(info.get("position"))
+        assert pos.get("page") == 0, pos
+        if row["kind"] == "band":
+            x0, y0, x1, y1 = (round(v * 800 / page_h) for v in present(pos.get("box")))
+            assert pos.get("where") in {"top", "bottom"}, pos
+            assert context.getpixel(((x0 + x1) // 2, y0 + 1)) == sheet_draw.RED, "the band's top edge boxed red"
+            assert context.getpixel(((x0 + x1) // 2, y1 - 2)) == sheet_draw.RED, "and its bottom edge"
+        else:
+            assert context.getpixel((1, 400)) == sheet_draw.RED, "the unit's page boxed red among its neighbours"
 
 
 @budget(load="db", seconds=10)
