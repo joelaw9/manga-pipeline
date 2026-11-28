@@ -13,7 +13,7 @@ from manga_pipeline.junk import redecide
 from tests.builders import config_file
 from tests.test_better_copies import SERIES, library, pages, through
 from tests.test_conversions import SERIES as ADOPTED
-from tests.test_conversions import adopt, set_cap
+from tests.test_conversions import adopt, archive_of, png, set_cap
 from tests.test_rewrites import scan
 from tests.timing import budget
 from tests.world import World, cbz, decide_junk
@@ -64,12 +64,13 @@ KEPT = ("identity", "source", "source_name", "kind", "library_path")
 
 
 @budget(load="db", seconds=30)
-def test_a_rebuild_replaces_the_file_from_its_original_keeping_its_name_source_and_identity(world):
-    before = published(world)
+@pytest.mark.parametrize("name", ["Chapter 3", "Season 2 Chapter 3"], ids=["plain", "season-2"])
+def test_a_rebuild_replaces_the_file_from_its_original_keeping_its_name_source_and_identity(world, name):
+    before = published(world, name)
     xml = fields(world, before)
-    assert rebuild(world, before["id"]) == (1, []), "queued"
+    assert rebuild(world, before["id"]) == (1, []), "queued: the identity parsed again, its season included"
     ((path,),) = world.rows("SELECT download_path FROM chapter WHERE status <> 'done'")
-    assert path == f"staging/adopted/{before['id']}/Chapter 3.cbz", "the link is named as the download was"
+    assert path == f"staging/adopted/{before['id']}/{name}.cbz", "the link is named as the download was"
     run_rebuild(world)
     after = file_row(world, before["id"])
     assert {k: after[k] for k in KEPT} == {k: before[k] for k in KEPT}, "the row keeps the file's own fields"
@@ -82,6 +83,7 @@ def test_a_rebuild_replaces_the_file_from_its_original_keeping_its_name_source_a
     now = fields(world, after)
     assert (now.get("Notes"), now.get("Web")) == (xml.get("Notes"), xml.get("Web")), "its source and URL kept"
     assert world.rows("SELECT count(*) FROM chapter WHERE status <> 'done'") == [(0,)], "nothing left open"
+    assert "rebuild(s) open" not in "\n".join(_report(world)), "a done rebuild is not counted open"
 
 
 @budget(load="db", seconds=40)
@@ -145,6 +147,7 @@ def test_each_file_a_rebuild_cannot_take_is_listed_and_the_rest_queued(world):
         ("UPDATE published_file SET state = 'unconfirmed' WHERE id = %s", "not confirmed yet"),
         ("UPDATE published_file SET joined_parts = 2 WHERE id = %s", "a joined file: no single original"),
         ("UPDATE published_file SET original = NULL WHERE id = %s", "no original recorded"),
+        ("UPDATE published_file SET source_name = NULL WHERE id = %s", "no source name recorded"),
         ("UPDATE published_file SET pending_error = 'stuck' WHERE id = %s", "busy"),
         (
             "UPDATE series SET status = 'needs_human' WHERE id = (SELECT series_id FROM published_file WHERE id = %s)",
@@ -152,7 +155,7 @@ def test_each_file_a_rebuild_cannot_take_is_listed_and_the_rest_queued(world):
         ),
         ('UPDATE published_file SET identity = \'["", null, "", "7", ""]\' WHERE id = %s', "would be parsed as"),
     ],
-    ids=["unconfirmed", "joined", "no-original", "busy", "series", "identity"],
+    ids=["unconfirmed", "joined", "no-original", "no-source-name", "busy", "series", "identity"],
 )
 def test_a_file_a_rebuild_cannot_take_now_is_listed_with_why(world, change, why):
     row = published(world)
@@ -289,3 +292,64 @@ def test_rewrite_rebuild_lists_and_exits_1_and_needs_the_share(world, tmp_path, 
     assert "file 999999: no such published file" in out
     shutil.rmtree(config.abs_path(world.cfg["paths"]["retention"]))
     assert cli.main(["--config", path, "rewrite", "rebuild", str(row["id"])]) == 4, "the share folders are checked"
+
+
+@budget(load="db", seconds=30)
+def test_a_file_of_a_series_out_of_scope_is_listed(world):
+    row = published(world)
+    world.cfg["series"]["only"] = ["Another Series"]
+    assert rebuild(world, row["id"]) == (0, [f"file {row['id']}: its series is out of scope"])
+
+
+@budget(load="db", seconds=30)
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [
+        (
+            (
+                "UPDATE chapter SET published_file_id = NULL WHERE published_file_id = %(id)s",
+                "DELETE FROM published_file WHERE id = %(id)s",
+            ),
+            "no such published file",
+        ),
+        (("UPDATE published_file SET pending_error = 'stuck' WHERE id = %(id)s",), "busy"),
+    ],
+    ids=["removed-by-a-join", "busy"],
+)
+def test_a_file_changed_while_its_original_is_read_is_listed(world, monkeypatch, change, why):
+    row = published(world)
+    read = comicinfo.download_number
+
+    def changing(path):
+        with closing(db.connect(world.cfg)) as other:
+            for statement in change:
+                other.execute(statement, {"id": row["id"]})
+        return read(path)
+
+    monkeypatch.setattr(comicinfo, "download_number", changing)
+    assert rebuild(world, row["id"]) == (0, [f"file {row['id']}: {why}"]), "re-checked in its own transaction"
+
+
+@budget(load="db", seconds=30)
+def test_a_rebuild_downloaded_again_at_validate_tries_its_own_suwayomi_chapter_and_is_a_better_copy_then(world):
+    row = published(world)
+    ((suwayomi_id,),) = world.rows("SELECT suwayomi_chapter_id FROM chapter WHERE id = 1")
+    pages_ = {f"{i:03}.png": png((40 * i, 90, 120)) for i in range(1, 5)}
+    config.to_local(world.cfg, row["original"]).write_bytes(archive_of({**pages_, "005.png": b""}))
+    assert rebuild(world, row["id"]) == (1, [])
+    world.run(intake)
+    ((chapter_id, stage_, waiting),) = world.rows(
+        "SELECT id, stage, waiting_on FROM chapter WHERE status <> 'done' AND published_file_id = %s", row["id"]
+    )
+    assert (stage_, waiting) == ("validate", "suwayomi_download"), "set up: its original is rejected"
+    assert [e["chapter"] for e in world.suwayomi.queue] == [suwayomi_id], "its own Suwayomi chapter first"
+    world.suwayomi.finish_downloads(pages(16, 4, "Chapter 3"))
+    world.run(intake)
+    rows = world.rows(
+        sql.SQL("SELECT {adopted}, {rebuild} FROM chapter c WHERE id = %s").format(
+            adopted=workflow.REPLACES_ADOPTED.format(c=sql.Identifier("c")),
+            rebuild=workflow.REBUILD.format(c=sql.Identifier("c")),
+        ),
+        chapter_id,
+    )
+    assert rows == [(False, False)], "its new download makes it a better copy: no longer a rebuild"

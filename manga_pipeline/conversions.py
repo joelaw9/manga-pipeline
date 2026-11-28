@@ -191,10 +191,7 @@ class NotQueuedError(Exception):
 
 
 def download_chapters(conn: db.Connection, series_id: int) -> dict[str, list[db.Row]]:
-    """Return the series' done download chapters, not dropped, by their download's stem, newest first.
-
-    A rebuild takes the newest of its file's source; the backfill of originals takes the 1 there is.
-    """
+    """Return the series' done download chapters, not dropped, by their download's stem, newest first."""
     rows = conn.execute(
         """SELECT id, download_path, content_digest, source, source_url, suwayomi_chapter_id FROM chapter
         WHERE series_id = %s AND kind = 'download' AND status = 'done' AND download_path IS NOT NULL
@@ -296,13 +293,14 @@ def _lasting(file: db.Row) -> str | None:
         return "a joined file: no single original"
     if file["original"] is None:
         return "no original recorded"
+    if file["source_name"] is None:
+        return "no source name recorded: its download's name is unknown"
     return None
 
 
 def _passing(cfg: config.Config, conn: db.Connection, file_id: int) -> str:
     """Return why a file a rebuild could take is not taken now (its row re-read in the caller's transaction)."""
-    row = db.one_row(  # the file was read before: rows are never deleted
-        conn,
+    row = conn.execute(
         sql.SQL("""SELECT f.*, s.status AS series_status, {scope} AS in_scope,
             EXISTS (SELECT 1 FROM chapter c WHERE c.published_file_id = f.id AND c.status <> 'done'
                 AND {rebuild}) AS rebuilding,
@@ -313,7 +311,9 @@ def _passing(cfg: config.Config, conn: db.Connection, file_id: int) -> str:
             busy=rewrite.BUSY.format(p=sql.Identifier("f")),
         ),
         {**workflow.scope_params(cfg), "file": file_id},
-    )
+    ).fetchone()
+    if row is None:  # a join removed it since it was read
+        return "no such published file"
     if row["rebuilding"]:
         return "queued"
     if row["series_status"] != "ok" or not row["in_scope"]:

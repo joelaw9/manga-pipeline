@@ -65,7 +65,8 @@ _ADOPTED_FILE = """EXISTS (SELECT 1 FROM published_file adopted_file
 # after every other chapter; it holds back only other such chapters in the claim gates. Fill {c} with
 # sql.Identifier(alias).
 REPLACES_ADOPTED = sql.SQL(f"({_ADOPTED_FILE} OR {_LINKED})")
-# A rebuild {c} (SPEC "Retroactive updates"): its download is a link of a file not of origin library.
+# A rebuild {c} (SPEC "Retroactive updates"): its download is a link of a file not of origin library. A done
+# conversion matches too (its file is of origin pipeline once replaced): read it with an open-chapter filter.
 REBUILD = sql.SQL(f"({_LINKED} AND NOT {_ADOPTED_FILE})")
 # A chapter {c} that failed less than RETRY_PAUSE ago is claimed by no machine (SPEC "Chapter stages"). Fill {c} with
 # sql.Identifier(alias).
