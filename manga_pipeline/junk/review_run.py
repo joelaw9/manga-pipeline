@@ -304,10 +304,12 @@ def contexts(lines: list[ClaudeReply]) -> str:
 
 
 def acts(lines: list[ClaudeReply], prefix: str) -> str:
-    """Return the images Claude read and the `show` calls it ran, from its assistant lines (a run cut short has them).
+    """Return the images Claude read and the candidates its `show` calls named, from its assistant lines.
 
-    Each tool use counts once by its id: a message's content blocks arrive as lines sharing the message's id, and 1
-    message may hold several tool uses. A `show` call is a Bash command starting with the review's own `show`.
+    A run cut short has them too. Each tool use counts once by its id: a message's content blocks arrive as lines
+    sharing the message's id, and 1 message may hold several tool uses. A `show` call is a Bash command starting with
+    the review's own `show`; its candidates are the arguments that are whole numbers, as `junk show` reads them (1 call
+    may name several; a candidate named again counts once; a call whose quoting does not parse names none).
     """
     uses: dict[str, ContentBlock] = {}
     for line in lines:
@@ -320,12 +322,19 @@ def acts(lines: list[ClaudeReply], prefix: str) -> str:
     reads = sum(
         1 for u in uses.values() if u.get("name") == "Read" and u.get("input", {}).get("file_path", "").endswith(".png")
     )
-    shows = sum(
-        1
-        for u in uses.values()
-        if u.get("name") == "Bash" and u.get("input", {}).get("command", "").startswith(f"{prefix} show ")
-    )
-    return f"reads {reads}, shows {shows}"
+    show = f"{prefix} show "
+    commands = (u.get("input", {}).get("command", "") for u in uses.values() if u.get("name") == "Bash")
+    shown = {c for command in commands if command.startswith(show) for c in _ids(command[len(show) :])}
+    return f"reads {reads}, shown {len(shown)}"
+
+
+def _ids(args: str) -> list[int]:
+    """Return the whole-number arguments of a show call's argument text; none when its quoting does not parse."""
+    try:
+        words = shlex.split(args)
+    except ValueError:  # an unclosed quote: no candidate it names can be read
+        return []
+    return [int(w) for w in words if w.isdecimal()]
 
 
 def usage(lines: list[ClaudeReply], reply: ClaudeReply) -> str:
