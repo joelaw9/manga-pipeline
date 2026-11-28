@@ -1,6 +1,7 @@
 """scripts/review_smoke.py (plan phase-10-8, D3)."""
 
 import json
+import os
 import subprocess
 from contextlib import closing
 from pathlib import Path
@@ -16,7 +17,7 @@ from tests.builders import adopted
 from tests.test_w5_scripts import AT, candidate
 from tests.timing import budget
 
-OK = "ok: 9 turn(s), tokens 1000, start 10, peak 20, reads 4, shows 2"
+OK = "ok: 8 turn(s), 17 s, 84742 tokens, start 17919, peak 23734 of 1000000, reads 4, shows 2"  # a real line
 
 
 def unit(cfg, conn, n, text, verdict):
@@ -44,7 +45,7 @@ def unit(cfg, conn, n, text, verdict):
         (OK, "junk", None, (False, True)),
         (OK.replace("reads 4", "reads 3"), "junk", "keep", (False, False)),  # read too few images
         (OK.replace("shows 2", "shows 1"), "junk", "keep", (False, False)),  # show not run on each
-        (OK.replace("ok: 9 turn(s)", "error: claude exited 1;"), "junk", "keep", (False, False)),
+        (OK.replace("ok: 8 turn(s),", "error: claude exited 1;"), "junk", "keep", (False, False)),
     ],
 )
 @budget(load="db", seconds=10)
@@ -66,13 +67,40 @@ def test_the_smoke_passes_on_an_ok_review_that_read_and_showed_both_and_judged_e
 def test_a_verdict_miss_runs_it_once_more_and_a_second_miss_fails(monkeypatch):
     answers = iter([(["first"], False, True), (["second"], False, True)])
     monkeypatch.setattr(review_smoke, "attempt", lambda _machine, _run: next(answers))
-    assert review_smoke.smoke(config.load()) == (["first", "a verdict missed: run again", "second"], False)
+    assert review_smoke.smoke(config.load(), print) == (["first", "a verdict missed: run again", "second"], False)
     answers = iter([(["first"], False, False)])
-    assert review_smoke.smoke(config.load()) == (["first"], False), "any other failure is not run again"
+    assert review_smoke.smoke(config.load(), print) == (["first"], False), "any other failure is not run again"
+
+
+@budget(load="db", seconds=10)
+def test_an_unexpected_candidate_fails_the_smoke(tmp_path):
+    cfg = adopted(tmp_path)
+    with closing(db.connect(cfg)) as conn:
+        unit(cfg, conn, 1, " ".join(review_smoke.CREDIT), "junk")
+        unit(cfg, conn, 2, " ".join(review_smoke.LOCALIZATION), "keep")
+        unit(cfg, conn, 3, "a noise panel read as text", None)
+        with db.transaction(conn):
+            conn.execute("INSERT INTO meta (key, value) VALUES ('junk-review.last_result', %s)", (OK,))
+    lines, passed, verdict_miss = review_smoke.judge(cfg)
+    assert (passed, verdict_miss) == (False, False), "the fixture opens exactly its 2 candidates"
+    assert "other candidates: undecided" in lines
+
+
+@budget()
+def test_the_scratch_config_holds_the_test_login_and_every_path_under_its_folder(tmp_path):
+    folder = tmp_path / "smoke"
+    folder.mkdir()
+    cfg = config.load(review_smoke.scratch_config(config.load(), folder), env={})
+    assert dict(cfg["database"]) == {**review_smoke.LOGIN, "name": review_smoke.DATABASE}, "the test server only"
+    paths = {k: v for k, v in cfg["paths"].items() if k != "kavita_path_map"}
+    assert paths, "it has paths"
+    assert all(Path(v).is_relative_to(folder) for v in paths.values()), paths
+    assert Path(cfg["logging"]["dir"]).is_relative_to(folder)
 
 
 @budget(load="db", seconds=30)
 def test_a_failed_run_leaves_no_scratch_database_or_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(review_smoke, "DATABASE", f"mp_test_smoke_{os.getpid()}")  # not a hand run's
     monkeypatch.setattr(review_smoke.fleet, "store", lambda _conn, _cfg: None)  # the test machine's tools are no tools
     seen = []
 
@@ -91,14 +119,15 @@ def test_a_failed_run_leaves_no_scratch_database_or_folder(tmp_path, monkeypatch
 
 @budget()
 def test_the_commands_get_the_token_alone_of_the_pipelines_variables(monkeypatch, tmp_path):
-    monkeypatch.setenv(review_smoke.TOKEN, "t")
+    monkeypatch.setenv(review_smoke.TOKEN, "from the environment")
     monkeypatch.setenv(f"{config.ENV_PREFIX}_DATABASE_HOST", "the pipeline's server")
     monkeypatch.setenv("SMOKE_OTHER", "kept")
     got = {}
     monkeypatch.setattr(subprocess, "run", lambda argv, **kw: got.update(argv=argv, env=kw["env"]))
-    review_smoke.command(tmp_path / "config.yaml", ["process"])
+    review_smoke.command(tmp_path / "config.yaml", ["process"], "the machine's")
     assert [k for k in got["env"] if k.startswith(config.ENV_PREFIX)] == [review_smoke.TOKEN], (
         "no other MANGA_PIPELINE_ variable reaches a command: the scratch config alone says where it works"
     )
+    assert got["env"][review_smoke.TOKEN] == "the machine's", "the token is the machine config's"
     assert got["env"]["SMOKE_OTHER"] == "kept", "every other variable is kept: Python and Claude need them"
     assert got["argv"][-3:] == ["--config", str(tmp_path / "config.yaml"), "process"], "the scratch config's command"

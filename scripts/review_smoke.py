@@ -9,17 +9,19 @@ real Claude. It passes when the review's result is `ok`, it read at least 4 imag
 credit is junk and the localization credit keep; a verdict miss runs it once more from scratch, a second miss fails.
 
 The scratch config is config.yaml.example with the test login, every path under the scratch folder, and from this
-machine's config only the Claude executable, the OCR device and workers and the image tools; the Claude token comes
-from MANGA_PIPELINE_JUNK_CLAUDE_TOKEN, the only MANGA_PIPELINE_ variable the commands are given. The scratch database
+machine's config only the Claude executable, the OCR device and workers and the image tools. Its Claude token
+(junk.claude_token, from the file or MANGA_PIPELINE_JUNK_CLAUDE_TOKEN) reaches the commands as that variable, the only
+MANGA_PIPELINE_ variable they are given, and is written nowhere. The scratch database
 and folder are removed at the end, a failed run's too. Costs about 1 review of tokens a run. No lock: it touches
 nothing of the pipeline's.
 
 Usage, from the project root:
 python -m scripts.review_smoke [--config PATH]
-Exit 0 passed; 1 failed; 2 no token.
+Exit 0 passed; 1 failed; 2 the machine's config has no Claude token.
 """
 
 import argparse
+import functools
 import io
 import json
 import os
@@ -41,8 +43,8 @@ from manga_pipeline.junk import candidates, store
 from scripts import set_config
 
 TOKEN = f"{config.ENV_PREFIX}_JUNK_CLAUDE_TOKEN"
-DATABASE = "mp_smoke"  # on the local test server, as the test role (tests/test_config.yaml's login)
-LOGIN = {"host": "localhost", "port": 5432, "name": DATABASE, "user": "mp_test", "password": "mp_test"}
+DATABASE = "mp_test_smoke"  # on the local test server, as the test role (tests/test_config.yaml's login)
+LOGIN = {"host": "localhost", "port": 5432, "user": "mp_test", "password": "mp_test"}
 SERIES = "Smoke Strip"
 CREDIT = ("JOIN OUR DISCORD", "for early chapters")  # junk
 LOCALIZATION = ("Translated by Lezhin Entertainment", "Lettering by Kim Min")  # keep: an official credit
@@ -60,7 +62,7 @@ def noise(seed: int, size: tuple[int, int]) -> Image.Image:
 
 def text_box(lines: tuple[str, ...]) -> Image.Image:
     """Return a framed box of large black text on white, as a credit block."""
-    font = ImageFont.load_default(size=44)
+    font = ImageFont.load_default(size=36)
     im = Image.new("RGB", (WIDTH - 100, 120 + 70 * len(lines)), "white")
     draw = ImageDraw.Draw(im)
     draw.rectangle((0, 0, im.width - 1, im.height - 1), outline="black", width=6)
@@ -89,12 +91,10 @@ def chapter_cbz(n: int) -> bytes:
 
 def scratch_config(machine: config.Config, folder: Path) -> Path:
     """Write the scratch config (config.yaml.example, edited) in folder; return its path."""
-    share = folder / "share"
-    values: dict[str, object] = {f"database.{k}": v for k, v in LOGIN.items()}
-    values |= {f"paths.{name}": (share / name).as_posix() for name in config.SHARE_ROOTS}
+    folders = {name: folder / name for name in machine["paths"] if name != "kavita_path_map"}  # every path key
+    values: dict[str, object] = {f"database.{k}": v for k, v in {**LOGIN, "name": DATABASE}.items()}
+    values |= {f"paths.{name}": path.as_posix() for name, path in folders.items()}
     values |= {
-        "paths.naming_overrides": (share / "naming").as_posix(),
-        "paths.scratch": (folder / "scratch").as_posix(),
         "logging.dir": (folder / "logs").as_posix(),
         "junk.claude_path": machine["junk"]["claude_path"],
         "junk.ocr_device": machine["junk"]["ocr_device"],
@@ -106,8 +106,8 @@ def scratch_config(machine: config.Config, folder: Path) -> Path:
     for n, (key, value) in enumerate(values.items(), 1):
         k, parts, v = set_config.parse(n, f"{key}={json.dumps(value)}")
         text, _ = set_config.edit(text, k, parts, v)
-    for name in (*config.SHARE_ROOTS, "naming"):
-        (share / name).mkdir(parents=True)
+    for path in folders.values():
+        path.mkdir()
     path = folder / "config.yaml"
     path.write_bytes(text.encode("utf-8"))
     return path
@@ -156,13 +156,12 @@ def judge(cfg: config.Config) -> tuple[list[str], bool, bool]:
         result = conn.execute("SELECT value FROM meta WHERE key = 'junk-review.last_result'").fetchone()
         rows = conn.execute("SELECT * FROM junk_candidate ORDER BY id").fetchall()
         decisions = store.by_series(conn)
-        verdicts: dict[str, list[str]] = {"credit": [], "localization": []}
+        verdicts: dict[str, list[str]] = {"credit": [], "localization": [], "other": []}
         for row in rows:
             text = candidates.read_info(candidates.folder(cfg, row["folder"]))["text"].lower()
-            which = "credit" if "discord" in text else "localization" if "translat" in text else None
-            if which is not None:
-                d = candidates.covering(decisions, row)
-                verdicts[which].append(d["verdict"] if d is not None else row["verdict"] or "undecided")
+            which = "credit" if "discord" in text else "localization" if "translat" in text else "other"
+            d = candidates.covering(decisions, row)
+            verdicts[which].append(d["verdict"] if d is not None else row["verdict"] or "undecided")
     line = result["value"] if result is not None else "no review ran"
     counts = {name: int(n) for name, _, n in (p.partition(" ") for p in line.split(", ")) if name in ("reads", "shows")}
     lines = [
@@ -170,6 +169,7 @@ def judge(cfg: config.Config) -> tuple[list[str], bool, bool]:
         f"review: {line}",
         f"credit: {', '.join(verdicts['credit']) or 'no candidate'}",
         f"localization: {', '.join(verdicts['localization']) or 'no candidate'}",
+        *([f"other candidates: {', '.join(verdicts['other'])}"] if verdicts["other"] else []),
     ]
     acted = (
         line.startswith("ok")
@@ -177,19 +177,23 @@ def judge(cfg: config.Config) -> tuple[list[str], bool, bool]:
         and counts.get("shows", 0) >= MIN_SHOWS
         and bool(verdicts["credit"])
         and bool(verdicts["localization"])
+        and not verdicts["other"]  # the fixture opens exactly the 2
     )
     right = set(verdicts["credit"]) == {"junk"} and set(verdicts["localization"]) == {"keep"}
     return lines, acted and right, acted and not right
 
 
-def command(cfg_path: Path, args: list[str]) -> None:
-    """Run `python -m manga_pipeline.cli --config CFG ARGS`; given the token alone of the MANGA_PIPELINE_ variables."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith(f"{config.ENV_PREFIX}_") or k == TOKEN}
+def command(cfg_path: Path, args: list[str], token: str) -> None:
+    """Run `python -m manga_pipeline.cli --config CFG ARGS`; given the token alone of the MANGA_PIPELINE_ variables.
+
+    Its exit is not checked: a failed review (exit 1) is judged from what it recorded, as any other.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith(f"{config.ENV_PREFIX}_")} | {TOKEN: token}
     subprocess.run(
         [sys.executable, "-m", "manga_pipeline.cli", "--config", str(cfg_path), *args],
         env=env,
         cwd=config.ROOT,
-        check=True,
+        check=False,
     )
 
 
@@ -197,17 +201,19 @@ def command(cfg_path: Path, args: list[str]) -> None:
 def scratch(machine: config.Config) -> Generator[Path]:
     """Yield a new scratch folder's config file; drop the scratch database and remove the folder at the end."""
     folder = Path(tempfile.mkdtemp(prefix="review-smoke-"))
-    cfg_path = scratch_config(machine, folder)
-    cfg = config.load(cfg_path, env={})
-    _drop(cfg)  # a killed run's
     try:
-        yield cfg_path
+        cfg_path = scratch_config(machine, folder)
+        _drop(cfg_path)  # a killed run's
+        try:
+            yield cfg_path
+        finally:
+            _drop(cfg_path)
     finally:
-        _drop(cfg)
         shutil.rmtree(folder, ignore_errors=True)
 
 
-def _drop(cfg: config.Config) -> None:
+def _drop(cfg_path: Path) -> None:
+    cfg = config.load(cfg_path, env={})
     with closing(db.open_connection(cfg, db.MAINTENANCE_DATABASE)) as conn:
         conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(DATABASE)))
 
@@ -222,7 +228,7 @@ def attempt(machine: config.Config, run: Run) -> tuple[list[str], bool, bool]:
         return judge(cfg)
 
 
-def smoke(machine: config.Config, run: Run = command) -> tuple[list[str], bool]:
+def smoke(machine: config.Config, run: Run) -> tuple[list[str], bool]:
     """Run the smoke test, once more on a verdict miss; return its lines and whether it passed."""
     lines, passed, verdict_miss = attempt(machine, run)
     if verdict_miss:
@@ -236,10 +242,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run 1 real junk review on fixture chapters, apart from the pipeline.")
     parser.add_argument("--config", help="this machine's config file (default: config.yaml)")
     args = parser.parse_args(argv)
-    if not os.environ.get(TOKEN):
-        sys.stderr.write(f"error: {TOKEN} is not set: Claude cannot log in\n")
+    machine = config.load(args.config)
+    token = machine["junk"]["claude_token"]
+    if token is None or not token.strip():
+        sys.stderr.write(f"error: junk.claude_token is not set (nor {TOKEN}): Claude cannot log in\n")
         return 2
-    lines, passed = smoke(config.load(args.config))
+    lines, passed = smoke(machine, functools.partial(command, token=token))
     sys.stdout.write("".join(f"{line}\n" for line in [*lines, "passed" if passed else "failed"]))
     return 0 if passed else 1
 
