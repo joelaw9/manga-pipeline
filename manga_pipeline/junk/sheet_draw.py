@@ -38,7 +38,7 @@ class SheetPage(NamedTuple):
 
     def bottom(self, end: int) -> int:
         """Return the y of the last sheet row a range ending at strip row `end` covers (at most the last row)."""
-        return round((min(end, self.b) - self.a) * self.scale) - 1
+        return min(self.height - 1, round((min(end, self.b) - self.a) * self.scale) - 1)
 
     def last_text(self) -> int:
         """Return the lowest y a label's top may take and still show whole on the sheet."""

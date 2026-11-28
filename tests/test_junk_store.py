@@ -436,6 +436,11 @@ def test_a_block_near_a_junk_decision_cites_it(conn):
     (pick,) = candidates.select(conn, "S", [block], word_lists())
     assert pick["reason"].startswith(f"near decision {decided} "), pick
     assert pick.get("cited") == [decided], "the decision its reason names, by id"
+    # near, not matched: its aspect is past the live rule's 3 %
+    probe: strip_units.Piece = {"start": 0, "end": 60, "sig": sig((flip(T, 2),), 1.06)}
+    far: strip_units.BlockUnit = {**block, "sig": sig((~T & (2**64 - 1),)), "probes": [probe]}
+    (pick,) = candidates.select(conn, "S", [far], word_lists())
+    assert (pick["kind"], pick.get("cited")) == ("probe", [decided]), "a near probe offered for its block cites it too"
 
 
 @budget(load="db")

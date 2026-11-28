@@ -724,9 +724,8 @@ def test_a_badge_in_a_strip_chapter_is_offered_and_blanked_on_its_page(site, mon
     ], "a strip scan is stored as strip_units.scan gives it, with its logos (no content pages: nothing reads them)"
     (logo,) = [c for c in open_candidates(site) if c["kind"] == "logo"]
     pos = present(candidate_files(site, logo)[0].get("position"))
-    assert (pos.get("page"), len(present(pos.get("box"))), len(present(pos.get("rows")))) == (2, 4, 2), (
-        "a strip logo's page, box and rows in the strip"
-    )
+    (mark,) = json.loads(scan)["marks"]  # the scan's 1 logo: its page, box and rows in the strip
+    assert (pos.get("page"), pos.get("box"), pos.get("rows")) == (mark["page"], mark["box"], mark["rows"]), pos
     kinds = decide_kinds(site.cfg, {"block": "keep", "probe": "keep", "piece": "keep", "logo": "junk"})
     assert kinds.count("logo") == 1, kinds
     run_part(site.cfg, process)
