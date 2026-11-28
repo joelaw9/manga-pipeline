@@ -580,7 +580,13 @@ def test_show_lists_a_blocks_waiting_chapters_with_rows_its_sightings_and_its_ci
     assert f"seen in 3 chapters: {first}, {second}; 1 with no chapter" in out, out
     assert "cited decision 777777 (Long): junk by import; images: no images kept" in out, out
     assert f"position: chapter {first} tail rows 3100:3500 of 3600" in out, out
-    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):  # a newer import supersedes it; 1 chapter drops
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):  # an undo retires it
+        conn.execute("INSERT INTO junk_act (id, command, at) VALUES (888, 'junk undo', '2026-11-01T00:00:00+00:00')")
+        conn.execute("UPDATE junk_decision SET retired_by = 888 WHERE id = 777777")
+    out = show(site, tmp_path, capsys, credit["id"])
+    assert "junk by import; retired by act 888; images:" in out, "a retired cited decision says so"
+    with closing(db.connect(site.cfg)) as conn, db.transaction(conn):  # restored; a newer import supersedes it
+        conn.execute("UPDATE junk_decision SET retired_by = NULL WHERE id = 777777")
         conn.execute(
             """INSERT INTO junk_decision (id, series_key, kind, key, verdict, decider, decided_at)
             VALUES (777778, 'Long', 'block', %s, 'keep', 'import', '2026-11-02T00:00:00+00:00')""",
@@ -588,7 +594,9 @@ def test_show_lists_a_blocks_waiting_chapters_with_rows_its_sightings_and_its_ci
         )
         conn.execute("UPDATE junk_decision SET superseded_by = 777778 WHERE id = 777777")
         conn.execute("UPDATE chapter SET status = 'done', waiting_on = NULL, wait_data = NULL WHERE id = %s", (first,))
+        conn.execute("UPDATE chapter SET content_digest = NULL WHERE id = %s", (second,))
     out = show(site, tmp_path, capsys, credit["id"])
+    assert f"seen in 3 chapters: {first}; 2 with no chapter" in out, "a chapter without a content digest is no sighting"
     assert "superseded by decision 777778; images:" in out, "a cited decision no longer standing says so"
     assert f"waiting chapters 1: {second} rows 3100:3500\n" in out, "a done chapter waits no more"
 

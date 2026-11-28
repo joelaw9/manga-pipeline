@@ -1083,20 +1083,19 @@ def _drawn_sheets(s: Strip, window: strip.Rows, decided: Decided) -> list[SpanSh
 
 
 def _marked(sheets: Sequence[SpanSheet], marks: Sequence[UnitMark]) -> None:
-    """Mark each unit of `marks` on the sheets showing it: a green bar in the ruler, its candidate id beside it.
+    """Mark each unit of `marks` (in row order) on the sheets showing it: a green bar in the ruler, its candidate id.
 
-    An id starts below the one before it (marks in row order), so the ids of units starting near each other do not
-    overlap.
+    An id starts below the one before it, so the ids of units starting near each other do not overlap.
     """
     font = sheet_draw.font()
     for sh in sheets:
         draw = ImageDraw.Draw(sh.image)
         below = 0
-        for a, b, candidate in sorted(m for m in marks if sh.page.shows((m[0], m[1]))):
+        for a, b, candidate in (m for m in marks if sh.page.shows((m[0], m[1]))):
             top = sh.page.y(max(a, sh.page.a))
             draw.rectangle((RULER_W - MARK_W, top, RULER_W - 1, max(top, sh.page.bottom(b))), fill=GREEN)
-            at = (2, min(max(top, below), sh.page.last_text()))
-            below = at[1] + FONT_PX + 2
+            y, below = sheet_draw.stacked(sh.page, top, below)
+            at = (2, y)
             draw.rectangle(draw.textbbox(at, f"#{candidate}", font=font), fill="white")
             draw.text(at, f"#{candidate}", fill=GREEN, font=font)
 
@@ -1198,12 +1197,12 @@ def _window_spans(cfg: config.Config, chapter: int, rows: strip.Rows, review_id:
     if window[0] >= window[1]:
         msg = f"chapter {chapter}: rows {rows[0]}:{rows[1]} lie past its strip's end ({s.layout.height} rows)"
         raise workflow.Refused(msg)
-    marks = [
+    marks = sorted(
         (a, b, int(cid))
         for cid, unit_key in open_units
         for a, b in strip_units.matching_units(s.scan, unit_key)
         if b > window[0] and a < window[1]
-    ]
+    )
     sheets = _drawn_sheets(s, window, _decide(s, _rules(inp)))
     _marked(sheets, marks)
     saved = _save_sheets(sheets, _sheet_folder(cfg, review_id, work), f"spans-{chapter}-{window[0]}-{window[1]}")

@@ -72,9 +72,17 @@ def removed_labels(
     for (x0, x1), label in ((r, t) for r, t in labelled if pg.shows(r)):
         top = pg.y(max(x0, pg.a))
         draw.line((left + BAR_X, top, left + BAR_X, max(top, pg.bottom(x1))), fill=GREY, width=3)
-        at = min(max(top, below), pg.last_text())
+        at, below = stacked(pg, top, below)
         draw.text((left + LABEL_X, at), label, fill=GREY, font=f)
-        below = at + FONT_PX + 2
+
+
+def stacked(pg: SheetPage, top: int, below: int) -> tuple[int, int]:
+    """Return a label's y and where the next label may start.
+
+    The label goes at y `top`, but below the label before it (which ends at `below`) and never below the last text line.
+    """
+    at = min(max(top, below), pg.last_text())
+    return at, at + FONT_PX + 2
 
 
 def lane_width(labels: Sequence[str]) -> int:
