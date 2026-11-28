@@ -51,11 +51,28 @@ class Usage(TypedDict, total=False):
     output_tokens: int
 
 
+class ToolInput(TypedDict, total=False):
+    """The fields junk review reads of a tool use's input: a Read's path, a Bash call's command."""
+
+    file_path: str
+    command: str
+
+
+class ContentBlock(TypedDict, total=False):
+    """The fields junk review reads of an assistant message's content block: a tool use's id, tool and input."""
+
+    type: str
+    id: str
+    name: str
+    input: ToolInput
+
+
 class Message(TypedDict, total=False):
-    """The fields junk review reads of an assistant message: its id and its usage."""
+    """The fields junk review reads of an assistant message: its id, its usage and its content blocks."""
 
     id: str
     usage: Usage
+    content: list[ContentBlock]
 
 
 class ModelUsage(TypedDict, total=False):
@@ -204,6 +221,12 @@ def run(cfg: config.Config, conn: db.Connection) -> None:
             result = f"error: {e}"
     finally:
         with db.transaction(conn):
+            unsure = db.one_row(
+                conn,
+                """SELECT count(*) AS n FROM junk_candidate
+                WHERE review_id = %s AND review_open = 1 AND verdict = 'unsure'""",
+                (review_id,),
+            )["n"]
             counted = conn.execute(
                 """UPDATE junk_candidate SET reviews = reviews + 1, review_open = 0
                 WHERE review_id = %s AND review_open = 1""",
@@ -214,7 +237,7 @@ def run(cfg: config.Config, conn: db.Connection) -> None:
         end = workflow.now(conn)
         ok = result.startswith("ok")
         _meta(conn, [("last_end", end), ("last_result", result)] + ([("last_success", end)] if ok else []))
-        log.info("junk review %s: %s; %d candidate(s) reviewed", review_id, result, counted)
+        log.info("junk review %s: %s; %d candidate(s) reviewed, %d unsure", review_id, result, counted, unsure)
     if not ok:
         raise ReviewError(result)
 
@@ -240,14 +263,16 @@ def _claude(cfg: config.Config, prefix: str, review_id: str) -> str:
                 check=False,  # the exit is judged below
             )
     except subprocess.TimeoutExpired:
-        return f"error: claude was killed after {TIMEOUT_S} s; {contexts(_reply(out))}"
+        lines = _reply(out)
+        return f"error: claude was killed after {TIMEOUT_S} s; {contexts(lines)}, {acts(lines, prefix)}"
     lines = _reply(out)
+    seen = acts(lines, prefix)
     results = [line for line in lines if line.get("type") == "result"]
     reply = results[-1] if results else None
     if reply is None:
         why = f"claude exited {done.returncode}" if done.returncode else "claude printed no JSON result"
-        return f"error: {why}; {contexts(lines)}"
-    used = usage(lines, reply)
+        return f"error: {why}; {contexts(lines)}, {seen}"
+    used = f"{usage(lines, reply)}, {seen}"
     if denials := reply.get("permission_denials"):
         log.warning("junk review %s: claude was refused %s", review_id, denials)
         return f"error: claude was refused {len(denials)} tool call(s); {used}"
@@ -276,6 +301,31 @@ def contexts(lines: list[ClaudeReply]) -> str:
     sizes = list(calls.values())
     start, peak = (sizes[0], max(sizes)) if sizes else (0, 0)
     return f"start {start}, peak {peak}"
+
+
+def acts(lines: list[ClaudeReply], prefix: str) -> str:
+    """Return the images Claude read and the `show` calls it ran, from its assistant lines (a run cut short has them).
+
+    Each tool use counts once by its id: a message's content blocks arrive as lines sharing the message's id, and 1
+    message may hold several tool uses. A `show` call is a Bash command starting with the review's own `show`.
+    """
+    uses: dict[str, ContentBlock] = {}
+    for line in lines:
+        message = line.get("message")
+        if line.get("type") != "assistant" or message is None:
+            continue
+        for block in message.get("content", []):
+            if block.get("type") == "tool_use" and "id" in block:
+                uses.setdefault(block["id"], block)
+    reads = sum(
+        1 for u in uses.values() if u.get("name") == "Read" and u.get("input", {}).get("file_path", "").endswith(".png")
+    )
+    shows = sum(
+        1
+        for u in uses.values()
+        if u.get("name") == "Bash" and u.get("input", {}).get("command", "").startswith(f"{prefix} show ")
+    )
+    return f"reads {reads}, shows {shows}"
 
 
 def usage(lines: list[ClaudeReply], reply: ClaudeReply) -> str:

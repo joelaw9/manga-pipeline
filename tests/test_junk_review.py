@@ -20,7 +20,7 @@ from manga_pipeline.clients import suwayomi as suwayomi_client
 from manga_pipeline.junk import groups, ocr, review, review_run
 from manga_pipeline.metadata import sources
 
-from tests.builders import config_file, problem_text, run_part
+from tests.builders import config_file, one, problem_text, run_part
 from tests.test_junk_cut import oracle, real_head, sheets_of
 from tests.test_junk_stage import KEYWORD_TEXT, Site
 from tests.timing import budget
@@ -204,12 +204,12 @@ def test_a_review_removes_every_sheets_folder(world, tmp_path):
 
 @budget(load="subprocess", seconds=20)
 def test_a_run_cut_short_records_the_contexts_it_reached(world, tmp_path):
-    exe = fake_claude(tmp_path / "claude", world.cfg, ["list", "call:500", "call:700", "crash"], exit_code=3)
+    exe = fake_claude(tmp_path / "claude", world.cfg, ["call:500", "list", "call:700", "crash"], exit_code=3)
     code, cfg = review_cmd(tmp_path, world.cfg, exe)
     assert code == 1
     with closing(db.connect(cfg)) as conn:
         meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
-    assert meta["junk-review.last_result"] == "error: claude exited 3; start 500, peak 700", (
+    assert meta["junk-review.last_result"] == "error: claude exited 3; start 500, peak 700, reads 0, shows 0", (
         "a run with no result still records the first call's context and the largest"
     )
 
@@ -223,14 +223,54 @@ def test_the_review_result_records_turns_seconds_tokens_start_and_peak(world, tm
         "usage": {"input_tokens": 10, "cache_read_input_tokens": 900, "output_tokens": 5},
         "modelUsage": {"claude": {"contextWindow": 1000000}},
     }
-    exe = fake_claude(tmp_path / "claude", world.cfg, ["list", "call:500", "call:700", "call:650"], reply=reply)
+    exe = fake_claude(tmp_path / "claude", world.cfg, ["call:500", "list", "call:700", "call:650"], reply=reply)
     code, cfg = review_cmd(tmp_path, world.cfg, exe)
     assert code == 0
     with closing(db.connect(cfg)) as conn:
         meta = dict(conn.execute("SELECT key, value FROM meta WHERE key LIKE 'junk-review.%'").fetchall())
-    assert meta["junk-review.last_result"] == "ok: 3 turn(s), 4 s, 915 tokens, start 500, peak 700 of 1000000", (
-        "the result names turns, seconds, tokens, the first call's context and the largest (each message once)"
+    assert meta["junk-review.last_result"] == (
+        "ok: 3 turn(s), 4 s, 915 tokens, start 500, peak 700 of 1000000, reads 0, shows 0"
+    ), "the result names turns, seconds, tokens, the first call's context and the largest (each message once)"
+
+
+def review_log(cfg):
+    return (config.abs_path(cfg["logging"]["dir"]) / "junk-review.log").read_bytes().decode("utf-8")
+
+
+@budget(load="subprocess", seconds=20)
+def test_the_review_counts_images_read_show_calls_and_unsure_verdicts(world, tmp_path, monkeypatch):
+    monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "INFO")
+    with closing(db.connect(world.cfg)) as conn, db.transaction(conn):  # an earlier review's unsure mark
+        conn.execute(
+            """INSERT INTO junk_candidate (series_key, kind, key, reason, folder, review_id, verdict, created_at)
+            SELECT series_key, kind, key || 'x', reason, folder || 'x', 'earlier', 'unsure', created_at
+            FROM junk_candidate"""
+        )
+    actions = ["list", "read:a/unit.png,a/context.png", "read:b/unit.png", "read:a/info.json", "show", "decide:unsure"]
+    exe = fake_claude(tmp_path / "claude", world.cfg, actions)
+    code, cfg = review_cmd(tmp_path, world.cfg, exe)
+    assert code == 0
+    with closing(db.connect(cfg)) as conn:
+        result = one(conn, "SELECT value FROM meta WHERE key = 'junk-review.last_result'")
+    assert result.endswith(", reads 3, shows 1"), (
+        "each image read counts once (each line is printed twice), 2 in 1 message included; a file that is no image"
+        " does not; a show call counts,"
+        " another junk command (the list) does not"
     )
+    assert "1 candidate(s) reviewed, 1 unsure" in review_log(cfg), (
+        "the log line counts this review's unsure verdicts, not an earlier review's"
+    )
+
+
+@budget(load="subprocess", seconds=20)
+def test_a_review_cut_short_still_counts_what_it_read(world, tmp_path, monkeypatch):
+    monkeypatch.setenv("MANGA_PIPELINE_LOGGING_LEVEL", "INFO")
+    exe = fake_claude(tmp_path / "claude", world.cfg, ["list", "read:a/unit.png", "show", "crash"], exit_code=3)
+    code, cfg = review_cmd(tmp_path, world.cfg, exe)
+    assert code == 1
+    log_text = review_log(cfg)
+    assert "error: claude exited 3; start 0, peak 0, reads 1, shows 1" in log_text, "a run cut short counts its acts"
+    assert "1 candidate(s) reviewed, 0 unsure" in log_text, "an error review still counts its candidates"
 
 
 @budget(load="subprocess", seconds=20)
@@ -286,7 +326,7 @@ def _review_hiding_the_token(world: World, tmp_path, capsys, monkeypatch, reply)
     cfg: config.Config = {**world.cfg, "junk": {**world.cfg["junk"], "claude_token": token}}
     exe = fake_claude(tmp_path / "claude", cfg, ["list", "decide:keep"], reply=reply)
     code, cfg = review_cmd(tmp_path, cfg, exe)
-    log_text = (config.abs_path(cfg["logging"]["dir"]) / "junk-review.log").read_bytes().decode("utf-8")
+    log_text = review_log(cfg)
     assert "junk review" in log_text, "the token is never logged"
     assert token not in log_text, "the token is never logged"
     captured = capsys.readouterr()
