@@ -10,17 +10,20 @@ import pytest
 
 from manga_pipeline import cli, config, db, export, intake, process, rewrite, workflow
 from manga_pipeline import restore as restore_module
+from manga_pipeline.clients import http
 from manga_pipeline.errors import Unreachable
+from manga_pipeline.metadata import human
 
 from tests.builders import config_file
 from tests.test_better_copies import copy, through
 from tests.test_better_copies import library as bulk_library
 from tests.test_conversions import SERIES, adopt, layout_override, report, set_cap
-from tests.test_cover_rewrites import bulk_file, recorded_covers
+from tests.test_cover_refresh import MD, check_now, series_id
+from tests.test_cover_rewrites import bulk_file, png, recorded_covers, store_image
 from tests.test_rebuilds import file_row, published, rebuild, run_rebuild
 from tests.test_rewrites import crash_after, progress, read, scan
 from tests.timing import budget
-from tests.world import World, cbz
+from tests.world import LIBRARY_ID, World, cbz
 
 KEPT = tuple(c for c in rewrite.VERSION if c != "size")  # size: the file's, which an adopted row does not store
 
@@ -38,17 +41,26 @@ def content(world, stored):
     return config.to_local(world.cfg, stored).read_bytes()
 
 
-def converted(world, names=("Ch.1.cbz",)):
+OTHER_SERIES = "Other Series"
+
+
+def converted(world, names=("Ch.1.cbz",), elsewhere=()):
     """Adopt files (4 pages, no ComicInfo.xml), convert them and let Kavita re-read them.
 
-    Returns (Kavita series id, {name: adopted row before its conversion}, {name: adopted file's bytes}). The series'
-    layout is pages: a conversion keeps the 4 pages, so a reader's progress partway is kept partway.
+    names: files of SERIES; elsewhere: files of a 2nd series, OTHER_SERIES (names apart from names). Returns (SERIES'
+    Kavita id, {name: adopted row before its conversion}, {name: adopted file's bytes}). SERIES' layout is pages: a
+    conversion keeps the 4 pages, so a reader's progress partway is kept partway.
     """
     layout_override(world)
+    if elsewhere:
+        (world.library / OTHER_SERIES).mkdir(parents=True)
+        for n in elsewhere:
+            (world.library / OTHER_SERIES / n).write_bytes(cbz(seed=f"b {n}", pages=4))
+        world.kavita.add_series(OTHER_SERIES, OTHER_SERIES, LIBRARY_ID)
     kid = adopt(world, {n: cbz(seed=f"a {n}", pages=4) for n in names})
     rows = {r["library_path"].rsplit("/", 1)[1]: r for (r,) in world.rows("SELECT to_jsonb(p) FROM published_file p")}
-    data = {n: (world.library / SERIES / n).read_bytes() for n in names}
-    set_cap(world, len(names))
+    data = {n: config.to_local(world.cfg, rows[n]["library_path"]).read_bytes() for n in (*names, *elsewhere)}
+    set_cap(world, len(names) + len(elsewhere))
     for part in (intake, process, export):
         world.run(part)
     world.kavita.run_scans()
@@ -97,8 +109,11 @@ def test_a_converted_adopted_file_is_restored_with_its_bytes_name_row_and_progre
     assert {k: again[k] for k in rewrite.VERSION} == {k: conversion[k] for k in rewrite.VERSION}, "its row back"
 
 
-@budget(load="db", seconds=40)
-def test_a_better_copy_that_renamed_its_file_is_restored_under_the_old_name(world):
+def renamed_copy(world):
+    """Add a bulk series whose Chapter 2.cbz a better copy replaces under the pipeline's name, re-read by Kavita.
+
+    Returns (the bulk file's row, its bytes, the copy's row).
+    """
     bulk = (("Vol.1 Ch.1.cbz", "Grp_Chapter 1", "1", "1"), ("Chapter 2.cbz", "Grp_Chapter 2", "2", "1"))
     world.kavita_series(SERIES, bulk=bulk, basis="filename")
     for name, number in (("Vol.1 Ch.1.cbz", 1), ("Chapter 2.cbz", 2)):
@@ -114,12 +129,12 @@ def test_a_better_copy_that_renamed_its_file_is_restored_under_the_old_name(worl
     reread(world)
     copied = file_row(world, before["id"])
     assert copied["library_path"] != before["library_path"], "set up: the copy renamed the file"
-    (world.library / SERIES / "Chapter 2.cbz").write_bytes(b"another file")
-    assert restore(world, before["id"]) == (
-        0,
-        [f"file {before['id']}: its previous name {before['library_path']} is taken"],
-    )
-    (world.library / SERIES / "Chapter 2.cbz").unlink()
+    return before, old_bytes, copied
+
+
+@budget(load="db", seconds=40)
+def test_a_better_copy_that_renamed_its_file_is_restored_under_the_old_name(world):
+    before, old_bytes, copied = renamed_copy(world)
     assert restore(world, before["id"]) == (1, [])
     world.run(export)
     after = file_row(world, before["id"])
@@ -127,6 +142,60 @@ def test_a_better_copy_that_renamed_its_file_is_restored_under_the_old_name(worl
     assert (world.library / SERIES / "Chapter 2.cbz").read_bytes() == old_bytes, "the bulk file back"
     assert not path_of(world, copied).exists(), "the copy's name is gone"
     assert {k: after[k] for k in KEPT} == {k: before[k] for k in KEPT}
+
+
+def _on_disk(world, path, _before):
+    config.to_local(world.cfg, path).write_bytes(b"another file")
+
+
+def _as_a_row(world, path, before):
+    world.rows(
+        """INSERT INTO published_file (library_path, series_id, identity, state, origin)
+        SELECT %s, series_id, identity, 'confirmed', 'bulk' FROM published_file WHERE id = %s RETURNING id""",
+        path,
+        before["id"],
+    )
+
+
+def _queued(world, path, before):
+    world.rows(  # another file's rewrite queued to that name
+        """UPDATE published_file SET pending_path = %s, pending_staged = 'staging/other.cbz', pending_step = 0
+        WHERE id <> %s AND series_id = %s RETURNING id""",
+        path,
+        before["id"],
+        before["series_id"],
+    )
+
+
+@budget(load="db", seconds=40)
+@pytest.mark.parametrize("take", [_on_disk, _as_a_row, _queued], ids=["on-disk", "a-row", "queued"])
+def test_a_previous_name_another_file_holds_is_listed(world, take):
+    before, _, _ = renamed_copy(world)
+    take(world, before["library_path"], before)
+    assert restore(world, before["id"]) == (
+        0,
+        [f"file {before['id']}: its previous name {before['library_path']} is taken"],
+    )
+
+
+@budget(load="db", seconds=40)
+def test_a_crash_after_a_different_name_restores_rename_is_settled_without_its_retention_link(world, monkeypatch):
+    before, old_bytes, copied = renamed_copy(world)
+    restore(world, before["id"])
+    crash_after(monkeypatch, rewrite.STEP_RENAMED, copied["library_path"].rsplit("/", 1)[1])
+    with pytest.raises(KeyboardInterrupt):
+        world.run(export)
+    monkeypatch.undo()
+    ((kept,),) = world.rows("SELECT pending_previous FROM published_file WHERE id = %s", before["id"])
+    config.to_local(world.cfg, kept).unlink()  # purged: a new name needs no inode test
+    world.run(export)
+    after = file_row(world, before["id"])
+    assert (after["library_path"], after["pending_path"], after["pending_error"]) == (
+        before["library_path"],
+        None,
+        None,
+    )
+    assert (world.library / SERIES / "Chapter 2.cbz").read_bytes() == old_bytes
 
 
 @budget(load="db", seconds=60)
@@ -287,6 +356,16 @@ def _purge(world, file_id):
     config.to_local(world.cfg, previous).unlink()
 
 
+def _library_missing(world, file_id):
+    ((path,),) = world.rows("SELECT library_path FROM published_file WHERE id = %s", file_id)
+    config.to_local(world.cfg, path).unlink()
+
+
+def _unreadable(world, file_id):
+    ((previous,),) = world.rows("SELECT previous FROM published_file WHERE id = %s", file_id)
+    config.to_local(world.cfg, previous).write_bytes(b"not a zip")
+
+
 def _out_of_scope(world, _file_id):
     world.cfg["series"]["only"] = ["Another Series"]
 
@@ -307,6 +386,8 @@ NO_KAVITA_ID = (
         (_set("UPDATE published_file SET pending_error = 'stuck' WHERE id = %s"), "busy"),
         (_set("UPDATE published_file SET previous_values = NULL WHERE id = %s"), "no previous version recorded"),
         (_purge, "is no longer in retention"),
+        (_unreadable, "cannot be read"),
+        (_library_missing, "its library file library/Solo Leveling/Ch.1.cbz is missing"),
         (_set("UPDATE published_file SET comicinfo_series = 'Renamed' WHERE id = %s"), "changed since its replace"),
         (_set("UPDATE published_file SET comicinfo_volume = '2' WHERE id = %s"), "changed since its replace"),
         (_set("UPDATE published_file SET cover_state = 'volume:3' WHERE id = %s"), "changed since its replace"),
@@ -316,7 +397,8 @@ NO_KAVITA_ID = (
         (_set(NO_KAVITA_ID), "its series is not in Kavita"),
     ],
     ids=[
-        "unconfirmed", "busy", "no-previous-values", "purged", "series-renamed", "rewritten", "cover-rewritten",
+        "unconfirmed", "busy", "no-previous-values", "purged", "unreadable", "library-missing", "series-renamed",
+        "rewritten", "cover-rewritten",
         "joined", "series-not-ok", "out-of-scope", "not-in-kavita",
     ],
 )  # fmt: skip
@@ -366,17 +448,102 @@ def test_a_file_kavita_does_not_list_is_listed_and_the_rest_queued(world, monkey
 
 
 @budget(load="db", seconds=40)
-def test_kavita_unreachable_stops_the_command(world, monkeypatch):
-    _kid, adopted, _ = converted(world)
+def test_kavita_unreachable_stops_the_command_and_the_files_before_stay_queued(world, monkeypatch):
+    _kid, adopted, _ = converted(world, elsewhere=("Ch.5.cbz",))
+    one, two = adopted["Ch.1.cbz"]["id"], adopted["Ch.5.cbz"]["id"]
+    files, calls = world.kavita.series_files, []
 
-    def down(_kid):
-        service = "kavita"
-        raise Unreachable(service, "down")
+    def down_at_the_2nd(kid):
+        calls.append(kid)
+        if len(calls) > 1:
+            service = "kavita"
+            raise Unreachable(service, "down")
+        return files(kid)
 
-    monkeypatch.setattr(world.kavita, "series_files", down)
+    monkeypatch.setattr(world.kavita, "series_files", down_at_the_2nd)
     with pytest.raises(Unreachable):
-        restore(world, adopted["Ch.1.cbz"]["id"])
-    assert world.rows("SELECT pending_path FROM published_file") == [(None,)]
+        restore(world, one, two)
+    queued = dict(world.rows("SELECT id, pending_path IS NOT NULL FROM published_file"))
+    assert queued == {one: True, two: False}, "the 1st file stays queued"
+
+
+@budget(load="db", seconds=40)
+def test_a_series_kavita_refuses_lists_its_files_read_once_and_the_rest_go_on(world, monkeypatch):
+    _kid, adopted, _ = converted(world, names=("Ch.1.cbz", "Ch.2.cbz"), elsewhere=("Ch.5.cbz",))
+    one, two, other = (adopted[n]["id"] for n in ("Ch.1.cbz", "Ch.2.cbz", "Ch.5.cbz"))
+    ((refused,),) = world.rows("SELECT kavita_series_id FROM series WHERE name = %s", SERIES)
+    files, calls = world.kavita.series_files, []
+
+    def refusing(kid):
+        calls.append(kid)
+        if kid == refused:
+            raise http.HttpError(404, f"http://kavita/api/series/{kid}", b"")
+        return files(kid)
+
+    monkeypatch.setattr(world.kavita, "series_files", refusing)
+    queued, listed = restore(world, one, two, other)
+    assert queued == 1, "the other series' file is queued"
+    assert [line.split(":", 1)[0] for line in listed] == [f"file {one}", f"file {two}"]
+    assert all(f"Kavita refused its series {refused}: HTTP 404" in line for line in listed), listed
+    assert calls.count(refused) == 1, "a refused series is read once"
+
+
+@budget(load="db", seconds=60)
+@pytest.mark.parametrize("kept", ["null", "gone"])
+def test_a_same_name_restore_crashed_after_its_rename_with_no_retention_link_waits_for_a_person(
+    world, monkeypatch, kept
+):
+    _kid, adopted, _ = converted(world)
+    file_id = adopted["Ch.1.cbz"]["id"]
+    restore(world, file_id)
+    crash_after(monkeypatch, rewrite.STEP_RENAMED, "Ch.1.cbz")
+    with pytest.raises(KeyboardInterrupt):
+        world.run(export)
+    monkeypatch.undo()
+    ((link,),) = world.rows("SELECT pending_previous FROM published_file WHERE id = %s", file_id)
+    if kept == "null":
+        world.rows("UPDATE published_file SET pending_previous = NULL WHERE id = %s RETURNING id", file_id)
+    else:
+        config.to_local(world.cfg, link).unlink()
+    world.run(export)
+    ((step, error),) = world.rows("SELECT pending_step, pending_error FROM published_file WHERE id = %s", file_id)
+    assert step == rewrite.STEP_RETAINED, "not guessed"
+    assert "cannot tell whether the restore's rename ran" in error
+
+
+def refresh_volume_1(world):
+    """MangaDex chooses a new image of volume 1: the series' check marks the files holding the stored one stale."""
+    store_image(world, 1, png(64))
+    with closing(db.connect(world.cfg)) as conn:
+        human.set_id(conn, series_id(world), "mangadex", MD)
+    md = world.sources.mangadex
+    md.images[(MD, "b.png")] = png(900, colour=(20, 160, 60))
+    md.records[("manga", MD)] = {"id": MD, "attributes": {"originalLanguage": "ko"}}
+    md.records[("covers", MD)] = [{"volume": "1", "locale": "en", "fileName": "b.png"}]
+    check_now(world)
+
+
+@budget(load="db", seconds=60)
+@pytest.mark.parametrize("when", ["before-the-restore", "while-queued"])
+def test_a_cover_refresh_reaches_the_restored_version(world, when):
+    kid = bulk_library(world, cover=("Vol.1 Ch.2.cbz",))
+    recorded_covers(world, kid, {1: "Vol.1 Ch.2.cbz"})
+    world.run(export)
+    copy(world, width=20)
+    through(world)
+    reread(world)
+    ((file_id, before),) = world.rows(
+        "SELECT id, previous_values #>> '{before,cover_state}' FROM published_file WHERE origin = 'pipeline'"
+    )
+    assert before == "volume:1", "set up: the replaced bulk file held volume 1's cover"
+    if when == "before-the-restore":
+        refresh_volume_1(world)
+    assert restore(world, file_id) == (1, [])
+    if when == "while-queued":
+        refresh_volume_1(world)
+    world.run(export)
+    ((state, pending),) = world.rows("SELECT cover_state, pending_path FROM published_file WHERE id = %s", file_id)
+    assert (state, pending) == ("stale:1", None), "the restored file holds the old image: a rewrite re-covers it"
 
 
 @budget(load="db", seconds=40)

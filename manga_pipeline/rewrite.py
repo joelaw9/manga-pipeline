@@ -744,12 +744,13 @@ def _staged_gone(ctx: workflow.Context, row: db.Row, step: int) -> int | None:
     cfg, conn = ctx.cfg, ctx.conn
     staged = config.to_local(cfg, row["pending_staged"])
     target = config.to_local(cfg, row["pending_path"])
+    old = config.to_local(cfg, row["library_path"])
     if is_restore(row):
-        if step >= STEP_RETAINED and _restore_renamed(cfg, row, target):
+        if step >= STEP_RETAINED and _restore_renamed(cfg, row, target, old):
             return record_step(conn, row["id"], STEP_RENAMED)
         _link_previous(cfg, row["pending_copy"]["previous"], staged)
         return step
-    if _renamed(row, target, config.to_local(cfg, row["library_path"])):
+    if _renamed(row, target, old):
         return record_step(conn, row["id"], STEP_RENAMED)
     _clear(conn, row["id"])
     log.warning("%s: rewrite of %s dropped: its staged file is gone", ctx.part, row["library_path"])
@@ -766,13 +767,15 @@ def _renamed(row: db.Row, target: Path, old: Path) -> bool:
     return is_new(target, row)
 
 
-def _restore_renamed(cfg: config.Config, row: db.Row, target: Path) -> bool:
+def _restore_renamed(cfg: config.Config, row: db.Row, target: Path, old: Path) -> bool:
     """Return whether a restore whose staged link is gone after its retention act was renamed over its target.
 
-    It was when the target exists, is not the file the retention act linked (pending_previous: compared by inode, no
-    file read) and has the queued size. RuntimeError when the target exists and that link is unknown or gone: a person
-    must look.
+    A new name: when it holds a file of the queued size, as for any rewrite (_renamed). The same name: when the target
+    is not the file the retention act linked (pending_previous: compared by inode, no file read) and has the queued
+    size; RuntimeError when that link is unknown or gone: a person must look.
     """
+    if target != old:
+        return _renamed(row, target, old)
     if not errors.exists(target):
         return False
     kept = None if row["pending_previous"] is None else config.to_local(cfg, row["pending_previous"])

@@ -11,12 +11,17 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 
-from manga_pipeline import config, db, errors, rewrite, workflow
+from manga_pipeline import archive, config, db, errors, rewrite, workflow
+from manga_pipeline.clients import http
 from manga_pipeline.clients import kavita as kavita_client
 from manga_pipeline.db import sql
 from manga_pipeline.stages import publish
 
 log = logging.getLogger(__name__)
+
+
+type Listings = dict[int, dict[Path, kavita_client.SeriesFile] | str]
+"""Kavita's files per Kavita series id, read once per run; or why Kavita refused the series (http.HttpError)."""
 
 
 class NotRestoredError(Exception):
@@ -27,13 +32,14 @@ def run(ctx: workflow.Context, file_ids: Sequence[int]) -> tuple[int, list[str]]
     """Queue a restore of each named file; return (queued, [listed file: why]).
 
     workflow.Refused at export.retention_days 0 (the version a restore undoes would not be kept). Kavita's files are
-    read once per series; Unreachable stops the command, the files queued so far staying queued.
+    read once per series (a series Kavita refuses lists its files); Unreachable stops the command, the files queued so
+    far staying queued.
     """
     if ctx.cfg["export"]["retention_days"] == 0:
         msg = "export.retention_days is 0: the version a restore undoes would not be kept"
         raise workflow.Refused(msg)
     queued, listed, seen = 0, list[str](), set[int]()
-    listings: dict[int, dict[Path, kavita_client.SeriesFile]] = {}
+    listings: Listings = {}
     for file_id in file_ids:
         if file_id in seen:
             listed.append(f"file {file_id}: named twice")
@@ -49,9 +55,7 @@ def run(ctx: workflow.Context, file_ids: Sequence[int]) -> tuple[int, list[str]]
     return queued, listed
 
 
-def _restore_one(
-    ctx: workflow.Context, file_id: int, listings: dict[int, dict[Path, kavita_client.SeriesFile]]
-) -> str | None:
+def _restore_one(ctx: workflow.Context, file_id: int, listings: Listings) -> str | None:
     """Queue 1 file's restore; return None when queued, else why not.
 
     The database checks first; then, outside any transaction, the share and Kavita reads; then 1 transaction checks the
@@ -66,12 +70,9 @@ def _restore_one(
     if isinstance(read, str):
         return read
     size, new_pages = read
-    kid: int = first["kid"]
-    if kid not in listings:
-        listings[kid] = {f["path"]: f for f in ctx.kavita.series_files(kid)}
-    seen = listings[kid].get(config.to_local(cfg, first["library_path"]))
-    if seen is None:
-        return "Kavita does not list it"
+    seen = _listed(ctx, listings, first)
+    if isinstance(seen, str):
+        return seen
     before = first["previous_values"]["before"]
     staged = config.abs_path(cfg["paths"]["staging"]) / f"restore-{file_id}.cbz"  # named here; finish makes it
     with db.transaction(conn):
@@ -107,19 +108,40 @@ def _restore_one(
     return None
 
 
+def _listed(ctx: workflow.Context, listings: Listings, file: db.Row) -> kavita_client.SeriesFile | str:
+    """Return Kavita's entry of the file, else why there is none. Unreachable stops the command."""
+    kid: int = file["kid"]
+    if kid not in listings:
+        try:
+            listings[kid] = {f["path"]: f for f in ctx.kavita.series_files(kid)}
+        except http.HttpError as e:  # this series' problem, read once: its files are listed, the rest go on
+            listings[kid] = f"Kavita refused its series {kid}: {e}"
+    listing = listings[kid]
+    if isinstance(listing, str):
+        return listing
+    return listing.get(config.to_local(ctx.cfg, file["library_path"])) or "Kavita does not list it"
+
+
 def _previous_read(cfg: config.Config, file: db.Row) -> tuple[int, int] | str:
     """Return (size, page count) of a file's previous version, else why it cannot be restored (a share read).
 
-    Gone from retention, or its name taken on disk by another file.
+    Gone from retention or not a readable archive, its name taken on disk by another file, or the library file it
+    replaces missing (finish's retention act would fail on it).
     """
     previous: str = file["previous"]
     source, target = config.to_local(cfg, previous), _target(file)
     with workflow.share_errors():
         if not errors.exists(source):
             return f"its previous version {previous} is no longer in retention"
+        if not errors.exists(config.to_local(cfg, file["library_path"])):
+            return f"its library file {file['library_path']} is missing"
         if target != file["library_path"] and errors.exists(config.to_local(cfg, target)):
             return f"its previous name {target} is taken"
-        return source.stat().st_size, rewrite.page_count(source)
+        try:
+            pages = rewrite.page_count(source)
+        except archive.UNREADABLE as e:
+            return f"its previous version {previous} cannot be read: {e}"
+        return source.stat().st_size, pages
 
 
 def _read(cfg: config.Config, conn: db.Connection, file_id: int) -> db.Row | None:
