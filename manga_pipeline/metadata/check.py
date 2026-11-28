@@ -367,7 +367,8 @@ def store_mangadex_list(conn: db.Connection, series_id: int, chapters: list[list
     source, kind = MANGADEX_LIST
     conn.execute("DELETE FROM fetched WHERE series_id = %s AND source = %s AND kind = %s", (series_id, source, kind))
     if chapters is not None:
-        _scrub(chapters)
+        if _scrub(chapters):
+            log.warning("series %s: MangaDex chapter list: %s", series_id, SCRUBBED)
         conn.execute(
             """INSERT INTO fetched (series_id, source, kind, payload, payload_hash, fetched_at)
             VALUES (%s, %s, %s, %s, %s, %s)""",

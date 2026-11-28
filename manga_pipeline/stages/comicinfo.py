@@ -14,7 +14,7 @@ import json
 from collections.abc import Collection, Mapping, Sequence
 
 from manga_pipeline import archive, baseline, chapter_names, comicinfo, config, db, names, volumes, workflow
-from manga_pipeline.metadata import merge, naming, platforms, tags
+from manga_pipeline.metadata import merge, naming, tags
 from manga_pipeline.metadata.records import STORED
 from manga_pipeline.stages import convert
 
@@ -130,13 +130,13 @@ def _copy_name(ctx: workflow.Context, series: db.Row, chapter: db.Row) -> naming
         title = naming.SIDE_TITLE.format(n=names.fmt_num(number))
     elif not title:
         overrides = volumes.override_file(config.abs_path(ctx.cfg["paths"]["naming_overrides"]), series["rules_key"])
-        listed = naming.title_list(chapter_names.platform_list(ctx.conn, series["id"]), overrides)
-        on = naming.titles_on(overrides)
-        md_titles: Mapping[str, str] = chapter_names.mangadex_data(ctx.conn, series["id"]).titles if on else {}
-        season = names.read_identity(f["identity"])[1]
-        title = naming.source_title(
-            platforms.chapter_titles(listed), md_titles, number, None if season is None else int(float(season))
+        titles, md_titles = naming.outside_titles(
+            chapter_names.platform_list(ctx.conn, series["id"]),
+            chapter_names.mangadex_data(ctx.conn, series["id"]).titles,
+            overrides,
         )
+        season = names.read_identity(f["identity"])[1]
+        title = naming.source_title(titles, md_titles, number, None if season is None else int(float(season)))
     volume = names.to_volume(f["comicinfo_volume"])
     return naming.Naming(f["kind"], volume, number, title, f["volume_source"], opens_covered_volume=False)
 

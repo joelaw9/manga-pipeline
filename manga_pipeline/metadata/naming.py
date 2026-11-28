@@ -193,6 +193,18 @@ def title_list(
     return platform if titles_on(overrides) else None
 
 
+def outside_titles(
+    platform: platforms.PlatformList | None, mangadex_titles: Mapping[str, str], overrides: volumes.Overrides | None
+) -> tuple[dict[str, str], Mapping[str, str]]:
+    """Return the titles main chapters may take from outside their files: (list's, MangaDex's), none when switched off.
+
+    The 1 owner of the switch (titles_on) over both sources; source_title picks from what this returns.
+    """
+    if not titles_on(overrides):
+        return {}, {}
+    return platforms.chapter_titles(platform), mangadex_titles
+
+
 def source_title(
     list_titles: Mapping[str, str], mangadex_titles: Mapping[str, str], number: float, season: int | None
 ) -> str:
@@ -273,8 +285,7 @@ def resolve[K: Hashable](  # noqa: PLR0913  # 7 inputs the resolver itself uses
     out: dict[K, Naming] = {}
     covered = _opens_covered(rows, _covered_firsts(basis, main, vol, (sources.override, sources.mangadex)))
     listed = title_list(platform, override)
-    titles = platforms.chapter_titles(listed)
-    md_titles: Mapping[str, str] = mangadex.titles if titles_on(override) else {}
+    titles, md_titles = outside_titles(platform, mangadex.titles, override)
     for i in main:
         if not rows[i].settled:
             v, source = opened[i]

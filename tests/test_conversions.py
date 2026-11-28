@@ -744,11 +744,14 @@ def test_a_conversion_is_named_as_the_pipeline_names_a_file_taking_its_list_titl
 def test_source_titles_false_keeps_an_untitled_conversion_untitled(world):
     adopt(world, {"Ch.1.cbz": cbz(seed="a", pages=4)})
     store_list(world, {"1": "Start"})
+    store_mangadex_list(world, [["1", "From MangaDex"]])
     (config.abs_path(world.cfg["paths"]["naming_overrides"]) / f"{SERIES}.yaml").write_bytes(b"source_titles: false\n")
     set_cap(world, 1)
     for part in (intake, process, export):
         world.run(part)
-    assert converting(world) == [("Ch.1.cbz", "publish", "done")], "SPEC 'Publishing': the series turns list titles off"
+    assert converting(world) == [("Ch.1.cbz", "publish", "done")], (
+        "SPEC 'Publishing': the series turns list and MangaDex titles off"
+    )
 
 
 @budget(load="db", seconds=30)

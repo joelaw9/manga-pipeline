@@ -52,7 +52,7 @@ def test_a_failed_fetch_is_named_and_exits_1(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(world.sources.mangadex, "chapter_list", down)
     assert mangadex_titles.main(["--config", str(config_file(tmp_path, world.cfg))], world.sources.mangadex) == 1
     assert stored(world) == []
-    assert "series 1: Unreachable" in capsys.readouterr().out
+    assert "stopped at series 1, 1 not stored" in capsys.readouterr().out, "an unreachable MangaDex stops the run"
 
 
 @budget(load="db", seconds=5)
@@ -60,4 +60,12 @@ def test_it_refuses_while_a_part_runs(tmp_path):
     world = checked_on_mangadex(tmp_path)
     with running(world.cfg, "intake"):
         assert mangadex_titles.main(["--config", str(config_file(tmp_path, world.cfg))], world.sources.mangadex) == 3
+    assert stored(world) == []
+
+
+@budget(load="db", seconds=5)
+def test_a_listed_series_it_cannot_store_is_refused(tmp_path):
+    world = checked_on_mangadex(tmp_path)
+    path = str(config_file(tmp_path, world.cfg))
+    assert mangadex_titles.main(["--series", "1", "999", "--config", path], world.sources.mangadex) == 2
     assert stored(world) == []

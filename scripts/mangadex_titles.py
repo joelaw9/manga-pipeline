@@ -8,7 +8,9 @@ runs meanwhile. A series whose fetch fails is named and left as it was; run agai
 
 Usage, from the project root:
 python -m scripts.mangadex_titles [--series ID...] [--config PATH]
-Exit 0; 1 when a fetch failed; 3 when a part runs.
+A MangaDex that cannot be reached stops the run (the rest not tried).
+Exit 0; 1 when a fetch failed or the run stopped; 2 a listed series out of scope or with no stored MangaDex id;
+3 when a part runs.
 """
 
 import argparse
@@ -22,6 +24,11 @@ from manga_pipeline.db import sql
 from manga_pipeline.errors import Unreachable
 from manga_pipeline.metadata import check, sources
 from manga_pipeline.metadata.records import STORED
+
+
+class RefusedError(Exception):
+    """A listed series cannot be stored (exit 2)."""
+
 
 FAILURES = (Unreachable, http.HttpError, http.HttpTimeoutError, sources.SourceError)
 
@@ -47,10 +54,16 @@ def targets(cfg: config.Config, conn: db.Connection, series: Sequence[int] | Non
 def run(cfg: config.Config, conn: db.Connection, mangadex: sources.MangaDex, series: Sequence[int] | None) -> list[str]:
     """Fetch and store each target's chapter list; return the summary lines (the failed series named)."""
     found = targets(cfg, conn, series)
+    if missing := sorted(set(series or ()) - {s for s, _ in found}):
+        msg = f"series out of scope or with no stored MangaDex id: {missing}"
+        raise RefusedError(msg)
     stored, failed = 0, list[str]()
-    for series_id, md_id in found:
+    for n, (series_id, md_id) in enumerate(found):
         try:
             chapters = mangadex.chapter_list(md_id)
+        except Unreachable as e:  # the service is down for the run: every later fetch would fail at once
+            failed.append(f"stopped at series {series_id}, {len(found) - n} not stored: {e}")
+            break
         except FAILURES as e:
             failed.append(f"series {series_id}: {type(e).__name__}: {e}")
             continue
@@ -79,8 +92,11 @@ def main(argv: list[str] | None = None, mangadex: sources.MangaDex | None = None
         except lock.LockHeld as e:
             sys.stderr.write(f"error: {e}\n")
             return 3
+        except RefusedError as e:
+            sys.stderr.write(f"refused: {e}\n")
+            return 2
     sys.stdout.write("".join(f"{line}\n" for line in lines))
-    return 1 if len(lines) > 1 else 0
+    return 1 if len(lines) > 1 else 0  # the summary line, then 1 per failed series
 
 
 if __name__ == "__main__":
