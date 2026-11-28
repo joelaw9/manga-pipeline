@@ -49,7 +49,7 @@ from manga_pipeline import (
 )
 from manga_pipeline.clients import kavita, suwayomi
 from manga_pipeline.db import sql
-from manga_pipeline.junk import backup, candidates, cut, groups, redecide, review, review_run, show, store, where
+from manga_pipeline.junk import backup, candidates, cut, groups, late, redecide, review, review_run, show, store, where
 from manga_pipeline.metadata import audit, human, importer, naming, sources
 
 # Not __name__: under python -m it is "__main__", outside the package logger that logs.setup configures.
@@ -97,6 +97,8 @@ REVIEW_CHECKS = (
 # junk cut reads downloads and retention originals on the share, extracts them into the scratch folder, and scans a
 # named chapter that holds no current scan again (OCR).
 CUT_CHECKS = (*LOCKED_CHECKS, preflight.SCRATCH_SPACE, preflight.OCR_DEVICE)
+# junk late reads the published files' originals on the share and extracts strip ones into the scratch folder.
+LATE_CHECKS = (preflight.WORKFLOW_SETTINGS, preflight.SHARE_FOLDERS_PRESENT, preflight.SCRATCH_SPACE)
 # state version digests the program, the shared settings, the packages and the tools of this machine.
 VERSION_CHECKS = (preflight.PYTHON_VERSION, preflight.FREE_SPACE, preflight.IMAGE_TOOLS, preflight.SCORER)
 # watch takes no lock and touches no folder: it needs only the database and a webhook, so it still runs when every
@@ -165,9 +167,13 @@ def retry(cfg: config.Config, args: argparse.Namespace) -> None:
 def _database(cfg: config.Config, what: str) -> closing[db.Connection]:
     """Return a connection to the built database, for a command that never builds one (SPEC "State")."""
     if not db.built(cfg):
-        msg = f"no database {cfg['database']['name']} built yet: nothing to {what}"
-        raise workflow.Refused(msg)
+        raise _no_database(cfg, what)
     return closing(db.connect(cfg))
+
+
+def _no_database(cfg: config.Config, what: str) -> workflow.Refused:
+    """Return the refusal of a command that finds no database built (exit 2)."""
+    return workflow.Refused(f"no database {cfg['database']['name']} built yet: nothing to {what}")
 
 
 PAUSE_POLL = 10  # seconds between state pause's looks at the scheduled runs still running
@@ -179,8 +185,7 @@ def _unbuilt_refused(cfg: config.Config, what: str) -> db.Connection:
     try:
         return db.open_database(cfg, builds=False)
     except db.NoDatabaseError:
-        msg = f"no database {cfg['database']['name']} built yet: nothing to {what}"
-        raise workflow.Refused(msg) from None
+        raise _no_database(cfg, what) from None
 
 
 def state_pause(cfg: config.Config, _args: argparse.Namespace) -> None:
@@ -490,6 +495,17 @@ def _folder(cfg: config.Config, row: db.Row) -> Path:
     return candidates.folder(cfg, row["folder"])
 
 
+def junk_late(cfg: config.Config, _args: argparse.Namespace) -> None:
+    """Print the published files whose junk edit would remove other pixels today (`junk late`, read only).
+
+    late.LateError (exit 1) for a kept scan the decide cannot read.
+    """
+    if not db.built(cfg):
+        raise _no_database(cfg, "list")
+    with closing(db.read_only(cfg)) as conn:
+        _lines(late.run(cfg, conn))
+
+
 def junk_list(cfg: config.Config, args: argparse.Namespace) -> None:
     """Print the open junk candidates to decide, 1 line each with its image paths (`junk list`; --all: every one).
 
@@ -791,6 +807,7 @@ COMMANDS = {
     "junk undo": Command((), None, None, (), _unlocked(junk_undo)),
     "junk backup": Command((), None, None, (), _unlocked(junk_backup)),
     "junk cut": Command((), S, None, CUT_CHECKS, junk_cut),
+    "junk late": Command((), None, None, LATE_CHECKS, _unlocked(junk_late)),
     "junk restore": Command(
         (), X, None, (), lambda _cfg, args, conn: junk_restore(args, locked_connection(conn)), builds=True
     ),
@@ -1007,6 +1024,8 @@ def _junk_commands(command: argparse.ArgumentParser) -> None:
     cut_.add_argument("--inside", action="store_true", help="an end inside a span is an exact boundary")
     cut_.add_argument("--record", metavar="DIGEST", help="record the proposal its digest names")
     cut_.set_defaults(command="junk cut")
+    late_ = junk.add_parser("late", help="published files whose junk edit would remove other pixels today (read only)")
+    late_.set_defaults(command="junk late")
     junk.add_parser("review", help="let Claude decide the open candidates (claude -p)").set_defaults(
         command="junk review"
     )
@@ -1183,6 +1202,7 @@ def _run(
         rename.RenameError,
         conversions.NotQueuedError,
         restore.NotRestoredError,
+        late.LateError,
     ) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

@@ -731,6 +731,22 @@ def test_a_chapter_leaving_junk_has_its_chapter_edit_with_every_key(site):
     }, "the credit page (download index 3) is dropped; every key is present"
 
 
+@budget(load="db", seconds=10)
+def test_a_done_chapter_keeps_its_scan_its_decides_watermark_keys_and_the_time_on_its_edit(site):
+    site.download("Alpha", 2, cbz(seed="kept2", credit=True))
+    site.parts()
+    ((scanned,),) = site.rows("SELECT scan FROM junk_scan")
+    ((key,),) = site.rows("SELECT rules_key FROM series WHERE name = 'Alpha'")
+    site.rows("INSERT INTO junk_watermark (series_key, key) VALUES (%s, 'b'), (%s, 'a') RETURNING 1", key, key)
+    assert decide_junk(site.cfg, "junk") == 1
+    run_part(site.cfg, process)
+    ((scan, watermarks, at),) = site.rows("SELECT scan, scan_watermarks, scan_at FROM chapter_edit")
+    assert scan == scanned, "the scan the decide read, as junk_scan held it"
+    assert watermarks == ["a", "b"], "the series' watermark keys the decide was given, sorted"
+    assert at is not None, "the time it was kept"
+    assert site.rows("SELECT count(*) FROM junk_scan") == [(0,)], "the chapter's junk_scan row still goes at Done"
+
+
 # ---------------------------------------------------------------- logos (SPEC "Junk decisions": units, chapter edit)
 
 

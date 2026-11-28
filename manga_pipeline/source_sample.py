@@ -25,6 +25,7 @@ from manga_pipeline import (
 from manga_pipeline.clients import suwayomi
 from manga_pipeline.junk import candidates, chapter_scan, ocr, store
 from manga_pipeline.replies import suwayomi as suwayomi_replies
+from manga_pipeline.stages import junk as junk_stage
 
 log = logging.getLogger(__name__)
 FOLDER = "source"  # below paths.scratch: every sample's folder
@@ -186,12 +187,9 @@ def _junk(s: Sampling, paths: list[Path], pages: list[images.MeasuredPage]) -> c
         aspects, _ = chapter_scan.page_aspects(conn, s.series["id"], extracted.sizes)
         sc = chapter_scan.scan_pages(extracted, [m["junk_signature"] is None for m in pages], aspects)
 
-    def decide_unit(kind: str, text: str) -> db.Row | None:
-        return decisions.decide(kind, store.parse_key(kind, text))
-
-    known = conn.execute("SELECT key FROM junk_watermark WHERE series_key = %s", (key,)).fetchall()
+    inputs = junk_stage.decide_inputs(conn, decisions)
     render = chapter_scan.renderer(extracted) if sc["layout"] == "strip" else None
-    return chapter_scan.apply(sc, decide_unit, [r["key"] for r in known], decisions.cuts(), render)
+    return chapter_scan.apply(sc, inputs.decide_unit, inputs.watermarks, inputs.cuts, render)
 
 
 def _outcome(verdict: library_copy.Better | library_copy.Duplicate | library_copy.NotSameChapter) -> str:

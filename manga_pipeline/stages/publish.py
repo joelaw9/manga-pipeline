@@ -39,6 +39,7 @@ class FileValues(TypedDict):
     kind: str
     volume_source: str
     cover_state: str
+    junk_chapter: int  # the chapter whose junk edit its pages carry (SPEC "Publishing")
 
 
 ROW_VALUES = tuple(FileValues.__annotations__)  # row_values' columns, in order
@@ -88,6 +89,7 @@ def row_values(conn: db.Connection, chapter: db.Row) -> FileValues:
         "cover_state": rewrite_covers.current_state(
             conn, chapter["id"], chapter["series_id"], f"volume:{cover['volume']}" if cover else "none"
         ),
+        "junk_chapter": chapter["id"],
     }
 
 

@@ -211,11 +211,13 @@ def rebuild_link_path(cfg: config.Config, file: db.Row) -> Path:
     return config.abs_path(cfg["paths"]["staging"]) / FOLDER / str(file["id"]) / f"{file['source_name']}{suffix}"
 
 
-# A file f of series s a rebuild may take now (SPEC "Retroactive updates"; workflow.SCOPE's parameters).
-REBUILDABLE = sql.SQL("""f.origin = 'pipeline' AND f.state = 'confirmed' AND f.joined_parts IS NULL
-    AND f.original IS NOT NULL AND NOT {busy} AND s.status = 'ok' AND {scope}""").format(
+# A file f of series s a rebuild may take now but for its original (workflow.SCOPE's parameters).
+REBUILD_TAKES = sql.SQL("""f.origin = 'pipeline' AND f.state = 'confirmed' AND f.joined_parts IS NULL
+    AND NOT {busy} AND s.status = 'ok' AND {scope}""").format(
     busy=rewrite.BUSY.format(p=sql.Identifier("f")), scope=workflow.SCOPE
 )
+# A file f of series s a rebuild may take now (SPEC "Retroactive updates").
+REBUILDABLE = sql.SQL("f.original IS NOT NULL AND {}").format(REBUILD_TAKES)
 
 
 def rebuild(cfg: config.Config, conn: db.Connection, file_ids: Sequence[int]) -> tuple[int, list[str]]:
